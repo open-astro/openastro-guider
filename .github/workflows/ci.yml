@@ -193,10 +193,13 @@ jobs:
         # Phases 1-3, so linting them now would gate CI on code headed for
         # deletion. Add a script to this list as it is cleaned up / when a new
         # maintained script lands. debian/ maintainer scripts have no .sh
-        # extension, so they are listed by name.
+        # extension, so they are listed by name. Each path is existence-guarded:
+        # Phases 1-3 delete scripts, and a rename/removal of a listed file must
+        # cleanly drop out of the set rather than fail the job with "file not
+        # found".
         run: |
           set -euo pipefail
-          scripts=(
+          candidates=(
             build-deb.sh
             run_deb.sh
             build/locales_compile.sh
@@ -204,6 +207,18 @@ jobs:
             debian/openastro-phd2.postrm
             debian/openastro-phd2.prerm
           )
+          scripts=()
+          for f in "${candidates[@]}"; do
+            if [ -f "$f" ]; then
+              scripts+=("$f")
+            else
+              echo "::notice::skipping $f (no longer present)"
+            fi
+          done
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "No maintained shell scripts present — nothing to lint."
+            exit 0
+          fi
           echo "Linting: ${scripts[*]}"
           shellcheck "${scripts[@]}"
 
@@ -218,11 +233,17 @@ jobs:
 
       - name: Install zizmor
         # Prebuilt x86_64 release binary — no Rust toolchain / pip build needed.
+        # The tarball is checksum-verified before it runs: a security-audit job
+        # must not itself execute an unverified download. Bump both `ver` and
+        # `sha256` together when upgrading (GitHub release assets are immutable,
+        # so the hash is stable for a given version).
         run: |
           set -euo pipefail
           ver=1.25.2
+          sha256=aa1facd105f0d83fe5c55b1adcd9d7417de5d83aa27471f91dc0b66cf3803577
           curl -fsSL "https://github.com/zizmorcore/zizmor/releases/download/v${ver}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
             -o /tmp/zizmor.tgz
+          echo "${sha256}  /tmp/zizmor.tgz" | sha256sum --check --strict -
           tar -xzf /tmp/zizmor.tgz -C /tmp
           sudo install /tmp/zizmor /usr/local/bin/zizmor
           zizmor --version

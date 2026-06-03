@@ -58,6 +58,7 @@ def tracked_files():
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",  # decode paths as UTF-8 regardless of runner locale
     ).stdout
     for path in out.split("\0"):
         if path and not path.startswith(EXCLUDE_PREFIXES):
