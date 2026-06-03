@@ -148,6 +148,10 @@ def scan_text(path, text, findings):
             line += 1
             col = 0
             continue
+        if ch == "\r":
+            # CRLF: the \r is not a column -- let the following \n advance the
+            # line so reported columns stay correct on Windows-style endings.
+            continue
         col += 1
         name = FORBIDDEN.get(ord(ch))
         if name is not None:

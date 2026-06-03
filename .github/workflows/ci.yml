@@ -99,9 +99,13 @@ jobs:
           set -euo pipefail
           git fetch --no-tags origin "$GITHUB_BASE_REF"
           merge_base="$(git merge-base "origin/$GITHUB_BASE_REF" HEAD)"
+          # git-clang-format --diff exits non-zero when it finds differences.
+          # `|| true` keeps `set -e` from aborting at this assignment so the
+          # check below runs and prints the diff + fix hint, instead of the job
+          # dying with a bare "exit 1" and no actionable output.
           diff="$(git-clang-format-18 --binary clang-format-18 --commit "$merge_base" --diff \
             --extensions c,cc,cpp,cxx,h,hh,hpp,hxx \
-            -- src contributions/MPI_IS_gaussian_process)"
+            -- src contributions/MPI_IS_gaussian_process)" || true
           if [ "$diff" != "no modified files to format" ] && \
              [ "$diff" != "clang-format did not modify any files" ]; then
             echo "$diff"
