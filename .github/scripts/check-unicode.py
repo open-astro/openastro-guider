@@ -10,21 +10,29 @@ Exits non-zero (and prints file:line:col U+XXXX) if any forbidden code point is
 found. Intentional control characters in tests should be written as escapes
 (e.g. "\\u200E") rather than literal characters so the source stays clean.
 
-Detection deliberately does NOT depend on a file decoding cleanly as UTF-8.
-An earlier version skipped any file that raised UnicodeDecodeError, which let
-an attacker defeat this security control simply by not using clean UTF-8 (a
-bidi payload in a UTF-16 / invalid-UTF-8 file slipped through silently). This
-version instead:
-  * skips only genuine binaries (NUL byte, and not a UTF-16/UTF-32 BOM);
-  * scans UTF-8 and BOM-declared UTF-16 text by decoding for precise line/col;
-  * for any remaining undecodable *text* file, flags the file itself (a
-    non-UTF-8 text file is anomalous in a UTF-8 tree) AND byte-scans for the
-    forbidden code points in every encoding they could realistically reach a
-    compiler through, so nothing is silently passed.
+Detection does NOT depend on a file decoding cleanly as UTF-8, and it does not
+silently pass anything it fails to inspect -- both are bypasses a security
+control must not have:
+
+  * Genuine binaries are skipped (a NUL byte, and no UTF-16/UTF-32 BOM).
+  * UTF-8 and BOM-declared UTF-16 / UTF-32 text are decoded and scanned for
+    precise file:line:col reporting.
+  * Any remaining undecodable *text* file is flagged (a non-UTF-8 text file is
+    anomalous in a UTF-8 tree) and byte-scanned for the forbidden code points
+    in every encoding that can carry them.
+  * A tracked file that cannot be read at all (broken symlink, bad perms) is a
+    hard finding -- never skipped silently. Directory targets of tracked
+    symlinks (e.g. macOS .framework internals) are not files and are skipped.
+
+Known accepted limitation: a UTF-16/UTF-32 text file with NO byte-order mark is
+indistinguishable from binary by the NUL heuristic and is skipped. Such a file
+is not valid source for this tree's toolchains (which read UTF-8), so it is not
+a realistic vector here.
 """
 
 import subprocess
 import sys
+
 
 # Forbidden code points keyed by integer value, so this scanner is itself pure
 # ASCII and never trips over its own table. Limited to characters that are
@@ -53,19 +61,29 @@ FORBIDDEN = {
 
 # Encodings a hidden character could realistically reach a toolchain through.
 # Every forbidden code point is > U+00FF, so single-byte legacy encodings
-# (Latin-1, Windows-1252, ...) physically cannot represent them — UTF-8 and
-# UTF-16 (both endiannesses) are the byte-level vectors that matter for a source
-# tree. UTF-32 is not used in practice here and is omitted.
-BYTE_ENCODINGS = ("utf-8", "utf-16-le", "utf-16-be")
+# (Latin-1, Windows-1252, ...) physically cannot represent them -- the Unicode
+# transformation formats are the only byte-level vectors. Both endiannesses of
+# UTF-16/UTF-32 are covered.
+BYTE_ENCODINGS = ("utf-8", "utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be")
 
-# Forbidden byte sequences for the raw-byte backstop: {bytes: [(cp, encoding)]}.
-# A list of hits per sequence, not a single value, so that if two code points
-# ever encode to identical bytes the table stays correct instead of silently
-# dropping one (no collision exists today; this keeps it safe as FORBIDDEN grows).
-FORBIDDEN_BYTES = {}
-for _cp in FORBIDDEN:
-    for _enc in BYTE_ENCODINGS:
-        FORBIDDEN_BYTES.setdefault(chr(_cp).encode(_enc), []).append((_cp, _enc))
+
+def _build_forbidden_bytes():
+    """{byte sequence: [(codepoint, encoding), ...]} for the raw-byte backstop.
+
+    A list of hits per sequence (not a single value) so that if two code points
+    ever encode to identical bytes the table stays correct instead of silently
+    dropping one. No collision exists today; this keeps it safe as FORBIDDEN
+    grows. Wrapped in a function so the loop variables don't leak to module
+    scope.
+    """
+    table = {}
+    for cp in FORBIDDEN:
+        for enc in BYTE_ENCODINGS:
+            table.setdefault(chr(cp).encode(enc), []).append((cp, enc))
+    return table
+
+
+FORBIDDEN_BYTES = _build_forbidden_bytes()
 
 # Paths under these prefixes are skipped.
 #
@@ -79,14 +97,11 @@ EXCLUDE_PREFIXES = (
     "locale/",
 )
 
-# Byte-order marks that mark a NUL-containing file as UTF-16/UTF-32 *text*
-# rather than binary (their ASCII content is full of NUL bytes).
-_UTF_BOMS = (
-    b"\xff\xfe\x00\x00",  # UTF-32-LE
-    b"\x00\x00\xfe\xff",  # UTF-32-BE
-    b"\xff\xfe",          # UTF-16-LE
-    b"\xfe\xff",          # UTF-16-BE
-)
+# Byte-order marks. UTF-32 must be tested before UTF-16: the UTF-32-LE BOM
+# (FF FE 00 00) starts with the UTF-16-LE BOM (FF FE), so a naive UTF-16 check
+# would misdecode UTF-32-LE as UTF-16 garbage.
+_UTF32_BOMS = (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")
+_UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
 
 
 def tracked_files():
@@ -106,9 +121,22 @@ def looks_binary(data):
     """A NUL byte means binary -- unless a UTF-16/UTF-32 BOM marks it as text."""
     if not data:
         return False
-    if any(data.startswith(bom) for bom in _UTF_BOMS):
+    if data.startswith(_UTF32_BOMS) or data.startswith(_UTF16_BOMS):
         return False
     return b"\x00" in data
+
+
+def bom_text_encoding(data):
+    """Return the Python codec for a BOM-declared UTF-16/UTF-32 file, else None.
+
+    The plain "utf-16" / "utf-32" codecs consume the BOM and auto-select the
+    endianness from it. UTF-32 is checked first (see _UTF32_BOMS).
+    """
+    if data.startswith(_UTF32_BOMS):
+        return "utf-32"
+    if data.startswith(_UTF16_BOMS):
+        return "utf-16"
+    return None
 
 
 def scan_text(path, text, findings):
@@ -137,11 +165,10 @@ def main():
             # .framework internals under thirdparty/) -- not a scannable file.
             continue
         except OSError as e:
-            # Do NOT silently pass an unreadable tracked file: a security
-            # scanner that ignores files it cannot read has an implicit bypass
-            # (a broken symlink or odd permissions would read as "clean").
-            # Surface it loudly on stderr so it shows up in the CI log.
-            print("  WARNING: could not read %s: %s" % (path, e), file=sys.stderr)
+            # A tracked file we cannot read (broken symlink, bad perms) is a
+            # hard finding -- a security scanner must not pass files it never
+            # inspected, so this fails the job rather than being skipped.
+            findings.append("%s: unreadable tracked file (%s)" % (path, e))
             continue
 
         if looks_binary(data):
@@ -154,10 +181,11 @@ def main():
         except UnicodeDecodeError:
             pass
 
-        # Not valid UTF-8 but not binary. Honour a declared UTF-16 BOM.
-        if any(data.startswith(bom) for bom in (b"\xff\xfe", b"\xfe\xff")):
+        # Not valid UTF-8 but not binary. Honour a declared UTF-16/UTF-32 BOM.
+        enc = bom_text_encoding(data)
+        if enc is not None:
             try:
-                scan_text(path, data.decode("utf-16"), findings)
+                scan_text(path, data.decode(enc), findings)
                 continue
             except UnicodeDecodeError:
                 pass
