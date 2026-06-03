@@ -9,10 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - ASCOM camera support on Windows. Ports upstream `cam_ascom.{cpp,h}` and wires the ASCOM Chooser's registered Camera devices into the New Profile Wizard's camera dropdown, mirroring how the existing mount/rotator paths surface ASCOM drivers. The driver itself lives outside PHD2 — the user installs whatever ASCOM camera driver their hardware vendor ships, and PHD2 talks to it via late-bound COM (no vendor SDK is bundled). Gated by `ASCOM_CAMERA` in `cameras.h`, only enabled when `__WINDOWS__` is defined; the source files compile out on macOS/Linux.
+- CI workflow `.github/workflows/ci.yml` covering the checks that need no project build, kept green on the in-flight headless-port tree: a design-doc sanity gate (the playbook + `GUIDER_*` / `API_CONTRACT` tracking files), clang-format on PR-changed lines, cppcheck on PR-changed C/C++ files, a Trojan-Source / invisible-Unicode scan (`.github/scripts/check-unicode.py`, excluding the `locale/` translation catalogs), ShellCheck over the maintained Debian/headless scripts, and a zizmor security audit of the workflows. All actions pinned to immutable SHAs, `permissions: contents: read`, and concurrency cancellation, matching AlpacaBridge / openastro-ara. The macOS/Windows/Linux *compile* jobs are deliberately omitted until INDI is stripped (playbook §5), at which point the Linux build + GTest gate, clang-tidy, and CodeQL return.
 
 ### Changed
 - `run_exe.bat` now wipes `tmp\` and starts clean on every run, matching `run_deb.sh` and `run_dmg.sh` (which already did this) and `build-exe.ps1`. The `-rebuild` flag is gone since it's no longer meaningful — every run is a rebuild. Removes the in-place CMake reconfigure path that re-triggered vcpkg's `FetchContent` UPDATE step and could fail on the unqualified `bootstrap-vcpkg.bat` lookup. Cost: every Windows dev build is now 10–60 min instead of 1–5 min incremental; benefit: deterministic, matches the other platforms, no more reconfigure-induced FetchContent failures.
 - Camera factory routing in `src/camera.cpp` uses explicit anchors (`StartsWith("INDI Camera")` / `StartsWith("Alpaca Camera")` for the built-in transports, `EndsWith(" (ASCOM)") || StartsWith("ASCOM ")` for ASCOM) instead of the previous loose `Contains()` matches, so a vendor camera whose display name happens to contain "INDI"/"Alpaca"/"ASCOM" anywhere can no longer be misrouted to the wrong factory.
+- clang-format CI check moved from a whole-tree pass (`build/run-clang-format` + `git diff --exit-code`) to PR-changed-lines only (`git-clang-format-18`), so the large inherited PHD2 tree that predates `.clang-format` is no longer bulk-flagged while new work is still held to the style. The standalone `clang-format-check.yml` is folded into the `format` job of the new `ci.yml`.
+
+### Removed
+- Standalone `.github/workflows/clang-format-check.yml` (folded into `ci.yml`).
+
+### Fixed
+- Stripped a stray UTF-8 BOM from `.clang-format` so the new invisible-Unicode scan is clean (and the file no longer carries a needless byte-order mark).
 
 ## [2.0.0] - 2026-05-15
 
