@@ -58,12 +58,14 @@ FORBIDDEN = {
 # tree. UTF-32 is not used in practice here and is omitted.
 BYTE_ENCODINGS = ("utf-8", "utf-16-le", "utf-16-be")
 
-# Forbidden byte sequences for the raw-byte backstop: {bytes: (cp, encoding)}.
-FORBIDDEN_BYTES = {
-    chr(cp).encode(enc): (cp, enc)
-    for cp in FORBIDDEN
-    for enc in BYTE_ENCODINGS
-}
+# Forbidden byte sequences for the raw-byte backstop: {bytes: [(cp, encoding)]}.
+# A list of hits per sequence, not a single value, so that if two code points
+# ever encode to identical bytes the table stays correct instead of silently
+# dropping one (no collision exists today; this keeps it safe as FORBIDDEN grows).
+FORBIDDEN_BYTES = {}
+for _cp in FORBIDDEN:
+    for _enc in BYTE_ENCODINGS:
+        FORBIDDEN_BYTES.setdefault(chr(_cp).encode(_enc), []).append((_cp, _enc))
 
 # Paths under these prefixes are skipped.
 #
@@ -130,7 +132,16 @@ def main():
         try:
             with open(path, "rb") as fh:
                 data = fh.read()
-        except OSError:
+        except IsADirectoryError:
+            # Tracked symlink that points at a directory (e.g. the macOS
+            # .framework internals under thirdparty/) -- not a scannable file.
+            continue
+        except OSError as e:
+            # Do NOT silently pass an unreadable tracked file: a security
+            # scanner that ignores files it cannot read has an implicit bypass
+            # (a broken symlink or odd permissions would read as "clean").
+            # Surface it loudly on stderr so it shows up in the CI log.
+            print("  WARNING: could not read %s: %s" % (path, e), file=sys.stderr)
             continue
 
         if looks_binary(data):
@@ -154,9 +165,10 @@ def main():
         # Undecodable text: do NOT silently skip (that was the old bypass).
         # Flag the anomaly and byte-scan for forbidden sequences as a backstop.
         findings.append("%s: non-UTF-8 text file (cannot verify cleanly; treat as suspect)" % path)
-        for seq, (cp, enc) in FORBIDDEN_BYTES.items():
+        for seq, hits in FORBIDDEN_BYTES.items():
             if seq in data:
-                findings.append("%s: contains %s-encoded U+%04X %s" % (path, enc, cp, FORBIDDEN[cp]))
+                for cp, enc in hits:
+                    findings.append("%s: contains %s-encoded U+%04X %s" % (path, enc, cp, FORBIDDEN[cp]))
 
     if findings:
         print("Forbidden Unicode characters found:\n")

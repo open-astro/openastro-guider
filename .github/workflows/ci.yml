@@ -245,6 +245,12 @@ jobs:
             -o /tmp/zizmor.tgz
           echo "${sha256}  /tmp/zizmor.tgz" | sha256sum --check --strict -
           tar -xzf /tmp/zizmor.tgz -C /tmp
+          # Fail explicitly if a future release changes the archive layout,
+          # rather than relying on `install` to error on a missing path.
+          if [ ! -x /tmp/zizmor ]; then
+            echo "::error::zizmor binary not found at /tmp/zizmor after extraction (archive layout changed?)"
+            exit 1
+          fi
           sudo install /tmp/zizmor /usr/local/bin/zizmor
           zizmor --version
 
