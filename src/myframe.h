@@ -114,11 +114,11 @@ struct SingleExposure
     bool enabled;
     int duration; // exposure duration, millis
     wxRect subframe;
-    bool save;
+    bool save = false;
     wxString path;
-    wxByte prev_hw_binning;
-    wxByte prev_sw_binning;
-    int prev_gain;
+    wxByte prev_hw_binning = 0;
+    wxByte prev_sw_binning = 0;
+    int prev_gain = 0;
 
     SingleExposure();
     bool Activate(int duration, wxByte binning, int gain, const wxRect& subframe, bool save, const wxString& path);

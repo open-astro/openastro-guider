@@ -47,7 +47,7 @@ public:
     {
         int dx;
         int dy;
-    } m_history[m_maxHistorySize];
+    } m_history[m_maxHistorySize] = {};
 
     PHD_Point m_avgPos;
     PHD_Point m_curBump;

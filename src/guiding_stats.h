@@ -138,7 +138,7 @@ protected:
     double maxDisplacement; // maximum star position value in current dataset
     double minDisplacement; // minimum star position value in current dataset
     double maxDelta; // maximum absolute delta of incremental star deltas
-    int maxDeltaInx;
+    int maxDeltaInx = 0;
     void InitializeScalars();
 
 public:

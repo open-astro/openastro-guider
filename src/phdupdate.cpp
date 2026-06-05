@@ -226,7 +226,7 @@ struct Updater
     wxString installer_url;
     wxString installer_sha1;
     wxString changelog;
-    bool m_interactive;
+    bool m_interactive = false;
     UpdateNow *m_updatenow;
     volatile bool abort;
 

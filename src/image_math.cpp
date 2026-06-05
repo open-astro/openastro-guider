@@ -958,7 +958,7 @@ typedef std::set<BadPx> BadPxSet;
 struct DefectMapBuilderImpl
 {
     DefectMapDarks *darks;
-    ImageStatsWork w;
+    ImageStatsWork w {};
     wxArrayString mapInfo;
     int aggrCold;
     int aggrHot;
@@ -966,8 +966,8 @@ struct DefectMapBuilderImpl
     BadPxSet hotPx;
     BadPxSet::const_iterator coldPxThresh;
     BadPxSet::const_iterator hotPxThresh;
-    unsigned int coldPxSelected;
-    unsigned int hotPxSelected;
+    unsigned int coldPxSelected = 0;
+    unsigned int hotPxSelected = 0;
     bool threshValid;
 
     DefectMapBuilderImpl() : darks(0), aggrCold(100), aggrHot(100), threshValid(false) { }

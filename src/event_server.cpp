@@ -397,7 +397,7 @@ struct ClientReadBuf
     {
         SIZE = 1024
     };
-    char m_buf[SIZE];
+    char m_buf[SIZE] = {};
     char *dest;
 
     ClientReadBuf() { reset(); }

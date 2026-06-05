@@ -657,11 +657,11 @@ struct JsonParserImpl
     block_allocator alloc;
     void *tmpbuf;
 
-    json_value *root;
+    json_value *root = nullptr;
 
-    const char *error_pos;
-    const char *error_desc;
-    int error_line;
+    const char *error_pos = nullptr;
+    const char *error_desc = nullptr;
+    int error_line = 0;
 
     JsonParserImpl() : alloc(4096), tmpbuf(nullptr) { }
     ~JsonParserImpl()

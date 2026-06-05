@@ -75,20 +75,18 @@ enum GuideParity
 
 struct Calibration
 {
-    double xRate;
-    double yRate;
-    double xAngle;
-    double yAngle;
-    double declination; // radians, or UNKNOWN_DECLINATION
-    double rotatorAngle;
-    unsigned short binning;
-    PierSide pierSide;
-    GuideParity raGuideParity;
-    GuideParity decGuideParity;
-    bool isValid;
+    double xRate = 0.;
+    double yRate = 0.;
+    double xAngle = 0.;
+    double yAngle = 0.;
+    double declination = UNKNOWN_DECLINATION; // radians, or UNKNOWN_DECLINATION
+    double rotatorAngle = 0.;
+    unsigned short binning = 1;
+    PierSide pierSide = PIER_SIDE_UNKNOWN;
+    GuideParity raGuideParity = GUIDE_PARITY_UNKNOWN;
+    GuideParity decGuideParity = GUIDE_PARITY_UNKNOWN;
+    bool isValid = false;
     wxString timestamp;
-
-    Calibration() : isValid(false) { }
 };
 
 enum CalibrationIssueType
@@ -104,21 +102,20 @@ static const wxString CalibrationIssueString[] = { "None", "Steps", "Orthogonali
 
 struct CalibrationDetails
 {
-    int focalLength;
-    double imageScale;
-    double raGuideSpeed;
-    double decGuideSpeed;
-    double orthoError;
-    int origBinning;
+    int focalLength = 0;
+    double imageScale = 0.;
+    double raGuideSpeed = 0.;
+    double decGuideSpeed = 0.;
+    double orthoError = 0.;
+    int origBinning = 1;
     std::vector<wxRealPoint> raSteps;
     std::vector<wxRealPoint> decSteps;
-    int raStepCount;
-    int decStepCount;
-    CalibrationIssueType lastIssue;
+    int raStepCount = 0;
+    int decStepCount = 0;
+    CalibrationIssueType lastIssue = CI_None;
     wxString origTimestamp;
-    PierSide origPierSide;
+    PierSide origPierSide = PIER_SIDE_UNKNOWN;
 
-    CalibrationDetails() : raStepCount(0) { }
     bool IsValid() const { return raStepCount > 0; }
 };
 
@@ -171,8 +168,8 @@ class Mount : public wxMessageBoxProxy
 
     bool m_calibrated;
     Calibration m_cal;
-    double m_xRate; // rate adjusted for declination
-    double m_yAngleError; // orthogonality error
+    double m_xRate = 0.; // rate adjusted for declination
+    double m_yAngleError = 0.; // orthogonality error
 
 protected:
     bool m_guidingEnabled;
@@ -191,17 +188,17 @@ public:
     protected:
         Mount *m_pMount;
         wxWindow *m_pParent;
-        wxChoice *m_pXGuideAlgorithmChoice;
-        wxChoice *m_pYGuideAlgorithmChoice;
-        int m_initXGuideAlgorithmSelection;
-        int m_initYGuideAlgorithmSelection;
-        ConfigDialogPane *m_pXGuideAlgorithmConfigDialogPane;
-        ConfigDialogPane *m_pYGuideAlgorithmConfigDialogPane;
+        wxChoice *m_pXGuideAlgorithmChoice = nullptr;
+        wxChoice *m_pYGuideAlgorithmChoice = nullptr;
+        int m_initXGuideAlgorithmSelection = 0;
+        int m_initYGuideAlgorithmSelection = 0;
+        ConfigDialogPane *m_pXGuideAlgorithmConfigDialogPane = nullptr;
+        ConfigDialogPane *m_pYGuideAlgorithmConfigDialogPane = nullptr;
         wxStaticBoxSizer *m_pAlgoBox;
         wxStaticBoxSizer *m_pRABox;
         wxStaticBoxSizer *m_pDecBox;
-        wxButton *m_pResetRAParams;
-        wxButton *m_pResetDecParams;
+        wxButton *m_pResetRAParams = nullptr;
+        wxButton *m_pResetDecParams = nullptr;
         void OnResetRAParams(wxCommandEvent& evt);
         void OnResetDecParams(wxCommandEvent& evt);
 
@@ -326,7 +323,7 @@ public:
     virtual MountConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) = 0;
     virtual MountConfigDialogCtrlSet *GetConfigDialogCtrlSet(wxWindow *pParent, Mount *pMount, AdvancedDialog *pAdvancedDialog,
                                                              BrainCtrlIdMap& CtrlMap) = 0;
-    ConfigDialogCtrlSet *currConfigDialogCtrlSet; // instance currently in-use by AD
+    ConfigDialogCtrlSet *currConfigDialogCtrlSet = nullptr; // instance currently in-use by AD
 
     virtual wxString GetMountClassName() const = 0;
 
