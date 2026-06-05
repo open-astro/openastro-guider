@@ -35,7 +35,6 @@
 #include "phd.h"
 
 #include "gear_simulator.h"
-#include "rotator_ascom.h"
 #include "rotator_alpaca.h"
 
 const float Rotator::POSITION_ERROR = -999.f;

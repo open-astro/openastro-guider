@@ -58,7 +58,6 @@
 #endif // WINDOWS/APPLE/LINUX
 
 #include "scope.h"
-#include "scope_ascom.h"
 #include "scope_gpusb.h"
 #include "scope_gpint.h"
 #include "scope_voyager.h"

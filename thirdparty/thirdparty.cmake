@@ -434,22 +434,6 @@ endif()
 
 # Camera SDK libraries removed - Alpaca only build
 
-if(WIN32)
-  # Windows runtime dependencies
-  list(APPEND PHD_LINK_EXTERNAL
-    winmm.lib
-    ws2_32.lib
-  )
-
-  list(APPEND PHD_COPY_EXTERNAL_ALL
-    ${PHD_PROJECT_ROOT_DIR}/WinLibs/x64/msvcp140.dll
-    ${PHD_PROJECT_ROOT_DIR}/WinLibs/x64/vcomp140.dll
-    ${PHD_PROJECT_ROOT_DIR}/WinLibs/x64/vcruntime140.dll
-    ${PHD_PROJECT_ROOT_DIR}/WinLibs/x64/concrt140.dll
-  )
-
-endif()
-
 #############################################
 #
 # macOS specific dependencies
