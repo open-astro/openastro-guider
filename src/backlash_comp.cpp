@@ -350,7 +350,7 @@ public:
                 }
                 else
                 {
-                    correction = 0;
+                    *correction = 0;
                     std::string msg = "Over-shoot, no adjustment based on avgInitialMiss";
                     LogStatus(msg);
                     CloseWindow();

@@ -578,8 +578,7 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             CheckDarkFrameGeometry();
         }
 
-        pGuider->UpdateGuideState(pNewFrame, !m_continueCapturing);
-        pNewFrame = NULL; // the guider owns it now
+        pGuider->UpdateGuideState(pNewFrame, !m_continueCapturing); // guider takes ownership of pNewFrame
 
         PhdController::UpdateControllerState();
 
