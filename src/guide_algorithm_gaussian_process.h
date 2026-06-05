@@ -154,6 +154,8 @@ protected:
 
 public:
     GuideAlgorithmGaussianProcess(Mount *pMount, GuideAxis axis);
+    GuideAlgorithmGaussianProcess(const GuideAlgorithmGaussianProcess&) = delete;
+    GuideAlgorithmGaussianProcess& operator=(const GuideAlgorithmGaussianProcess&) = delete;
     ~GuideAlgorithmGaussianProcess();
     GUIDE_ALGORITHM Algorithm() const override;
 

@@ -45,6 +45,8 @@ class FitsFname
 
 public:
     FitsFname(const wxString& str, bool create, bool clobber);
+    FitsFname(const FitsFname&) = delete;
+    FitsFname& operator=(const FitsFname&) = delete;
 
     ~FitsFname()
     {

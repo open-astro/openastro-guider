@@ -123,6 +123,8 @@ class GuiderConfigDialogCtrlSet : public ConfigDialogCtrlSet
 
 public:
     GuiderConfigDialogCtrlSet(wxWindow *pParent, Guider *pGuider, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
+    GuiderConfigDialogCtrlSet(const GuiderConfigDialogCtrlSet&) = delete;
+    GuiderConfigDialogCtrlSet& operator=(const GuiderConfigDialogCtrlSet&) = delete;
     virtual ~GuiderConfigDialogCtrlSet() {};
     virtual void LoadValues();
     virtual void UnloadValues();

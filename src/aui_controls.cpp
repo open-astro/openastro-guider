@@ -155,6 +155,8 @@ public:
 public:
     SBStateIndicatorItem(SBPanel *panel, SBStateIndicators *container, int indField, const wxString& indLabel,
                          SBFieldTypes indType, std::vector<int>& fldWidths);
+    SBStateIndicatorItem(const SBStateIndicatorItem&) = delete;
+    SBStateIndicatorItem& operator=(const SBStateIndicatorItem&) = delete;
     void PositionControl();
     void UpdateState();
     wxString GearToolTip(int quadState);
@@ -175,6 +177,8 @@ class SBGuideIndicators
 
 public:
     SBGuideIndicators(SBPanel *panel, std::vector<int>& fldWidths);
+    SBGuideIndicators(const SBGuideIndicators&) = delete;
+    SBGuideIndicators& operator=(const SBGuideIndicators&) = delete;
     void PositionControls();
     void UpdateState(int raDirection, int decDirection, double raPx, int raPulse, double decPx, int decPulse);
     void ClearState() { UpdateState(LEFT, UP, 0, 0, 0, 0); }
@@ -190,6 +194,8 @@ class SBStarIndicators
 
 public:
     SBStarIndicators(SBPanel *panel, std::vector<int>& fldWidths);
+    SBStarIndicators(const SBStarIndicators&) = delete;
+    SBStarIndicators& operator=(const SBStarIndicators&) = delete;
     void PositionControls();
     void UpdateState(double MassPct, double SNR, bool Saturated);
 };

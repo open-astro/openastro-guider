@@ -157,6 +157,8 @@ class BacklashComp
 
 public:
     BacklashComp(Scope *scope);
+    BacklashComp(const BacklashComp&) = delete;
+    BacklashComp& operator=(const BacklashComp&) = delete;
     ~BacklashComp();
 
     static int GetBacklashPulseMinValue();

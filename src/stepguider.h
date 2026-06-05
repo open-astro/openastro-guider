@@ -55,6 +55,8 @@ class AOConfigDialogCtrlSet : ConfigDialogCtrlSet
 
 public:
     AOConfigDialogCtrlSet(wxWindow *pParent, Mount *pStepGuider, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
+    AOConfigDialogCtrlSet(const AOConfigDialogCtrlSet&) = delete;
+    AOConfigDialogCtrlSet& operator=(const AOConfigDialogCtrlSet&) = delete;
     ~AOConfigDialogCtrlSet() {};
 
     virtual void LoadValues();

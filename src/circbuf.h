@@ -83,6 +83,8 @@ public:
     friend class circular_buffer<T>::iterator;
     circular_buffer();
     circular_buffer(unsigned int capacity);
+    circular_buffer(const circular_buffer&) = delete;
+    circular_buffer& operator=(const circular_buffer&) = delete;
     ~circular_buffer();
     void resize(unsigned int capacity);
     void push_front(const T& t);

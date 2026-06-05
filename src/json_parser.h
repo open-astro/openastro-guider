@@ -97,6 +97,8 @@ class JsonParser
 
 public:
     JsonParser();
+    JsonParser(const JsonParser&) = delete;
+    JsonParser& operator=(const JsonParser&) = delete;
     ~JsonParser();
 
     bool Parse(char *str);

@@ -166,6 +166,8 @@ class MyFrameConfigDialogCtrlSet : public ConfigDialogCtrlSet
 
 public:
     MyFrameConfigDialogCtrlSet(MyFrame *pFrame, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
+    MyFrameConfigDialogCtrlSet(const MyFrameConfigDialogCtrlSet&) = delete;
+    MyFrameConfigDialogCtrlSet& operator=(const MyFrameConfigDialogCtrlSet&) = delete;
     virtual ~MyFrameConfigDialogCtrlSet() {};
 
     virtual void LoadValues();
