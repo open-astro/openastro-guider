@@ -270,21 +270,21 @@ static void CopyEntryAcross(wxConfigBase *src, wxConfigBase *dst, const wxString
     }
     case wxConfigBase::Type_Boolean:
     {
-        bool v;
+        bool v = false;
         (void) src->Read(path, &v);
         (void) dst->Write(path, v);
         break;
     }
     case wxConfigBase::Type_Integer:
     {
-        long v;
+        long v = 0;
         (void) src->Read(path, &v);
         (void) dst->Write(path, v);
         break;
     }
     case wxConfigBase::Type_Float:
     {
-        double v;
+        double v = 0.;
         (void) src->Read(path, &v);
         (void) dst->Write(path, v);
         break;
@@ -556,21 +556,21 @@ static void CopyVal(wxConfigBase *cfg, const wxString& src, const wxString& dst)
     }
     case wxConfigBase::Type_Boolean:
     {
-        bool val;
+        bool val = false;
         (void) cfg->Read(src, &val);
         (void) cfg->Write(dst, val);
         break;
     }
     case wxConfigBase::Type_Integer:
     {
-        long val;
+        long val = 0;
         (void) cfg->Read(src, &val);
         (void) cfg->Write(dst, val);
         break;
     }
     case wxConfigBase::Type_Float:
     {
-        double val;
+        double val = 0.;
         (void) cfg->Read(src, &val);
         (void) cfg->Write(dst, val);
         break;
@@ -872,21 +872,21 @@ static void WriteVal(wxTextOutputStream& os, wxConfigBase *cfg, const wxString& 
     }
     case wxConfigBase::Type_Boolean:
     {
-        bool val;
+        bool val = false;
         (void) cfg->Read(key, &val);
         sval = wxString(val ? "1" : "0");
         break;
     }
     case wxConfigBase::Type_Integer:
     {
-        long val;
+        long val = 0;
         (void) cfg->Read(key, &val);
         sval = wxString::Format("%lu", val);
         break;
     }
     case wxConfigBase::Type_Float:
     {
-        double val;
+        double val = 0.;
         (void) cfg->Read(key, &val);
         sval = wxString::Format("%g", val);
         break;
