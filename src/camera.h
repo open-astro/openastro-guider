@@ -84,6 +84,8 @@ class CameraConfigDialogCtrlSet : public ConfigDialogCtrlSet
 public:
     CameraConfigDialogCtrlSet(wxWindow *pParent, GuideCamera *pCamera, AdvancedDialog *pAdvancedDialog,
                               BrainCtrlIdMap& CtrlMap);
+    CameraConfigDialogCtrlSet(const CameraConfigDialogCtrlSet&) = delete;
+    CameraConfigDialogCtrlSet& operator=(const CameraConfigDialogCtrlSet&) = delete;
     virtual ~CameraConfigDialogCtrlSet() {};
     virtual void LoadValues();
     virtual void UnloadValues();

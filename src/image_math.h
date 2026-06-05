@@ -88,6 +88,8 @@ class DefectMapBuilder
 
 public:
     DefectMapBuilder();
+    DefectMapBuilder(const DefectMapBuilder&) = delete;
+    DefectMapBuilder& operator=(const DefectMapBuilder&) = delete;
     ~DefectMapBuilder();
 
     void Init(DefectMapDarks& darks);

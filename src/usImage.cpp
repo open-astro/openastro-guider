@@ -52,6 +52,9 @@ public:
         pixCount = 0;
     }
 
+    HistogramBuilder(const HistogramBuilder&) = delete;
+    HistogramBuilder& operator=(const HistogramBuilder&) = delete;
+
     ~HistogramBuilder() { delete[] histo; }
 
     unsigned short median() const

@@ -71,6 +71,8 @@ class ScopeConfigDialogCtrlSet : public MountConfigDialogCtrlSet
 
 public:
     ScopeConfigDialogCtrlSet(wxWindow *pParent, Scope *pScope, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
+    ScopeConfigDialogCtrlSet(const ScopeConfigDialogCtrlSet&) = delete;
+    ScopeConfigDialogCtrlSet& operator=(const ScopeConfigDialogCtrlSet&) = delete;
     virtual ~ScopeConfigDialogCtrlSet() {};
     void LoadValues() override;
     void UnloadValues() override;

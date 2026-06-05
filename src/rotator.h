@@ -44,6 +44,8 @@ class RotatorConfigDialogCtrlSet : ConfigDialogCtrlSet
 
 public:
     RotatorConfigDialogCtrlSet(wxWindow *pParent, Rotator *pRotator, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
+    RotatorConfigDialogCtrlSet(const RotatorConfigDialogCtrlSet&) = delete;
+    RotatorConfigDialogCtrlSet& operator=(const RotatorConfigDialogCtrlSet&) = delete;
     virtual ~RotatorConfigDialogCtrlSet() {};
     virtual void LoadValues();
     virtual void UnloadValues();

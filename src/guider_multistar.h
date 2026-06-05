@@ -53,6 +53,8 @@ class GuiderMultiStarConfigDialogCtrlSet : public GuiderConfigDialogCtrlSet
 public:
     GuiderMultiStarConfigDialogCtrlSet(wxWindow *pParent, Guider *pGuider, AdvancedDialog *pAdvancedDialog,
                                        BrainCtrlIdMap& CtrlMap);
+    GuiderMultiStarConfigDialogCtrlSet(const GuiderMultiStarConfigDialogCtrlSet&) = delete;
+    GuiderMultiStarConfigDialogCtrlSet& operator=(const GuiderMultiStarConfigDialogCtrlSet&) = delete;
     virtual ~GuiderMultiStarConfigDialogCtrlSet();
 
     GuiderMultiStar *m_pGuiderMultiStar;
