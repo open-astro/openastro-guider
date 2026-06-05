@@ -607,8 +607,8 @@ struct DistanceChecker
         ST_RECOVERING,
     };
     State m_state;
-    wxLongLong_t m_expires;
-    double m_forceTolerance;
+    wxLongLong_t m_expires = 0;
+    double m_forceTolerance = 0.;
 
     enum
     {

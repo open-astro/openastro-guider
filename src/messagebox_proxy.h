@@ -40,12 +40,12 @@ class wxMessageBoxProxy
 {
     wxString m_message;
     wxString m_caption;
-    int m_style;
-    wxWindow *m_parent;
-    int m_x;
-    int m_y;
+    int m_style = 0;
+    wxWindow *m_parent = nullptr;
+    int m_x = -1;
+    int m_y = -1;
     wxSemaphore m_semaphore;
-    int m_result;
+    int m_result = 0;
 
 public:
     void showMessageBox(void);

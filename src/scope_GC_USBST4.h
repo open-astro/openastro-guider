@@ -35,7 +35,7 @@
 
 class ScopeGCUSBST4 : public Scope
 {
-    int portFID;
+    int portFID = 0;
 
 public:
     ScopeGCUSBST4() { m_Name = wxString("GCUSB-ST4"); }

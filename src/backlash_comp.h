@@ -55,18 +55,18 @@ struct RunningStats
 // Encapsulated class for handling Dec backlash measurement
 class BacklashTool
 {
-    int m_pulseWidth;
-    int m_stepCount;
-    int m_northPulseCount;
-    int m_restoreCount;
-    int m_acceptedMoves;
-    double m_lastClearRslt;
+    int m_pulseWidth = 0;
+    int m_stepCount = 0;
+    int m_northPulseCount = 0;
+    int m_restoreCount = 0;
+    int m_acceptedMoves = 0;
+    double m_lastClearRslt = 0.;
     double m_lastDecGuideRate;
     double m_backlashResultPx; // units of pixels
     double m_cumClearingDistance;
     bool m_backlashExemption;
     int m_backlashResultMs;
-    double m_northRate;
+    double m_northRate = 0.;
     PHD_Point m_lastMountLocation;
     PHD_Point m_startingPoint;
     PHD_Point m_markerPoint;
@@ -76,10 +76,10 @@ class BacklashTool
     Scope *m_scope;
     std::vector<double> m_northBLSteps;
     std::vector<double> m_southBLSteps;
-    double m_driftPerSec;
+    double m_driftPerSec = 0.;
     AxisStats m_northStats;
-    wxLongLong_t m_msmtStartTime;
-    wxLongLong_t m_msmtEndTime;
+    wxLongLong_t m_msmtStartTime = 0;
+    wxLongLong_t m_msmtEndTime = 0;
     double GetLastDecGuideRate();
 
 public:
@@ -114,7 +114,7 @@ public:
         MEASUREMENT_BL_NOT_CLEARED,
         MEASUREMENT_SANITY,
         MEASUREMENT_VALID
-    } m_Rslt;
+    } m_Rslt = MEASUREMENT_TOO_FEW_NORTH;
 
 private:
     MeasurementResults ComputeBacklashPx(double *bltPx, int *bltMs, double *northRate);

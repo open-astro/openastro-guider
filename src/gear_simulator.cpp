@@ -1277,7 +1277,7 @@ void SimCamState::FillImage(usImage& img, const wxRect& subframe, int exptime, i
 
 class CameraSimulator : public GuideCamera
 {
-    SimCamState sim;
+    SimCamState sim {};
 
 public:
     CameraSimulator();

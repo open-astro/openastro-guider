@@ -295,6 +295,7 @@ void AxisStats::InitializeScalars()
     minDisplacement = std::numeric_limits<double>::max();
     maxDisplacement = std::numeric_limits<double>::min();
     maxDelta = 0.;
+    maxDeltaInx = 0; // reset with maxDelta; AdjustMinMaxValues() keys a full recalc off maxDeltaInx == 0
 }
 
 // Return number of guide steps where GuideAmount was non-zero

@@ -72,7 +72,7 @@ void Star::SetError(FindResult error)
 // helper struct for HFR calculation
 struct R2M
 {
-    double r2;
+    double r2 = 0.;
     wxPoint p;
     double m;
     R2M() { }
@@ -486,7 +486,7 @@ struct FloatImg
 {
     float *px;
     wxSize Size;
-    unsigned int NPixels;
+    unsigned int NPixels = 0;
 
     FloatImg() : px(0) { }
     FloatImg(const wxSize& size) : px(0) { Init(size); }

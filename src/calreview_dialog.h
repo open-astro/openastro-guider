@@ -99,7 +99,7 @@ private:
     void SaveBlockingOptions();
     void BuildMessage(wxStaticText *pText, CalibrationIssueType etype);
     void ShutDown();
-    wxCheckBox *m_pBlockThis;
+    wxCheckBox *m_pBlockThis = nullptr;
     Calibration m_newParams;
     Calibration m_oldParams;
     CalibrationIssueType m_issue;

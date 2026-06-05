@@ -41,8 +41,8 @@ class PHD_Point
     bool m_valid;
 
 public:
-    double X;
-    double Y;
+    double X = 0.;
+    double Y = 0.;
 
     PHD_Point(double x, double y) { SetXY(x, y); }
 
@@ -184,9 +184,9 @@ class ShiftPoint : public PHD_Point
     typedef PHD_Point super;
 
     PHD_Point m_rate; // rate of change (per second)
-    double m_x0; // initial x position
-    double m_y0; // initial y position
-    wxLongLong_t m_t0; // initial time (seconds)
+    double m_x0 = 0.; // initial x position
+    double m_y0 = 0.; // initial y position
+    wxLongLong_t m_t0 = 0; // initial time (seconds)
 
 public:
     ShiftPoint() { }

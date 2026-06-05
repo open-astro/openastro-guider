@@ -88,7 +88,7 @@ private:
     void OnQuit(wxCloseEvent& event);
 
     void ConnectServer(const wxString& INDIhost, long INDIport);
-    bool allow_connect_disconnect;
+    bool allow_connect_disconnect = false;
 
     wxPanel *panel;
     wxBoxSizer *sizer;

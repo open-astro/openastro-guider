@@ -43,9 +43,9 @@ struct ImageLoggerSettings
     bool logFramesDropped;
     bool logAutoSelectFrames;
     bool logNextNFrames;
-    double guideErrorThreshRel; // relative error theshold
-    double guideErrorThreshPx; // pixel error theshold
-    unsigned int logNextNFramesCount;
+    double guideErrorThreshRel = 0.; // relative error theshold
+    double guideErrorThreshPx = 0.; // pixel error theshold
+    unsigned int logNextNFramesCount = 0;
 
     ImageLoggerSettings()
         : loggingEnabled(false), logFramesOverThreshRel(false), logFramesOverThreshPx(false), logFramesDropped(false),

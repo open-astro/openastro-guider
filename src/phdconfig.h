@@ -110,7 +110,7 @@ class PhdConfig
 
     long m_configVersion;
     bool m_isNewInstance;
-    int m_currentProfileId;
+    int m_currentProfileId = 0;
 
 public:
     PhdConfig(int instance);

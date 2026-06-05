@@ -217,7 +217,7 @@ extern int YWinSize;
 
 class PhdApp : public wxApp
 {
-    wxSingleInstanceChecker *m_instanceChecker;
+    wxSingleInstanceChecker *m_instanceChecker = nullptr;
     long m_instanceNumber;
     bool m_resetConfig;
     bool m_headless;

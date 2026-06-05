@@ -58,7 +58,7 @@ public:
 private:
     long INDIport;
     wxString INDIhost;
-    volatile bool modal;
+    volatile bool modal = false;
     bool m_ready = false;
     float m_angle = POSITION_UNKNOWN;
 
