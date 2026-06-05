@@ -222,7 +222,7 @@ bool GuideCamera::ConnectCamera(GuideCamera *camera, const wxString& cameraId)
         auto binning = camera->GetBinning();
         camera->LoadLimitFrame(binning);
     }
-    return err;
+    return false; // err was returned above if set; success path here
 }
 
 bool GuideCamera::HandleSelectCameraButtonClick(wxCommandEvent&)
@@ -1160,5 +1160,5 @@ bool GuideCamera::Capture(GuideCamera *camera, usImage& img, const CaptureParams
         img.Subframe = binned_rect(img.Subframe, swBinning);
     }
 
-    return err;
+    return false; // err was returned above if set; success path here
 }

@@ -350,7 +350,7 @@ public:
                 }
                 else
                 {
-                    correction = 0;
+                    *correction = 0; // no-adjustment branch; already 0 from entry, matches siblings
                     std::string msg = "Over-shoot, no adjustment based on avgInitialMiss";
                     LogStatus(msg);
                     CloseWindow();

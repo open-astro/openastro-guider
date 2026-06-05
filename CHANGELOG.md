@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standalone `.github/workflows/clang-format-check.yml` (folded into `ci.yml`).
 
 ### Fixed
+- Static-analysis "real bug" findings from the cppcheck audit (#5): a `wxString::Format` debug log in `staticpa_toolwin.cpp` whose format string had four conversions but only three arguments (read past the argument list — UB); a `*correction` write in `backlash_comp.cpp` that assigned to the pointer parameter (`correction = 0`) instead of the pointed-to value; a dead `pNewFrame = NULL` self-assignment-to-parameter in `myframe_events.cpp` (ownership note kept on the `UpdateGuideState` call); and two `return err` statements in `camera.cpp` that always returned `false` (made the success path explicit). All behavior-neutral except the format-string fix.
 - Stripped a stray UTF-8 BOM from `.clang-format` so the new invisible-Unicode scan is clean (and the file no longer carries a needless byte-order mark).
 
 ## [2.0.0] - 2026-05-15
