@@ -115,7 +115,7 @@ jobs:
           echo "Formatting OK"
 
   cppcheck:
-    name: cppcheck (changed files)
+    name: cppcheck (changed lines)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -130,12 +130,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cppcheck
 
-      - name: Analyze changed C/C++ files
+      - name: Analyze changed C/C++ lines
         # Static analysis that needs no build (cppcheck parses sources directly),
-        # so it works pre-INDI-strip. Scoped to files this PR changes under
-        # src/ + tests/ so the inherited tree is not bulk-flagged; thirdparty/,
-        # contributions/, WinLibs/ and extra_frameworks/ are never included.
-        # Suppress false positives inline with `// cppcheck-suppress <id>`.
+        # so it works pre-INDI-strip. cppcheck necessarily parses each changed
+        # file *plus the headers it #includes*, so it reports findings all over
+        # the large inherited PHD2 tree. We therefore gate only on findings that
+        # land on lines THIS PR actually added/modified — the same changed-lines
+        # policy the clang-format job uses — so pre-existing tree issues are not
+        # bulk-flagged here. The tree-wide backlog is tracked in the
+        # static-analysis epic (#10); suppress a real local false positive
+        # inline with `// cppcheck-suppress <id>`.
         run: |
           set -euo pipefail
           git fetch --no-tags origin "$GITHUB_BASE_REF"
@@ -148,17 +152,53 @@ jobs:
             exit 0
           fi
           printf 'Analyzing:\n%s\n' "${files[*]}"
+
+          # 1) Run cppcheck (machine-readable; don't fail the step yet).
+          #    --library=wxwidgets teaches cppcheck the wx macros, eliminating
+          #    the bulk of unknownMacro false positives.
           cppcheck \
             --enable=warning,performance,portability \
             --inline-suppr \
             --std=c++20 \
             --language=c++ \
-            --error-exitcode=2 \
             --quiet \
+            --check-level=exhaustive \
+            --library=wxwidgets \
             --suppress=missingInclude \
             --suppress=missingIncludeSystem \
+            --suppress=normalCheckLevelMaxBranches \
+            --suppress=toomanyconfigs \
+            --template='{file}:{line}: {severity}: {message} [{id}]' \
             -I src \
-            "${files[@]}"
+            "${files[@]}" 2> cppcheck.out || true
+          sort -u cppcheck.out -o cppcheck.out
+
+          # 2) Collect the file:line pairs this PR added/modified.
+          git diff -U0 "$merge_base" HEAD -- "${files[@]}" \
+            | awk '
+                /^\+\+\+ / { f=$2; sub(/^b\//,"",f); next }
+                /^@@ /     { split($3, h, ","); s=h[1]; sub(/^\+/,"",s);
+                             n=(h[2]==""?1:h[2]);
+                             for (i=0;i<n;i++) print f":"(s+i); }
+              ' | sort -u > changed_lines.txt
+
+          # 3) Keep only findings on a changed line.
+          : > gated.out
+          while IFS= read -r finding; do
+            [ -n "$finding" ] || continue
+            fileline="${finding%%: *}"
+            if grep -qxF "$fileline" changed_lines.txt; then
+              printf '%s\n' "$finding" >> gated.out
+            fi
+          done < cppcheck.out
+
+          if [ -s gated.out ]; then
+            echo "::error::cppcheck found issues on lines this PR changed:"
+            cat gated.out
+            exit 1
+          fi
+          echo "cppcheck OK — no findings on changed lines."
+          echo "(Tree-wide findings are tracked in the static-analysis epic #10.)"
 
   unicode:
     name: Unicode scan

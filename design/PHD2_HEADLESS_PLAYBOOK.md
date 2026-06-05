@@ -20,7 +20,7 @@ as the GUI/INDI reference and is configured as the `upstream` git remote.
    stay. We add a **headless run mode** (no window shown / daemonized); we do **not** rip out
    wx. Full wx removal is explicitly out of scope.
 3. **No half-finished states.** Each commit leaves the tree buildable for the headless target.
-   Work on a per-PR feature branch cut from `master`; merge back to `master` via PR (same
+   Work on a per-PR feature branch cut from `main`; merge back to `main` via PR (same
    GitHub Flow + merge-gate as the ARA port — see §6).
 4. **Strip before refactor.** Delete platform/backends first (smaller surface), then add the
    headless mode and fill API gaps. Mirrors ARA Phase 0.5 (delete-before-rename).
@@ -127,11 +127,11 @@ dialogs with no RPC equivalent — it must become API-driven for a headless daem
 
 Same model as the rest of the org (see ARA `COMMIT-PR-RULES.md`), already settled 2026-06-02:
 
-- **Direct-to-master GitHub Flow.** Branch from `master` → PR → merge back to `master` →
+- **Direct-to-main GitHub Flow.** Branch from `main` → PR → merge back to `main` →
   delete branch. No integration branch.
 - **Branch naming:** `phase/<N>[-<letter>]-<short-name>` (e.g. `phase/3-drop-indi-camera`).
 - **Merge-gate:** required CI green + review pass + clean self-review against the phase scope.
-- **Branch protection:** a ruleset on `master` (require PR + the CI checks, block deletion +
+- **Branch protection:** a ruleset on `main` (require PR + the CI checks, block deletion +
   force-push, admin bypass) — applied once the headless-build CI reports its first check.
 - `upstream` remote = `openastro-phd2` (pull future fixes selectively); `origin` = this repo.
 

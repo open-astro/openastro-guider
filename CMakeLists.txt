@@ -69,7 +69,6 @@ set(phd_src_dir ${PHD_PROJECT_ROOT_DIR}/src)
 add_custom_target(CmakeAdditionalFiles
   SOURCES
   ${PHD_PROJECT_ROOT_DIR}/thirdparty/thirdparty.cmake
-  ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindASCOM_INTERFACE.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindCFITSIO.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindINDI.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindNova.cmake
@@ -210,14 +209,6 @@ list(APPEND cam_SRC
   ${phd_src_dir}/cam_indi.h
 )
 
-# ASCOM camera support (Windows-only; gated by ASCOM_CAMERA macro in cameras.h).
-# Files are always listed so the source tree is platform-independent; the macro
-# compiles them out on non-Windows, mirroring how scope_ascom is handled above.
-list(APPEND cam_SRC
-  ${phd_src_dir}/cam_ascom.cpp
-  ${phd_src_dir}/cam_ascom.h
-)
-
 source_group(Cameras FILES ${cam_SRC})
 
 set(scopes_SRC
@@ -225,8 +216,6 @@ set(scopes_SRC
   ${phd_src_dir}/mount.h
   ${phd_src_dir}/scope.cpp
   ${phd_src_dir}/scope.h
-  ${phd_src_dir}/scope_ascom.cpp
-  ${phd_src_dir}/scope_ascom.h
   ${phd_src_dir}/scope_eqmac.cpp
   ${phd_src_dir}/scope_eqmac.h
   ${phd_src_dir}/scope_equinox.cpp
@@ -383,9 +372,6 @@ set(phd2_SRC
   ${phd_src_dir}/rotator.cpp
   ${phd_src_dir}/rotator.h
 
-  ${phd_src_dir}/rotator_ascom.cpp
-  ${phd_src_dir}/rotator_ascom.h
-
   ${phd_src_dir}/rotator_alpaca.cpp
   ${phd_src_dir}/rotator_alpaca.h
 
@@ -399,8 +385,6 @@ set(phd2_SRC
   ${phd_src_dir}/serialport_loopback.h
   ${phd_src_dir}/serialport_mac.cpp
   ${phd_src_dir}/serialport_mac.h
-  ${phd_src_dir}/serialport_win32.cpp
-  ${phd_src_dir}/serialport_win32.h
   ${phd_src_dir}/serialport_posix.cpp
   ${phd_src_dir}/serialport_posix.h
   ${phd_src_dir}/serialports.h
@@ -432,21 +416,6 @@ set(phd2_SRC
   ${phd_src_dir}/wxled.h
 )
 
-if (WIN32)
-  list(APPEND phd2_SRC
-      # windows-only sources
-      ${phd_src_dir}/parallelports.h
-      ${phd_src_dir}/parallelport.h
-      ${phd_src_dir}/parallelport.cpp
-
-      ${phd_src_dir}/parallelport_win32.h
-      ${phd_src_dir}/parallelport_win32.cpp
-
-      ${phd_src_dir}/comdispatch.h
-      ${phd_src_dir}/comdispatch.cpp
-  )
-endif()
-
 # INDI rotator + shared INDI config/GUI (all platforms)
 list(APPEND phd2_SRC
     ${phd_src_dir}/rotator_indi.cpp
@@ -477,24 +446,6 @@ foreach(current_locale IN LISTS all_locales)
   endforeach()
 
 endforeach() # for all locales
-
-macro(ADD_MSVC_PRECOMPILED_HEADER PrecompiledHeader PrecompiledSource SourcesVar)
-  if(MSVC)
-    GET_FILENAME_COMPONENT(PrecompiledBasename ${PrecompiledHeader} NAME_WE)
-    SET(PrecompiledBinary "\$(IntDir)/${PrecompiledBasename}.pch")
-    SET(Sources ${${SourcesVar}})
-
-    SET_SOURCE_FILES_PROPERTIES(${PrecompiledSource}
-                                PROPERTIES COMPILE_FLAGS "/Yc\"${PrecompiledHeader}\" /Fp\"${PrecompiledBinary}\""
-                                           OBJECT_OUTPUTS "${PrecompiledBinary}")
-    SET_SOURCE_FILES_PROPERTIES(${Sources}
-                                PROPERTIES COMPILE_FLAGS "/Yu\"${PrecompiledHeader}\" /FI\"${PrecompiledHeader}\" /Fp\"${PrecompiledBinary}\""
-                                           OBJECT_DEPENDS "${PrecompiledBinary}")
-
-    # Add precompiled header to SourcesVar
-    LIST(APPEND ${SourcesVar} ${PrecompiledSource})
-  endif()
-endmacro(ADD_MSVC_PRECOMPILED_HEADER)
 
 ## #########################
 ## macOS
@@ -566,83 +517,6 @@ if(APPLE)
   # time, not here — dev incremental builds run faster against Homebrew
   # dylibs in place, and only the redistributable .dmg needs the rewrite.
 
-elseif(WIN32)
-
-  set(phd2_WIN_SRC
-    ${scopes_SRC}
-    ${cam_SRC}
-    ${guiding_SRC}
-    ${phd2_SRC}
-  )
-
-  ADD_MSVC_PRECOMPILED_HEADER("phd.h" "src/precompiled_header.cpp" phd2_WIN_SRC)
-
-  # resource file, some VC do not like the options provided by the precompiled headers
-  list(APPEND phd2_WIN_SRC ${PHD_PROJECT_ROOT_DIR}/phd.rc)
-  source_group(src FILES precompiled_header.cpp)
-
-  link_directories("C:/Program Files (x86)/Visual Leak Detector/lib/Win64")
-  add_executable(
-    phd2
-    WIN32
-    ${phd2_WIN_SRC}
-  )
-
-  set_target_properties(
-    phd2
-    PROPERTIES
-      OUTPUT_NAME phd2  # lower case on Win32
-      LINK_FLAGS "/NODEFAULTLIB:libcmt.lib" #  /NODEFAULTLIB:libcmtd.lib
-      LINK_FLAGS_DEBUG "/NODEFAULTLIB:libcmtd.lib /NODEFAULTLIB:msvcrt.lib"
-  )
-
-  target_include_directories(phd2 PRIVATE "C:/Program Files (x86)/Visual Leak Detector/include")
-
-  # copy DLL files into the output directory
-
-  set(_copyfiles_dbg ${PHD_COPY_EXTERNAL_ALL} ${PHD_COPY_EXTERNAL_DBG})
-  set(_copyfiles_rel ${PHD_COPY_EXTERNAL_ALL} ${PHD_COPY_EXTERNAL_REL})
-  foreach(_file IN LISTS _copyfiles_dbg _copyfiles_rel)
-    if(NOT EXISTS ${_file})
-      message(FATAL_ERROR "Dependency ${_file} does not exist")
-    endif()
-  endforeach()
-  foreach(_config dbg rel)
-    set(_realpaths_${_config})
-    foreach(_file ${_copyfiles_${_config}})
-      get_filename_component(_realpath ${_file} REALPATH)
-      list(APPEND _realpaths_${_config} ${_realpath})
-    endforeach()
-    list(REMOVE_DUPLICATES _realpaths_${_config})
-  endforeach()
-  unset(_file)
-  unset(_config)
-
-  add_custom_command(
-    TARGET phd2
-    POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E
-      $<$<CONFIG:Debug>:copy_if_different>
-      $<$<NOT:$<CONFIG:Debug>>:true>
-      ${_realpaths_dbg}
-      $<TARGET_FILE_DIR:phd2>/.
-    COMMAND_EXPAND_LISTS VERBATIM
-    COMMENT "$<$<CONFIG:Debug>:Copy debug libs to output folder>"
-  )
-  add_custom_command(
-    TARGET phd2
-    POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E
-      $<$<CONFIG:Release>:copy_if_different>
-      $<$<NOT:$<CONFIG:Release>>:true>
-      ${_realpaths_rel}
-      $<TARGET_FILE_DIR:phd2>/.
-    COMMAND_EXPAND_LISTS VERBATIM
-    COMMENT "$<$<CONFIG:Release>:Copy release libs to output folder>"
-  )
-  unset(_realpaths_dbg)
-  unset(_realpaths_rel)
-
 ## #########################
 ## Unix
 elseif(UNIX)
@@ -693,10 +567,6 @@ endforeach()
 target_link_libraries(phd2
                       GPGuider # GP Guider (pulls in MPIIS_GP and MPIIS_GP_TOOLS transitively)
                       ${PHD_LINK_EXTERNAL})
-
-if(WIN32)
-  target_link_libraries(phd2 iphlpapi)
-endif()
 
 ################################################################
 #
@@ -771,49 +641,6 @@ if(APPLE)
   endforeach()
 endif()
 
-## Windows bundling of documentation + translation
-if(WIN32)
-  # here we generate the installation commands and the commands that will make the
-  # build tree look like the install tree, such that users can run the application directly
-  # from Visual Studio.
-  foreach(current_locale IN LISTS all_locales)
-
-    if("${current_locale}" STREQUAL "${default_locale}")
-      # because of wXWidget (wxStandardPaths::IgnoreAppBuildSubDirs)
-      # the paths "Debug", "Release" are discarded, and the parent path
-      # is considered instead as the application directory
-      # This is only for running the app from a Development environment
-      # (TODO: use only for multiconfig cmake projects)
-      set(build_tree_target_folder $<TARGET_FILE_DIR:phd2>/)
-      set(install_options DESTINATION ${CMAKE_INSTALL_PREFIX}/)
-    else()
-      set(build_tree_target_folder $<TARGET_FILE_DIR:phd2>/locale/${current_locale})
-      set(install_options DESTINATION ${CMAKE_INSTALL_PREFIX}/locale/${current_locale}/ OPTIONAL)
-    endif()
-
-    # installation of the document and translation files
-    get_zip_file(current_zip LOCALE ${current_locale})
-    get_translation_files(current_translations LOCALE ${current_locale})
-
-    foreach(current_file IN LISTS current_translations current_zip)
-      get_filename_component(message_file_basename ${current_file} NAME)
-      get_filename_component(message_file_ext ${current_file} EXT)
-      if("${message_file_ext}" STREQUAL ".mo" OR "${message_file_ext}" STREQUAL ".zip")
-        add_custom_command(
-          TARGET phd2
-          POST_BUILD
-             COMMAND ${CMAKE_COMMAND} -E make_directory "${build_tree_target_folder}"
-             COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${current_file} "${build_tree_target_folder}/${message_file_basename}"
-        )
-        install(FILES       ${current_file}
-                DESTINATION  ${CMAKE_INSTALL_PREFIX}/locale/${current_locale}
-                OPTIONAL)
-      endif()
-    endforeach()
-
-  endforeach() # for all locales
-endif()
-
 ## Linux bundling of documentation + translation
 if(UNIX AND NOT APPLE)
 
@@ -864,16 +691,6 @@ if(APPLE)
     COMMAND "${CMAKE_COMMAND}" -E make_directory $<TARGET_FILE_DIR:phd2>/../Resources/webui
     COMMAND "${CMAKE_COMMAND}" -E copy_directory ${PHD_PROJECT_ROOT_DIR}/scripts/webui $<TARGET_FILE_DIR:phd2>/../Resources/webui
   )
-endif()
-
-if(WIN32)
-  add_custom_command(
-    TARGET phd2
-    POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E make_directory $<TARGET_FILE_DIR:phd2>/webui
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory ${PHD_PROJECT_ROOT_DIR}/scripts/webui $<TARGET_FILE_DIR:phd2>/webui
-  )
-  install(DIRECTORY ${PHD_PROJECT_ROOT_DIR}/scripts/webui/ DESTINATION ${CMAKE_INSTALL_PREFIX}/webui)
 endif()
 
 if(UNIX AND NOT APPLE)
