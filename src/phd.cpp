@@ -709,7 +709,7 @@ bool PhdApp::OnCmdLineParsed(wxCmdLineParser& parser)
         ::exit(0);
     }
 
-    parser.Found("i", &m_instanceNumber);
+    (void) parser.Found("i", &m_instanceNumber);
     m_headless = parser.Found("headless");
     m_headlessAutoConnect = parser.Found("headless-auto-connect");
     if (m_headlessAutoConnect)

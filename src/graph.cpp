@@ -284,7 +284,7 @@ void GraphLogWindow::OnButtonSettings(wxCommandEvent& WXUNUSED(evt))
         item1->Check();
     else
         item2->Check();
-    menu->AppendSeparator();
+    (void) menu->AppendSeparator();
 
     // setup Arcses / pixels items
     item1 = menu->Append(wxID_ANY, _("Y-axis units"));
@@ -298,18 +298,18 @@ void GraphLogWindow::OnButtonSettings(wxCommandEvent& WXUNUSED(evt))
         item1->Check();
     else
         item2->Check();
-    menu->AppendSeparator();
+    (void) menu->AppendSeparator();
 
     // setup Correction styles
     item1 = menu->AppendCheckItem(GRAPH_SCALE_CORR, _("Corrections to Scale"));
     item1->Check(m_pClient->m_correctionsToScale);
-    menu->AppendSeparator();
+    (void) menu->AppendSeparator();
 
     item1 = menu->AppendCheckItem(GRAPH_STAR_MASS, _("Star Mass"));
     item1->Check(m_pClient->m_showStarMass);
     item1 = menu->AppendCheckItem(GRAPH_STAR_SNR, _("Star SNR"));
     item1->Check(m_pClient->m_showStarSNR);
-    menu->AppendSeparator();
+    (void) menu->AppendSeparator();
 
     // setup color selection items
     if (m_pClient->m_mode == GraphLogClientWindow::MODE_RADEC)
