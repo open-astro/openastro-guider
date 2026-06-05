@@ -37,7 +37,6 @@
 #define SERIALPORTS_H_INCLUDED
 
 #include "serialport.h"
-#include "serialport_win32.h"
 #include "serialport_mac.h"
 #include "serialport_posix.h"
 
