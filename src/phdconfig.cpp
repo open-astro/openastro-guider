@@ -134,7 +134,7 @@ void ConfigSection::SetBoolean(const wxString& name, bool value)
 {
     if (m_pConfig)
     {
-        m_pConfig->Write(m_prefix + name, value);
+        (void) m_pConfig->Write(m_prefix + name, value);
         EvtServer.NotifyConfigurationChange();
     }
 }
@@ -143,7 +143,7 @@ void ConfigSection::SetString(const wxString& name, const wxString& value)
 {
     if (m_pConfig)
     {
-        m_pConfig->Write(m_prefix + name, value);
+        (void) m_pConfig->Write(m_prefix + name, value);
         EvtServer.NotifyConfigurationChange();
     }
 }
@@ -152,7 +152,7 @@ void ConfigSection::SetDouble(const wxString& name, double value)
 {
     if (m_pConfig)
     {
-        m_pConfig->Write(m_prefix + name, value);
+        (void) m_pConfig->Write(m_prefix + name, value);
         EvtServer.NotifyConfigurationChange();
     }
 }
@@ -161,7 +161,7 @@ void ConfigSection::SetLong(const wxString& name, long value)
 {
     if (m_pConfig)
     {
-        m_pConfig->Write(m_prefix + name, value);
+        (void) m_pConfig->Write(m_prefix + name, value);
         EvtServer.NotifyConfigurationChange();
     }
 }
@@ -264,29 +264,29 @@ static void CopyEntryAcross(wxConfigBase *src, wxConfigBase *dst, const wxString
     case wxConfigBase::Type_String:
     {
         wxString v;
-        src->Read(path, &v);
-        dst->Write(path, v);
+        (void) src->Read(path, &v);
+        (void) dst->Write(path, v);
         break;
     }
     case wxConfigBase::Type_Boolean:
     {
         bool v;
-        src->Read(path, &v);
-        dst->Write(path, v);
+        (void) src->Read(path, &v);
+        (void) dst->Write(path, v);
         break;
     }
     case wxConfigBase::Type_Integer:
     {
         long v;
-        src->Read(path, &v);
-        dst->Write(path, v);
+        (void) src->Read(path, &v);
+        (void) dst->Write(path, v);
         break;
     }
     case wxConfigBase::Type_Float:
     {
         double v;
-        src->Read(path, &v);
-        dst->Write(path, v);
+        (void) src->Read(path, &v);
+        (void) dst->Write(path, v);
         break;
     }
     case wxConfigBase::Type_Unknown:
@@ -535,7 +535,7 @@ bool PhdConfig::CreateProfile(const wxString& name)
     for (id = 1; Profile.m_pConfig->HasGroup(wxString::Format("%d", id)); id++)
         ;
 
-    Profile.m_pConfig->Write(wxString::Format("/profile/%d/name", id), name);
+    (void) Profile.m_pConfig->Write(wxString::Format("/profile/%d/name", id), name);
 
     EvtServer.NotifyConfigurationChange();
 
@@ -550,29 +550,29 @@ static void CopyVal(wxConfigBase *cfg, const wxString& src, const wxString& dst)
     case wxConfigBase::Type_String:
     {
         wxString val;
-        cfg->Read(src, &val);
-        cfg->Write(dst, val);
+        (void) cfg->Read(src, &val);
+        (void) cfg->Write(dst, val);
         break;
     }
     case wxConfigBase::Type_Boolean:
     {
         bool val;
-        cfg->Read(src, &val);
-        cfg->Write(dst, val);
+        (void) cfg->Read(src, &val);
+        (void) cfg->Write(dst, val);
         break;
     }
     case wxConfigBase::Type_Integer:
     {
         long val;
-        cfg->Read(src, &val);
-        cfg->Write(dst, val);
+        (void) cfg->Read(src, &val);
+        (void) cfg->Write(dst, val);
         break;
     }
     case wxConfigBase::Type_Float:
     {
         double val;
-        cfg->Read(src, &val);
-        cfg->Write(dst, val);
+        (void) cfg->Read(src, &val);
+        (void) cfg->Write(dst, val);
         break;
     }
     case wxConfigBase::Type_Unknown:
@@ -676,7 +676,7 @@ bool PhdConfig::RenameProfile(const wxString& oldname, const wxString& newname)
         return true;
     }
 
-    Profile.m_pConfig->Write(wxString::Format("/profile/%d/name", id), newname);
+    (void) Profile.m_pConfig->Write(wxString::Format("/profile/%d/name", id), newname);
 
     EvtServer.NotifyConfigurationChange();
 
@@ -866,28 +866,28 @@ static void WriteVal(wxTextOutputStream& os, wxConfigBase *cfg, const wxString& 
     case wxConfigBase::Type_String:
     {
         wxString val;
-        cfg->Read(key, &val);
+        (void) cfg->Read(key, &val);
         sval = escape_string(val);
         break;
     }
     case wxConfigBase::Type_Boolean:
     {
         bool val;
-        cfg->Read(key, &val);
+        (void) cfg->Read(key, &val);
         sval = wxString(val ? "1" : "0");
         break;
     }
     case wxConfigBase::Type_Integer:
     {
         long val;
-        cfg->Read(key, &val);
+        (void) cfg->Read(key, &val);
         sval = wxString::Format("%lu", val);
         break;
     }
     case wxConfigBase::Type_Float:
     {
         double val;
-        cfg->Read(key, &val);
+        (void) cfg->Read(key, &val);
         sval = wxString::Format("%g", val);
         break;
     }

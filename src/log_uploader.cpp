@@ -519,7 +519,7 @@ static void LoadGrid(wxGrid *grid)
                 continue;
 
             size_t start, len;
-            re.GetMatch(&start, &len, 0);
+            (void) re.GetMatch(&start, &len, 0);
 
             wxString timestamp(l, start + 14, 17);
             auto it = logs.find(timestamp);
@@ -548,7 +548,7 @@ static void LoadGrid(wxGrid *grid)
                 continue;
 
             size_t start, len;
-            re.GetMatch(&start, &len, 0);
+            (void) re.GetMatch(&start, &len, 0);
             wxString timestamp = l.substr(start + 14, 17);
             auto it = logs.find(timestamp);
             if (it == logs.end())

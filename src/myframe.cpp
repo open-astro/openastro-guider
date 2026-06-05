@@ -505,7 +505,7 @@ void MyFrame::SetupMenuBar()
                        _("Align by analyzing star drift near the celestial pole (Simple)"));
     tools_menu->Append(MENU_STATICPATOOL, _("&Static Polar Align"),
                        _("Align by measuring the RA axis offset from the celestial pole (Fast)"));
-    tools_menu->AppendSeparator();
+    (void) tools_menu->AppendSeparator();
     tools_menu->AppendCheckItem(MENU_SERVER, _("Enable Server"), _("Enable PHD2 server capability"));
     tools_menu->Append(MENU_OPEN_WEB_PORTAL, _("Open Web Portal"), _("Open the embedded web portal in your browser"));
     tools_menu->AppendCheckItem(EEGG_STICKY_LOCK, _("Sticky Lock Position"),
@@ -518,16 +518,16 @@ void MyFrame::SetupMenuBar()
     view_menu->AppendCheckItem(MENU_AO_GRAPH, _("Display &AO Graph"), _("Enable / disable AO graph"));
     view_menu->AppendCheckItem(MENU_TARGET, _("Display &Target"), _("Enable / disable target"));
     view_menu->AppendCheckItem(MENU_STARPROFILE, _("Display Star &Profile"), _("Enable / disable star profile view"));
-    view_menu->AppendSeparator();
+    (void) view_menu->AppendSeparator();
     view_menu->AppendRadioItem(MENU_XHAIR0, _("&No Overlay"), _("No additional crosshairs"));
     view_menu->AppendRadioItem(MENU_XHAIR1, _("&Bullseye"), _("Centered bullseye overlay"));
     view_menu->AppendRadioItem(MENU_XHAIR2, _("&Fine Grid"), _("Grid overlay"));
     view_menu->AppendRadioItem(MENU_XHAIR3, _("&Coarse Grid"), _("Grid overlay"));
     view_menu->AppendRadioItem(MENU_XHAIR4, _("&RA/Dec"), _("RA and Dec overlay"));
     view_menu->AppendRadioItem(MENU_XHAIR5, _("Spectrograph S&lit"), _("Spectrograph slit overlay"));
-    view_menu->AppendSeparator();
+    (void) view_menu->AppendSeparator();
     view_menu->Append(MENU_SLIT_OVERLAY_COORDS, _("Slit Position..."));
-    view_menu->AppendSeparator();
+    (void) view_menu->AppendSeparator();
     view_menu->Append(MENU_RESTORE_WINDOWS, _("Restore Window Positions"),
                       _("Restore all windows to their default/docked positions"));
 
@@ -537,7 +537,7 @@ void MyFrame::SetupMenuBar()
                                                 _("Adjust parameters to create or modify the bad-pixel map"));
     m_importCamCalMenuItem = darks_menu->Append(MENU_IMPORTCAMCAL, _("Import From Profile..."),
                                                 _("Import existing dark library/bad-pixel map from a different profile"));
-    darks_menu->AppendSeparator();
+    (void) darks_menu->AppendSeparator();
     m_useDarksMenuItem =
         darks_menu->AppendCheckItem(MENU_LOADDARK, _("Use &Dark Library"), _("Use the the dark library for this profile"));
     m_useDefectMapMenuItem =
