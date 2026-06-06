@@ -156,34 +156,9 @@ endif()
 #
 #############################################
 
-# zip file support integrated in cmake 3.2+
-if(WIN32 AND ("${CMAKE_VERSION}" VERSION_GREATER "3.2")
-         AND ("${GETTEXT_ROOT}" STREQUAL ""))
-
-  # GETTEXT_ROOT not given from the command line: deflating our own
-
-  set(GETTEXTTOOLS gettext-0.14.4)
-  set(GETTEXT_ROOT ${thirdparties_deflate_directory}/${GETTEXTTOOLS})
-
-  # deflate
-  if(NOT EXISTS ${GETTEXT_ROOT})
-
-    message(STATUS "Deflating gettexttools from thirdparties to ${GETTEXT_ROOT}")
-    # create directory
-    if(NOT EXISTS ${GETTEXT_ROOT})
-      file(MAKE_DIRECTORY ${GETTEXT_ROOT})
-    endif()
-
-    # untar the dependency
-    execute_process(
-        COMMAND ${CMAKE_COMMAND} -E tar xzf ${thirdparty_dir}/${GETTEXTTOOLS}-bin.zip
-      WORKING_DIRECTORY ${GETTEXT_ROOT})
-    execute_process(
-        COMMAND ${CMAKE_COMMAND} -E tar xzf ${thirdparty_dir}/${GETTEXTTOOLS}-dep.zip
-      WORKING_DIRECTORY ${GETTEXT_ROOT})
-  endif()
-
-endif()
+# On Linux the system gettext (msgfmt/msgmerge, from the gettext package) is
+# used directly via the find logic below. The bundled Windows gettext-0.14.4
+# zips and their deflate step were removed with the Windows build.
 
 set(GETTEXT_FINDPROGRAM_OPTIONS)
 if(NOT ("${GETTEXT_ROOT}" STREQUAL ""))
