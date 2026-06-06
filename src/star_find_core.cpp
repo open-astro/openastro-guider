@@ -271,6 +271,19 @@ Output FindStar(const StarImage& img, int base_x, int base_y, int searchRegion, 
             break;
     }
 
+    // If the background annulus had no valid pixels (tiny image, or star at
+    // the very edge), sigma2_bg is 0 and the 1/nbg term below is +inf, so the
+    // SNR formula evaluates to NaN — which fails BOTH SNR guards and would let
+    // a "found" star through with NaN SNR. Treat it as undetectable. (The
+    // original Star::Find shared this latent NaN; it only logged a debug line.)
+    if (nbg == 0)
+    {
+        out.hfd = 0.;
+        out.result = Result::LowSNR;
+        out.found = false;
+        return out;
+    }
+
     unsigned short thresh;
 
     double cx = 0.0;

@@ -15,6 +15,7 @@
 
 #include <fitsio.h>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -133,9 +134,35 @@ TEST(StarFind, PeakModeReturnsBrightestLocation)
 
     star_find::Output o = star_find::FindStar(viewOf(f), bx, by, 15, star_find::Mode::Peak, 0.0, 99.0, 0);
     // In peak mode the reported position is the brightest pixel itself.
+    EXPECT_TRUE(o.found);
     EXPECT_NEAR(o.x, bx, 1.0);
     EXPECT_NEAR(o.y, by, 1.0);
     EXPECT_GT(o.peakVal, 0);
+}
+
+TEST(StarFind, EmptyBackgroundAnnulusIsNotFoundNotNaN)
+{
+    // Tiny image: the background annulus (radius 7..12 around the peak) has no
+    // in-bounds pixels, so nbg == 0. Without the guard the SNR formula divides
+    // by nbg (1/0 == +inf) and yields NaN, which slips past both SNR checks.
+    // Expect a clean not-found result with a finite (non-NaN) SNR.
+    const int W = 8, H = 8;
+    std::vector<unsigned short> px((size_t) W * H, 100);
+    for (int y = 3; y <= 5; ++y)
+        for (int x = 3; x <= 5; ++x)
+            px[y * W + x] = 5000;
+
+    star_find::StarImage im;
+    im.data = px.data();
+    im.width = W;
+    im.height = H;
+    im.subframeEmpty = true;
+    im.pedestal = 0;
+    im.bitsPerPixel = 16;
+
+    star_find::Output o = star_find::FindStar(im, 4, 4, 6, star_find::Mode::Centroid, 0.0, 99.0, 0);
+    EXPECT_FALSE(o.found);
+    EXPECT_FALSE(std::isnan(o.snr)) << "SNR must not be NaN when the background annulus is empty";
 }
 
 TEST(StarFind, InvalidSearchRegionIsError)
