@@ -108,11 +108,13 @@ unsigned int DescriptiveStats::GetCount()
     return count;
 }
 
-// Raw variance for those who need it.
+// Sample variance (Knuth's accumulated S divided by n-1). Matches
+// AxisStats::GetVariance()'s sample-variance contract and GetSigma() ==
+// sqrt(GetVariance()).
 double DescriptiveStats::GetVariance()
 {
     if (count > 1)
-        return runningS;
+        return runningS / (count - 1);
     else
         return 0.;
 }

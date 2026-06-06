@@ -28,8 +28,7 @@
 // Classic worked example: {2,4,4,4,5,5,7,9}. n=8, mean=5, sum=40.
 // Sum of squared deviations from the mean (the "S" the Knuth recurrence
 // accumulates) = 32, so population sigma = sqrt(32/8) = 2, sample sigma =
-// sqrt(32/7). Note GetVariance() returns the raw accumulated S (32), not S/n;
-// the test pins the code's actual contract.
+// sqrt(32/7), and sample variance = 32/7 (GetVariance() == GetSigma()^2).
 TEST(DescriptiveStats, WorkedExample)
 {
     DescriptiveStats ds;
@@ -42,9 +41,10 @@ TEST(DescriptiveStats, WorkedExample)
     EXPECT_DOUBLE_EQ(ds.GetMinimum(), 2.);
     EXPECT_DOUBLE_EQ(ds.GetMaximum(), 9.);
     EXPECT_DOUBLE_EQ(ds.GetLastValue(), 9.);
-    EXPECT_DOUBLE_EQ(ds.GetVariance(), 32.);
+    EXPECT_DOUBLE_EQ(ds.GetVariance(), 32. / 7.); // sample variance S/(n-1)
     EXPECT_DOUBLE_EQ(ds.GetPopulationSigma(), 2.);
     EXPECT_DOUBLE_EQ(ds.GetSigma(), std::sqrt(32. / 7.));
+    EXPECT_DOUBLE_EQ(ds.GetSigma(), std::sqrt(ds.GetVariance())); // sigma == sqrt(variance)
     EXPECT_DOUBLE_EQ(ds.GetMaxDelta(), 2.); // largest |x_i - x_{i-1}|
 }
 

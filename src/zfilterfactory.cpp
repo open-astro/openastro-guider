@@ -41,11 +41,8 @@ https://www-users.cs.york.ac.uk/~fisher/mkfilter/
 
 #include "zfilterfactory.h"
 
-#include <stdio.h>
 #include <math.h>
 #include <string.h>
-
-#include "zfilterfactory.h"
 
 ZFilterFactory::ZFilterFactory(FILTER_DESIGN f, int o, double p, bool mzt)
 {
@@ -223,8 +220,12 @@ void ZFilterFactory::expand(const std::vector<std::complex<double>>& pz, std::ve
     {
         if (fabs(coeffs[i].imag()) > EPS)
         {
-            fprintf(stderr, "mkfilter: coeff of z^%d is not real; poles/zeros are not complex conjugates\n", i);
-            exit(1);
+            // A non-real coefficient means the poles/zeros aren't in conjugate
+            // pairs — a programming error in pole generation, not user input.
+            // Throw (consistent with the constructor's other guards) rather
+            // than exit(), so callers and the test harness can handle it. The
+            // supported Bessel/Butterworth designs never reach here.
+            throw ERROR_INFO("zfilter: computed coefficient is not real (poles/zeros not conjugate pairs)");
         }
     }
 }
