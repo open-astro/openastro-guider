@@ -1,98 +1,138 @@
-# OpenAstro PHD2
+# OpenAstro Guider
 
 <img src="icons/oa512.png" alt="OpenAstro Logo" width="125">
 
 ## Overview
 
-This repository contains an OpenAstro-maintained build derived from PHD2 that supports **ASCOM Alpaca**, **INDI**, and (on Windows) **ASCOM COM** equipment drivers. It is intended for use with [**AlpacaBridge**](https://github.com/open-astro/AlpacaBridge) and related Alpaca-based workflows, with [**INDI**](https://indilib.org/) as the alternative path for Linux/Pi rigs and remote INDI servers, and native ASCOM as a Windows fallback for hardware whose vendor only ships an ASCOM driver.
+`openastro-guider` is a **Linux-only, headless, Alpaca-only** guiding engine
+derived from [PHD2](https://openphdguiding.org/). It is built to run unattended
+on a Raspberry Pi (Linux arm64, the same target as AlpacaBridge) and be driven
+remotely over PHD2's JSON-RPC event-server API — primarily by
+[**OpenAstro ARA**](https://github.com/open-astro) and alongside
+[**AlpacaBridge**](https://github.com/open-astro/AlpacaBridge). All equipment is
+reached over **ASCOM Alpaca** (network), with built-in simulator and
+manual-pointing backends for testing.
+
+This is a *strip + headless-enable* of PHD2, **not** a rewrite: the guiding
+engine, calibration math, guide algorithms, dark/defect-map logic, and the
+event-server protocol are kept intact. What was removed is everything that
+doesn't belong in a Pi-hosted Alpaca daemon — see [Scope](#scope). The full
+plan lives in [`design/PHD2_HEADLESS_PLAYBOOK.md`](design/PHD2_HEADLESS_PLAYBOOK.md).
+
+Lineage: PHD2 (Open PHD Guiding) → `open-astro/openastro-phd2` (added Alpaca +
+INDI, GUI) → `open-astro/openastro-guider` (this repo: headless, Alpaca-only).
+`openastro-phd2` remains the GUI/INDI reference and is the `upstream` git remote.
+
+> **Status:** wxWidgets (wxBase + the existing GUI) is intentionally retained; a
+> headless run mode is being added incrementally per the playbook. Until that
+> lands, the binary is still the windowed PHD2 application — just Linux- and
+> Alpaca-only.
 
 ## Important Notice
 
 - This is **not** an official PHD2 release.
-- It is a **private build** supported by OpenAstro, not by the PHD2 developers or community.
+- It is an **OpenAstro-maintained** build, not supported by the PHD2 developers
+  or community.
 - Support requests should be directed to OpenAstro.
 
 ## Scope
 
-This fork supports three driver transports for cameras, mounts, and rotators, all of which rely on **user-installed** drivers — no vendor SDKs are bundled:
+Equipment — cameras, mounts, and rotators — is reached through **one** transport,
+plus test backends:
 
-- **ASCOM Alpaca** - cameras, mounts, rotators (network-based; works on Windows, Linux, macOS, Raspberry Pi).
-- **INDI** - cameras, mounts, rotators (native INDI client; ideal for Linux/Pi rigs or remote INDI servers).
-- **ASCOM COM** (Windows only) - cameras, mounts, rotators (late-bound to ASCOM Platform; the user installs whichever ASCOM driver their hardware vendor ships).
-- Designed to work alongside AlpacaBridge.
+- **ASCOM Alpaca** (network) — cameras, mounts, rotators. Drivers are
+  **user-installed**; no vendor SDKs are bundled. Designed to work alongside
+  AlpacaBridge.
+- **Simulator** and **manual pointing** — for development and bench testing.
 
-**Removed compared to upstream PHD2:** all vendor SDK camera backends (ZWO, QHY, SBIG, Altair, ToupTek, SVBony, PlayerOne, Moravian, etc.), adaptive optics / step-guiders, on-camera ST4, and auxiliary mounts. The intentional shape of this fork is that every supported camera/mount/rotator is a thin protocol shim over a driver the user installs and the vendor maintains — we don't take on the burden of tracking vendor SDKs. If you need a bundled-SDK build, use upstream OpenPHDGuiding/phd2 instead.
+**Removed compared to upstream PHD2:**
+
+- **Platforms:** Windows and macOS. Linux (Debian/Raspberry Pi OS) only.
+- **Transports:** INDI (native client) and Windows ASCOM COM — Alpaca is the
+  single equipment path.
+- **Backends:** all vendor SDK camera backends (ZWO, QHY, SBIG, Altair, ToupTek,
+  SVBony, PlayerOne, Moravian, etc.), adaptive optics / step-guiders, on-camera
+  ST4, Shoestring/direct-ST4 guide outputs, and auxiliary mounts.
+
+The intentional shape of this fork is that every supported camera/mount/rotator
+is a thin protocol shim over an Alpaca driver the user installs and the vendor
+maintains — we don't track vendor SDKs. If you need a bundled-SDK or
+cross-platform build, use upstream
+[OpenPHDGuiding/phd2](https://github.com/OpenPHDGuiding/phd2) or the
+[`openastro-phd2`](https://github.com/open-astro/openastro-phd2) GUI fork instead.
 
 ## Running
 
-Each platform has a `run_*` script that configures and (with `--build`) compiles for fast local iteration. The resulting binary stays inside `tmp/` and is not redistributable - see [Building Installers](#building-installers) for that.
-
-### Linux / Debian / Raspberry Pi
-
-Supported: **Debian 13 Trixie** and **Raspberry Pi OS Trixie**, on amd64 or arm64. 32-bit ARM (armhf) and i386 are not supported; on a 64-bit-capable Pi (3/4/5) install the 64-bit Raspberry Pi OS.
+Supported targets: **Debian 13 Trixie** and **Raspberry Pi OS Trixie**, on
+amd64 or arm64. 32-bit ARM (armhf) and i386 are not supported; on a
+64-bit-capable Pi (3/4/5) install the 64-bit Raspberry Pi OS.
 
 ```bash
 ./run_deb.sh --build           # configure + parallel build
 ```
 
-Run the binary at `tmp/phd2.bin` (or via the `tmp/phd2` wrapper). INDI 2.0+ is required; if your system `libindi` is missing or older (e.g. Pi OS stock 1.9.x), the script auto-fetches and statically compiles INDI 2.2.1.1 (adds ~3-5 min on first build). Force a specific path with `USE_SYSTEM_LIBINDI=0` (always from-source) or `USE_SYSTEM_LIBINDI=1` (always system, fails if < 2.0).
-
-### macOS
-
-Supported: **macOS 26 Tahoe or newer** on **Apple Silicon (arm64)**. Intel Macs and pre-Tahoe macOS are not supported.
-
-Install build dependencies via [Homebrew](https://brew.sh) (or `./build-dmg.sh --install-deps`):
-
-```bash
-brew install cmake wxwidgets cfitsio libnova gettext
-./run_dmg.sh --build           # configure + parallel build
-```
-
-The bundle is at `tmp/OpenAstro PHD2.app`.
-
-### Windows
-
-Requires Visual Studio 2022 and `git` on `PATH`. x64 only.
-
-```cmd
-run_exe.bat                    REM clean configure + build (default)
-run_exe.bat -config            REM clean configure only, no build
-run_exe.bat -launch            REM build then start phd2.exe
-run_exe.bat -help              REM all options
-```
-
-Every run wipes `tmp\` and starts clean - matches `run_deb.sh` and `run_dmg.sh` on the other platforms (and the installer script `build-exe.ps1` on this one). Each build takes 10-60 minutes depending on hardware, dominated by vcpkg compiling OpenCV from source.
+Run the binary at `tmp/phd2.bin` (or via the `tmp/phd2` wrapper). The build
+needs no INDI, no vendor SDKs, and no network drivers present — Alpaca devices
+are discovered/connected at runtime.
 
 ## Building Installers
 
-Each platform has a packaging script that produces a redistributable artifact:
+```bash
+./build-deb.sh
+```
 
-All three packaging scripts produce a consistently-named artifact: `openastro-phd2-<version>-<arch>.<ext>`.
+Produces `../openastro-phd2-<version>-<amd64|arm64>.deb` plus a tiny
+`../phd2-alpaca-<version>-all.deb` transitional metadata package. The internal
+package name is `openastro-phd2` (renamed from `phd2-alpaca` in 2.0.0;
+`Conflicts`/`Replaces` metadata lets dpkg handle the transition cleanly).
 
-- **Linux:** `./build-deb.sh` -> `../openastro-phd2-<version>-<amd64|arm64>.deb` plus a tiny `../phd2-alpaca-<version>-all.deb` transitional metadata package. The internal package name is `openastro-phd2` (renamed from `phd2-alpaca` in 2.0.0; `Conflicts`/`Replaces` metadata lets dpkg handle the transition cleanly). For a fresh install just use the main `.deb`; for an apt-managed upgrade from an existing `phd2-alpaca` host, `sudo apt install ./openastro-phd2-<version>-<arch>.deb ./phd2-alpaca-<version>-all.deb` pulls in the new package and lets apt retire the old name automatically.
-- **macOS:** `./build-dmg.sh` -> `tmp/openastro-phd2-<version>-arm64.dmg` (bundles every Homebrew dylib into the `.app` so end users don't need Homebrew; unsigned, so first launch requires right-click -> Open).
-- **Windows:** `.\build-exe.ps1` -> `tmp\openastro-phd2-<version>-x64.exe` (Inno Setup-driven installer that bundles every vcpkg-built dependency DLL — wxWidgets, OpenCV, curl, libINDI, cfitsio, etc. — so end users don't need vcpkg or VS runtime; unsigned, so Windows SmartScreen will warn on first launch, click "More info" -> "Run anyway"). Requires [Inno Setup 5](https://jrsoftware.org/isinfo.php) at `C:\Program Files\Inno Setup 5\ISCC.exe` (or the `(x86)` path).
+- **Fresh install:** use the main `.deb`.
+- **apt-managed upgrade** from an existing `phd2-alpaca` host:
+  `sudo apt install ./openastro-phd2-<version>-<arch>.deb ./phd2-alpaca-<version>-all.deb`
+  pulls in the new package and lets apt retire the old name automatically.
 
-**All three build scripts run the full test suite before packaging. If any test fails, no installer is produced.** Fix the failing tests, or pass `-DBUILD_TESTING=OFF` at configure time to drop the test build entirely.
+**`build-deb.sh` runs the full test suite before packaging. If any test fails,
+no `.deb` is produced.** Fix the failing tests, or pass `-DBUILD_TESTING=OFF` at
+configure time to drop the test build entirely.
 
 ## Testing
 
-The fork ships a unit-test suite under `tests/` that runs alongside the upstream Gaussian-process tests under `contributions/MPI_IS_gaussian_process/tests/`. Tests are wired into CMake's `enable_testing()`, so once you've configured a build (any of the three `run_*` scripts) you can run them via `ctest`:
+The fork ships a unit-test suite under `tests/` that runs alongside the upstream
+Gaussian-process tests under `contributions/MPI_IS_gaussian_process/tests/`.
+Tests are wired into CMake's `enable_testing()`, so once you've configured a
+build (via `run_deb.sh`) you can run them with `ctest`:
 
 ```bash
-# from the build directory (tmp/ for the run_*.sh / run_exe.bat scripts)
+# from the build directory (tmp/ for run_deb.sh)
 cd tmp
 ctest --output-on-failure                  # all tests
 ctest -R test_alpaca_schema -V             # one suite, verbose
 ctest -L "Unit tests"                      # by label
 
 # or build & run individual suites directly
-cmake --build . --target test_json_parser
-./tests/test_json_parser
+cmake --build . --target test_guiding_stats
+./tests/test_guiding_stats
 ```
 
-Currently 10 test executables (4 from upstream GP + 6 added by this fork). The fork's suites are read-only and need no devices, network, or wxWidgets - they cover the JSON parser, the event-server JSON-RPC schema downstream consumers depend on (NINA / KStars / web UI), the Alpaca client/discovery JSON contracts, the INDI subnet/scan math, the shared host:port parsing + dedupe model, and math-twin pinning of the simple guide algorithms. See `tests/README.md` for architectural notes and what's deferred.
+Currently **12 test executables** — 4 from the upstream Gaussian-process code
+plus 8 added by this fork. The fork's suites are read-only and need no devices,
+network, or wxWidgets. They cover:
+
+- the JSON parser behind every Alpaca response and inbound event-server RPC;
+- the event-server JSON-RPC message schema downstream consumers depend on
+  (NINA / KStars / web UI);
+- the Alpaca client/discovery JSON contracts;
+- the shared `host:port` parsing and dedupe model used by discovery;
+- math-twin pinning of the simple guide algorithms;
+- the guiding statistics and filters (`guiding_stats`) and the ZFilter design
+  math, linked against the real production code;
+- the polar-alignment geometry/astrometry kernels (circle fit, CoR / Alt-Az
+  decomposition, reference-star projection, J2000 precession).
+
+See [`tests/README.md`](tests/README.md) for architectural notes and what's
+deferred.
 
 ## License
 
-This project remains under the original PHD2 licensing terms. See [LICENSE.txt](LICENSE.txt) for details.
+This project remains under the original PHD2 licensing terms. See
+[LICENSE.txt](LICENSE.txt) for details.
