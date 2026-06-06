@@ -107,3 +107,29 @@ add_executable(test_guide_algorithm_math
 target_link_libraries(test_guide_algorithm_math PRIVATE phd_test_common)
 set_property(TARGET test_guide_algorithm_math PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_algorithm_math COMMAND test_guide_algorithm_math)
+
+############################################################################
+# test_guiding_stats  --  links the REAL production guiding_stats.cpp, which
+# has zero wx/Mount coupling. Exercises DescriptiveStats, the HPF/LPF
+# filters, AxisStats (incl. linear fit) and WindowedAxisStats windowing.
+############################################################################
+add_executable(test_guiding_stats
+  ${PHD_TESTS_DIR}/guiding_stats/test_guiding_stats.cpp
+  ${phd_src_dir}/guiding_stats.cpp
+)
+target_link_libraries(test_guiding_stats PRIVATE phd_test_common)
+set_property(TARGET test_guiding_stats PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guiding_stats COMMAND test_guiding_stats)
+
+############################################################################
+# test_zfilter  --  links the REAL production zfilterfactory.cpp (pure DSP
+# math, no wx coupling). Verifies filter-design invariants plus an
+# end-to-end recurrence proving unity-DC-gain low-pass behaviour.
+############################################################################
+add_executable(test_zfilter
+  ${PHD_TESTS_DIR}/zfilter/test_zfilter.cpp
+  ${phd_src_dir}/zfilterfactory.cpp
+)
+target_link_libraries(test_zfilter PRIVATE phd_test_common)
+set_property(TARGET test_zfilter PROPERTY FOLDER "Unit tests")
+add_test(NAME test_zfilter COMMAND test_zfilter)

@@ -120,7 +120,9 @@ double DescriptiveStats::GetVariance()
 // Return standard deviation of data values.
 double DescriptiveStats::GetSigma()
 {
-    if (count > 0)
+    // Sample sigma divides by (count - 1); guard count > 1 so a single value
+    // yields 0 rather than sqrt(0/0) == NaN. Mirrors GetVariance()'s guard.
+    if (count > 1)
         return sqrt(runningS / (count - 1));
     else
         return 0.;
