@@ -43,17 +43,14 @@
 #  define GUIDE_GPINT
 # endif
 # define GUIDE_ALPACA
-# define GUIDE_INDI
 
 #elif defined(__APPLE__)
 
 # define GUIDE_ALPACA
-# define GUIDE_INDI
 
 #elif defined(__linux__) || defined(__FreeBSD__)
 
 # define GUIDE_ALPACA
-# define GUIDE_INDI
 
 #endif // WINDOWS/APPLE/LINUX
 
@@ -63,8 +60,5 @@
 #include "scope_GC_USBST4.h"
 #include "scope_alpaca.h"
 #include "scope_manual_pointing.h"
-#ifdef GUIDE_INDI
-# include "scope_indi.h"
-#endif
 
 #endif /* SCOPES_H_INCLUDED */

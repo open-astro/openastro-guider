@@ -107,17 +107,3 @@ add_executable(test_guide_algorithm_math
 target_link_libraries(test_guide_algorithm_math PRIVATE phd_test_common)
 set_property(TARGET test_guide_algorithm_math PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_algorithm_math COMMAND test_guide_algorithm_math)
-
-############################################################################
-# test_indi_discovery  --  pins indi_discovery.cpp's pure integer math:
-# subnet enumeration prefix clamping, mask construction, loopback skip,
-# scan-range network/broadcast skip, and the always-add-loopback contract
-# (1.3.0 fix mirroring the Alpaca-side loopback fix). Cross-platform
-# socket calls are not exercised; the math is.
-############################################################################
-add_executable(test_indi_discovery
-  ${PHD_TESTS_DIR}/indi/test_indi_discovery.cpp
-)
-target_link_libraries(test_indi_discovery PRIVATE phd_test_common)
-set_property(TARGET test_indi_discovery PROPERTY FOLDER "Unit tests")
-add_test(NAME test_indi_discovery COMMAND test_indi_discovery)

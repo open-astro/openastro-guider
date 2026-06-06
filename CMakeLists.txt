@@ -60,7 +60,6 @@ add_custom_target(CmakeAdditionalFiles
   SOURCES
   ${PHD_PROJECT_ROOT_DIR}/thirdparty/thirdparty.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindCFITSIO.cmake
-  ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindINDI.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindNova.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2BuildDoc.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2GenerateDocScript.cmake
@@ -193,12 +192,6 @@ set(cam_SRC
   ${phd_src_dir}/cameras.h
 )
 
-# INDI camera support (all platforms; libindi client builds via vcpkg on Windows)
-list(APPEND cam_SRC
-  ${phd_src_dir}/cam_indi.cpp
-  ${phd_src_dir}/cam_indi.h
-)
-
 source_group(Cameras FILES ${cam_SRC})
 
 set(scopes_SRC
@@ -220,11 +213,6 @@ set(scopes_SRC
   ${phd_src_dir}/stepguiders.h
 )
 
-# INDI mount support (all platforms)
-list(APPEND scopes_SRC
-  ${phd_src_dir}/scope_indi.cpp
-  ${phd_src_dir}/scope_indi.h
-)
 source_group(Scopes FILES ${scopes_SRC})
 
 set(guiding_SRC
@@ -398,17 +386,6 @@ set(phd2_SRC
   ${phd_src_dir}/wxled.h
 )
 
-# INDI rotator + shared INDI config/GUI (all platforms)
-list(APPEND phd2_SRC
-    ${phd_src_dir}/rotator_indi.cpp
-    ${phd_src_dir}/rotator_indi.h
-    ${phd_src_dir}/config_indi.cpp
-    ${phd_src_dir}/config_indi.h
-    ${phd_src_dir}/indi_gui.cpp
-    ${phd_src_dir}/indi_gui.h
-    ${phd_src_dir}/indi_discovery.cpp
-    ${phd_src_dir}/indi_discovery.h
-)
 source_group(src FILES ${phd2_SRC})
 
 # Add the messages.mo directly in the project such that this triggers a new build

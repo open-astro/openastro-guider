@@ -6,15 +6,13 @@ Build-Depends: debhelper-compat (= 13),
                cmake,
                libwxgtk3.2-dev | libwxgtk3.0-dev | libwxgtk3.0-gtk3-dev,
                libcfitsio-dev,
-               libindi-dev,
                libopencv-dev,
                libv4l-dev,
-               libnova-dev,
                libcurl4-openssl-dev | libcurl4-gnutls-dev,
                libeigen3-dev,
                libgtest-dev
 Standards-Version: 4.6.2
-Homepage: https://github.com/open-astro/phd2-alpaca-indi
+Homepage: https://github.com/open-astro/openastro-guider
 
 Package: openastro-phd2
 Architecture: any
@@ -23,14 +21,13 @@ Replaces: phd2-alpaca
 Depends: ${shlibs:Depends}, ${misc:Depends},
          adduser,
          xvfb
-Suggests: indi-bin
-Description: OpenAstro PHD2 auto-guiding with ASCOM Alpaca and INDI support
+Description: OpenAstro PHD2 auto-guiding with ASCOM Alpaca support
  PHD2 is a telescope auto-guiding application designed to be easy to use
  while providing powerful, intelligent guiding. Connect your mount, your
  camera, select a star, and start guiding.
  .
- This build includes integrated ASCOM Alpaca and INDI support for controlling
- cameras, mounts, and rotators over the local network.
+ This build reaches the guide camera, mount, and rotator over ASCOM Alpaca
+ on the local network.
  .
  Runs headlessly as the openastro-phd2 system user via systemd, exposing the
  PHD2 JSON-RPC API for remote control by planetarium and capture software.

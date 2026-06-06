@@ -8,14 +8,8 @@
 # arm64. 32-bit ARM (armhf) and i386 are not supported.
 #
 # For producing an installable .deb, see build-deb.sh (the packaging script).
-# macOS is not yet supported by this script; use build/build-mac for now.
 #
 # Optional env vars:
-#   USE_SYSTEM_LIBINDI=0    fetch and build INDI 2.2.1.1 from source instead of
-#                           using the distro's libindi-dev. Default: auto —
-#                           uses the system package if pkg-config reports
-#                           libindi >= 2.0.0 (true on Trixie), otherwise
-#                           fetches from source.
 #   OPENSOURCE_ONLY=0       include proprietary camera SDKs (default: 1, none)
 #   JOBS=N                  parallelism (default: detected cores)
 #
@@ -53,12 +47,8 @@ Missing build tool: $tool
 
 On Debian 13 Trixie / Raspberry Pi OS Trixie:
   sudo apt-get install build-essential git cmake pkg-config libwxgtk3.2-dev \\
-      wx-common wx3.2-i18n libnova-dev gettext zlib1g-dev libx11-dev \\
+      wx-common wx3.2-i18n gettext zlib1g-dev libx11-dev \\
       libcurl4-gnutls-dev libopencv-dev libeigen3-dev libgtest-dev
-
-INDI 2.0+ is required. Trixie ships libindi-dev 2.x; if it's installed, the
-build links against it. Otherwise the build fetches and compiles INDI 2.2.1.1
-from source automatically (no manual setup needed).
 EOF
         exit 1
     fi
@@ -71,22 +61,8 @@ export CMAKE_BUILD_PARALLEL_LEVEL=$JOBS
 # Defaults match debian/rules so a local build matches the .deb package.
 OPENSOURCE_ONLY=${OPENSOURCE_ONLY:-1}
 
-# Auto-detect: prefer the system libindi if it's >= 2.0.0, otherwise fall back
-# to building INDI 2.2.1.1 from source. Override explicitly with USE_SYSTEM_LIBINDI=0/1.
-if [ -z "${USE_SYSTEM_LIBINDI:-}" ]; then
-    if command -v pkg-config >/dev/null 2>&1 && \
-       pkg-config --atleast-version=2.0.0 libindi 2>/dev/null; then
-        USE_SYSTEM_LIBINDI=1
-    else
-        sys_ver=$(pkg-config --modversion libindi 2>/dev/null || echo "not found")
-        echo "System libindi: $sys_ver (need >= 2.0.0); fetching INDI from source."
-        USE_SYSTEM_LIBINDI=0
-    fi
-fi
-
 CMAKE_FLAGS=(
     -Wno-dev
-    "-DUSE_SYSTEM_LIBINDI=$USE_SYSTEM_LIBINDI"
     "-DUSE_SYSTEM_GTEST=1"
     "-DOPENSOURCE_ONLY=$OPENSOURCE_ONLY"
 )

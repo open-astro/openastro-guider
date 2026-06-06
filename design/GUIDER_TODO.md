@@ -30,3 +30,13 @@ code during the strip, grouped by phase. Swept before the relevant phase closes.
   - inline `#ifdef __APPLE__` source paths: `serialport.cpp` (`SerialPortMac` branch),
     `phd.h` (`PHD_OSNAME`/PATHSEP), and the dead `#ifdef GUIDE_EQMAC|EQUINOX|VOYAGER`
     factory blocks + macro defs in `scope.cpp` / `scopes.h`.
+
+## Phase 3 — drop INDI
+- **Leftover INDI cleanup (follow-up).** `phase/3-drop-indi` removed the INDI files, macros,
+  libindi dependency, and packaging, but deferred (dead on Linux now that the macros are gone):
+  - inline `#ifdef GUIDE_INDI` / `#if defined(INDI_CAMERA)` / `#ifdef ROTATOR_INDI` factory
+    branches in `scope.cpp` / `camera.cpp` / `rotator.cpp`, the guarded `OnINDIConfig`/
+    `OnINDIDialog` decls + `MENU_INDICONFIG`/`MENU_INDIDIALOG`/`SCOPE_INDI` enum constants in
+    `myframe.h`, and the `INDIRotatorName()` helper in `rotator.cpp`.
+  - stale "shared with `INDIDiscovery`" comments in `tests/discovery/test_discovery_logic.cpp`,
+    `tests/CMakeLists.txt`, and `tests/README.md` (the parse/dedupe model is now Alpaca-only).
