@@ -173,7 +173,21 @@ wxString AlpacaClient::AppendClientInfo(const wxString& url, const wxString& par
     return full;
 }
 
-bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *errorCode)
+std::string AlpacaClient::BuildPutBody(const wxString& params)
+{
+    // Per the ASCOM Alpaca spec, PUT requests carry ClientID, ClientTransactionID
+    // and any device parameters in the application/x-www-form-urlencoded request
+    // body (not the URL query string). Always non-empty (the client IDs are
+    // always present), so PUT always sends a body.
+    wxString body = wxString::Format("ClientID=%ld&ClientTransactionID=%ld", m_clientId, NextClientTransactionId());
+    if (!params.IsEmpty())
+    {
+        body += "&" + params;
+    }
+    return std::string(body.mb_str(wxConvUTF8));
+}
+
+bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *errorCode, std::string *rawResponse)
 {
     if (!m_curl)
     {
@@ -256,6 +270,13 @@ bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *error
     }
 
     std::string responseStr = m_response.str();
+    // Hand the raw body back to the caller while we still hold the lock, so the
+    // Get* helpers can log it without touching the shared m_response buffer after
+    // the mutex is released (which would race a concurrent request on this client).
+    if (rawResponse)
+    {
+        *rawResponse = responseStr;
+    }
 
     // For curl error 18 (partial file), we might still have received a complete JSON response
     // Check if we got any data and try to parse it
@@ -525,33 +546,23 @@ bool AlpacaClient::Put(const wxString& endpoint, const wxString& params, JsonPar
     m_response.str("");
     m_response.clear();
 
-    wxString url = AppendClientInfo(BuildRequestUrl(endpoint), params);
+    wxString url = BuildRequestUrl(endpoint);
+    std::string postData = BuildPutBody(params);
 
     Debug.Write(wxString::Format("AlpacaClient PUT: %s, params: %s\n", url, params));
     curl_easy_setopt(m_curl, CURLOPT_URL, static_cast<const char *>(url.mb_str(wxConvUTF8)));
     curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, "PUT");
     curl_easy_setopt(m_curl, CURLOPT_HTTPGET, 0L);
 
-    // Send parameters in request body, not URL
+    // Alpaca PUT: ClientID/ClientTransactionID + device params go in the body
+    // (form-urlencoded), never the URL query string. BuildPutBody is always
+    // non-empty, so we always send a body.
     struct curl_slist *headers = nullptr;
-    std::string postData;
-    if (!params.IsEmpty())
-    {
-        postData = std::string(params.mb_str(wxConvUTF8));
-        curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, postData.c_str());
-        curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, postData.length());
-
-        headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
-        headers = curl_slist_append(headers, "Connection: close");
-        curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, headers);
-    }
-    else
-    {
-        curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, "");
-        curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, 0);
-        headers = curl_slist_append(nullptr, "Connection: close");
-        curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, headers);
-    }
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, postData.c_str());
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(postData.length()));
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+    headers = curl_slist_append(headers, "Connection: close");
+    curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, headers);
 
     // Retry logic for curl error 52 (server closes connection) - like NINA/ASCOM library does
     CURLcode res;
@@ -618,10 +629,11 @@ bool AlpacaClient::Put(const wxString& endpoint, const wxString& params, JsonPar
         return false;
     }
 
-    // Small delay after successful PUT to allow server to process the request
-    // This helps prevent the next GET request from failing with curl error 52
-    wxMilliSleep(100);
-
+    // (Previously slept 100 ms here to avoid the next request hitting curl error
+    // 52. That is unnecessary: every request forces a fresh connection
+    // (CURLOPT_FRESH_CONNECT/FORBID_REUSE) and the Get/Put retry loops already
+    // retry server-closed-connection errors, so the fixed per-PUT latency floor
+    // is gone.)
     std::string responseStr = m_response.str();
     if (!parser.Parse(responseStr))
     {
@@ -649,9 +661,10 @@ bool AlpacaClient::GetDouble(const wxString& endpoint, double *value, long *erro
 {
     JsonParser parser;
     long httpCode = 0;
-    if (!Get(endpoint, parser, &httpCode))
+    std::string raw;
+    if (!Get(endpoint, parser, &httpCode, &raw))
     {
-        std::string responseStr = m_response.str();
+        std::string responseStr = raw;
         Debug.Write(wxString::Format("AlpacaClient GetDouble: Get() failed for %s, HTTP %ld, response: %s\n", endpoint,
                                      httpCode, wxString(responseStr.c_str(), wxConvUTF8)));
         if (errorCode)
@@ -664,7 +677,7 @@ bool AlpacaClient::GetDouble(const wxString& endpoint, double *value, long *erro
     const json_value *root = parser.Root();
     if (!root || root->type != JSON_OBJECT)
     {
-        std::string responseStr = m_response.str();
+        std::string responseStr = raw;
         Debug.Write(wxString::Format("AlpacaClient GetDouble: Invalid JSON response for %s: %s\n", endpoint,
                                      wxString(responseStr.c_str(), wxConvUTF8)));
         if (errorCode)
@@ -790,7 +803,7 @@ bool AlpacaClient::GetDouble(const wxString& endpoint, double *value, long *erro
     }
 
     // Value field not found or wrong type
-    std::string responseStr = m_response.str();
+    std::string responseStr = raw;
     Debug.Write(wxString::Format("AlpacaClient GetDouble: 'Value' field not found or wrong type in response for %s: %s\n",
                                  endpoint, wxString(responseStr.c_str(), wxConvUTF8)));
     if (errorCode)
@@ -804,7 +817,8 @@ bool AlpacaClient::GetInt(const wxString& endpoint, int *value, long *errorCode)
 {
     JsonParser parser;
     long httpCode = 0;
-    if (!Get(endpoint, parser, &httpCode))
+    std::string raw;
+    if (!Get(endpoint, parser, &httpCode, &raw))
     {
         if (errorCode)
         {
@@ -816,7 +830,7 @@ bool AlpacaClient::GetInt(const wxString& endpoint, int *value, long *errorCode)
     const json_value *root = parser.Root();
     if (!root || root->type != JSON_OBJECT)
     {
-        std::string responseStr = m_response.str();
+        std::string responseStr = raw;
         Debug.Write(wxString::Format("AlpacaClient GetInt: Invalid JSON response for %s: %s\n", endpoint,
                                      wxString(responseStr.c_str(), wxConvUTF8)));
         if (errorCode)
@@ -943,7 +957,7 @@ bool AlpacaClient::GetInt(const wxString& endpoint, int *value, long *errorCode)
     }
 
     // Value field not found or wrong type
-    std::string responseStr = m_response.str();
+    std::string responseStr = raw;
     Debug.Write(wxString::Format("AlpacaClient GetInt: 'Value' field not found or wrong type in response for %s: %s\n",
                                  endpoint, wxString(responseStr.c_str(), wxConvUTF8)));
     if (errorCode)
@@ -957,7 +971,8 @@ bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCod
 {
     JsonParser parser;
     long httpCode = 0;
-    if (!Get(endpoint, parser, &httpCode))
+    std::string raw;
+    if (!Get(endpoint, parser, &httpCode, &raw))
     {
         if (errorCode)
         {
@@ -969,7 +984,7 @@ bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCod
     const json_value *root = parser.Root();
     if (!root || root->type != JSON_OBJECT)
     {
-        std::string responseStr = m_response.str();
+        std::string responseStr = raw;
         Debug.Write(wxString::Format("AlpacaClient GetBool: Invalid JSON response for %s: %s\n", endpoint,
                                      wxString(responseStr.c_str(), wxConvUTF8)));
         if (errorCode)
@@ -1044,7 +1059,7 @@ bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCod
     }
 
     // Value field not found or wrong type
-    std::string responseStr = m_response.str();
+    std::string responseStr = raw;
     Debug.Write(wxString::Format("AlpacaClient GetBool: 'Value' field not found or wrong type in response for %s: %s\n",
                                  endpoint, wxString(responseStr.c_str(), wxConvUTF8)));
     if (errorCode)
@@ -1063,7 +1078,8 @@ bool AlpacaClient::GetString(const wxString& endpoint, wxString *value, long *er
 
     JsonParser parser;
     long httpCode = 0;
-    if (!Get(endpoint, parser, &httpCode))
+    std::string raw;
+    if (!Get(endpoint, parser, &httpCode, &raw))
     {
         if (errorCode)
         {
@@ -1075,7 +1091,7 @@ bool AlpacaClient::GetString(const wxString& endpoint, wxString *value, long *er
     const json_value *root = parser.Root();
     if (!root || root->type != JSON_OBJECT)
     {
-        std::string responseStr = m_response.str();
+        std::string responseStr = raw;
         Debug.Write(wxString::Format("AlpacaClient GetString: Invalid JSON response for %s: %s\n", endpoint,
                                      wxString(responseStr.c_str(), wxConvUTF8)));
         if (errorCode)
@@ -1179,7 +1195,7 @@ bool AlpacaClient::GetString(const wxString& endpoint, wxString *value, long *er
         }
     }
 
-    std::string responseStr = m_response.str();
+    std::string responseStr = raw;
     Debug.Write(wxString::Format("AlpacaClient GetString: 'Value' field not found or wrong type in response for %s: %s\n",
                                  endpoint, wxString(responseStr.c_str(), wxConvUTF8)));
     if (errorCode)
@@ -1202,33 +1218,23 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
     m_response.str("");
     m_response.clear();
 
-    wxString url = AppendClientInfo(BuildRequestUrl(endpoint), params);
+    wxString url = BuildRequestUrl(endpoint);
+    std::string postData = BuildPutBody(params);
 
     Debug.Write(wxString::Format("AlpacaClient PutAction: %s, params: %s\n", url, params));
     curl_easy_setopt(m_curl, CURLOPT_URL, static_cast<const char *>(url.mb_str(wxConvUTF8)));
     curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, "PUT");
     curl_easy_setopt(m_curl, CURLOPT_HTTPGET, 0L);
 
-    // Send parameters in request body, not URL
+    // Alpaca PUT: ClientID/ClientTransactionID + device params go in the body
+    // (form-urlencoded), never the URL query string. BuildPutBody is always
+    // non-empty, so we always send a body.
     struct curl_slist *headers = nullptr;
-    std::string postData;
-    if (!params.IsEmpty())
-    {
-        postData = std::string(params.mb_str(wxConvUTF8));
-        curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, postData.c_str());
-        curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, postData.length());
-
-        headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
-        headers = curl_slist_append(headers, "Connection: close");
-        curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, headers);
-    }
-    else
-    {
-        curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, "");
-        curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, 0);
-        headers = curl_slist_append(nullptr, "Connection: close");
-        curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, headers);
-    }
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, postData.c_str());
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(postData.length()));
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+    headers = curl_slist_append(headers, "Connection: close");
+    curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, headers);
 
     // Retry logic for curl error 52 (server closes connection) - like NINA/ASCOM library does
     CURLcode res;
@@ -1290,13 +1296,8 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
                                      wxString(responseStr.c_str(), wxConvUTF8)));
     }
 
-    // Small delay after successful PUT action to allow server to process the request
-    // This helps prevent the next GET request from failing with curl error 52
-    if (httpCode == 200)
-    {
-        wxMilliSleep(100);
-    }
-
+    // (No post-PUT sleep: fresh connections + the retry loops already handle the
+    // server-closed-connection case — see the note in Put().)
     if (httpCode != 200)
     {
         return false;

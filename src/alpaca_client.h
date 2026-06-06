@@ -57,12 +57,13 @@ private:
     wxString BuildRequestUrl(const wxString& endpoint) const;
     long NextClientTransactionId();
     wxString AppendClientInfo(const wxString& url, const wxString& params);
+    std::string BuildPutBody(const wxString& params);
 
 public:
     AlpacaClient(const wxString& host, long port, long deviceNumber);
     ~AlpacaClient();
 
-    bool Get(const wxString& endpoint, JsonParser& parser, long *errorCode = nullptr);
+    bool Get(const wxString& endpoint, JsonParser& parser, long *errorCode = nullptr, std::string *rawResponse = nullptr);
     bool GetRaw(const wxString& endpoint, const wxString& acceptHeader, std::string *response, std::string *contentType,
                 long *errorCode = nullptr);
     bool Put(const wxString& endpoint, const wxString& params, JsonParser& parser, long *errorCode = nullptr);
