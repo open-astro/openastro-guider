@@ -55,6 +55,12 @@ struct Px
 // Centre + radius of the rotation circle, in sensor pixels. `valid` is false
 // for degenerate inputs (see the CircleFrom* docs); when false cx/cy/r are
 // left at 0 rather than NaN/inf, and callers must reject the result.
+//
+// Note: a valid result can still have a very large (but finite) radius for
+// near-degenerate geometry (near-collinear points, or a tiny rotation). This
+// is intentional and matches upstream PHD2: in polar alignment a well-aligned
+// mount or an off-sensor pole legitimately yields a large radius, so the
+// magnitude of r is NOT an error condition and is deliberately not capped.
 struct Circle
 {
     double cx = 0.;

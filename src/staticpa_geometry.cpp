@@ -134,7 +134,6 @@ Circle CircleFrom2PointsAndAngle(const Px& p1, const Px& p2, double radiff, int 
     double sintheta2 = std::sin(theta2);
     double lenchord = std::hypot(x1 - x2, y1 - y2);
     double cr = std::fabs(lenchord / 2.0 / sintheta2);
-    double lenbase = std::fabs(cr * std::cos(theta2));
     // Calculate the slope of the chord in pixels
     // We know the image is moving clockwise in NH and anti-clockwise in SH
     // So subtract PI/2 in NH or add PI/2 in SH to get the slope to the CoR
@@ -144,14 +143,16 @@ Circle CircleFrom2PointsAndAngle(const Px& p1, const Px& p2, double radiff, int 
         *slopebaseRadOut = slopebase;
 
     // No (sintheta2 == 0) or near-zero rotation between the two shots drives
-    // the radius to infinity (and the centre with it). Guard !isfinite rather
-    // than only the exact-zero case, so a tiny non-zero radiff can't return
-    // valid == true with r == Inf — the caller gates only on valid.
+    // the radius to infinity. Guard !isfinite rather than only the exact-zero
+    // case, so a tiny non-zero radiff can't return valid == true with r == Inf
+    // — the caller gates only on valid. Guard before computing lenbase, since
+    // lenbase = cr*cos(theta2) would be Inf*0 == NaN when cos(theta2) == 0.
     if (!std::isfinite(cr))
     {
         return Circle { 0., 0., 0., false };
     }
 
+    double lenbase = std::fabs(cr * std::cos(theta2));
     Circle out;
     out.cx = (x1 + x2) / 2.0 + lenbase * std::cos(slopebase);
     out.cy = (y1 + y2) / 2.0 - lenbase * std::sin(slopebase); // subtract for pixels
