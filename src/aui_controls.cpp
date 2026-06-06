@@ -477,6 +477,8 @@ SBGuideIndicators::SBGuideIndicators(SBPanel *panel, std::vector<int>& fldWidths
     arrow = wxIcon("SB_arrow_down_16.png", wxBITMAP_TYPE_PNG, 16, 16);
     arrowDown.CopyFromIcon(arrow);
 #else
+    // Bitmaps are set differently per #ifdef branch; an init-list move isn't clean here.
+    // cppcheck-suppress useInitializationList
     arrowLeft = (wxBITMAP_PNG_FROM_DATA(sb_arrow_left_16));
     arrowRight = wxBitmap(wxBITMAP_PNG_FROM_DATA(sb_arrow_right_16));
     arrowUp = wxBitmap(wxBITMAP_PNG_FROM_DATA(sb_arrow_up_16));
@@ -575,13 +577,13 @@ void SBGuideIndicators::UpdateState(int raDirection, int decDirection, double ra
 //
 SBStateIndicatorItem::SBStateIndicatorItem(SBPanel *panel, SBStateIndicators *host, int indField, const wxString& indLabel,
                                            SBFieldTypes indType, std::vector<int>& fldWidths)
+    : otherInfo(wxEmptyString)
 {
     m_type = indType;
     lastState = -2;
     m_parentPanel = panel;
     container = host;
     fieldId = indField;
-    otherInfo = wxEmptyString;
     int txtHeight;
     m_parentPanel->GetTextExtent(indLabel, &txtWidth, &txtHeight);
     // Use default positions for control creation - positioning is handled explicitly in PositionControls()

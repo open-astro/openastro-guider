@@ -62,7 +62,7 @@ TargetWindow::TargetWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY, wxDefa
 
     pMainSizer->Add(pLeftSizer);
 
-    wxString label = wxString::Format("%3d", m_pClient->m_length);
+    wxString label = wxString::Format("%3d", (int) m_pClient->m_length);
     m_lengthButton = new OptionsButton(this, BUTTON_GRAPH_LENGTH, label, wxDefaultPosition, wxSize(40 /*80*/, -1),
                                        wxALIGN_CENTER_HORIZONTAL);
     m_lengthButton->SetToolTip(_("Select the number of frames of history to display"));
@@ -157,7 +157,7 @@ void TargetWindow::OnButtonLength(wxCommandEvent& WXUNUSED(evt))
     unsigned int val = m_pClient->m_minLength;
     for (int id = MENU_LENGTH_BEGIN; id <= MENU_LENGTH_END; id++)
     {
-        wxMenuItem *item = menu->AppendRadioItem(id, wxString::Format("%d", val));
+        wxMenuItem *item = menu->AppendRadioItem(id, wxString::Format("%d", (int) val));
         if (val == m_pClient->m_length)
             item->Check(true);
         val *= 2;
@@ -180,7 +180,7 @@ void TargetWindow::OnMenuLength(wxCommandEvent& evt)
 
     pConfig->Global.SetInt("/target/length", val);
 
-    m_lengthButton->SetLabel(wxString::Format(_T("%3d"), val));
+    m_lengthButton->SetLabel(wxString::Format(_T("%3d"), (int) val));
     Refresh();
 }
 

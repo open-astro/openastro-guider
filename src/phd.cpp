@@ -783,6 +783,7 @@ void PhdApp::CheckLogRollover()
 
 wxString PhdApp::UserAgent() const
 {
+    // cppcheck-suppress unknownMacro  // FULLVER / PHD_OSNAME are platform #define string literals
     return _T("phd2/") FULLVER _T(" (") PHD_OSNAME _T(")");
 }
 

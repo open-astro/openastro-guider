@@ -70,10 +70,10 @@ const double Scope::DEFAULT_MOUNT_GUIDE_SPEED = 0.5;
 
 Scope::Scope()
     : m_maxDecDuration(0), m_maxRaDuration(0), m_decGuideMode(DEC_NONE), m_raLimitReachedDirection(NONE),
-      m_raLimitReachedCount(0), m_decLimitReachedDirection(NONE), m_decLimitReachedCount(0), m_bogusGuideRatesFlagged(0)
+      m_raLimitReachedCount(0), m_decLimitReachedDirection(NONE), m_decLimitReachedCount(0), m_bogusGuideRatesFlagged(0),
+      m_limitReachedDeferralTime(wxDateTime::GetTimeNow())
 {
     m_calibrationSteps = 0;
-    m_limitReachedDeferralTime = wxDateTime::GetTimeNow();
     m_graphControlPane = nullptr;
     m_CalDetailsValidated = false;
 

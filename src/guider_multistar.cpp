@@ -483,7 +483,7 @@ bool GuiderMultiStar::AutoSelect(const wxRect& roi)
         }
 
         // DEBUG OUTPUT
-        wxString buff = wxString::Format("MultiStar: List (%d): ", m_guideStars.size());
+        wxString buff = wxString::Format("MultiStar: List (%d): ", (int) m_guideStars.size());
         for (auto pGS = m_guideStars.begin(); pGS != m_guideStars.end(); ++pGS)
         {
             buff += wxString::Format("{%0.2f, %0.2f}(%0.1f), ", pGS->X, pGS->Y, pGS->SNR);
@@ -1342,7 +1342,7 @@ wxString GuiderMultiStar::GetSettingsSummary() const
         s += _T("disabled");
 
     if (m_multiStarMode)
-        s += wxString::Format(_T(", Multi-star mode, list size = %d\n "), m_guideStars.size());
+        s += wxString::Format(_T(", Multi-star mode, list size = %d\n "), (int) m_guideStars.size());
     else
         s += ", Single-star mode\n";
     return s;

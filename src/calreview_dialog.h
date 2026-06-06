@@ -98,6 +98,8 @@ private:
     void OnRestore(wxCommandEvent& evt);
     void SaveBlockingOptions();
     void BuildMessage(wxStaticText *pText, CalibrationIssueType etype);
+    // Intentionally redefines the base dialog's ShutDown for this subclass.
+    // cppcheck-suppress duplInheritedMember
     void ShutDown();
     wxCheckBox *m_pBlockThis = nullptr;
     Calibration m_newParams;

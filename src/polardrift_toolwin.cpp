@@ -420,8 +420,8 @@ bool PolarDriftToolWin::WatchDrift()
     m_target = PHD_Point(m_current.X + m_offset * cos(radians(m_alpha)), m_current.Y + m_offset * (sin(radians(m_alpha))));
 
     Debug.AddLine(wxString::Format("Polar Drift: m_hemi %d m_mirror %d m_pxScale %.1f", m_hemi, m_mirror, m_pxScale));
-    Debug.AddLine(wxString::Format("Polar Drift: m_num %d m_t0 %.1f tnow %.1f m_current(X,Y): %.1f,%.1f", m_num, m_t0, tnow,
-                                   m_current.X, m_current.Y));
+    Debug.AddLine(wxString::Format("Polar Drift: m_num %d m_t0 %.1f tnow %.1f m_current(X,Y): %.1f,%.1f", (int) m_num, m_t0,
+                                   tnow, m_current.X, m_current.Y));
     Debug.AddLine(wxString::Format("Polar Drift: slope(X,Y) %.4f,%.4f m_offset %.1f theta %.1f m_alpha %.1f", xslope, yslope,
                                    m_offset, theta, m_alpha));
     Debug.AddLine(wxString::Format("Polar Drift: m_target(X,Y) %.1f,%.1f", m_target.X, m_target.Y));

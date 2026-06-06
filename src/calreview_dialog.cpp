@@ -817,6 +817,7 @@ void CalSanityDialog::OnRestore(wxCommandEvent& evt)
 }
 
 // Force a destroy on the dialog right away
+// cppcheck-suppress duplInheritedMember
 void CalSanityDialog::ShutDown()
 {
     SaveBlockingOptions();

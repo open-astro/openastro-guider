@@ -141,8 +141,8 @@ bool GuideAlgorithmZFilter::BuildFilter()
         m_xcoeff = m_pFactory->xcoeffs;
         m_ycoeff = m_pFactory->ycoeffs;
 
-        Debug.Write(wxString::Format("GuideAlgorithmZFilter::type=%s order=%d, corner=%lf, gain=%lg\n", m_pFactory->getname(),
-                                     m_order, m_pFactory->corner(), m_gain));
+        Debug.Write(wxString::Format("GuideAlgorithmZFilter::type=%s order=%d, corner=%lf, gain=%lg\n",
+                                     m_pFactory->getname().c_str(), m_order, m_pFactory->corner(), m_gain));
         wxString msg = wxString::Format("GuideAlgorithmZFilter::m_xcoeffs:");
         for (int it = 0; it < m_xcoeff.size(); it++)
         {
@@ -254,7 +254,7 @@ bool GuideAlgorithmZFilter::SetParam(const wxString& name, double val)
 wxString GuideAlgorithmZFilter::GetSettingsSummary() const
 {
     // return a loggable summary of current mount settings
-    return wxString::Format("Type=%s-%d, Exp-factor=%.1f, Minimum move = %.3f\n", m_pFactory->getname(), m_order,
+    return wxString::Format("Type=%s-%d, Exp-factor=%.1f, Minimum move = %.3f\n", m_pFactory->getname().c_str(), m_order,
                             m_pFactory->corner() / 4.0, GetMinMove());
 }
 

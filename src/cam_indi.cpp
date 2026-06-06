@@ -187,11 +187,10 @@ public:
     bool Capture(usImage& img, const CaptureParams& captureParams) override;
 };
 
-CameraINDI::CameraINDI() : sync_cond(sync_lock), m_lastFrame_cond(m_lastFrame_lock), m_gui(nullptr)
+CameraINDI::CameraINDI()
+    : sync_cond(sync_lock), m_lastFrame_cond(m_lastFrame_lock), m_gui(nullptr), stacking(false), modal(false)
 {
     m_lastFrame = nullptr;
-    stacking = false;
-    modal = false;
     ClearStatus();
     // load the values from the current profile
     INDIhost = pConfig->Profile.GetString("/indi/INDIhost", _T("localhost"));
@@ -962,7 +961,7 @@ bool CameraINDI::StackStream(CapturedFrame *cf)
     if (cf->m_size != StackImg->NPixels)
     {
         Debug.Write(
-            wxString::Format("INDI Camera: discarding blob with size %d, expected %u\n", cf->m_size, StackImg->NPixels));
+            wxString::Format("INDI Camera: discarding blob with size %d, expected %u\n", (int) cf->m_size, StackImg->NPixels));
         return true;
     }
 

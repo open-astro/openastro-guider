@@ -41,10 +41,8 @@
 # include "alpaca_client.h"
 # include <wx/stopwatch.h>
 
-ScopeAlpaca::ScopeAlpaca()
+ScopeAlpaca::ScopeAlpaca() : m_client(nullptr), m_host(pConfig->Profile.GetString("/alpaca/host", _T("localhost")))
 {
-    m_client = nullptr;
-    m_host = pConfig->Profile.GetString("/alpaca/host", _T("localhost"));
     m_port = pConfig->Profile.GetLong("/alpaca/port", 0);
     m_deviceNumber = pConfig->Profile.GetLong("/alpaca/telescope_device", 0);
     m_Name = wxString::Format("Alpaca Mount [%s:%ld/%ld]", m_host, m_port, m_deviceNumber);

@@ -219,6 +219,8 @@ public:
         }
     }
 
+    // Intentionally extends PHD_Point::SetXY (calls super then re-bases the shift).
+    // cppcheck-suppress duplInheritedMember
     void SetXY(double x, double y)
     {
         super::SetXY(x, y);

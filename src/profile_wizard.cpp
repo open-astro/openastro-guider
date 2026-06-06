@@ -160,7 +160,7 @@ private:
 public:
     bool m_launchDarks;
     wxString ChooseCamDeviceId(GuideCamera *pCam);
-    wxString GetCamDeviceId() { return m_camDeviceId; }
+    const wxString& GetCamDeviceId() const { return m_camDeviceId; }
     void ResetCamDeviceId();
     int NumCamerasFound() { return m_cameraIds.Count(); }
     ProfileWizard(wxWindow *parent, bool showGreeting);

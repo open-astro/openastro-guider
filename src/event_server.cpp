@@ -5066,7 +5066,7 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
         return http_response(200, "text/html; charset=utf-8", body);
     }
 
-    if (req.method == "GET" && req.path.find("/assets/") == 0)
+    if (req.method == "GET" && req.path.starts_with("/assets/"))
     {
         wxString rel = url_decode(req.path.substr(strlen("/assets/")));
         if (rel.Contains("..") || rel.StartsWith("/") || rel.StartsWith("\\"))
@@ -5154,7 +5154,7 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
     if (req.method == "POST" && req.path == "/api/rpc")
     {
         JsonParser parser;
-        if (!parser.Parse(req.body.c_str()))
+        if (!parser.Parse(req.body))
         {
             JObj out;
             out << NV("ok", false) << NV("error", parser_error(parser));

@@ -393,11 +393,7 @@ struct AutoConfigPath
     wxConfigBase *m_cfg;
     wxString m_savePath;
 
-    AutoConfigPath(wxConfigBase *cfg, const wxString& path) : m_cfg(cfg)
-    {
-        m_savePath = cfg->GetPath();
-        cfg->SetPath(path);
-    }
+    AutoConfigPath(wxConfigBase *cfg, const wxString& path) : m_cfg(cfg), m_savePath(cfg->GetPath()) { cfg->SetPath(path); }
     ~AutoConfigPath() { m_cfg->SetPath(m_savePath); }
 };
 
@@ -881,7 +877,7 @@ static void WriteVal(wxTextOutputStream& os, wxConfigBase *cfg, const wxString& 
     {
         long val = 0;
         (void) cfg->Read(key, &val);
-        sval = wxString::Format("%lu", val);
+        sval = wxString::Format("%ld", val);
         break;
     }
     case wxConfigBase::Type_Float:

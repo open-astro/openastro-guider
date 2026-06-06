@@ -290,6 +290,7 @@ void GuidingLog::EnableLogging()
         assert(m_file.IsOpened());
 
         m_file.Write("OpenAstro Alpaca Support\n");
+        // cppcheck-suppress unknownMacro  // FULLVER / PHD_OSNAME are platform #define string literals
         m_file.Write(_T("PHD2 version ") FULLVER _T(" [") PHD_OSNAME _T("]")
                      _T(", Log version ") GUIDELOG_VERSION _T(". Log enabled at ") +
                      logFileTime.Format(_T("%Y-%m-%d %H:%M:%S")) + "\n");

@@ -856,11 +856,7 @@ void LogUploadDialog::OnColSort(wxGridEvent& event)
 struct AutoChdir
 {
     wxString m_prev;
-    AutoChdir(const wxString& dir)
-    {
-        m_prev = wxFileName::GetCwd();
-        wxFileName::SetCwd(dir);
-    }
+    AutoChdir(const wxString& dir) : m_prev(wxFileName::GetCwd()) { wxFileName::SetCwd(dir); }
     ~AutoChdir() { wxFileName::SetCwd(m_prev); }
 };
 
@@ -1264,7 +1260,7 @@ void LogUploadDialog::ExecUpload()
     if (ok)
     {
         std::string s(upload.m_response.str());
-        Debug.Write(wxString::Format("Upload log: server response: %s\n", s));
+        Debug.Write(wxString::Format("Upload log: server response: %s\n", s.c_str()));
 
         JsonParser parser;
         if (parser.Parse(s))
