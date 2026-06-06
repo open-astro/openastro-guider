@@ -91,6 +91,26 @@ TEST(PaGeometry, CircleFrom2PointsAndAngleZeroRotationIsInvalid)
     EXPECT_EQ(c.r, 0.0);
 }
 
+TEST(PaGeometry, CircleFrom2PointsAndAngleNearZeroRotationNeverInfiniteWhenValid)
+{
+    // A tiny but non-zero rotation must not slip through as valid with r == Inf.
+    // Invariant: valid implies a finite, on-circle result.
+    Px p1 { 100., 120. }, p2 { 180., 90. };
+    for (double rad : { 1e-3, 1e-7, 1e-12, 1e-300 })
+    {
+        Circle c = CircleFrom2PointsAndAngle(p1, p2, rad, 1);
+        if (c.valid)
+        {
+            // A small rotation legitimately gives a huge (but finite) radius;
+            // the guard only has to keep Inf out of the valid path. Use a
+            // relative tolerance for the on-circle check since r can be ~1e5.
+            EXPECT_TRUE(std::isfinite(c.r)) << "radiff=" << rad;
+            EXPECT_GT(c.r, 0.0) << "radiff=" << rad;
+            EXPECT_NEAR(dist(p1, c.cx, c.cy), c.r, 1e-6 * c.r) << "radiff=" << rad;
+        }
+    }
+}
+
 TEST(PaGeometry, CircleFrom3PointsNearCollinearNeverReturnsNaNWhenValid)
 {
     // Near-collinear (but not exactly collinear) points drive m11 toward zero,

@@ -132,15 +132,6 @@ Circle CircleFrom2PointsAndAngle(const Px& p1, const Px& p2, double radiff, int 
     // Alternative algorithm based on two points and angle rotated
     double theta2 = radiff / 2.0; // Half the image rotation for midpoint of chord
     double sintheta2 = std::sin(theta2);
-    if (sintheta2 == 0.)
-    {
-        // No (or full 2*pi) rotation between the two shots: radius undefined.
-        Circle out;
-        out.valid = false;
-        if (slopebaseRadOut)
-            *slopebaseRadOut = 0.;
-        return out;
-    }
     double lenchord = std::hypot(x1 - x2, y1 - y2);
     double cr = std::fabs(lenchord / 2.0 / sintheta2);
     double lenbase = std::fabs(cr * std::cos(theta2));
@@ -149,13 +140,26 @@ Circle CircleFrom2PointsAndAngle(const Px& p1, const Px& p2, double radiff, int 
     // So subtract PI/2 in NH or add PI/2 in SH to get the slope to the CoR
     // Invert y values as pixels are +ve downwards
     double slopebase = std::atan2(y1 - y2, x2 - x1) - hemi * M_PI / 2.0;
+    if (slopebaseRadOut)
+        *slopebaseRadOut = slopebase;
+
+    // No (sintheta2 == 0) or near-zero rotation between the two shots drives
+    // the radius to infinity (and the centre with it). Guard !isfinite rather
+    // than only the exact-zero case, so a tiny non-zero radiff can't return
+    // valid == true with r == Inf — the caller gates only on valid.
+    if (!std::isfinite(cr))
+    {
+        return Circle { 0., 0., 0., false };
+    }
 
     Circle out;
     out.cx = (x1 + x2) / 2.0 + lenbase * std::cos(slopebase);
     out.cy = (y1 + y2) / 2.0 - lenbase * std::sin(slopebase); // subtract for pixels
     out.r = cr;
-    if (slopebaseRadOut)
-        *slopebaseRadOut = slopebase;
+    if (!std::isfinite(out.cx) || !std::isfinite(out.cy))
+    {
+        return Circle { 0., 0., 0., false };
+    }
     return out;
 }
 
