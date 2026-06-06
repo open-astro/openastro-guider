@@ -694,8 +694,11 @@ void StaticPaToolWin::CalcRotationCentre(void)
         double radiff = norm_angle(radians((m_raPos[0] - m_raPos[1]) * 15.0 * m_hemi));
         double slopebase = 0.;
         cor = staticpa_geom::CircleFrom2PointsAndAngle({ x1, y1 }, { x2, y2 }, radiff, m_hemi, &slopebase);
-        Debug.AddLine(wxString::Format("StaticPA CalcCoR: radiff(deg): %.1f; cr: %.1f; slopebase(deg) %.1f", degrees(radiff),
-                                       cor.r, degrees(slopebase)));
+        // Only log the computed radius when the circle is valid; for degenerate
+        // input cor.r is the zeroed sentinel and would misleadingly read 0.0.
+        if (cor.valid)
+            Debug.AddLine(wxString::Format("StaticPA CalcCoR: radiff(deg): %.1f; cr: %.1f; slopebase(deg) %.1f",
+                                           degrees(radiff), cor.r, degrees(slopebase)));
     }
     if (!cor.valid)
     {
