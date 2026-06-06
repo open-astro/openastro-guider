@@ -63,9 +63,9 @@ public:
     double GetSum(); // Sum of all added vars
     double GetMinimum(); // Returns the min value
     double GetMaximum(); // Returns the max value
-    // NB: returns the raw accumulated sum of squared deviations (Knuth's S),
-    // NOT S/(n-1) or S/n. "Variance" here is the unnormalized numerator;
-    // GetSigma()/GetPopulationSigma() apply the /(n-1) and /n divisors.
+    // Sample variance: Knuth's accumulated S divided by (n-1), so
+    // GetSigma() == sqrt(GetVariance()) and the contract matches
+    // AxisStats::GetVariance(). Returns 0 for n <= 1.
     double GetVariance();
     double GetSigma(); // Returns the standard deviation
     double GetPopulationSigma(); // Population sigma ('n' vs 'n-1')
