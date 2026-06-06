@@ -62,6 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Static-analysis "real bug" findings from the cppcheck audit (#5): a `wxString::Format` debug log in `staticpa_toolwin.cpp` whose format string had four conversions but only three arguments (read past the argument list — UB); a `*correction` write in `backlash_comp.cpp` that assigned to the pointer parameter (`correction = 0`) instead of the pointed-to value; a dead `pNewFrame = NULL` self-assignment-to-parameter in `myframe_events.cpp` (ownership note kept on the `UpdateGuideState` call); and two `return err` statements in `camera.cpp` that always returned `false` (made the success path explicit). All behavior-neutral except the format-string fix.
 - Stripped a stray UTF-8 BOM from `.clang-format` so the new invisible-Unicode scan is clean (and the file no longer carries a needless byte-order mark).
 
+### Fixed
+- `AlpacaClient` PUT requests no longer duplicate parameters across the URL and the body, and now carry the client identifiers where the ASCOM Alpaca spec requires them. Previously `Put`/`PutAction` appended `ClientID`/`ClientTransactionID` to the URL query string *and* sent the device params in both the URL and the form body — strict Alpaca servers can reject that. A new `BuildPutBody()` helper assembles a single `application/x-www-form-urlencoded` body containing `ClientID` + `ClientTransactionID` + the device params, and the request URL no longer carries any query parameters.
+- Removed the unconditional `wxMilliSleep(100)` after every successful `AlpacaClient` PUT/PutAction. It was a hard 100 ms latency floor on *every* write (including guide pulses); it's unnecessary because every request already forces a fresh connection (`CURLOPT_FRESH_CONNECT`/`FORBID_REUSE`) and the GET/PUT retry loops already retry server-closed-connection errors.
+- Fixed a data race in `AlpacaClient::GetDouble`/`GetInt`/`GetBool`/`GetString`: they read the shared `m_response` stringstream for their debug/error logging *after* `Get()` had released `m_mutex`, so a concurrent request on the same client (e.g. a guide-thread pulse racing a main-thread status query) could clear/rewrite the buffer mid-read (UB). `Get()` now hands the raw response back via a new optional `rawResponse` out-param captured under the lock, and the helpers log from that local copy.
+- `CURLOPT_POSTFIELDSIZE` is now passed a `long` (via `static_cast`) instead of a `size_t`, removing a narrowing conversion in the PUT path.
+
 ## [2.0.0] - 2026-05-15
 
 ### Added
