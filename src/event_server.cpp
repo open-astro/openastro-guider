@@ -43,6 +43,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <algorithm>
+#include <atomic>
 #include <sstream>
 #include <string.h>
 
@@ -410,7 +411,10 @@ struct ClientReadBuf
 struct ClientData
 {
     wxSocketClient *cli;
-    int refcnt;
+    // Atomic so AddRef/RemoveRef stay correct if a future change ever touches the
+    // refcount off the main (socket-event) thread; safe and free in the current
+    // single-thread model.
+    std::atomic<int> refcnt;
     ClientReadBuf rdbuf;
     wxMutex wrlock;
 
@@ -543,7 +547,7 @@ static void send_catchup_events(wxSocketClient *cli)
     else if (st == EXPOSED_STATE_CALIBRATING)
     {
         Mount *mount = pMount;
-        if (pFrame->pGuider->GetState() == STATE_CALIBRATING_SECONDARY)
+        if (pFrame->pGuider && pFrame->pGuider->GetState() == STATE_CALIBRATING_SECONDARY)
             mount = pSecondaryMount;
         do_notify1(cli, ev_start_calibration(mount));
     }
@@ -965,7 +969,7 @@ struct NVRaw
 struct HttpClientData
 {
     wxSocketClient *cli;
-    int refcnt;
+    std::atomic<int> refcnt; // atomic for the same reason as ClientData::refcnt
     wxMutex wrlock;
     std::string recvbuf;
 

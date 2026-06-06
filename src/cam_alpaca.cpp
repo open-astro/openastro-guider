@@ -991,6 +991,17 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
             }
         }
 
+        // A camera with a hardware subframe set may return either the ROI
+        // (Alpaca StartX/StartY/NumX/NumY) or the full frame; detect which from
+        // the returned dimensions so pixels land at the right absolute position.
+        const bool roiSized =
+            takeSubframe && width == static_cast<std::uint32_t>(roi.width) && height == static_cast<std::uint32_t>(roi.height);
+        if (takeSubframe)
+        {
+            Debug.Write(wxString::Format("Alpaca Camera: subframe %dx%d, server returned %ux%u (%s)\n", roi.width, roi.height,
+                                         width, height, roiSized ? "ROI" : "full-frame"));
+        }
+
         const unsigned char *ptr = reinterpret_cast<const unsigned char *>(payload.data() + dataStart);
         for (std::uint32_t x = 0; x < width; ++x)
         {
@@ -1027,10 +1038,14 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
 
                 if (takeSubframe)
                 {
-                    if (y >= static_cast<std::uint32_t>(roi.y) && y < static_cast<std::uint32_t>(roi.y + roi.height) &&
-                        x >= static_cast<std::uint32_t>(roi.x) && x < static_cast<std::uint32_t>(roi.x + roi.width))
+                    // ROI-sized data is indexed ROI-local, so shift to absolute
+                    // frame coordinates; full-frame data is already absolute and
+                    // we keep only the ROI pixels.
+                    int destX = roiSized ? roi.x + static_cast<int>(x) : static_cast<int>(x);
+                    int destY = roiSized ? roi.y + static_cast<int>(y) : static_cast<int>(y);
+                    if (destY >= roi.y && destY < roi.y + roi.height && destX >= roi.x && destX < roi.x + roi.width)
                     {
-                        unsigned short *dataptr = img.ImageData + y * img.Size.GetWidth() + x;
+                        unsigned short *dataptr = img.ImageData + destY * img.Size.GetWidth() + destX;
                         *dataptr = static_cast<unsigned short>(value);
                     }
                 }
@@ -1171,21 +1186,28 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
             img.Clear();
             img.Subframe = roi;
 
-            // Copy image data from JSON array - subframe case
-            // Iterate over ROI region in the full image
+            // Copy image data from JSON array - subframe case. The server may
+            // return either the ROI (StartX/StartY/NumX/NumY) or the full frame;
+            // detect which from the returned dimensions and map each pixel to its
+            // absolute position in the full-frame buffer.
+            const bool roiSized = (imageWidth == roi.width && imageHeight == roi.height);
+            Debug.Write(wxString::Format("Alpaca Camera: subframe %dx%d, server returned %dx%d (%s)\n", roi.width, roi.height,
+                                         imageWidth, imageHeight, roiSized ? "ROI" : "full-frame"));
             const json_value *row = valueArray->first_child;
             int y = 0;
             while (row && y < imageHeight)
             {
-                if (y >= roi.y && y < roi.y + roi.height && row->type == JSON_ARRAY)
+                int destRow = roiSized ? roi.y + y : y;
+                if (destRow >= roi.y && destRow < roi.y + roi.height && row->type == JSON_ARRAY)
                 {
                     const json_value *elem = row->first_child;
                     int x = 0;
-                    unsigned short *dataptr = img.ImageData + (y - roi.y + roi.y) * img.Size.GetWidth() + roi.x;
                     while (elem && x < imageWidth)
                     {
-                        if (x >= roi.x && x < roi.x + roi.width)
+                        int destCol = roiSized ? roi.x + x : x;
+                        if (destCol >= roi.x && destCol < roi.x + roi.width)
                         {
+                            unsigned short *dataptr = img.ImageData + destRow * img.Size.GetWidth() + destCol;
                             if (elem->type == JSON_INT)
                             {
                                 *dataptr = static_cast<unsigned short>(elem->int_value);
@@ -1194,7 +1216,6 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
                             {
                                 *dataptr = static_cast<unsigned short>(elem->float_value);
                             }
-                            dataptr++;
                         }
                         elem = elem->next_sibling;
                         x++;
