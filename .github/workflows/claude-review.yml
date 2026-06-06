@@ -86,9 +86,10 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          # gh's built-in --jq (gojq) does not support jq's --arg flag; read the
+          # SHA inside the filter via the `env` builtin instead.
           verdict=$(gh api "repos/${REPO}/issues/${PR}/comments" \
-            --jq --arg sha "${SHA}" \
-            '[.[] | select(.body | contains("Reviewed-commit: " + $sha))] | last | .body // ""')
+            --jq '[.[] | select(.body | contains("Reviewed-commit: " + env.SHA))] | last | .body // ""')
           if [ -z "${verdict}" ]; then
             echo "::error::No Claude review for commit ${SHA}. The review step produced no verdict for this commit (false-green guard tripped)."
             exit 1
