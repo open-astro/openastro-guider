@@ -163,3 +163,17 @@ add_executable(test_guide_algorithm_lowpass
 target_link_libraries(test_guide_algorithm_lowpass PRIVATE phd_test_common)
 set_property(TARGET test_guide_algorithm_lowpass PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_algorithm_lowpass COMMAND test_guide_algorithm_lowpass)
+
+############################################################################
+# test_calibration_transform  --  links the REAL production
+# calibration_transform.cpp, the camera<->mount coordinate transforms
+# extracted from Mount. No wx coupling. Verifies the rotation/skew math via
+# round-trip, length-preservation, known-rotation and sign-flip invariants.
+############################################################################
+add_executable(test_calibration_transform
+  ${PHD_TESTS_DIR}/calibration/test_calibration_transform.cpp
+  ${phd_src_dir}/calibration_transform.cpp
+)
+target_link_libraries(test_calibration_transform PRIVATE phd_test_common)
+set_property(TARGET test_calibration_transform PROPERTY FOLDER "Unit tests")
+add_test(NAME test_calibration_transform COMMAND test_calibration_transform)
