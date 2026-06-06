@@ -50,6 +50,32 @@ code during the strip, grouped by phase. Swept before the relevant phase closes.
   - stale "shared with `INDIDiscovery`" comments in `tests/discovery/test_discovery_logic.cpp`,
     `tests/CMakeLists.txt`, and `tests/README.md` (the parse/dedupe model is now Alpaca-only).
 
+## Phase 4 — headless run mode (deferred items)
+Headless-by-default + the systemd unit landed; these are the deliberate follow-ups:
+- **systemd sandboxing.** The unit runs as a dedicated `openastro-phd2` user but has no
+  sandboxing directives. Add `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`,
+  `PrivateTmp`, `ReadWritePaths=/var/lib/openastro-phd2` (and verify it still reaches the
+  network for Alpaca + can start Xvfb). Held out of the Phase-4 PR to keep it small/safe.
+- **Vestigial `plugdev`/`dialout` grants.** `debian/openastro-phd2.postinst` adds the service
+  user to `plugdev`/`dialout` "for USB camera/guide port access," but this fork is Alpaca-only
+  (network) and the local serial/USB guide backends were deleted in the dead-code cleanup, so
+  the grants now protect nothing. Drop them (likely alongside the hardening pass).
+- **Dead `*_indi_*` JSON-RPC methods.** `get_indi_server`/`set_indi_server` and the
+  `get/set_selected_indi_*_driver` methods remain in `event_server.cpp` after the INDI drop
+  (Phase 3) — they reference no live backend. Remove or stub once ARA's method usage is pinned.
+
+## Phase 5 — API gap-fill (planned)
+- **Advanced/"Brain" settings over RPC.** The ~95 existing methods cover equipment, profiles,
+  dark library, algo params, and guide/dither/calibrate, but the Advanced Settings dialog
+  surface (global guiding params, calibration step, star-mass detection, camera gain/timeout,
+  etc.) isn't fully exposed. Audit the Advanced dialog → map each control to an existing or new
+  method on the shared dispatch (so both `:4400` and `/api/rpc` gain it); log each in
+  `design/API_CONTRACT.md`. This is what lets ARA fully drive the app.
+- **Web-UI UX rework** (`scripts/webui/index.html`) — functional but poor UX; revisit once the
+  API is complete (or let ARA supersede it).
+- **NINA plugin** (future) — configure settings through a plugin while guiding runs through the
+  main NINA app over `:4400`.
+
 ## Resolved — dead-code cleanup
 The dead-platform cleanups are **done**, in two passes:
 

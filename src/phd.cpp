@@ -61,8 +61,10 @@ int YWinSize = 512;
 
 static const wxCmdLineEntryDesc cmdLineDesc[] = {
     { wxCMD_LINE_SWITCH, "?", "help", "display this help and exit" },
-    { wxCMD_LINE_SWITCH, "H", "headless", "run without showing the main GUI window (server forced on)" },
-    { wxCMD_LINE_SWITCH, "A", "headless-auto-connect", "with --headless, auto-connect currently selected equipment" },
+    { wxCMD_LINE_SWITCH, "g", "gui", "show the GUI window (default is headless)" },
+    { wxCMD_LINE_SWITCH, "a", "auto-connect", "auto-connect the selected equipment on startup" },
+    { wxCMD_LINE_SWITCH, "H", "headless", "deprecated: headless is now the default (accepted for compatibility)" },
+    { wxCMD_LINE_SWITCH, "A", "headless-auto-connect", "deprecated alias for --auto-connect" },
     { wxCMD_LINE_OPTION, "i", "instanceNumber", "sets the PHD2 instance number (default = 1)", wxCMD_LINE_VAL_NUMBER,
       wxCMD_LINE_PARAM_OPTIONAL },
     { wxCMD_LINE_OPTION, "l", "load", "load settings from file and exit", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
@@ -99,7 +101,7 @@ struct ExecFuncThreadEvent : public wxThreadEvent
 PhdApp::PhdApp()
 {
     m_resetConfig = false;
-    m_headless = false;
+    m_headless = true; // headless is the default run mode; --gui opts into the window
     m_headlessAutoConnect = false;
     m_instanceNumber = 1;
     XInitThreads();
@@ -462,10 +464,11 @@ bool PhdApp::OnCmdLineParsed(wxCmdLineParser& parser)
     }
 
     (void) parser.Found("i", &m_instanceNumber);
-    m_headless = parser.Found("headless");
-    m_headlessAutoConnect = parser.Found("headless-auto-connect");
-    if (m_headlessAutoConnect)
-        m_headless = true;
+    // Headless is the default run mode for the guiding daemon; pass --gui to
+    // show the window for local debugging. --headless is still accepted (now a
+    // no-op) so existing scripts/units don't break.
+    m_headless = !parser.Found("gui");
+    m_headlessAutoConnect = parser.Found("auto-connect") || parser.Found("headless-auto-connect");
 
     if (parser.Found("l", &s_configPath))
         s_configOp = CONFIG_OP_LOAD;
