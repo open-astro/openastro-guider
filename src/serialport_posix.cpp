@@ -34,12 +34,10 @@
 
 #include "phd.h"
 
-#if defined(__linux__)
-
-# include <termios.h>
-# include <unistd.h>
-# include <sys/ioctl.h>
-# include <errno.h>
+#include <termios.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <errno.h>
 
 wxArrayString SerialPortPosix::GetSerialPortList(void)
 {
@@ -89,11 +87,6 @@ bool SerialPortPosix::Connect(const wxString& portName, int baud, int dataBits, 
             wxString errorWxs = wxString::Format("tcgetattr failed %s(%d)", strerror((int) errno), (int) errno);
             throw ERROR_INFO("SerialPortPosix::Connect " + errorWxs);
         }
-
-# if defined(__APPLE__)
-        m_originalAttrs = attr;
-        cfmakeraw(&attr);
-# endif
 
         attr.c_iflag = 0; // input modes
         attr.c_oflag = 0; // output modes
@@ -215,16 +208,6 @@ bool SerialPortPosix::Disconnect(void)
 
     try
     {
-# if defined(__APPLE__)
-        if (tcdrain(m_fd) == -1)
-        {
-            fprintf(stderr, "Error waiting for drain - %s(%d).\n", strerror(errno), errno);
-        }
-        if (tcsetattr(m_fd, TCSANOW, &m_originalAttrs) == -1)
-        {
-            fprintf(stderr, "Error resetting tty attributes - %s(%d).\n", strerror(errno), errno);
-        }
-# endif
         if (close(m_fd) == -1)
         {
             throw ERROR_INFO("SerialPortPosix: close failed");
@@ -348,5 +331,3 @@ bool SerialPortPosix::SetDTR(bool asserted)
 {
     return true; // TODO
 }
-
-#endif // __linux__
