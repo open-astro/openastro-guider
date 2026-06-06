@@ -83,12 +83,7 @@ TargetWindow::TargetWindow(wxWindow *parent) : wxWindow(parent, wxID_ANY, wxDefa
 
     m_enableRefCircle = new wxCheckBox(this, TARGET_ENABLE_REF_CIRCLE, _("Reference Circle"));
     m_enableRefCircle->SetToolTip(_("Check to display a reference circle"));
-#if defined(__WXOSX__)
-    // workaround inability to set checkbox foreground color
-    m_enableRefCircle->SetBackgroundColour(wxColor(200, 200, 200));
-#else
     m_enableRefCircle->SetForegroundColour(*wxLIGHT_GREY);
-#endif
 
     wxStaticText *lbl = new wxStaticText(this, wxID_ANY, _("Radius:"));
     lbl->SetForegroundColour(*wxLIGHT_GREY);

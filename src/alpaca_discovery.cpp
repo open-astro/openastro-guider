@@ -38,40 +38,25 @@
 #include <vector>
 #include <cstring>
 
-#ifdef _WIN32
-# include <winsock2.h>
-# include <ws2tcpip.h>
-# include <iphlpapi.h>
-#else
-# include <sys/socket.h>
-# include <netinet/in.h>
-# include <arpa/inet.h>
-# include <ifaddrs.h>
-# include <net/if.h>
-# include <unistd.h>
-# include <fcntl.h>
-# include <errno.h>
-#endif
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 // Alpaca discovery protocol constants
 static const unsigned int ALPACA_DISCOVERY_PORT = 32227;
 static const char *ALPACA_DISCOVERY_MESSAGE = "alpacadiscovery1";
 
-#ifdef _WIN32
-static wxString AddrToString(const in_addr& addr)
-{
-    char buf[INET_ADDRSTRLEN] = { 0 };
-    InetNtopA(AF_INET, const_cast<in_addr *>(&addr), buf, INET_ADDRSTRLEN);
-    return wxString(buf, wxConvUTF8);
-}
-#else
 static wxString AddrToString(const in_addr& addr)
 {
     char buf[INET_ADDRSTRLEN] = { 0 };
     inet_ntop(AF_INET, &addr, buf, INET_ADDRSTRLEN);
     return wxString(buf, wxConvUTF8);
 }
-#endif
 
 static std::vector<sockaddr_in> BuildBroadcastTargets()
 {
@@ -99,44 +84,6 @@ static std::vector<sockaddr_in> BuildBroadcastTargets()
 
     addTarget(INADDR_BROADCAST);
 
-#ifdef _WIN32
-    ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
-    ULONG size = 0;
-    ULONG ret = GetAdaptersAddresses(AF_INET, flags, nullptr, nullptr, &size);
-    if (ret == ERROR_BUFFER_OVERFLOW)
-    {
-        std::vector<BYTE> buffer(size);
-        IP_ADAPTER_ADDRESSES *addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data());
-        ret = GetAdaptersAddresses(AF_INET, flags, nullptr, addresses, &size);
-        if (ret == NO_ERROR)
-        {
-            for (auto adapter = addresses; adapter; adapter = adapter->Next)
-            {
-                if (adapter->OperStatus != IfOperStatusUp)
-                    continue;
-
-                for (auto unicast = adapter->FirstUnicastAddress; unicast; unicast = unicast->Next)
-                {
-                    auto sa = reinterpret_cast<sockaddr_in *>(unicast->Address.lpSockaddr);
-                    if (!sa || sa->sin_family != AF_INET)
-                        continue;
-
-                    uint32_t hostAddr = ntohl(sa->sin_addr.s_addr);
-                    if ((hostAddr & 0xFF000000u) == 0x7F000000u)
-                        continue;
-
-                    if (unicast->OnLinkPrefixLength == 0 || unicast->OnLinkPrefixLength > 32)
-                        continue;
-
-                    uint32_t mask =
-                        unicast->OnLinkPrefixLength == 32 ? 0xFFFFFFFFu : (0xFFFFFFFFu << (32 - unicast->OnLinkPrefixLength));
-                    uint32_t broadcast = (hostAddr & mask) | (~mask);
-                    addTarget(htonl(broadcast));
-                }
-            }
-        }
-    }
-#else
     struct ifaddrs *ifap = nullptr;
     if (getifaddrs(&ifap) == 0)
     {
@@ -158,7 +105,6 @@ static std::vector<sockaddr_in> BuildBroadcastTargets()
         }
         freeifaddrs(ifap);
     }
-#endif
 
     return targets;
 }
@@ -177,49 +123,22 @@ void AlpacaDiscovery::DiscoverServers(wxArrayString& serverList, int numQueries,
 {
     serverList.Clear();
 
-#ifdef _WIN32
-    WSADATA wsaData;
-    int wsaInit = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (wsaInit != 0)
-    {
-        Debug.Write(wxString::Format("AlpacaDiscovery: WSAStartup failed (%d)\n", wsaInit));
-        return;
-    }
-    Debug.Write("AlpacaDiscovery: WSAStartup succeeded\n");
-#endif
-
     // Use a single socket for both sending and receiving (more reliable on Windows)
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0)
     {
         Debug.Write("AlpacaDiscovery: Failed to create socket\n");
-#ifdef _WIN32
-        WSACleanup();
-#endif
-        Debug.Write(
-#ifdef _WIN32
-            wxString::Format("AlpacaDiscovery: socket() failed, err=%d\n", WSAGetLastError())
-#else
-            wxString::Format("AlpacaDiscovery: socket() failed: %s\n", strerror(errno))
-#endif
-        );
+        Debug.Write(wxString::Format("AlpacaDiscovery: socket() failed: %s\n", strerror(errno)));
         return;
     }
     Debug.Write(wxString::Format("AlpacaDiscovery: socket created (%d)\n", sock));
 
     // Set socket receive timeout
-#ifdef _WIN32
-    // Windows uses DWORD (milliseconds) for SO_RCVTIMEO
-    DWORD timeout = 100; // 100ms timeout
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout, sizeof(timeout));
-    Debug.Write("AlpacaDiscovery: set SO_RCVTIMEO\n");
-#else
     // Unix uses struct timeval (seconds + microseconds)
     struct timeval timeout;
     timeout.tv_sec = 0;
     timeout.tv_usec = 100000; // 100ms timeout
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &timeout, sizeof(timeout));
-#endif
 
     // Enable SO_REUSEADDR to allow port reuse
     int reuse = 1;
@@ -240,15 +159,8 @@ void AlpacaDiscovery::DiscoverServers(wxArrayString& serverList, int numQueries,
 
     if (bind(sock, (struct sockaddr *) &localAddr, sizeof(localAddr)) < 0)
     {
-#ifdef _WIN32
-        int err = WSAGetLastError();
-        Debug.Write(wxString::Format("AlpacaDiscovery: Failed to bind socket, error: %d\n", err));
-        closesocket(sock);
-        WSACleanup();
-#else
         Debug.Write(wxString::Format("AlpacaDiscovery: Failed to bind socket: %s\n", strerror(errno)));
         close(sock);
-#endif
         return;
     }
 
@@ -279,13 +191,8 @@ void AlpacaDiscovery::DiscoverServers(wxArrayString& serverList, int numQueries,
             int sent = sendto(sock, msg, (int) msgLen, 0, (const struct sockaddr *) &targetAddr, sizeof(targetAddr));
             if (sent < 0)
             {
-#ifdef _WIN32
-                int err = WSAGetLastError();
-                Debug.Write(wxString::Format("AlpacaDiscovery: Error sending discovery query %d, error: %d\n", query + 1, err));
-#else
                 Debug.Write(
                     wxString::Format("AlpacaDiscovery: Error sending discovery query %d: %s\n", query + 1, strerror(errno)));
-#endif
             }
             else
             {
@@ -311,22 +218,14 @@ void AlpacaDiscovery::DiscoverServers(wxArrayString& serverList, int numQueries,
             // Try to receive data (will timeout after 100ms due to SO_RCVTIMEO)
             int received = recvfrom(sock, buffer, sizeof(buffer) - 1, 0, (struct sockaddr *) &fromAddr, &fromLen);
 
-#ifdef _WIN32
-            if (received != SOCKET_ERROR && received > 0)
-#else
             if (received > 0)
-#endif
             {
                 receivedAny = true;
                 buffer[received] = '\0';
 
                 // Get IP address from the sender (UDP from address)
                 char ipStr[INET_ADDRSTRLEN];
-#ifdef _WIN32
-                InetNtopA(AF_INET, &(fromAddr.sin_addr), ipStr, INET_ADDRSTRLEN);
-#else
                 inet_ntop(AF_INET, &(fromAddr.sin_addr), ipStr, INET_ADDRSTRLEN);
-#endif
                 wxString ipAddress(ipStr, wxConvUTF8);
                 wxString response(buffer, wxConvUTF8);
 
@@ -389,23 +288,6 @@ void AlpacaDiscovery::DiscoverServers(wxArrayString& serverList, int numQueries,
                 // Don't sleep here to avoid missing rapid responses
                 continue;
             }
-#ifdef _WIN32
-            else if (received == SOCKET_ERROR)
-            {
-                int err = WSAGetLastError();
-                // WSAETIMEDOUT is expected when no data arrives within the timeout
-                if (err != WSAETIMEDOUT)
-                {
-                    Debug.Write(wxString::Format("AlpacaDiscovery: recvfrom error: %d\n", err));
-                }
-                // If we've received responses before, continue a bit longer in case more arrive
-                // Otherwise, small delay to avoid busy waiting
-                if (!receivedAny)
-                {
-                    wxMilliSleep(10);
-                }
-            }
-#else
             else if (received < 0)
             {
                 // EAGAIN/EWOULDBLOCK/EINTR are expected in non-blocking mode or with timeout
@@ -420,7 +302,6 @@ void AlpacaDiscovery::DiscoverServers(wxArrayString& serverList, int numQueries,
                     wxMilliSleep(10);
                 }
             }
-#endif
             else
             {
                 // No data received (timeout or error), small delay to avoid busy waiting
@@ -435,12 +316,7 @@ void AlpacaDiscovery::DiscoverServers(wxArrayString& serverList, int numQueries,
         }
     }
 
-#ifdef _WIN32
-    closesocket(sock);
-    WSACleanup();
-#else
     close(sock);
-#endif
 
     if (serverList.GetCount() > 0)
     {

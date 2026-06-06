@@ -40,9 +40,7 @@
 #include <wx/evtloop.h>
 #include <wx/snglinst.h>
 
-#ifdef __linux__
-# include <X11/Xlib.h>
-#endif // __linux__
+#include <X11/Xlib.h>
 
 // #define DEVBUILD
 
@@ -85,29 +83,7 @@ static wxString s_configPath;
 
 wxIMPLEMENT_APP(PhdApp);
 
-static void DisableOSXAppNap()
-{
-#ifdef __APPLE__
-    // this is obsolete (2020-02-04) now that we disable AppNap in a
-    // launcher script (run_phd2_macos), but it is harmless so we can
-    // leave it in for a release or two
-# define APPKEY "org.openphdguiding.phd2"
-    int major = wxPlatformInfo::Get().GetOSMajorVersion();
-    int minor = wxPlatformInfo::Get().GetOSMinorVersion();
-    if (major > 10 || (major == 10 && minor >= 9)) // Mavericks or later -- deal with App Nap
-    {
-        wxArrayString out, err;
-        wxExecute("defaults read " APPKEY " NSAppSleepDisabled", out, err);
-        if (err.GetCount() > 0 || (out.GetCount() > 0 && out[0].Contains("0"))) // it's not there or disabled
-        {
-            wxExecute("defaults write " APPKEY " NSAppSleepDisabled -bool YES");
-            wxMessageBox(
-                "OSX 10.9's App Nap feature causes problems.  Please quit and relaunch PHD to finish disabling App Nap.");
-        }
-    }
-# undef APPKEY
-#endif
-}
+static void DisableOSXAppNap() { }
 
 // ------------------------  Phd App stuff -----------------------------
 
@@ -126,9 +102,7 @@ PhdApp::PhdApp()
     m_headless = false;
     m_headlessAutoConnect = false;
     m_instanceNumber = 1;
-#ifdef __linux__
     XInitThreads();
-#endif // __linux__
 
     Bind(EXEC_IN_MAIN_THREAD_EVENT, [](ExecFuncThreadEvent& evt) { evt.func(); });
 };
@@ -210,198 +184,9 @@ void PhdApp::TerminateApp()
     wxGetApp().WakeUpIdle();
 }
 
-#ifdef __WINDOWS__
-# if wxCHECK_VERSION(3, 1, 0)
-#  pragma message("FIXME: obsolete code -- remove and use wxGetOsDescription()")
-# endif
-# include <wx/dynlib.h>
-static OSVERSIONINFOEXW wx_3_1_wxGetWindowsVersionInfo()
-{
-    OSVERSIONINFOEXW info;
-    memset(&info, 0, sizeof(info));
-    info.dwOSVersionInfoSize = sizeof(info);
-
-    // The simplest way to get the version is to call the kernel
-    // RtlGetVersion() directly, if it is available.
-# if wxUSE_DYNLIB_CLASS
-    wxDynamicLibrary dllNtDll;
-    if (dllNtDll.Load(wxS("ntdll.dll"), wxDL_VERBATIM | wxDL_QUIET))
-    {
-        typedef LONG /* NTSTATUS */ (WINAPI * RtlGetVersion_t)(OSVERSIONINFOEXW *);
-
-        RtlGetVersion_t wxDL_INIT_FUNC(pfn, RtlGetVersion, dllNtDll);
-        if (pfnRtlGetVersion && (pfnRtlGetVersion(&info) == 0 /* STATUS_SUCCESS */))
-        {
-            return info;
-        }
-    }
-# endif // wxUSE_DYNLIB_CLASS
-
-# ifdef __VISUALC__
-#  pragma warning(push)
-#  pragma warning(disable : 4996) // 'xxx': was declared deprecated
-# endif
-
-    if (!::GetVersionExW(reinterpret_cast<OSVERSIONINFOW *>(&info)))
-    {
-        // This really shouldn't ever happen.
-        wxFAIL_MSG("GetVersionEx() unexpectedly failed");
-    }
-
-# ifdef __VISUALC__
-#  pragma warning(pop)
-# endif
-
-    return info;
-}
-
-static int wxIsWindowsServer()
-{
-# ifdef VER_NT_WORKSTATION
-    switch (wx_3_1_wxGetWindowsVersionInfo().wProductType)
-    {
-    case VER_NT_WORKSTATION:
-        return false;
-
-    case VER_NT_SERVER:
-    case VER_NT_DOMAIN_CONTROLLER:
-        return true;
-    }
-# endif // VER_NT_WORKSTATION
-
-    return -1;
-}
-
-static wxString wx_3_1_wxGetOsDescription()
-{
-    wxString str;
-
-    const OSVERSIONINFOEXW info = wx_3_1_wxGetWindowsVersionInfo();
-    switch (info.dwPlatformId)
-    {
-    case VER_PLATFORM_WIN32s:
-        str = _("Win32s on Windows 3.1");
-        break;
-
-    case VER_PLATFORM_WIN32_WINDOWS:
-        switch (info.dwMinorVersion)
-        {
-        case 0:
-            if (info.szCSDVersion[1] == 'B' || info.szCSDVersion[1] == 'C')
-            {
-                str = _("Windows 95 OSR2");
-            }
-            else
-            {
-                str = _("Windows 95");
-            }
-            break;
-        case 10:
-            if (info.szCSDVersion[1] == 'B' || info.szCSDVersion[1] == 'C')
-            {
-                str = _("Windows 98 SE");
-            }
-            else
-            {
-                str = _("Windows 98");
-            }
-            break;
-        case 90:
-            str = _("Windows ME");
-            break;
-        default:
-            str.Printf(_("Windows 9x (%d.%d)"), info.dwMajorVersion, info.dwMinorVersion);
-            break;
-        }
-        if (!wxIsEmpty(info.szCSDVersion))
-        {
-            str << wxT(" (") << info.szCSDVersion << wxT(')');
-        }
-        break;
-
-    case VER_PLATFORM_WIN32_NT:
-        switch (info.dwMajorVersion)
-        {
-        case 5:
-            switch (info.dwMinorVersion)
-            {
-            case 0:
-                str = _("Windows 2000");
-                break;
-
-            case 2:
-                // we can't distinguish between XP 64 and 2003
-                // as they both are 5.2, so examine the product
-                // type to resolve this ambiguity
-                if (wxIsWindowsServer() == 1)
-                {
-                    str = _("Windows Server 2003");
-                    break;
-                }
-                // else: must be XP, fall through
-
-            case 1:
-                str = _("Windows XP");
-                break;
-            }
-            break;
-
-        case 6:
-            switch (info.dwMinorVersion)
-            {
-            case 0:
-                str = wxIsWindowsServer() == 1 ? _("Windows Server 2008") : _("Windows Vista");
-                break;
-
-            case 1:
-                str = wxIsWindowsServer() == 1 ? _("Windows Server 2008 R2") : _("Windows 7");
-                break;
-
-            case 2:
-                str = wxIsWindowsServer() == 1 ? _("Windows Server 2012") : _("Windows 8");
-                break;
-
-            case 3:
-                str = wxIsWindowsServer() == 1 ? _("Windows Server 2012 R2") : _("Windows 8.1");
-                break;
-            }
-            break;
-
-        case 10:
-            str = wxIsWindowsServer() == 1 ? _("Windows Server 2016") : _("Windows 10");
-            break;
-        }
-
-        if (str.empty())
-        {
-            str.Printf(_("Windows NT %lu.%lu"), info.dwMajorVersion, info.dwMinorVersion);
-        }
-
-        str << wxT(" (") << wxString::Format(_("build %lu"), info.dwBuildNumber);
-        if (!wxIsEmpty(info.szCSDVersion))
-        {
-            str << wxT(", ") << info.szCSDVersion;
-        }
-        str << wxT(')');
-
-        if (wxIsPlatform64Bit())
-            str << _(", 64-bit edition");
-        break;
-    }
-
-    return str;
-}
-#endif // __WINDOWS__
-
 static wxString GetOsDescription()
 {
-#ifdef __WINDOWS__
-    // wxGetOsDescription in wxWidgets versions prior to 3.1.0 on Windows uses GetVersionEx which does not
-    // report versions past Windows 8.1
-    return wx_3_1_wxGetOsDescription();
-#else
     return wxGetOsDescription();
-#endif
 }
 
 static void OpenLogs(bool rollover)
@@ -413,9 +198,7 @@ static void OpenLogs(bool rollover)
     Debug.Write("OpenAstro Alpaca Support\n");
     Debug.Write(wxString::Format("PHD2 version %s %s execution with:\n", FULLVER, rollover ? "continues" : "begins"));
     Debug.Write(wxString::Format("   %s\n", GetOsDescription()));
-#if defined(__linux__)
     Debug.Write(wxString::Format("   %s\n", wxGetLinuxDistributionInfo().Description));
-#endif
     Debug.Write(wxString::Format("   %s\n", wxVERSION_STRING));
     float dummy;
     Debug.Write(wxString::Format("   cfitsio %.2lf\n", ffvers(&dummy)));
@@ -487,12 +270,6 @@ struct EarlyLogger : public wxLog
 
 bool PhdApp::OnInit()
 {
-#ifdef __APPLE__
-    // for newer versions of OSX the app will hang if the wx log code
-    // tries to display a message box in OnOnit.  As a workaround send
-    // wxLog output to stderr instead
-    LogToStderr _logstderr;
-#endif
 
     // capture wx error messages until the debug log has been opened
     EarlyLogger logger;
@@ -504,12 +281,6 @@ bool PhdApp::OnInit()
     {
         return false;
     }
-
-#if defined(__WINDOWS__)
-    // on MSW, do not strip off the Debug/ and Release/ build subdirs
-    // so that GetResourcesDir() is the same as the location of phd2.exe
-    wxStandardPaths::Get().DontIgnoreAppSubDir();
-#endif
 
     // Vendor + app name determine wxConfig + wxStandardPaths locations and the
     // wxSingleInstanceChecker lock name below. Pre-2.0.0 this fork wrote to
@@ -528,13 +299,7 @@ bool PhdApp::OnInit()
     // second one to launch hits "PHD2 instance 1 is already running".
     SetVendorName(_T("OpenAstro"));
     // use SetAppName() to ensure the local data directory is found even if the name of the executable is changed
-#ifdef __APPLE__
-    SetAppName(_T("OpenAstroPHD2"));
-#elif defined(__WINDOWS__)
-    SetAppName(_T("OpenAstroPHD2"));
-#else
     SetAppName(_T("openastro-phd2"));
-#endif
 
     m_instanceChecker = new wxSingleInstanceChecker(wxString::Format("%s.%ld", GetAppName(), m_instanceNumber));
     if (m_instanceChecker->IsAnotherRunning())
@@ -581,17 +346,7 @@ bool PhdApp::OnInit()
 
     logger.Close(); // writes any deferrred error messages to the debug log
 
-#if defined(__WINDOWS__)
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    Debug.Write(wxString::Format("CoInitializeEx returns %x\n", hr));
-#endif
-
     DisableOSXAppNap();
-
-#if defined(__WINDOWS__)
-    // use per-thread locales on windows to that INDI can set the locale in its thread without side effects
-    _configthreadlocale(_ENABLE_PER_THREAD_LOCALE);
-#endif
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
@@ -600,14 +355,10 @@ bool PhdApp::OnInit()
         ResetConfiguration();
     }
 
-#ifdef __linux__
     // on Linux look in the build tree first, otherwise use the system location
     m_resourcesDir = wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath() + "/share/phd2";
     if (!wxDirExists(m_resourcesDir))
         m_resourcesDir = wxStandardPaths::Get().GetResourcesDir();
-#else
-    m_resourcesDir = wxStandardPaths::Get().GetResourcesDir();
-#endif
 
     wxString ldir = GetLocalesDir();
     Debug.Write(wxString::Format("locale: using dir %s exists=%d\n", ldir, wxDirExists(ldir)));

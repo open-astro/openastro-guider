@@ -50,11 +50,22 @@ code during the strip, grouped by phase. Swept before the relevant phase closes.
   - stale "shared with `INDIDiscovery`" comments in `tests/discovery/test_discovery_logic.cpp`,
     `tests/CMakeLists.txt`, and `tests/README.md` (the parse/dedupe model is now Alpaca-only).
 
-## Resolved — dead-code cleanup (branch `cleanup/dead-platform-ifdefs`)
-The deferred inline-ifdef / inert-CMake cleanups logged under the Phase 1/2/3 sections
-above are **done**: the dead `#ifdef` factory stubs (ASCOM/INDI/macOS scopes), the
-platform macro blocks (collapsed to Linux/Alpaca), the `phd.h`/`serialport` `__WINDOWS__`/
-`__APPLE__` paths, and the inert `if(WIN32)`/`if(APPLE)` blocks in `thirdparty.cmake` /
-`cmake_modules` have all been removed. FreeBSD support and the Shoestring/direct-ST4
-backends (`scope_gpusb`/`gpint`/`GC_USBST4`/`parallelport`) were dropped too. Tree builds
-Linux-only and reports 0 cppcheck findings.
+## Resolved — dead-code cleanup
+The dead-platform cleanups are **done**, in two passes:
+
+1. `cleanup/dead-platform-ifdefs` — the device-factory `#ifdef` stubs (ASCOM/INDI/macOS
+   scopes), the platform macro blocks (collapsed to Linux/Alpaca in `scopes.h`/`cameras.h`/
+   `phd.h`), the `serialport` `__WINDOWS__`/`__APPLE__` paths, and the inert
+   `if(WIN32)`/`if(APPLE)` blocks in `thirdparty.cmake` / `cmake_modules`. FreeBSD support
+   and the Shoestring/direct-ST4 backends (`scope_gpusb`/`gpint`/`GC_USBST4`/`parallelport`)
+   were dropped too.
+
+2. `cleanup/strip-platform-ifdefs` — the remaining **inline** `#ifdef _WIN32` /
+   `__WINDOWS__` / `__WXMSW__` / `__APPLE__` / `__WXOSX__` branches across ~20 GUI/utility
+   sources (`alpaca_discovery.cpp`, `phd.cpp`, `aui_controls.cpp`, `graph.cpp`, `myframe*`,
+   `fitsiowrap.cpp`, …). These were dead on Linux but still present (the earlier note
+   overstated their removal). Stripped with `unifdef` keeping the Linux/wxGTK branches;
+   behaviour-neutral (the preprocessed Linux output is unchanged), full `phd2` build + all
+   tests green.
+
+Tree builds Linux-only and reports 0 cppcheck findings.

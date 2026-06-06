@@ -383,11 +383,6 @@ wxThread::ExitCode WorkerThread::Entry()
 
     Debug.Write("WorkerThread::Entry() begins\n");
 
-#if defined(__WINDOWS__)
-    HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    Debug.Write(wxString::Format("worker thread CoInitializeEx returns %x\n", hr));
-#endif
-
     while (!bDone)
     {
         bool dummy;

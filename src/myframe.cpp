@@ -1273,12 +1273,6 @@ void MyFrame::DoAlert(const alert_params& params)
         wrappedText = params.msg;
     }
     int showMessageFlags = params.flags;
-#ifdef __APPLE__
-    // starting with MacOS Sonoma 14.3 wxWidgets (3.1.7 and 3.2.4) crashes in
-    // wxBitmapBundle::FromSVG when the wxInfoBar tries to display an icon. As a
-    // workaround, do not display any icon on Mac.
-    showMessageFlags = wxICON_NONE;
-#endif
     m_infoBar->ShowMessage(wrappedText, showMessageFlags);
     m_statusbar->UpdateStates(); // might have disconnected a device
     EvtServer.NotifyAlert(params.msg, params.flags);
@@ -3506,17 +3500,7 @@ void MyFrame::PlaceWindowOnScreen(wxWindow *win, int x, int y)
         win->Move(x, y);
 }
 
-inline static void AdjustSpinnerWidth(wxSize *sz)
-{
-#ifdef __APPLE__
-    // GetSizeFromTextSize() not working on OSX, so we need to add more padding
-    enum
-    {
-        SPINNER_WIDTH_PAD = 20
-    };
-    sz->SetWidth(sz->GetWidth() + SPINNER_WIDTH_PAD);
-#endif
-}
+inline static void AdjustSpinnerWidth(wxSize *sz) { }
 
 // The spin control factories allow clients to specify a width based on the max width of the numeric values without having
 // to make guesses about the additional space required by the other parts of the control

@@ -5011,10 +5011,6 @@ static bool path_is_under(const wxString& child, const wxString& parent)
 {
     wxString c = normalize_path(child);
     wxString p = normalize_path(parent);
-#ifdef __WINDOWS__
-    c.MakeLower();
-    p.MakeLower();
-#endif
     if (!p.EndsWith(wxFileName::GetPathSeparator()))
         p << wxFileName::GetPathSeparator();
     return c.StartsWith(p);

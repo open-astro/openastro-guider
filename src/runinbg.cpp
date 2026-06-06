@@ -73,10 +73,8 @@ struct RunInBgImpl : public wxTimer, public wxThreadHelper
         wxBusyCursor busy;
         if (m_parent)
             m_parent->SetCursor(wxCURSOR_WAIT); // need to do this too!
-#ifndef __APPLE__
         // this makes the progress window inaccessible on OSX
         wxWindowDisabler wd;
-#endif // __APPLE__
 
         CreateThread();
         wxThread *thread = GetThread();

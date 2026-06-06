@@ -43,16 +43,8 @@
 # define OLD_CURL
 #endif
 
-#if defined(__WXMSW__)
-# define OSNAME _T("win")
-# define DefaultEnableUpdate true
-#elif defined(__APPLE__)
-# define OSNAME _T("osx")
-# define DefaultEnableUpdate true
-#else
-# define OSNAME _T("linux")
-# define DefaultEnableUpdate false
-#endif
+#define OSNAME _T("linux")
+#define DefaultEnableUpdate false
 
 static unsigned long DownloadBgMaxBPS = 100 * 1024; // 100 kB/sec
 

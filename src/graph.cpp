@@ -63,15 +63,7 @@ wxBEGIN_EVENT_TABLE(GraphLogWindow, wxWindow)
 wxEND_EVENT_TABLE();
 // clang-format on
 
-#ifdef __WXOSX__
-# define OSX_SMALL_FONT(lbl)                                                                                                   \
-     do                                                                                                                        \
-     {                                                                                                                         \
-         (lbl)->SetFont(*wxSMALL_FONT);                                                                                        \
-     } while (0)
-#else
-# define OSX_SMALL_FONT(lbl)
-#endif
+#define OSX_SMALL_FONT(lbl)
 
 GraphLogWindow::GraphLogWindow(wxWindow *parent)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE, _T("Graph"))
@@ -143,22 +135,12 @@ GraphLogWindow::GraphLogWindow(wxWindow *parent)
     pButtonSizer->Add(clearButton, wxSizerFlags().Expand());
 
     m_pCheckboxTrendlines = new wxCheckBox(this, CHECKBOX_GRAPH_TRENDLINES, _("Trendlines"));
-#if defined(__WXOSX__)
-    // workaround inability to set checkbox foreground color
-    m_pCheckboxTrendlines->SetBackgroundColour(wxColor(200, 200, 200));
-#else
     m_pCheckboxTrendlines->SetForegroundColour(*wxLIGHT_GREY);
-#endif
     m_pCheckboxTrendlines->SetToolTip(_("Plot trend lines"));
     pButtonSizer->Add(m_pCheckboxTrendlines, wxSizerFlags().Expand().Border(wxTOP, 1));
 
     m_pCheckboxCorrections = new wxCheckBox(this, CHECKBOX_GRAPH_CORRECTIONS, _("Corrections"));
-#if defined(__WXOSX__)
-    // workaround inability to set checkbox foreground color
-    m_pCheckboxCorrections->SetBackgroundColour(wxColor(200, 200, 200));
-#else
     m_pCheckboxCorrections->SetForegroundColour(*wxLIGHT_GREY);
-#endif
     m_pCheckboxCorrections->SetToolTip(_("Display mount corrections"));
     m_pCheckboxCorrections->SetValue(m_pClient->m_showCorrections);
     pButtonSizer->Add(m_pCheckboxCorrections, wxSizerFlags().Expand());
@@ -1293,12 +1275,7 @@ void GraphLogClientWindow::OnPaint(wxPaintEvent& WXUNUSED(evt))
     // Draw horiz rule (scale is 1 pixel error per 25 pixels) + scale labels
     dc.SetPen(GreyDashPen);
     dc.SetTextForeground(*wxLIGHT_GREY);
-    const wxFont& SmallFont =
-#if defined(__WXOSX__)
-        *wxSMALL_FONT;
-#else
-        *wxSWISS_FONT;
-#endif
+    const wxFont& SmallFont = *wxSWISS_FONT;
     dc.SetFont(SmallFont);
 
     for (int i = 1; i <= m_yDivisions; i++)

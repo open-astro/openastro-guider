@@ -208,13 +208,7 @@ void MyFrame::OnHelpOnline(wxCommandEvent& evt)
 
 static void _shell_open(const wxString& loc)
 {
-#if defined(__WXMSW__)
-    ::ShellExecute(NULL, _T("open"), loc.fn_str(), NULL, NULL, SW_SHOWNORMAL);
-#elif defined(__WXOSX__)
-    ::wxExecute("/usr/bin/open '" + loc + "'", wxEXEC_ASYNC);
-#else
     ::wxExecute("xdg-open '" + loc + "'", wxEXEC_ASYNC);
-#endif
 }
 
 void MyFrame::OnHelpLogFolder(wxCommandEvent& evt)
@@ -909,12 +903,8 @@ void MyFrame::OnStarProfile(wxCommandEvent& evt)
 {
     if (evt.IsChecked())
     {
-#if defined(__APPLE__)
-        m_mgr.GetPane(_T("Profile")).Show().Float().MinSize(110, 72);
-#else
         m_mgr.GetPane(_T("Profile")).Show().Right().Position(0).MinSize(115, 85);
         // m_mgr.GetPane(_T("Profile")).Show().Bottom().Layer(1).Position(2).MinSize(115,85);
-#endif
     }
     else
     {
@@ -1358,19 +1348,7 @@ void MyFrame::OnCharHook(wxKeyEvent& evt)
         if (!evt.GetEventObject()->IsKindOf(wxCLASSINFO(wxTextCtrl)))
         {
             int modifiers;
-#ifdef __WXOSX__
-            modifiers = 0;
-            if (wxGetKeyState(WXK_ALT))
-                modifiers |= wxMOD_ALT;
-            if (wxGetKeyState(WXK_CONTROL))
-                modifiers |= wxMOD_CONTROL;
-            if (wxGetKeyState(WXK_SHIFT))
-                modifiers |= wxMOD_SHIFT;
-            if (wxGetKeyState(WXK_RAW_CONTROL))
-                modifiers |= wxMOD_RAW_CONTROL;
-#else
             modifiers = evt.GetModifiers();
-#endif
             if (!modifiers)
             {
                 pGuider->ToggleShowBookmarks();
