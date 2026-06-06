@@ -477,17 +477,15 @@ void ProfileWizard::ShowHelp(DialogState state)
                   " You can also choose a binning-level if your camera supports binning.");
         break;
     case STATE_MOUNT:
-        hText = wxString::Format(_("Select your mount interface from the list.  This determines how PHD2 will send guide "
-                                   "commands to the mount. For most modern "
-                                   "mounts, the ASCOM interface is a good choice if you are running MS Windows.  The other "
-                                   "interfaces are available for "
-                                   "cases where ASCOM isn't available or isn't well supported by mount firmware.  If you know "
-                                   "the mount guide speed, you can specify it "
-                                   " so PHD2 can calibrate more efficiently.  If you don't know the mount guide speed, you can "
-                                   "just use the default value of %0.1fx.  When you choose a "
-                                   " mount, you'll usually be given the option to connect to it immediately so PHD2 can read "
-                                   "the guide speed for you."),
-                                 Scope::DEFAULT_MOUNT_GUIDE_SPEED);
+        hText =
+            wxString::Format(_("Select your mount interface from the list.  This determines how PHD2 will send guide "
+                               "commands to the mount. Equipment is reached over ASCOM Alpaca on the local network.  If you "
+                               "know the mount guide speed, you can specify it "
+                               " so PHD2 can calibrate more efficiently.  If you don't know the mount guide speed, you can "
+                               "just use the default value of %0.1fx.  When you choose a "
+                               " mount, you'll usually be given the option to connect to it immediately so PHD2 can read "
+                               "the guide speed for you."),
+                             Scope::DEFAULT_MOUNT_GUIDE_SPEED);
         break;
     case STATE_AUXMOUNT:
         if (m_SelectedCamera == _("Simulator"))
