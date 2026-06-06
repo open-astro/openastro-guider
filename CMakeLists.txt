@@ -357,6 +357,8 @@ set(phd2_SRC
   ${phd_src_dir}/socket_server.h
   ${phd_src_dir}/starcross_test.cpp
   ${phd_src_dir}/starcross_test.h
+  ${phd_src_dir}/staticpa_geometry.h
+  ${phd_src_dir}/staticpa_geometry.cpp
   ${phd_src_dir}/staticpa_tool.h
   ${phd_src_dir}/staticpa_toolwin.h
   ${phd_src_dir}/staticpa_toolwin.cpp

@@ -33,6 +33,7 @@
  */
 
 #include "phd.h"
+#include "staticpa_geometry.h"
 #include "staticpa_tool.h"
 #include "staticpa_toolwin.h"
 
@@ -672,70 +673,33 @@ void StaticPaToolWin::CalcRotationCentre(void)
     y2 = m_pxPos[1].Y;
     UnsetState(0);
 
+    staticpa_geom::Circle cor;
     if (!m_auto)
     {
-        double a, b, c, e, f, g, i, j, k;
-        double m11, m12, m13, m14;
         x3 = m_pxPos[2].X;
         y3 = m_pxPos[2].Y;
         Debug.AddLine(
             wxString::Format("StaticPA: Manual CalcCoR: P1(%.1f,%.1f); P2(%.1f,%.1f); P3(%.1f,%.1f)", x1, y1, x2, y2, x3, y3));
-        // |A| = aei + bfg + cdh -ceg -bdi -afh
-        // a b c
-        // d e f
-        // g h i
-        // a= x1^2+y1^2; b=x1; c=y1; d=1
-        // e= x2^2+y2^2; f=x2; g=y2; h=1
-        // i= x3^2+y3^2; j=x3; k=y3; l=1
-        //
-        // x0 = 1/2.|M12|/|M11|
-        // y0 = -1/2.|M13|/|M11|
-        // r = x0^2 + y0^2 + |M14| / |M11|
-        //
-        a = x1 * x1 + y1 * y1;
-        b = x1;
-        c = y1;
-        e = x2 * x2 + y2 * y2;
-        f = x2;
-        g = y2;
-        i = x3 * x3 + y3 * y3;
-        j = x3;
-        k = y3;
-        m11 = b * g + c * j + f * k - g * j - c * f - b * k;
-        m12 = a * g + c * i + e * k - g * i - c * e - a * k;
-        m13 = a * f + b * i + e * j - f * i - b * e - a * j;
-        m14 = a * f * k + b * g * i + c * e * j - c * f * i - b * e * k - a * g * j;
-        cx = (1. / 2.) * m12 / m11;
-        cy = (-1. / 2.) * m13 / m11;
-        cr = sqrt(cx * cx + cy * cy + m14 / m11);
+        cor = staticpa_geom::CircleFrom3Points({ x1, y1 }, { x2, y2 }, { x3, y3 });
     }
     else
     {
         Debug.AddLine(wxString::Format("StaticPA Auto CalcCoR: P1(%.1f,%.1f); P2(%.1f,%.1f); RA: %.1f %.1f", x1, y1, x2, y2,
                                        m_raPos[0] * 15., m_raPos[1] * 15.));
-        // Alternative algorithm based on two points and angle rotated
-        double radiff, theta2;
         // Get RA change. For westward movement RA decreases.
         // Invert to get image rotation (mult by -1)
         // Convert to radians radians(mult by 15)
         // Convert to RH system (mult by m_hemi)
         // normalise to +/- PI
-        radiff = norm_angle(radians((m_raPos[0] - m_raPos[1]) * 15.0 * m_hemi));
-
-        theta2 = radiff / 2.0; // Half the image rotation for midpoint of chord
-        double lenchord = hypot(x1 - x2, y1 - y2);
-        cr = fabs(lenchord / 2.0 / sin(theta2));
-        double lenbase = fabs(cr * cos(theta2));
-        // Calculate the slope of the chord in pixels
-        // We know the image is moving clockwise in NH and anti-clockwise in SH
-        // So subtract PI/2 in NH or add PI/2 in SH to get the slope to the CoR
-        // Invert y values as pixels are +ve downwards
-        double slopebase = atan2(y1 - y2, x2 - x1) - m_hemi * M_PI / 2.0;
-        cx = (x1 + x2) / 2.0 + lenbase * cos(slopebase);
-        cy = (y1 + y2) / 2.0 - lenbase * sin(slopebase); // subtract for pixels
+        double radiff = norm_angle(radians((m_raPos[0] - m_raPos[1]) * 15.0 * m_hemi));
+        double slopebase = 0.;
+        cor = staticpa_geom::CircleFrom2PointsAndAngle({ x1, y1 }, { x2, y2 }, radiff, m_hemi, &slopebase);
         Debug.AddLine(wxString::Format("StaticPA CalcCoR: radiff(deg): %.1f; cr: %.1f; slopebase(deg) %.1f", degrees(radiff),
-                                       cr, degrees(slopebase)));
+                                       cor.r, degrees(slopebase)));
     }
+    cx = cor.cx;
+    cy = cor.cy;
+    cr = cor.r;
     m_pxCentre.X = cx;
     m_pxCentre.Y = cy;
     m_radius = cr;
@@ -748,17 +712,12 @@ void StaticPaToolWin::CalcRotationCentre(void)
 
     Debug.AddLine(wxString::Format("StaticPA CalcCoR: W:H:angle %d: %d: %.1f", xpx, ypx, m_camAngle));
 
-    // Distance and angle of CoR from centre of sensor
-    double cor_r = hypot(xpx / 2 - cx, ypx / 2 - cy);
-    double cor_a = degrees(atan2(ypx / 2 - cy, xpx / 2 - cx));
-    double rarot = -m_camAngle;
     // Cone and Dec components of CoR vector
-    double dec_r = cor_r * sin(radians(cor_a - rarot));
-    m_DecCorr.X = -dec_r * sin(radians(rarot));
-    m_DecCorr.Y = dec_r * cos(radians(rarot));
-    double cone_r = cor_r * cos(radians(cor_a - rarot));
-    m_ConeCorr.X = cone_r * cos(radians(rarot));
-    m_ConeCorr.Y = cone_r * sin(radians(rarot));
+    staticpa_geom::CorrVectors corr = staticpa_geom::DecomposeCoR(cor, xpx, ypx, m_camAngle);
+    m_DecCorr.X = corr.a.x;
+    m_DecCorr.Y = corr.a.y;
+    m_ConeCorr.X = corr.b.x;
+    m_ConeCorr.Y = corr.b.y;
     SetState(0);
     FillPanel();
     return;
@@ -792,37 +751,29 @@ void StaticPaToolWin::CalcAdjustments(void)
     // Let harot =  camera rotation from Alt axis
     // Alt axis is at HA+90
     // This is camera rotation from RA minus(?) LST angle
-    double hcor_r = hypot(xt - xs, yt - ys); // xt,yt: target, xs,ys: measured
-    double hcor_a = degrees(atan2(yt - ys, xt - xs));
     double ra_hrs, dec_deg, st_hrs, ha_deg;
     ha_deg = m_ha;
     if (pPointingSource && !pPointingSource->GetCoordinates(&ra_hrs, &dec_deg, &st_hrs))
     {
         ha_deg = norm((st_hrs - ra_hrs) * 15.0 + m_ha, 0, 360);
     }
-    double rarot = -m_camAngle;
-    double harot = norm(rarot - (90 + ha_deg), 0, 360);
-    double hrot = norm(hcor_a - harot, 0, 360);
+    staticpa_geom::AltAzResult adj = staticpa_geom::DecomposeAltAz({ xt, yt }, { xs, ys }, m_camAngle, ha_deg);
 
-    double az_r = hcor_r * sin(radians(hrot));
-    double alt_r = hcor_r * cos(radians(hrot));
-
-    m_AzCorr.X = -az_r * sin(radians(harot));
-    m_AzCorr.Y = az_r * cos(radians(harot));
-    m_AltCorr.X = alt_r * cos(radians(harot));
-    m_AltCorr.Y = alt_r * sin(radians(harot));
+    m_AzCorr.X = adj.vec.a.x;
+    m_AzCorr.Y = adj.vec.a.y;
+    m_AltCorr.X = adj.vec.b.x;
+    m_AltCorr.Y = adj.vec.b.y;
     Debug.AddLine(wxString::Format("StaticPA CalcAdjust: Angles: rarot %.1f; ha_deg %.1f; m_ha %.1f; hcor_a %.1f; harot: %.1f",
-                                   rarot, ha_deg, m_ha, hcor_a, harot));
-    Debug.AddLine(wxString::Format("StaticPA CalcAdjust: Errors(px): alt %.1f; az %.1f; tot %.1f", alt_r, az_r, hcor_r));
+                                   adj.rarot, ha_deg, m_ha, adj.hcorAngle, adj.harot));
+    Debug.AddLine(wxString::Format("StaticPA CalcAdjust: Errors(px): alt %.1f; az %.1f; tot %.1f", adj.altErrPx, adj.azErrPx,
+                                   adj.totErrPx));
     SetStatusText(wxString::Format(_("Polar Alignment Error (arcmin): Alt %.1f; Az %.1f Tot %.1f"),
-                                   fabs(alt_r) * m_pxScale / 60, fabs(az_r) * m_pxScale / 60, fabs(hcor_r) * m_pxScale / 60));
+                                   fabs(adj.altErrPx) * m_pxScale / 60, fabs(adj.azErrPx) * m_pxScale / 60,
+                                   fabs(adj.totErrPx) * m_pxScale / 60));
 }
 
 PHD_Point StaticPaToolWin::Radec2Px(const PHD_Point& radec)
 {
-    // Convert dec to pixel radius
-    double r = (90.0 - fabs(radec.Y)) * 3600 / m_pxScale;
-
     // Rotate by calibration angle and HA f object taking into account mount rotation (HA)
     double ra_hrs, dec_deg, ra_deg, st_hrs;
     ra_deg = 0.0;
@@ -850,21 +801,8 @@ PHD_Point StaticPaToolWin::Radec2Px(const PHD_Point& radec)
         ra_deg = norm(280.46061837 + 360.98564736629 * since - hadeg, 0, 360);
     }
 
-    // Target hour angle - or rather the rotation needed to correct.
-    // HA = LST - RA
-    // In NH HA decreases clockwise; RA increases clockwise
-    // "Up" is HA=0
-    // Sensor "up" is 90deg counterclockwise from mount RA plus rotation
-    // Star rotation is RAstar - RAmount
-    double a1 = radec.X - (ra_deg - 90.0);
-    a1 = norm(a1, 0, 360);
-
-    double l_camAngle;
-    l_camAngle = norm(m_flip ? m_camAngle + 180.0 : m_camAngle, 0, 360);
-    double a = l_camAngle - a1 * m_hemi;
-
-    PHD_Point px(r * cos(radians(a)), -r * sin(radians(a)));
-    return px;
+    staticpa_geom::Px px = staticpa_geom::Radec2Px(radec.X, radec.Y, m_pxScale, ra_deg, m_camAngle, m_flip, m_hemi);
+    return PHD_Point(px.x, px.y);
 }
 
 PHD_Point StaticPaToolWin::J2000Now(const PHD_Point& radec)
@@ -881,56 +819,8 @@ PHD_Point StaticPaToolWin::J2000Now(const PHD_Point& radec)
     time_t nowutc = time(NULL);
     double JDnow = difftime(nowutc, j2000) / 86400.0;
 
-    /*
-    This code is adapted from paper
-    Improvement of the IAU 2000 precession model
-    N. Capitaine, P. T. Wallace, J. Chapront
-    https://www.aanda.org/articles/aa/full/2005/10/aa1908/aa1908.html
-    The order of polynomial to be used was found to be t^5 and the precision of the coefficients 0.1 uas. The following series
-    with a 0.1 uas level of precision matches the canonical 4-rotation series to sub-microarcsecond accuracy over 4 centuries:
-    zetaA = 2.5976176 + 2306.0809506 t + 0.3019015 t^2 + 0.0179663 t^3 - 0.0000327 t^4 - 0.0000002 t^5
-    zedA = -2.5976176 + 2306.0803226 t + 1.0947790 t^2 + 0.0182273 t^3 + 0.0000470 t^4 - 0.0000003 t^5
-    thetaA = 2004.1917476 t - 0.4269353 t^2 - 0.0418251 t^3 - 0.0000601 t^4 - 0.0000001 t^5
-
-    In this implementation we use coefficients up to t^3
-    */
-    double tnow = JDnow / 36525; // JDNow is days since J2000.0 so no need to subtract JD2000
-    double t2 = pow(tnow, 2);
-    double t3 = pow(tnow, 3);
-    double zed, zeta, theta; // arcseconds
-    double zedrad, zetarad, thetarad;
-    zeta = 2.5976176 + 2306.0809506 * tnow + 0.3019015 * t2 + 0.0179663 * t3;
-    zetarad = radians(zeta / 3600);
-    zed = -2.5976176 + 2306.0803226 * tnow + 1.0947790 * t2 + 0.0182273 * t3;
-    zedrad = radians(zed / 3600);
-    theta = 2004.1917476 * tnow - 0.4269353 * t2 - 0.0418251 * t3;
-    thetarad = radians(theta / 3600);
-
-    //  Build the transformation matrix
-    double Xx, Xy, Xz, Yx, Yy, Yz, Zx, Zy, Zz;
-    Xx = cos(zedrad) * cos(thetarad) * cos(zetarad) - sin(zedrad) * sin(zetarad);
-    Yx = -cos(zedrad) * cos(thetarad) * sin(zetarad) - sin(zedrad) * cos(zetarad);
-    Zx = -cos(zedrad) * sin(thetarad);
-    Xy = sin(zedrad) * cos(thetarad) * cos(zetarad) + cos(zedrad) * sin(zetarad);
-    Yy = -sin(zedrad) * cos(thetarad) * sin(zetarad) + cos(zedrad) * cos(zetarad);
-    Zy = -sin(zedrad) * sin(thetarad);
-    Xz = sin(thetarad) * cos(zetarad);
-    Yz = -sin(thetarad) * sin(zetarad);
-    Zz = cos(thetarad);
-
-    // Transform coordinates;
-    double x0, y0, z0;
-    double x, y, z;
-    x0 = cos(radians(radec.Y)) * cos(radians(radec.X));
-    y0 = cos(radians(radec.Y)) * sin(radians(radec.X));
-    z0 = sin(radians(radec.Y));
-    x = Xx * x0 + Yx * y0 + Zx * z0;
-    y = Xy * x0 + Yy * y0 + Zy * z0;
-    z = Xz * x0 + Yz * y0 + Zz * z0;
-    double radeg, decdeg;
-    radeg = norm(degrees(atan2(y, x)), 0, 360);
-    decdeg = degrees(atan2(z, sqrt(1 - z * z)));
-    return PHD_Point(radeg, decdeg);
+    staticpa_geom::Px out = staticpa_geom::PrecessJ2000(JDnow, radec.X, radec.Y);
+    return PHD_Point(out.x, out.y);
 }
 
 void StaticPaToolWin::PaintHelper(wxAutoBufferedPaintDCBase& dc, double scale)

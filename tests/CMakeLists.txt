@@ -133,3 +133,17 @@ add_executable(test_zfilter
 target_link_libraries(test_zfilter PRIVATE phd_test_common)
 set_property(TARGET test_zfilter PROPERTY FOLDER "Unit tests")
 add_test(NAME test_zfilter COMMAND test_zfilter)
+
+############################################################################
+# test_polar_alignment  --  links the REAL production staticpa_geometry.cpp,
+# the pure geometry/astrometry kernels extracted from StaticPaToolWin. No wx
+# coupling. Verifies circle-fit, CoR/Alt-Az decomposition, reference-star
+# projection and J2000 precession via geometric invariants.
+############################################################################
+add_executable(test_polar_alignment
+  ${PHD_TESTS_DIR}/polar_alignment/test_polar_alignment.cpp
+  ${phd_src_dir}/staticpa_geometry.cpp
+)
+target_link_libraries(test_polar_alignment PRIVATE phd_test_common)
+set_property(TARGET test_polar_alignment PROPERTY FOLDER "Unit tests")
+add_test(NAME test_polar_alignment COMMAND test_polar_alignment)
