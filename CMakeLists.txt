@@ -37,16 +37,6 @@ else()
   cmake_minimum_required(VERSION 3.24)
 endif()
 
-# this must come before any enable_language() or project()
-if(APPLE)
-  set(CMAKE_OSX_DEPLOYMENT_TARGET "26.0" CACHE STRING "Minimum macOS deployment version")
-  set(CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LIBRARY "libc++")
-endif()
-
-if(WINDOWS)
- set(CMAKE_GENERATOR "Visual Studio 17" CACHE STRING INTERNAL "" FORCE)
-endif()
-
 enable_language(C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -159,9 +149,9 @@ add_subdirectory(contributions/MPI_IS_gaussian_process tmp_gaussian_process)
 # inherit src/ on their include path; tests/include/phd.h must shadow the
 # real one for header substitution to work.
 #
-# PHD_BUILD_TESTS defaults ON so packaging scripts (build-deb.sh,
-# build-dmg.sh, build-exe.ps1) pick the suite up automatically. Pass
-# -DPHD_BUILD_TESTS=OFF to skip building the test binaries.
+# PHD_BUILD_TESTS defaults ON so the packaging script (build-deb.sh) picks
+# the suite up automatically. Pass -DPHD_BUILD_TESTS=OFF to skip building the
+# test binaries.
 option(PHD_BUILD_TESTS "Build PHD2 unit tests" ON)
 if(PHD_BUILD_TESTS)
   add_subdirectory(tests)
@@ -216,10 +206,6 @@ set(scopes_SRC
   ${phd_src_dir}/mount.h
   ${phd_src_dir}/scope.cpp
   ${phd_src_dir}/scope.h
-  ${phd_src_dir}/scope_eqmac.cpp
-  ${phd_src_dir}/scope_eqmac.h
-  ${phd_src_dir}/scope_equinox.cpp
-  ${phd_src_dir}/scope_equinox.h
   ${phd_src_dir}/scope_GC_USBST4.cpp
   ${phd_src_dir}/scope_GC_USBST4.h
   ${phd_src_dir}/scope_gpint.cpp
@@ -228,8 +214,6 @@ set(scopes_SRC
   ${phd_src_dir}/scope_gpusb.h
   ${phd_src_dir}/scope_manual_pointing.cpp
   ${phd_src_dir}/scope_manual_pointing.h
-  ${phd_src_dir}/scope_voyager.cpp
-  ${phd_src_dir}/scope_voyager.h
   ${phd_src_dir}/scopes.h
   ${phd_src_dir}/stepguider.cpp
   ${phd_src_dir}/stepguider.h
@@ -383,8 +367,6 @@ set(phd2_SRC
   ${phd_src_dir}/serialport.h
   ${phd_src_dir}/serialport_loopback.cpp
   ${phd_src_dir}/serialport_loopback.h
-  ${phd_src_dir}/serialport_mac.cpp
-  ${phd_src_dir}/serialport_mac.h
   ${phd_src_dir}/serialport_posix.cpp
   ${phd_src_dir}/serialport_posix.h
   ${phd_src_dir}/serialports.h
@@ -448,78 +430,8 @@ foreach(current_locale IN LISTS all_locales)
 endforeach() # for all locales
 
 ## #########################
-## macOS
-if(APPLE)
-
-  # bundle definitions
-  set(MACOSX_BUNDLE_BUNDLE_NAME          "OpenAstro PHD2" )
-  set(MACOSX_BUNDLE_GUI_IDENTIFIER       "net.openastro.phd2" )
-  set(MACOSX_BUNDLE_ICON_FILE            AppIcon.icns )
-  set(MACOSX_BUNDLE_INFO_STRING          "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}, Copyright 2026 OpenAstro" )
-  set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${VERSION_MAJOR}.${VERSION_MINOR}" )
-  set(MACOSX_BUNDLE_LONG_VERSION_STRING  "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}" )
-  set(MACOSX_BUNDLE_BUNDLE_VERSION       "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}" )
-  set(MACOSX_BUNDLE_COPYRIGHT            "Copyright 2026 OpenAstro. Based on PHD2 (C) 2010-2025 openphdguiding.org." )
-
-  # main target
-  add_executable(
-    phd2
-    MACOSX_BUNDLE
-    ${scopes_SRC}
-    ${cam_SRC}
-    ${guiding_SRC}
-    ${phd2_SRC}
-
-    # resources of the bundle
-    ${PHD_PROJECT_ROOT_DIR}/icons/${MACOSX_BUNDLE_ICON_FILE}
-
-    # extra frameworks
-    ${phd2_OSX_FRAMEWORKS}
-
-    ${PHD_PROJECT_ROOT_DIR}/run_phd2_macos
-  )
-  set_target_properties(
-    phd2
-    PROPERTIES
-    MACOSX_BUNDLE_INFO_PLIST ${PHD_PROJECT_ROOT_DIR}/Info.plist.in
-    # OUTPUT_NAME on a MACOSX_BUNDLE target sets BOTH the .app filename and the
-    # binary inside Contents/MacOS/. We want users to see "OpenAstro PHD2" in
-    # /Applications instead of "PHD2" (which collides on disk with upstream
-    # PHD2.app if both are installed and looks wrong next to our other
-    # OpenAstro-branded artifacts). The bundle binary becomes
-    # `OpenAstro PHD2.app/Contents/MacOS/OpenAstro PHD2`; run_phd2_macos is
-    # the actual CFBundleExecutable (see Info.plist.in) and execs that binary.
-    OUTPUT_NAME "OpenAstro PHD2"
-  )
-  target_include_directories(
-    phd2
-    PRIVATE ${CARBON_INCLUDE_DIR}/Carbon.h
-  )
-
-  set_source_files_properties(
-    ${PHD_PROJECT_ROOT_DIR}/icons/${MACOSX_BUNDLE_ICON_FILE}
-      PROPERTIES
-        MACOSX_PACKAGE_LOCATION Resources
-  )
-
-  set_source_files_properties(
-    ${PHD_PROJECT_ROOT_DIR}/run_phd2_macos
-    PROPERTIES
-      MACOSX_PACKAGE_LOCATION MacOS
-  )
-
-  # Camera-specific frameworks removed - Alpaca only build.
-  # libusb_openphd bundling removed alongside libusb itself (this fork's
-  # cameras come over Alpaca/INDI; no direct USB access from PHD2).
-  #
-  # Homebrew dylib bundling (cfitsio, wxWidgets, image libs, etc.) into
-  # "OpenAstro PHD2.app"/Contents/Frameworks/ happens in build-dmg.sh at packaging
-  # time, not here — dev incremental builds run faster against Homebrew
-  # dylibs in place, and only the redistributable .dmg needs the rewrite.
-
-## #########################
 ## Unix
-elseif(UNIX)
+if(UNIX AND NOT APPLE)
 
   add_executable(
     phd2
@@ -550,10 +462,6 @@ endif()
 # properties of the project common to all platforms
 target_compile_definitions(phd2 PRIVATE "${wxWidgets_DEFINITIONS}" "HAVE_TYPE_TRAITS")
 target_compile_options(phd2 PRIVATE "${wxWidgets_CXX_FLAGS};")
-if(APPLE)
-  # suppress warnings about "overrides a member function but is not marked 'override'" with wxDECLARE_EVENT_TABLE
-  target_compile_options(phd2 PRIVATE "-Wno-inconsistent-missing-override")
-endif()
 target_include_directories(phd2 PRIVATE ${wxWidgets_INCLUDE_DIRS})
 
 foreach(lib ${PHD_LINK_EXTERNAL_DEBUG})
@@ -606,41 +514,6 @@ foreach(locale IN LISTS all_locales)
 
 endforeach()
 
-## Apple bundling of documentation + translation
-if(APPLE)
-  # Bundle the help + locales files
-  foreach(locale IN LISTS all_locales)
-
-    if("${locale}" STREQUAL "${default_locale}")
-      set(destination "Resources")
-    else()
-      set(destination "Resources/locale/${locale}")
-    endif()
-
-    get_zip_file(current_zip LOCALE ${locale})
-    get_translation_files(current_translations LOCALE ${locale})
-
-    # does not work well
-    # set_source_files_properties(
-    #  ${current_zip} ${current_translations}
-    #  PROPERTIES
-    #    MACOSX_PACKAGE_LOCATION ${destination})
-
-    foreach(current_file IN LISTS current_translations current_zip)
-      get_filename_component(message_file_name ${current_file} NAME)
-      get_filename_component(message_file_ext ${current_file} EXT)
-      if("${message_file_ext}" STREQUAL ".mo" OR "${message_file_ext}" STREQUAL ".zip")
-        add_custom_command(
-          TARGET phd2
-          POST_BUILD
-          COMMAND "${CMAKE_COMMAND}" -E make_directory $<TARGET_FILE_DIR:phd2>/../${destination}
-          COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${current_file} $<TARGET_FILE_DIR:phd2>/../${destination}/${message_file_name}
-        )
-      endif()
-    endforeach()
-  endforeach()
-endif()
-
 ## Linux bundling of documentation + translation
 if(UNIX AND NOT APPLE)
 
@@ -684,15 +557,6 @@ if(UNIX AND NOT APPLE)
 endif()
 
 ## Bundle/install embedded web portal assets
-if(APPLE)
-  add_custom_command(
-    TARGET phd2
-    POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E make_directory $<TARGET_FILE_DIR:phd2>/../Resources/webui
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory ${PHD_PROJECT_ROOT_DIR}/scripts/webui $<TARGET_FILE_DIR:phd2>/../Resources/webui
-  )
-endif()
-
 if(UNIX AND NOT APPLE)
   add_custom_command(
     TARGET phd2
