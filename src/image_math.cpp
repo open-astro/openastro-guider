@@ -1030,7 +1030,8 @@ void DefectMapBuilder::Init(DefectMapDarks& darks)
         }
     }
 
-    Debug.Write(wxString::Format("DefectMapBuilder: Loaded %d cold %d hot\n", m_impl->coldPx.size(), m_impl->hotPx.size()));
+    Debug.Write(
+        wxString::Format("DefectMapBuilder: Loaded %d cold %d hot\n", (int) m_impl->coldPx.size(), (int) m_impl->hotPx.size()));
 }
 
 const ImageStats& DefectMapBuilder::GetImageStats() const
@@ -1065,7 +1066,8 @@ static void FindThresh(DefectMapBuilderImpl *impl)
     impl->coldPxSelected = std::distance(impl->coldPxThresh, impl->coldPx.end());
     impl->hotPxSelected = std::distance(impl->hotPxThresh, impl->hotPx.end());
 
-    Debug.Write(wxString::Format("DefectMap: find thresholds found (%d,%d)\n", impl->coldPxSelected, impl->hotPxSelected));
+    Debug.Write(
+        wxString::Format("DefectMap: find thresholds found (%d,%d)\n", (int) impl->coldPxSelected, (int) impl->hotPxSelected));
 
     impl->threshValid = true;
 }
@@ -1137,8 +1139,8 @@ void DefectMapBuilder::BuildDefectMap(DefectMap& defectMap, bool verbose) const
     unsigned int nr_hot = emit_defects(defectMap, m_impl->hotPxThresh, m_impl->hotPx.end(), stats.stdev, +1, verbose);
 
     if (verbose)
-        Debug.Write(
-            wxString::Format("New defect map created, count=%d (cold=%d, hot=%d)\n", defectMap.size(), nr_cold, nr_hot));
+        Debug.Write(wxString::Format("New defect map created, count=%d (cold=%d, hot=%d)\n", (int) defectMap.size(),
+                                     (int) nr_cold, (int) nr_hot));
 }
 
 const wxArrayString& DefectMapBuilder::GetMapInfo() const
@@ -1260,7 +1262,7 @@ bool DefectMap::DefectMapExists(int profileId, bool showAlert)
                     Debug.AddLine(
                         wxString::Format("BPM check: failed geometry check - fits status = %d, cam dimensions = {%d,%d}, "
                                          " BPM dimensions = {%d,%d}",
-                                         status, sensorSize.x, sensorSize.y, fsize[0], fsize[1]));
+                                         status, sensorSize.x, sensorSize.y, (int) fsize[0], (int) fsize[1]));
                     if (showAlert)
                         pFrame->Alert(_("Bad-pixel map does not match the camera in this profile - it needs to be replaced."));
                 }
@@ -1383,7 +1385,7 @@ DefectMap *DefectMap::LoadDefectMap(int profileId)
         }
     }
 
-    Debug.AddLine(wxString::Format("Loaded %d defects", defectMap->size()));
+    Debug.AddLine(wxString::Format("Loaded %d defects", (int) defectMap->size()));
     return defectMap;
 }
 

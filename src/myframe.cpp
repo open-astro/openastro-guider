@@ -2541,7 +2541,7 @@ static bool load_multi_darks(GuideCamera *camera, const wxString& fname)
 
                 Debug.Write(wxString::Format("loaded dark frame exposure = %d, med = %u, %dx%d bin %d, bpp = %d, gain = %d\n",
                                              img->ImgExpDur, img->MedianADU, img->Size.x, img->Size.y, img->Binning,
-                                             img->BitsPerPixel, img->Gain));
+                                             img->BitsPerPixel, (int) img->Gain));
 
                 camera->AddDark(img.release());
 
@@ -2620,7 +2620,7 @@ bool MyFrame::DarkLibExists(int profileId, bool showAlert)
                     Debug.Write(
                         wxString::Format("DarkLib check: failed geometry check - fits status = %d, cam dimensions = {%d,%d}, "
                                          " dark dimensions = {%d,%d}\n",
-                                         status, sensorSize.x, sensorSize.y, fsize[0], fsize[1]));
+                                         status, sensorSize.x, sensorSize.y, (int) fsize[0], (int) fsize[1]));
 
                     if (showAlert)
                         Alert(_("Dark library does not match the camera in this profile. Check that you are "

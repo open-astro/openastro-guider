@@ -962,7 +962,7 @@ bool CameraINDI::StackStream(CapturedFrame *cf)
     if (cf->m_size != StackImg->NPixels)
     {
         Debug.Write(
-            wxString::Format("INDI Camera: discarding blob with size %d, expected %u\n", cf->m_size, StackImg->NPixels));
+            wxString::Format("INDI Camera: discarding blob with size %d, expected %u\n", (int) cf->m_size, StackImg->NPixels));
         return true;
     }
 

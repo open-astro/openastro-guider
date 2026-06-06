@@ -881,7 +881,7 @@ static void WriteVal(wxTextOutputStream& os, wxConfigBase *cfg, const wxString& 
     {
         long val = 0;
         (void) cfg->Read(key, &val);
-        sval = wxString::Format("%lu", val);
+        sval = wxString::Format("%lu", (unsigned long) val);
         break;
     }
     case wxConfigBase::Type_Float:

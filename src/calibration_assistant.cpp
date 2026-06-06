@@ -456,7 +456,7 @@ void CalibrationAssistant::UpdateCurrentPosition(bool fromTimer)
     }
     else
         m_pWarning->SetLabelText(_("WATCH SCOPE DURING SLEWING TO INSURE SAFETY"));
-    m_pCurrOffset->SetValue(wxString::Format("%.1f", abs(hourAngle * 15.0)));
+    m_pCurrOffset->SetValue(wxString::Format("%.1f", fabs(hourAngle * 15.0)));
     m_pCurrDec->SetValue(wxString::Format("%+.1f", dec));
     if (!m_meridianFlipping)
     {
@@ -643,7 +643,7 @@ void CalibrationAssistant::InitializeUI(bool forceDefaults)
     } // end of default handling
 
     // Current position
-    m_pCurrOffset->SetValue(wxString::Format("%.1f", abs(hourAngle * 15.0)));
+    m_pCurrOffset->SetValue(wxString::Format("%.1f", fabs(hourAngle * 15.0)));
     m_pCurrDec->SetValue(wxString::Format("%+.1f", dec));
     m_pCurrEast->SetValue(hourAngle <= 0);
     if (m_pCurrEast->GetValue() != m_pTargetEast->GetValue())

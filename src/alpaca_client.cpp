@@ -270,7 +270,7 @@ bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *error
         if (res == CURLE_PARTIAL_FILE && !responseStr.empty())
         {
             Debug.Write(wxString::Format("AlpacaClient GET: Partial file error but received %ld bytes, attempting to parse\n",
-                                         responseStr.length()));
+                                         (long) responseStr.length()));
             // Continue processing - we'll check HTTP code and try to parse
         }
         else
@@ -312,7 +312,7 @@ bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *error
                                                           : wxString(responseStr.c_str(), wxConvUTF8);
     Debug.Write(wxString::Format(
         "AlpacaClient GET response (HTTP %ld, received %ld bytes, expected %.0f bytes, downloaded %.0f bytes): %s\n", httpCode,
-        responseStr.length(), contentLength, downloadSize, responsePreview));
+        (long) responseStr.length(), contentLength, downloadSize, responsePreview));
 
     // If we got HTTP 200 but 0 bytes, this is suspicious
     if (httpCode == 200 && responseStr.length() == 0 && contentLength > 0)
@@ -462,7 +462,7 @@ bool AlpacaClient::GetRaw(const wxString& endpoint, const wxString& acceptHeader
         {
             Debug.Write(wxString::Format(
                 "AlpacaClient GET raw: Partial file error but received %ld bytes, attempting to use response\n",
-                responseStr.length()));
+                (long) responseStr.length()));
         }
         else
         {
@@ -1020,8 +1020,8 @@ bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCod
     {
         if (n->name && strcmp(n->name, "Value") == 0)
         {
-            Debug.Write(
-                wxString::Format("AlpacaClient GetBool: Found 'Value' field, type=%d, int_value=%ld\n", n->type, n->int_value));
+            Debug.Write(wxString::Format("AlpacaClient GetBool: Found 'Value' field, type=%d, int_value=%ld\n", n->type,
+                                         (long) n->int_value));
             if (n->type == JSON_BOOL)
             {
                 *value = n->int_value != 0;
@@ -1121,7 +1121,7 @@ bool AlpacaClient::GetString(const wxString& endpoint, wxString *value, long *er
             }
             if (n->type == JSON_INT)
             {
-                *value = wxString::Format("%ld", n->int_value);
+                *value = wxString::Format("%ld", (long) n->int_value);
                 return true;
             }
             if (n->type == JSON_FLOAT)
@@ -1167,7 +1167,7 @@ bool AlpacaClient::GetString(const wxString& endpoint, wxString *value, long *er
                 }
                 if (n->type == JSON_INT)
                 {
-                    *value = wxString::Format("%ld", n->int_value);
+                    *value = wxString::Format("%ld", (long) n->int_value);
                     return true;
                 }
                 if (n->type == JSON_FLOAT)

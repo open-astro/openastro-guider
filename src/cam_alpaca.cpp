@@ -515,7 +515,7 @@ bool CameraAlpaca::Connect(const wxString& camId)
         // Got maxBinY
     }
     MaxHwBinning = wxMin(maxBinX, maxBinY);
-    Debug.Write(wxString::Format("Alpaca camera: MaxBinning is %hu\n", MaxHwBinning));
+    Debug.Write(wxString::Format("Alpaca camera: MaxBinning is %hu\n", (unsigned short) MaxHwBinning));
     if (HwBinning > MaxHwBinning)
         HwBinning = MaxHwBinning;
     m_curBin = HwBinning;

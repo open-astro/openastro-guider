@@ -104,10 +104,10 @@ struct IL
 
     void LogImage(const usImage *img)
     {
-        Debug.Write(wxString::Format("ImgLogger: LogImage event %u frame %u\n", eventNumber, img->FrameNum));
+        Debug.Write(wxString::Format("ImgLogger: LogImage event %u frame %u\n", (unsigned int) eventNumber, img->FrameNum));
 
         wxString t = img->ImgStartTime.Format(_T("%Y-%m-%d_%H%M%S"), wxDateTime::Local);
-        wxString filename = wxString::Format("event%03d_%05d_%s_%s.fit", eventNumber, img->FrameNum, t, trigger);
+        wxString filename = wxString::Format("event%03d_%05d_%s_%s.fit", eventNumber, (int) img->FrameNum, t, trigger);
 
         LogImage(img, filename);
     }
@@ -168,7 +168,7 @@ void ImageLogger::ApplySettings(const ImageLoggerSettings& settings)
         settings.loggingEnabled, settings.logFramesOverThreshRel,
         settings.logFramesOverThreshRel ? settings.guideErrorThreshRel : 0., settings.logFramesOverThreshPx,
         settings.logFramesOverThreshPx ? settings.guideErrorThreshPx : 0., settings.logFramesDropped,
-        settings.logAutoSelectFrames, settings.logNextNFrames ? settings.logNextNFramesCount : 0));
+        settings.logAutoSelectFrames, (int) (settings.logNextNFrames ? settings.logNextNFramesCount : 0)));
 
     s_il.settings = settings;
     if (settings.loggingEnabled && settings.logNextNFrames && s_il.imagesToLog < settings.logNextNFramesCount)
@@ -195,8 +195,8 @@ void ImageLogger::LogImage(const usImage *img, const FrameDroppedInfo& info)
     if (s_il.settings.loggingEnabled && s_il.settings.logFramesDropped && pFrame->pGuider->IsCalibratingOrGuiding() &&
         !pFrame->pGuider->IsPaused())
     {
-        Debug.Write(
-            wxString::Format("ImgLogger: star lost (%d) frame %u event %u\n", info.starError, img->FrameNum, s_il.eventNumber));
+        Debug.Write(wxString::Format("ImgLogger: star lost (%d) frame %u event %u\n", info.starError, img->FrameNum,
+                                     (unsigned int) s_il.eventNumber));
         s_il.BeginLogging(img, "StarLost");
         return;
     }
@@ -238,7 +238,7 @@ void ImageLogger::LogImage(const usImage *img, double distance)
             {
                 Debug.Write(wxString::Format(
                     "ImgLogger: large offset frame %u event %u dist px %.2f vs %.2f rel %.2f vs %.2f cur %.2f\n", img->FrameNum,
-                    s_il.eventNumber, distance, threshPx, relErr, threshRel, curErr));
+                    (unsigned int) s_il.eventNumber, distance, threshPx, relErr, threshRel, curErr));
 
                 s_il.BeginLogging(img, "LargeOffset");
                 return;

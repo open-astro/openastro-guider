@@ -122,7 +122,7 @@ GraphLogWindow::GraphLogWindow(wxWindow *parent)
     m_pLengthButton = new OptionsButton(this, BUTTON_GRAPH_LENGTH, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                                         wxALIGN_CENTER_HORIZONTAL);
     m_pLengthButton->SetToolTip(_("Select the number of frames of history to display on the X-axis"));
-    m_pLengthButton->SetLabel(wxString::Format(_T("x: %3d"), m_pClient->m_length));
+    m_pLengthButton->SetLabel(wxString::Format(_T("x: %3d"), (int) m_pClient->m_length));
     pButtonSizer->Add(m_pLengthButton, wxSizerFlags().Border(wxTOP, 5).Expand());
 
     m_pHeightButton = new OptionsButton(this, BUTTON_GRAPH_HEIGHT, wxEmptyString, wxDefaultPosition, wxDefaultSize,
@@ -444,7 +444,7 @@ wxMenu *GraphLogWindow::GetLengthMenu()
     unsigned int val = m_pClient->m_minLength;
     for (int id = MENU_LENGTH_BEGIN; id <= MENU_LENGTH_END; id++)
     {
-        wxMenuItem *item = menu->AppendRadioItem(id, wxString::Format("%d", val));
+        wxMenuItem *item = menu->AppendRadioItem(id, wxString::Format("%d", (int) val));
         if (val == m_pClient->m_length)
             item->Check(true);
         val *= 2;
@@ -506,7 +506,7 @@ void GraphLogWindow::OnButtonHeight(wxCommandEvent& WXUNUSED(evt))
     unsigned int val = m_pClient->m_minHeight;
     for (int id = MENU_HEIGHT_BEGIN; id <= MENU_HEIGHT_END; id++)
     {
-        wxMenuItem *item = menu->AppendRadioItem(id, wxString::Format("%d", val));
+        wxMenuItem *item = menu->AppendRadioItem(id, wxString::Format("%d", (int) val));
         if (val == m_pClient->m_height)
             item->Check(true);
         val *= 2;
@@ -745,12 +745,12 @@ void GraphLogWindow::UpdateHeightButtonLabel()
     {
         if (val > 0)
         {
-            m_pHeightButton->SetLabel(wxString::Format(_T("y: +/-%d px"), m_pClient->m_height));
+            m_pHeightButton->SetLabel(wxString::Format(_T("y: +/-%d px"), (int) m_pClient->m_height));
             m_pHeightButton->SetToolTip(_("Select the Y-axis scale, pixels per Y division"));
         }
         else
         {
-            m_pHeightButton->SetLabel(wxString::Format(_T("y: +/-%d''"), m_pClient->m_height));
+            m_pHeightButton->SetLabel(wxString::Format(_T("y: +/-%d''"), (int) m_pClient->m_height));
             m_pHeightButton->SetToolTip(_("Select the Y-axis scale, arc-seconds per Y division"));
         }
         m_heightButtonLabelVal = val;
@@ -1305,7 +1305,7 @@ void GraphLogClientWindow::OnPaint(wxPaintEvent& WXUNUSED(evt))
     {
         double div_y = center.y - i * yPixelsPerDivision;
         dc.DrawLine(leftEdge, div_y, rightEdge, div_y);
-        dc.DrawText(wxString::Format("%g%s", i * (double) m_height / (m_yDivisions + 1),
+        dc.DrawText(wxString::Format("%g%s", (double) (i * (double) m_height / (m_yDivisions + 1)),
                                      units == UNIT_ARCSEC ? "''" : (i == 3 ? " px" : "")),
                     leftEdge + 3, div_y - 13);
 
