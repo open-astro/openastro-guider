@@ -20,3 +20,13 @@ code during the strip, grouped by phase. Swept before the relevant phase closes.
     Linux; no longer reference any deleted repo file after the `WinLibs` block was removed.
   - generic `__WINDOWS__` OS-behavior ifdefs (PATHSEP, `PHD_OSNAME`, message-catalog) in
     `src/phd.h` etc.
+
+## Phase 2 — drop macOS
+- **Leftover macOS cleanup (follow-up).** `phase/2-drop-macos` deleted the mac files/scripts/
+  backends and the main `CMakeLists.txt` `if(APPLE)` blocks, but deferred (inert on Linux):
+  - `if(APPLE)` blocks in `thirdparty/thirdparty.cmake` (Carbon/IOKit/Cocoa frameworks, OSX
+    arch flags), `cmake_modules/compiler_options.cmake` (MACOSX_RPATH), `PHD2Packaging.cmake`
+    (dmg packaging), `FindZWO.cmake` (mac SDK path).
+  - inline `#ifdef __APPLE__` source paths: `serialport.cpp` (`SerialPortMac` branch),
+    `phd.h` (`PHD_OSNAME`/PATHSEP), and the dead `#ifdef GUIDE_EQMAC|EQUINOX|VOYAGER`
+    factory blocks + macro defs in `scope.cpp` / `scopes.h`.

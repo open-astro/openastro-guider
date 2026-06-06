@@ -52,3 +52,24 @@ entries; add new ones at the bottom.**
   after the strip, with ctest 10/10 green (source-built INDI 2.2.1.1 since system libindi is
   1.9.9). `--force` only skips the script's curl-variant precheck (`libcurl4-gnutls-dev`); the
   build links the installed `libcurl4-openssl-dev`, which `debian/control` accepts.
+
+## 2026-06-05 — Phase 2: drop macOS
+
+- **What:** Removed the macOS build + backends (branch `phase/2-drop-macos`): dmg/run
+  scripts (`build-dmg.sh`, `run_dmg.sh`), `Info.plist.in`, `run_phd2_macos`, the vendored
+  `extra_frameworks/` (~1.2 MB) and `packaging/macos/`, and the mac-only source backends
+  (`serialport_mac`, and the AppleScript/Cocoa scope backends `scope_eqmac`, `scope_equinox`,
+  `scope_voyager`). Stripped the `if(APPLE)` blocks from `CMakeLists.txt` (the `MACOSX_BUNDLE`
+  executable target, OSX deployment target, Carbon/Frameworks, Apple doc + webui bundling,
+  the `-Wno-inconsistent-missing-override` flag) and removed the unconditional `#include`s of
+  the deleted headers from `scopes.h` / `serialports.h`. Also dropped a leftover dead
+  `if(WINDOWS)` generator block missed in Phase 1.
+- **Why:** Linux-only/headless/Alpaca-only (playbook §2). All removed code was dead on Linux
+  (behind `__APPLE__` / `GUIDE_EQMAC|EQUINOX|VOYAGER` guards).
+- **Deferred** (same precedent as the Windows vcpkg deferral): the inert `if(APPLE)` blocks
+  still in `thirdparty/thirdparty.cmake`, `cmake_modules/compiler_options.cmake`,
+  `cmake_modules/PHD2Packaging.cmake`, `FindZWO.cmake`, and the inline `#ifdef __APPLE__`
+  source paths (`serialport.cpp` mac branch, `phd.h` PATHSEP/OSNAME, the dead
+  `#ifdef GUIDE_EQMAC|EQUINOX|VOYAGER` factory blocks in `scope.cpp`). All inert on Linux;
+  tracked in `GUIDER_TODO.md`.
+- **Verified:** `./build-deb.sh --force` builds the `.deb` + ctest green on arm64.
