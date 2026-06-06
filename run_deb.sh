@@ -4,8 +4,8 @@
 # CMake with the same flags the Debian package uses, and sets parallel-build
 # env vars. Run `make -j$(nproc)` afterward, or pass --build to do it here.
 #
-# Supported targets: Debian 13 Trixie / Raspberry Pi OS Trixie on amd64 or
-# arm64. 32-bit ARM (armhf) and i386 are not supported.
+# Supported target: Debian 13 Trixie / Raspberry Pi OS Trixie on arm64.
+# amd64, 32-bit ARM (armhf), and i386 are not supported.
 #
 # For producing an installable .deb, see build-deb.sh (the packaging script).
 #
@@ -22,18 +22,24 @@ set -e
 
 cd "$(dirname "$0")"
 
-# Architecture check: amd64 and arm64 only. armhf / i386 are not supported.
+# Architecture check: arm64 only (Raspberry Pi target). amd64 / armhf / i386
+# are not supported.
 HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || echo unknown)
 case "$HOST_ARCH" in
-    amd64|arm64) ;;
+    arm64) ;;
     armhf|armel)
-        echo "Unsupported architecture: ${HOST_ARCH}. This fork builds amd64 and arm64 only." >&2
+        echo "Unsupported architecture: ${HOST_ARCH}. This fork builds arm64 only." >&2
         echo "32-bit ARM hardware (Pi Zero / Pi 1 / Pi 2) is not supported; on a 64-bit-capable" >&2
         echo "Pi (3/4/5) install the 64-bit Raspberry Pi OS instead." >&2
         exit 1
         ;;
+    amd64)
+        echo "Unsupported architecture: ${HOST_ARCH}. This fork builds arm64 only (Raspberry Pi" >&2
+        echo "target); amd64 is not supported." >&2
+        exit 1
+        ;;
     *)
-        echo "Unsupported architecture: ${HOST_ARCH}. This fork builds amd64 and arm64 only." >&2
+        echo "Unsupported architecture: ${HOST_ARCH}. This fork builds arm64 only." >&2
         exit 1
         ;;
 esac

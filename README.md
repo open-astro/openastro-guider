@@ -63,9 +63,10 @@ cross-platform build, use upstream
 
 ## Running
 
-Supported targets: **Debian 13 Trixie** and **Raspberry Pi OS Trixie**, on
-amd64 or arm64. 32-bit ARM (armhf) and i386 are not supported; on a
-64-bit-capable Pi (3/4/5) install the 64-bit Raspberry Pi OS.
+Supported target: **Debian 13 Trixie** / **Raspberry Pi OS Trixie** on
+**arm64** (Raspberry Pi 4/5, or Pi 3 on a 64-bit OS). amd64, 32-bit ARM
+(armhf), and i386 are not supported; on a 64-bit-capable Pi (3/4/5) install
+the 64-bit Raspberry Pi OS.
 
 ```bash
 ./run_deb.sh --build           # configure + parallel build
@@ -81,14 +82,15 @@ are discovered/connected at runtime.
 ./build-deb.sh
 ```
 
-Produces `../openastro-phd2-<version>-<amd64|arm64>.deb` plus a tiny
-`../phd2-alpaca-<version>-all.deb` transitional metadata package. The internal
-package name is `openastro-phd2` (renamed from `phd2-alpaca` in 2.0.0;
-`Conflicts`/`Replaces` metadata lets dpkg handle the transition cleanly).
+Produces `../openastro-phd2-<version>-arm64.deb` plus a tiny
+`../phd2-alpaca-<version>-all.deb` transitional metadata package. The package
+is `Architecture: arm64` — arm64 is the only supported build/runtime target.
+The internal package name is `openastro-phd2` (renamed from `phd2-alpaca` in
+2.0.0; `Conflicts`/`Replaces` metadata lets dpkg handle the transition cleanly).
 
 - **Fresh install:** use the main `.deb`.
 - **apt-managed upgrade** from an existing `phd2-alpaca` host:
-  `sudo apt install ./openastro-phd2-<version>-<arch>.deb ./phd2-alpaca-<version>-all.deb`
+  `sudo apt install ./openastro-phd2-<version>-arm64.deb ./phd2-alpaca-<version>-all.deb`
   pulls in the new package and lets apt retire the old name automatically.
 
 **`build-deb.sh` runs the full test suite before packaging. If any test fails,
