@@ -136,7 +136,10 @@ CorrVectors DecomposeCoR(const Circle& cor, int widthPx, int heightPx, double ca
     double cx = cor.cx, cy = cor.cy;
     int xpx = widthPx, ypx = heightPx;
 
-    // Distance and angle of CoR from centre of sensor
+    // Distance and angle of CoR from centre of sensor. xpx/2 and ypx/2 are
+    // integer divisions (verbatim from the original StaticPaToolWin code):
+    // for an odd sensor dimension the half-pixel is truncated. Preserved
+    // as-is to keep this extraction behaviour-neutral.
     double cor_r = std::hypot(xpx / 2 - cx, ypx / 2 - cy);
     double cor_a = degrees(std::atan2(ypx / 2 - cy, xpx / 2 - cx));
     double rarot = -camAngleDeg;
@@ -204,9 +207,12 @@ AltAzResult DecomposeAltAz(const Px& target, const Px& measured, double camAngle
     return out;
 }
 
-Px PrecessJ2000(double JDnow, double raDeg, double decDeg)
+Px PrecessJ2000(double daysSinceJ2000, double raDeg, double decDeg)
 {
-    double tnow = JDnow / 36525; // JDNow is days since J2000.0 so no need to subtract JD2000
+    // daysSinceJ2000 is already elapsed days from the J2000.0 epoch (not a
+    // Julian Date), so converting to Julian centuries is a plain divide by
+    // the days-per-Julian-century (36525) with no epoch subtraction.
+    double tnow = daysSinceJ2000 / 36525;
     double t2 = std::pow(tnow, 2);
     double t3 = std::pow(tnow, 3);
     double zed, zeta, theta; // arcseconds
