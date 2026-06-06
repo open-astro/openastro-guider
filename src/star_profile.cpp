@@ -143,11 +143,7 @@ void ProfileWindow::OnPaint(wxPaintEvent& WXUNUSED(evt))
     const int xsize = this->GetSize().GetX();
     const int ysize = this->GetSize().GetY();
 
-#if defined(__APPLE__)
-    const wxFont& smallFont = *wxSMALL_FONT;
-#else
     const wxFont& smallFont = *wxSWISS_FONT;
-#endif
     dc.SetFont(smallFont);
     int smallFontHeight = dc.GetTextExtent("0").GetHeight();
 

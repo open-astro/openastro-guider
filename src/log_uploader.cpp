@@ -52,10 +52,6 @@
 # define OLD_CURL
 #endif
 
-#ifdef _MSC_VER
-# define strncasecmp strnicmp
-#endif
-
 struct WindowUpdateLocker
 {
     wxWindow *m_win;
@@ -405,15 +401,7 @@ static void QuickInitSummary(Session& s)
         s.summary_loaded = ST_LOADED;
 }
 
-static void ReallyFlush(const wxFFile& ffile)
-{
-#ifdef __WINDOWS__
-    // On Windows the Flush() calls made by GuidingLog and DebugLog are not sufficient
-    // to get the changes onto the filesystem without some contortions
-    if (ffile.IsOpened())
-        FlushFileBuffers((HANDLE) _get_osfhandle(_fileno(ffile.fp())));
-#endif
-}
+static void ReallyFlush(const wxFFile& ffile) { }
 
 static void FlushLogs()
 {

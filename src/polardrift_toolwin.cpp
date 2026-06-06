@@ -153,9 +153,6 @@ PolarDriftToolWin::PolarDriftToolWin()
                 "the guide star in its target circle.\n");
 
     m_instructionsText = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(280, 240), wxALIGN_LEFT);
-#ifdef __WXOSX__
-    m_instructionsText->SetFont(*wxSMALL_FONT);
-#endif
     m_instructionsText->Wrap(-1);
     instrSizer->Add(m_instructionsText, 0, wxALIGN_CENTER_HORIZONTAL | wxALL, 5);
 

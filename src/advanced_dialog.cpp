@@ -37,10 +37,6 @@
 
 #include <wx/tipwin.h>
 
-#if defined(__WXOSX__)
-# include <wx/choicebk.h>
-#endif
-
 const double AdvancedDialog::MIN_FOCAL_LENGTH = 50.0;
 const double AdvancedDialog::MAX_FOCAL_LENGTH = 10000.0;
 
@@ -154,11 +150,7 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
      *
      */
 
-#if defined(__WXOSX__)
-    m_pNotebook = new wxChoicebook(this, wxID_ANY);
-#else
     m_pNotebook = new wxNotebook(this, wxID_ANY);
-#endif
     m_pFrame = pFrame; // We get called before global var is initialized
 
     wxSizerFlags sizer_flags = wxSizerFlags(0).Align(wxALIGN_TOP | wxALIGN_CENTER_HORIZONTAL).Border(wxALL, 2).Expand();

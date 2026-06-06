@@ -288,11 +288,6 @@ StaticPaToolWin::StaticPaToolWin()
     m_instructionsText = new wxHtmlWindow(this, wxID_ANY, wxDefaultPosition, wxSize(320, 240), wxHW_DEFAULT_STYLE);
     m_instructionsText->SetStandardFonts(8);
     m_instructionsText->Hide();
-    /*
-#ifdef __WXOSX__
-    m_instructionsText->SetFont(*wxSMALL_FONT);
-#endif
-    */
     instrSizer->Add(m_instructionsText, 0, wxALIGN_CENTER_HORIZONTAL | wxALL, 5);
 
     m_polePanel = new PolePanel(this);
@@ -880,12 +875,7 @@ void StaticPaToolWin::PaintHelper(wxAutoBufferedPaintDCBase& dc, double scale)
     PHD_Point starpx, stardeg;
     double radpx;
     const std::string alpha = "ABCDEFGHIJKL";
-    const wxFont& SmallFont =
-#if defined(__WXOSX__)
-        *wxSMALL_FONT;
-#else
-        *wxSWISS_FONT;
-#endif
+    const wxFont& SmallFont = *wxSWISS_FONT;
     dc.SetFont(SmallFont);
     for (int is = 0; is < m_poleStars->size(); is++)
     {
@@ -1191,12 +1181,7 @@ void StaticPaToolWin::CreateStarTemplate(wxDC& dc, const wxPoint& m_currPt)
     int region = 5;
 
     dc.SetTextForeground(*wxYELLOW);
-    const wxFont& SmallFont =
-#if defined(__WXOSX__)
-        *wxSMALL_FONT;
-#else
-        *wxSWISS_FONT;
-#endif
+    const wxFont& SmallFont = *wxSWISS_FONT;
     dc.SetFont(SmallFont);
 
     const std::string alpha = "ABCDEFGHIJKL";

@@ -38,7 +38,3 @@ extern bool ServerSendCamConnect(int& xsize, int& ysize);
 extern bool ServerSendCamDisconnect();
 extern bool ServerReqFrame(int duration, usImage& img);
 #endif
-#ifdef __APPLE__
-# include <CoreFoundation/CoreFoundation.h>
-extern OSErr E6AESendRoutine(double ewCorrection, double nsCorrection, int mountcode);
-#endif
