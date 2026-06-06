@@ -39,8 +39,7 @@
   to detect or package this
   */
 
-// openastro-guider build: Alpaca only (INDI dropped in Phase 3; ASCOM was
-// Windows-only and dropped in Phase 1).
+// openastro-guider build: Alpaca only (ASCOM and INDI backends dropped).
 # define ALPACA_CAMERA
 # define SIMULATOR
 

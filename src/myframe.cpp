@@ -1269,16 +1269,7 @@ void MyFrame::Alert(const wxString& msg, alert_fn *DontShowFn, const wxString& b
         params->arg = arg;
         params->showHelp = showHelpButton;
         wxThreadEvent *event = new wxThreadEvent(wxEVT_THREAD, ALERT_FROM_THREAD_EVENT);
-#if defined(_WIN64)
-        // on 64-bit Windows, sizeof(long) is 4 so we have to split the 64-bit param into
-        // two pieces. The low order 32 bits will go in m_commandInt and the high order
-        // 32 bits in m_extraLong
-        unsigned long long extra = (unsigned long long) params;
-        event->SetInt((int) (unsigned int) extra);
-        event->SetExtraLong((long) (unsigned int) (extra >> 32));
-#else
         event->SetExtraLong((long) params);
-#endif
         wxQueueEvent(this, event);
     }
 }
@@ -1303,13 +1294,7 @@ void MyFrame::Alert(const wxString& msg, int flags)
 
 void MyFrame::OnAlertFromThread(wxThreadEvent& event)
 {
-#if defined(_WIN64)
-    unsigned long long lo = (unsigned long long) event.GetInt();
-    unsigned long long hi = (unsigned long long) event.GetExtraLong();
-    alert_params *params = (alert_params *) ((hi << 32) | lo);
-#else
     alert_params *params = (alert_params *) event.GetExtraLong();
-#endif
     DoAlert(*params);
     delete params;
 }

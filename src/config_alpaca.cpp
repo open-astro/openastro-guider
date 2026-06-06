@@ -404,16 +404,11 @@ void AlpacaConfig::OnDiscover(wxCommandEvent& evt)
     wxYield();
 
     // Run discovery on a worker thread and pump the UI event loop while we
-    // wait. DiscoverServers blocks ~4s in select()/recvfrom(); on the main
-    // thread that puts macOS over the beachball threshold and freezes the
-    // dialog. Debug.Write is wxCriticalSection-protected, so off-main-thread
-    // logging during discovery is safe.
-    //
-    // Re-asserting the standard cursor inside the loop is a macOS workaround:
-    // wxOSX (and AppKit when an event handler runs > ~2s) will swap to a
-    // wait/watch cursor on its own. Only the global wxSetCursor() override
-    // wins during a long handler — per-window SetCursor() doesn't reach
-    // AppKit's busy-cursor logic — so that's the only call we make.
+    // wait. DiscoverServers blocks ~4s in select()/recvfrom(); running it on
+    // the main thread would freeze the dialog. Debug.Write is
+    // wxCriticalSection-protected, so off-main-thread logging during discovery
+    // is safe. Re-assert the standard cursor each iteration so it stays put
+    // while the handler is busy.
     Debug.Write("AlpacaConfig::OnDiscover: calling AlpacaDiscovery::DiscoverServers\n");
     auto fut = std::async(std::launch::async, []() { return AlpacaDiscovery::DiscoverServers(2, 2); });
     while (fut.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready)

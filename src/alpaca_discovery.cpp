@@ -123,7 +123,7 @@ void AlpacaDiscovery::DiscoverServers(wxArrayString& serverList, int numQueries,
 {
     serverList.Clear();
 
-    // Use a single socket for both sending and receiving (more reliable on Windows)
+    // Use a single socket for both sending and receiving
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0)
     {
