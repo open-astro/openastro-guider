@@ -420,6 +420,9 @@ static void OpenLogs(bool rollover)
     float dummy;
     Debug.Write(wxString::Format("   cfitsio %.2lf\n", ffvers(&dummy)));
 #if defined(CV_VERSION)
+    // CV_VERSION is a string literal from <opencv2/core/version.hpp>; cppcheck
+    // doesn't parse that header and mis-types it as int.
+    // cppcheck-suppress invalidPrintfArgType_s
     Debug.Write(wxString::Format("   opencv %s\n", CV_VERSION));
 #endif
 

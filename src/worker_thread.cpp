@@ -73,8 +73,7 @@ void WorkerThread::EnqueueWorkerThreadTerminateRequest(void)
 {
     m_interruptRequested = INT_STOP | INT_TERMINATE;
 
-    WORKER_THREAD_REQUEST message;
-    memset(&message, 0, sizeof(message));
+    WORKER_THREAD_REQUEST message = {};
 
     message.request = REQUEST_TERMINATE;
     EnqueueMessage(message);
@@ -86,8 +85,7 @@ void WorkerThread::EnqueueWorkerThreadExposeRequest(usImage *pImage, const Captu
 {
     m_interruptRequested &= ~INT_STOP;
 
-    WORKER_THREAD_REQUEST message;
-    memset(&message, 0, sizeof(message));
+    WORKER_THREAD_REQUEST message = {};
 
     Debug.Write("Enqueuing Expose request\n");
 
@@ -259,8 +257,7 @@ void WorkerThread::EnqueueWorkerThreadMoveRequest(Mount *mount, const GuiderOffs
 {
     m_interruptRequested &= ~INT_STOP;
 
-    WORKER_THREAD_REQUEST message;
-    memset(&message, 0, sizeof(message));
+    WORKER_THREAD_REQUEST message = {};
 
     Debug.Write(wxString::Format("Enqueuing Move request for %s (%.2f, %.2f)\n", mount->GetMountClassName(), ofs.cameraOfs.X,
                                  ofs.cameraOfs.Y));
@@ -280,8 +277,7 @@ void WorkerThread::EnqueueWorkerThreadAxisMove(Mount *mount, const GUIDE_DIRECTI
 {
     m_interruptRequested &= ~INT_STOP;
 
-    WORKER_THREAD_REQUEST message;
-    memset(&message, 0, sizeof(message));
+    WORKER_THREAD_REQUEST message = {};
 
     Debug.Write(wxString::Format("Enqueuing Calibration Move request for direction %d\n", direction));
 

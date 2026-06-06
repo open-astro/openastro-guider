@@ -29,17 +29,8 @@
 # File created by Raffi Enficiaud
 
 
-if(APPLE)
-  set(CMAKE_MACOSX_RPATH TRUE)
-endif()
-
-if(WIN32)
-  add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-endif()
-
 # these options allow to use system libraries
 option(USE_SYSTEM_GTEST "Enable this option here or in cmake call if you want to use system's Gtest." OFF)
-option(USE_SYSTEM_LIBINDI "Enable this option here or in cmake call if you want to use system's libindi." OFF)
 
 # build type, by default to release (with optimisations)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -49,20 +40,5 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
-# compiler capabilities
-include(CheckCXXCompilerFlag)
-if(WIN32)
-  set(FIND_LIBRARY_USE_LIB64_PATHS FALSE)
-  #set(CMAKE_LIBRARY_ARCHITECTURE x86)
-else()
-  # C++ standard is configured via CMAKE_CXX_STANDARD in the top-level
-  # CMakeLists.txt; no need to inject -std=c++NN manually here.
-
-  if(APPLE)
-    check_cxx_compiler_flag(-stdlib=libc++ HAS_LIBCXX_FLAG)
-
-    if(HAS_LIBCXX_FLAG)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-    endif()
-  endif()
-endif()
+# C++ standard is configured via CMAKE_CXX_STANDARD in the top-level
+# CMakeLists.txt; no need to inject -std=c++NN manually here.

@@ -237,7 +237,7 @@ public:
     static bool CreateGuideAlgorithm(int guideAlgorithm, Mount *mount, GuideAxis axis, GuideAlgorithm **ppAlgorithm);
 
 #ifdef TEST_TRANSFORMS
-    void Mount::TestTransforms();
+    void TestTransforms();
 #endif
 
     // functions with an implementation in Mount that cannot be over-ridden

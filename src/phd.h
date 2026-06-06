@@ -87,37 +87,12 @@
 #endif
 #define FULLVER PHDVERSION PHDSUBVER
 
-#if defined(__WINDOWS__)
-# pragma warning(disable : 4189)
-# pragma warning(disable : 4018)
-# pragma warning(disable : 4305)
-# pragma warning(disable : 4100)
-# pragma warning(disable : 4996)
-# if HAVE_VLD
-#  include <vld.h>
-# endif
-#endif // __WINDOWS__
-
 WX_DEFINE_ARRAY_INT(int, ArrayOfInts);
 WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 
-#if defined(__WINDOWS__)
-# define PHD_OSNAME _T("Windows")
-# define PATHSEPCH '\\'
-# define PATHSEPSTR "\\"
-#endif
-
-#if defined(__APPLE__)
-# define PHD_OSNAME _T("OSX")
-# define PATHSEPCH '/'
-# define PATHSEPSTR "/"
-#endif
-
-#if defined(__WXGTK__)
-# define PHD_OSNAME _T("Linux")
-# define PATHSEPCH '/'
-# define PATHSEPSTR _T("/")
-#endif
+#define PHD_OSNAME _T("Linux")
+#define PATHSEPCH '/'
+#define PATHSEPSTR _T("/")
 
 #define DEGREES_SYMBOL "\u00B0"
 #define MICRONS_SYMBOL "\u00B5m"
@@ -142,19 +117,9 @@ WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 #define THROW_INFO(s) (Debug.AddLine(wxString(THROW_INFO_BASE("Throw from", __FILE__, __LINE__) "->" s)))
 #define ERROR_INFO(s) (Debug.AddLine(wxString(THROW_INFO_BASE("Error thrown from", __FILE__, __LINE__) "->" s)))
 
-#if defined(__WINDOWS__)
-# define PHD_MESSAGES_CATALOG "messages"
-#endif
-
-#if defined(__APPLE__)
-# define PHD_MESSAGES_CATALOG "messages"
-#endif
-
-#if defined(__linux__) || defined(__FreeBSD__)
 // On Linux the messages catalogs for all the applications are in the same directory
 // in /usr/share/locale, so the catalog name must be the application name.
-# define PHD_MESSAGES_CATALOG "phd2"
-#endif
+#define PHD_MESSAGES_CATALOG "phd2"
 
 #include "phdconfig.h"
 #include "configdialog.h"
@@ -173,7 +138,6 @@ WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 #include "guiders.h"
 #include "messagebox_proxy.h"
 #include "serialports.h"
-#include "parallelports.h"
 #include "cameras.h"
 #include "camera.h"
 #include "mount.h"

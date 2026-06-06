@@ -42,14 +42,6 @@ const float Rotator::POSITION_UNKNOWN = -888.f;
 
 Rotator *pRotator;
 
-#ifdef ROTATOR_INDI
-static wxString INDIRotatorName()
-{
-    wxString indirotator = pConfig->Profile.GetString("/indi/INDIrotator", wxEmptyString);
-    return indirotator.empty() ? wxString(_T("INDI Rotator")) : wxString::Format("INDI Rotator [%s]", indirotator);
-}
-#endif
-
 #ifdef ROTATOR_ALPACA
 static wxString AlpacaRotatorName()
 {
@@ -67,14 +59,6 @@ wxArrayString Rotator::RotatorList()
     wxArrayString rotatorList;
 
     rotatorList.Add(_("None"));
-#ifdef ROTATOR_ASCOM
-    wxArrayString ascomRotators = RotatorAscom::EnumAscomRotators();
-    for (unsigned int i = 0; i < ascomRotators.Count(); i++)
-        rotatorList.Add(ascomRotators[i]);
-#endif
-#ifdef ROTATOR_INDI
-    rotatorList.Add(INDIRotatorName());
-#endif
 #ifdef ROTATOR_ALPACA
     rotatorList.Add(AlpacaRotatorName());
 #endif
@@ -101,19 +85,6 @@ Rotator *Rotator::Factory(const wxString& choice)
         if (false) // so else ifs can follow
         {
         }
-#ifdef ROTATOR_ASCOM
-        // do ascom first since it includes many choices, some of which match other choices below (like Simulator)
-        else if (choice.Find(_T("ASCOM")) != wxNOT_FOUND)
-        {
-            rotator = new RotatorAscom(choice);
-        }
-#endif
-#ifdef ROTATOR_INDI
-        else if (choice.Contains(_T("INDI")))
-        {
-            rotator = INDIRotatorFactory::MakeINDIRotator();
-        }
-#endif
 #ifdef ROTATOR_ALPACA
         else if (choice.Contains(_T("Alpaca")))
         {

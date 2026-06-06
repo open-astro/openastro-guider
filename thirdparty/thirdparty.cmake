@@ -49,73 +49,8 @@ set(PHD_COPY_EXTERNAL_DBG)      # copy for debug only
 set(PHD_COPY_EXTERNAL_REL)      # copy for release only
 set(PHD_EXTERNAL_PROJECT_DEPENDENCIES)
 
-if(WIN32)
-  # Reject 32-bit toolchains as early as possible. CMAKE_GENERATOR_PLATFORM
-  # catches the Visual Studio "-A Win32" case, but is empty for Ninja /
-  # Unix Makefiles; CMAKE_SIZEOF_VOID_P (set by project() before this file
-  # is included) catches the actual target bitness regardless of generator.
-  if(DEFINED CMAKE_SIZEOF_VOID_P AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(FATAL_ERROR
-      "Unsupported target architecture: ${CMAKE_SIZEOF_VOID_P}-byte pointers. "
-      "This fork builds x64 only.")
-  endif()
-  if(CMAKE_GENERATOR_PLATFORM AND NOT CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
-    message(FATAL_ERROR
-      "Unsupported generator platform '${CMAKE_GENERATOR_PLATFORM}'. "
-      "This fork builds x64 only; configure with -A x64.")
-  endif()
-  set(WINDOWS_ARCH "x64")
-endif()
-
-if(APPLE)
-  # make sure not to pick up any homebrew or macports dependencies
-  set(CMAKE_IGNORE_PREFIX_PATH /opt/local)
-endif()
-
-# this module will be used to find system installed libraries on Linux
-if(UNIX AND NOT APPLE)
-  find_package(PkgConfig)
-endif()
-
-if(WIN32)
-  include(FetchContent)
-  set(FETCHCONTENT_QUIET OFF)
-  FetchContent_Declare(
-    vcpkg
-    GIT_REPOSITORY https://github.com/microsoft/vcpkg.git
-    # vcpkg release tag: 2026.03.18
-    GIT_TAG c3867e714dd3a51c272826eea77267876517ed99
-    UPDATE_COMMAND bootstrap-vcpkg.bat -disableMetrics
-    COMMAND ${CMAKE_COMMAND} -E echo "Building vcpkg cfitsio"
-    COMMAND vcpkg install --binarysource=default --no-print-usage cfitsio:${WINDOWS_ARCH}-windows
-    COMMAND ${CMAKE_COMMAND} -E echo "Building vcpkg curl[ssl]"
-    COMMAND vcpkg install --binarysource=default --no-print-usage curl[ssl]:${WINDOWS_ARCH}-windows
-    COMMAND ${CMAKE_COMMAND} -E echo "Building vcpkg eigen3"
-    COMMAND vcpkg install --binarysource=default --no-print-usage eigen3:${WINDOWS_ARCH}-windows
-    COMMAND ${CMAKE_COMMAND} -E echo "Building vcpkg opencv4"
-    COMMAND vcpkg install --binarysource=default --no-print-usage opencv4:${WINDOWS_ARCH}-windows
-  )
-  message(STATUS "Preparing VCPKG")
-  FetchContent_MakeAvailable(vcpkg)
-  set(VCPKG_PREFIX ${vcpkg_SOURCE_DIR}/installed/${WINDOWS_ARCH}-windows)
-  set(VCPKG_DEBUG_BIN ${VCPKG_PREFIX}/debug/bin)
-  set(VCPKG_RELEASE_BIN ${VCPKG_PREFIX}/bin)
-  set(VCPKG_DEBUG_LIB ${VCPKG_PREFIX}/debug/lib)
-  set(VCPKG_RELEASE_LIB ${VCPKG_PREFIX}/lib)
-  set(VCPKG_INCLUDE ${VCPKG_PREFIX}/include)
-  include_directories(${VCPKG_INCLUDE})
-endif()
-
-if(APPLE)
-  find_library(iokitFramework          IOKit)
-  find_library(carbonFramework         Carbon)
-  find_library(cocoaFramework          Cocoa)
-  find_library(systemFramework         System)
-  find_library(webkitFramework         Webkit)
-  find_library(audioToolboxFramework   AudioToolbox)
-  find_library(openGLFramework         OpenGL)
-  find_library(coreFoundationFramework CoreFoundation)
-endif()
+# Find system-installed libraries on Linux.
+find_package(PkgConfig)
 
 #############################################
 #
@@ -126,87 +61,33 @@ endif()
 ##############################################
 # cfitsio
 
-if(WIN32)
-  include_directories(${VCPKG_INCLUDE}/cfitsio)
-  list(APPEND PHD_LINK_EXTERNAL_DEBUG
-      ${VCPKG_DEBUG_LIB}/cfitsio.lib
-      ${VCPKG_DEBUG_LIB}/zlibd.lib
-  )
-  list(APPEND PHD_LINK_EXTERNAL_RELEASE
-      ${VCPKG_RELEASE_LIB}/cfitsio.lib
-      ${VCPKG_RELEASE_LIB}/zlib.lib
-  )
-  list(APPEND PHD_COPY_EXTERNAL_DBG
-      ${VCPKG_DEBUG_BIN}/cfitsio.dll
-      ${VCPKG_DEBUG_BIN}/zlibd1.dll
-  )
-  list(APPEND PHD_COPY_EXTERNAL_REL
-      ${VCPKG_RELEASE_BIN}/cfitsio.dll
-      ${VCPKG_RELEASE_BIN}/zlib1.dll
-  )
-else()
-  # On macOS the Homebrew bottle ships only the dylib; we bundle it into
-  # "OpenAstro PHD2.app"/Contents/Frameworks/ via a POST_BUILD step in CMakeLists.txt
-  # and rewrite install names so the .app stays redistributable.
-  find_package(CFITSIO REQUIRED)
-  include_directories(${CFITSIO_INCLUDE_DIR})
-  list(APPEND PHD_LINK_EXTERNAL ${CFITSIO_LIBRARIES})
-  message(STATUS "Using system's CFITSIO.")
-endif()
+find_package(CFITSIO REQUIRED)
+include_directories(${CFITSIO_INCLUDE_DIR})
+list(APPEND PHD_LINK_EXTERNAL ${CFITSIO_LIBRARIES})
+message(STATUS "Using system's CFITSIO.")
 
 #############################################
 # libcurl
 #############################################
 
-if(WIN32)
-  list(APPEND PHD_LINK_EXTERNAL_DEBUG
-      ${VCPKG_DEBUG_LIB}/libcurl-d.lib
-  )
-  list(APPEND PHD_LINK_EXTERNAL_RELEASE
-      ${VCPKG_RELEASE_LIB}/libcurl.lib
-  )
-  list(APPEND PHD_COPY_EXTERNAL_DBG
-      ${VCPKG_DEBUG_BIN}/libcurl-d.dll
-  )
-  list(APPEND PHD_COPY_EXTERNAL_REL
-      ${VCPKG_RELEASE_BIN}/libcurl.dll
-  )
-else()
-  if(APPLE)
-    find_library(CURL_LIBRARIES
-                 NAMES curl
-                 PATHS /usr/lib
-    )
-    if(NOT CURL_LIBRARIES)
-      message(FATAL_ERROR "libcurl not found")
-    endif()
-    set(CURL_FOUND True)
-    set(CURL_INCLUDE_DIRS /usr/include)
-  else()
-    find_package(CURL REQUIRED)
-  endif()
-  message(STATUS "using libcurl ${CURL_LIBRARIES}")
-  include_directories(${CURL_INCLUDE_DIRS})
-  list(APPEND PHD_LINK_EXTERNAL ${CURL_LIBRARIES})
-endif()
+find_package(CURL REQUIRED)
+message(STATUS "using libcurl ${CURL_LIBRARIES}")
+include_directories(${CURL_INCLUDE_DIRS})
+list(APPEND PHD_LINK_EXTERNAL ${CURL_LIBRARIES})
 
 #############################################
 # the Eigen library, mostly header only
 
-if(WIN32)
-  set(EIGEN_SRC ${VCPKG_INCLUDE}/eigen3)
+find_package(Eigen3 REQUIRED)
+# Eigen 5.x exposes the include path via the Eigen3::Eigen target only
+# (EIGEN3_INCLUDE_DIR was dropped). Older configs still set the variable;
+# fall back to it so this works on Debian/Pi too.
+if(TARGET Eigen3::Eigen)
+  get_target_property(EIGEN_SRC Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
 else()
-  find_package(Eigen3 REQUIRED)
-  # Eigen 5.x exposes the include path via the Eigen3::Eigen target only
-  # (EIGEN3_INCLUDE_DIR was dropped). Older configs still set the variable;
-  # fall back to it so this works on Debian/Pi too.
-  if(TARGET Eigen3::Eigen)
-    get_target_property(EIGEN_SRC Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
-  else()
-    set(EIGEN_SRC ${EIGEN3_INCLUDE_DIR})
-  endif()
-  message(STATUS "Using system's Eigen3 (${EIGEN_SRC}).")
+  set(EIGEN_SRC ${EIGEN3_INCLUDE_DIR})
 endif()
+message(STATUS "Using system's Eigen3 (${EIGEN_SRC}).")
 
 #############################################
 # Google test
@@ -235,157 +116,26 @@ endif()
 
 set(wxWidgets_PREFIX_DIRECTORY $ENV{WXWIN} CACHE PATH "wxWidgets directory")
 
-if(WIN32)
-  # wxWidgets
-  set(wxWidgets_CONFIGURATION msw CACHE STRING "Set wxWidgets configuration")
-
-  if(NOT wxWidgets_PREFIX_DIRECTORY OR NOT EXISTS ${wxWidgets_PREFIX_DIRECTORY})
-    message(FATAL_ERROR "The variable wxWidgets_PREFIX_DIRECTORY should be defined and should point to a valid wxWindows installation path. See the open-phd-guiding wiki for more information.")
-  endif()
-
-  set(wxWidgets_ROOT_DIR ${wxWidgets_PREFIX_DIRECTORY})
-  set(wxWidgets_LIB_DIR ${wxWidgets_ROOT_DIR}/lib/vc_x64_lib)
-  set(wxWidgets_USE_STATIC ON)
-  set(wxWidgets_USE_DEBUG ON)
-  set(wxWidgets_USE_UNICODE OFF)
-  find_package(wxWidgets 3.2 REQUIRED COMPONENTS propgrid base core aui adv html net)
-  include(${wxWidgets_USE_FILE})
-
-elseif(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
-  if(NOT DEFINED wxWidgets_PREFIX_DIRECTORY)
-    set(wxWidgets_PREFIX_DIRECTORY "/usr/local")
-  endif()
+if(wxWidgets_PREFIX_DIRECTORY)
   set(wxWidgets_CONFIG_OPTIONS --prefix=${wxWidgets_PREFIX_DIRECTORY})
 
-  find_program(wxWidgets_CONFIG_EXECUTABLE
-    NAMES "wxgtk3u-3.1-config"
-    PATHS ${wxWidgets_PREFIX_DIRECTORY}/bin NO_DEFAULT_PATH)
+  find_program(wxWidgets_CONFIG_EXECUTABLE NAMES "wx-config" PATHS ${wxWidgets_PREFIX_DIRECTORY}/bin NO_DEFAULT_PATH)
   if(NOT wxWidgets_CONFIG_EXECUTABLE)
     message(FATAL_ERROR "Cannot find wxWidgets_CONFIG_EXECUTABLE from the given directory ${wxWidgets_PREFIX_DIRECTORY}")
   endif()
+endif()
 
-  set(wxRequiredLibs aui core base adv html net)
-  execute_process(COMMAND ${wxWidgets_CONFIG_EXECUTABLE} --libs ${wxRequiredLibs}
-                  OUTPUT_VARIABLE wxWidgets_LIBRARIES
-                  OUTPUT_STRIP_TRAILING_WHITESPACE)
-  separate_arguments(${wxWidgets_LIBRARIES})
-  execute_process(COMMAND ${wxWidgets_CONFIG_EXECUTABLE} --cflags ${wxRwxRequiredLibs}
-                  OUTPUT_VARIABLE wxWidgets_CXXFLAGS
-                  OUTPUT_STRIP_TRAILING_WHITESPACE)
-  separate_arguments(wxWidgets_CXX_FLAGS UNIX_COMMAND "${wxWidgets_CXXFLAGS}")
-  separate_arguments(wxWidgets_LDFLAGS UNIX_COMMAND "${wxWidgets_LDFLAGS}")
-else()
-  if(wxWidgets_PREFIX_DIRECTORY)
-    set(wxWidgets_CONFIG_OPTIONS --prefix=${wxWidgets_PREFIX_DIRECTORY})
-
-    find_program(wxWidgets_CONFIG_EXECUTABLE NAMES "wx-config" PATHS ${wxWidgets_PREFIX_DIRECTORY}/bin NO_DEFAULT_PATH)
-    if(NOT wxWidgets_CONFIG_EXECUTABLE)
-      message(FATAL_ERROR "Cannot find wxWidgets_CONFIG_EXECUTABLE from the given directory ${wxWidgets_PREFIX_DIRECTORY}")
-    endif()
-  endif()
-
-  find_package(wxWidgets 3.2 REQUIRED COMPONENTS aui core base adv html net)
-  if(NOT wxWidgets_FOUND)
-    message(FATAL_ERROR "wxWidgets >= 3.2 cannot be found. Please use wx-config prefix")
-  endif()
+find_package(wxWidgets 3.2 REQUIRED COMPONENTS aui core base adv html net)
+if(NOT wxWidgets_FOUND)
+  message(FATAL_ERROR "wxWidgets >= 3.2 cannot be found. Please use wx-config prefix")
 endif()
 
 list(APPEND PHD_LINK_EXTERNAL ${wxWidgets_LIBRARIES})
 
 
-#############################################
-#
-# Windows specific dependencies
-# - Visual Leak Detector (optional)
-# - OpenCV
-# - Video For Windows (vfw)
-# - ASCOM camera stuff
-#############################################
-
-if(WIN32)
-
-  if(NOT DISABLE_VLD)
-    find_path(VLD_INCLUDE vld.h
-        HINTS "C:/Program Files (x86)/Visual Leak Detector" ENV VLD_DIR
-        PATH_SUFFIXES include
-    )
-    if (VLD_INCLUDE)
-      get_filename_component(VLD_ROOT ${VLD_INCLUDE} DIRECTORY)
-      add_definitions(-DHAVE_VLD=1)
-      message(STATUS "Enabling VLD (${VLD_ROOT})")
-    else()
-      message(STATUS "Disabling VLD: VLD not found")
-    endif()
-  else()
-    message(STATUS "Disabling VLD: DISABLE_VLD is set")
-  endif()
-
-  include_directories(${VCPKG_INCLUDE}/opencv2)
-  list(APPEND PHD_LINK_EXTERNAL_DEBUG
-      ${VCPKG_DEBUG_LIB}/opencv_imgproc4d.lib
-      ${VCPKG_DEBUG_LIB}/opencv_highgui4d.lib
-      ${VCPKG_DEBUG_LIB}/opencv_core4d.lib
-      ${VCPKG_DEBUG_LIB}/opencv_videoio4d.lib
-      ${VCPKG_DEBUG_LIB}/opencv_imgcodecs4d.lib
-  )
-  list(APPEND PHD_LINK_EXTERNAL_RELEASE
-      ${VCPKG_RELEASE_LIB}/opencv_imgproc4.lib
-      ${VCPKG_RELEASE_LIB}/opencv_highgui4.lib
-      ${VCPKG_RELEASE_LIB}/opencv_core4.lib
-      ${VCPKG_RELEASE_LIB}/opencv_videoio4.lib
-      ${VCPKG_RELEASE_LIB}/opencv_imgcodecs4.lib
-  )
-  list(APPEND PHD_COPY_EXTERNAL_DBG
-      ${VCPKG_DEBUG_BIN}/opencv_imgproc4d.dll
-      ${VCPKG_DEBUG_BIN}/opencv_highgui4d.dll
-      ${VCPKG_DEBUG_BIN}/opencv_core4d.dll
-      ${VCPKG_DEBUG_BIN}/opencv_videoio4d.dll
-      ${VCPKG_DEBUG_BIN}/opencv_imgcodecs4d.dll
-      ${VCPKG_DEBUG_BIN}/jpeg62.dll
-      ${VCPKG_DEBUG_BIN}/libpng16d.dll
-      ${VCPKG_DEBUG_BIN}/tiffd.dll
-      ${VCPKG_DEBUG_BIN}/liblzma.dll
-      ${VCPKG_DEBUG_BIN}/libwebp.dll
-      ${VCPKG_DEBUG_BIN}/libwebpdecoder.dll
-      ${VCPKG_DEBUG_BIN}/libsharpyuv.dll
-  )
-  list(APPEND PHD_COPY_EXTERNAL_REL
-      ${VCPKG_RELEASE_BIN}/opencv_imgproc4.dll
-      ${VCPKG_RELEASE_BIN}/opencv_highgui4.dll
-      ${VCPKG_RELEASE_BIN}/opencv_core4.dll
-      ${VCPKG_RELEASE_BIN}/opencv_videoio4.dll
-      ${VCPKG_RELEASE_BIN}/opencv_imgcodecs4.dll
-      ${VCPKG_RELEASE_BIN}/jpeg62.dll
-      ${VCPKG_RELEASE_BIN}/libpng16.dll
-      ${VCPKG_RELEASE_BIN}/tiff.dll
-      ${VCPKG_RELEASE_BIN}/liblzma.dll
-      ${VCPKG_RELEASE_BIN}/libwebp.dll
-      ${VCPKG_RELEASE_BIN}/libwebpdecoder.dll
-      ${VCPKG_RELEASE_BIN}/libsharpyuv.dll
-  )
-endif()
 
 # Camera SDK libraries removed - Alpaca only build
 
-#############################################
-#
-# macOS specific dependencies
-#
-#############################################
-if(APPLE)
-  list(APPEND PHD_LINK_EXTERNAL
-    ${IOKit}
-    ${Carbon}
-    ${Cocoa}
-    ${System}
-    ${Webkit}
-    ${AudioToolbox}
-    ${OpenGL}
-  )
-
-  find_path(CARBON_INCLUDE_DIR Carbon.h)
-
-endif()  # APPLE
 
 #############################################
 #
