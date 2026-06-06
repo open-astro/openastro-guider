@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # PHD2 .deb Build Script for Debian 13 Trixie / Raspberry Pi OS Trixie
 #
-# Supported host architectures: amd64 (x86_64 servers) or arm64 (Pi 4/5, Pi 3
-# on 64-bit OS). 32-bit ARM (armhf) and i386 are not supported.
+# Supported host architecture: arm64 only (Raspberry Pi 4/5, or Pi 3 on a
+# 64-bit OS). amd64, 32-bit ARM (armhf), and i386 are not supported.
 #
-# Builds PHD2 and creates a .deb for the host architecture:
-# - amd64: produces openastro-phd2-<ver>-amd64.deb
+# Builds PHD2 and creates a .deb for arm64:
 # - arm64: produces openastro-phd2-<ver>-arm64.deb
 #
 # Equipment is reached over ASCOM Alpaca only; there is no INDI/libindi build
@@ -89,17 +88,20 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 cd "$ROOT_DIR"
 
 # ---------------------------------------------------------------------------
-# Architecture check: we support amd64 and arm64 only.
-# 32-bit ARM (armhf, e.g. Pi Zero / Pi 1 / Pi 2) and i386 are out of scope.
+# Architecture check: we support arm64 only (Raspberry Pi target).
+# amd64, 32-bit ARM (armhf, e.g. Pi Zero / Pi 1 / Pi 2), and i386 are out of scope.
 # ---------------------------------------------------------------------------
 HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || echo unknown)
 case "$HOST_ARCH" in
-    amd64|arm64) ;;
+    arm64) ;;
     armhf|armel)
-        err "Unsupported architecture: ${HOST_ARCH}. This fork builds amd64 and arm64 only. 32-bit ARM hardware (Pi Zero / Pi 1 / Pi 2) is not supported; on a 64-bit-capable Pi (3/4/5) install the 64-bit Raspberry Pi OS instead."
+        err "Unsupported architecture: ${HOST_ARCH}. This fork builds arm64 only. 32-bit ARM hardware (Pi Zero / Pi 1 / Pi 2) is not supported; on a 64-bit-capable Pi (3/4/5) install the 64-bit Raspberry Pi OS instead."
+        ;;
+    amd64)
+        err "Unsupported architecture: ${HOST_ARCH}. This fork builds arm64 only (Raspberry Pi target); amd64 is not supported."
         ;;
     *)
-        err "Unsupported architecture: ${HOST_ARCH}. This fork builds amd64 and arm64 only."
+        err "Unsupported architecture: ${HOST_ARCH}. This fork builds arm64 only."
         ;;
 esac
 info "Building for ${HOST_ARCH}"

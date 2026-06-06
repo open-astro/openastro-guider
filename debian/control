@@ -15,7 +15,7 @@ Standards-Version: 4.6.2
 Homepage: https://github.com/open-astro/openastro-guider
 
 Package: openastro-phd2
-Architecture: any
+Architecture: arm64
 Conflicts: phd2-alpaca
 Replaces: phd2-alpaca
 Depends: ${shlibs:Depends}, ${misc:Depends},
