@@ -34,7 +34,7 @@
 
 #include "phd.h"
 
-#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
+#if defined(__linux__)
 
 # include <termios.h>
 # include <unistd.h>
@@ -326,8 +326,8 @@ bool SerialPortPosix::Receive(unsigned char *pData, unsigned int count)
 
         if (rem > 0)
         {
-            throw ERROR_INFO("SerialPortPosix: " + wxString::Format(wxT("%i"), rem) + " remaining bytes to read at eof " +
-                             ", expected total of " + wxString::Format(wxT("%i"), count));
+            throw ERROR_INFO("SerialPortPosix: " + wxString::Format(wxT("%i"), (int) rem) + " remaining bytes to read at eof " +
+                             ", expected total of " + wxString::Format(wxT("%i"), (int) count));
         }
     }
     catch (const wxString& Msg)

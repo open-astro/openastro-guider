@@ -53,14 +53,6 @@ wxSize UNDEFINED_FRAME_SIZE = wxSize(0, 0);
 # include "cam_alpaca.h"
 #endif
 
-#if defined(INDI_CAMERA)
-# include "cam_indi.h"
-#endif
-
-#if defined(ASCOM_CAMERA)
-# include "cam_ascom.h"
-#endif
-
 const wxString GuideCamera::DEFAULT_CAMERA_ID = wxEmptyString;
 
 double GuideCamera::GetProfilePixelSize()
@@ -114,14 +106,6 @@ static wxString AlpacaCamName()
     return wxString::Format("Alpaca Camera [%s:%ld/%ld]", host, port, device);
 }
 
-#if defined(INDI_CAMERA)
-static wxString INDICamName()
-{
-    wxString indicam = pConfig->Profile.GetString("/indi/INDIcam", wxEmptyString);
-    return indicam.empty() ? wxString(_T("INDI Camera")) : wxString::Format("INDI Camera [%s]", indicam);
-}
-#endif
-
 wxArrayString GuideCamera::GuideCameraList()
 {
     wxArrayString CameraList;
@@ -129,16 +113,6 @@ wxArrayString GuideCamera::GuideCameraList()
     CameraList.Add(_("None"));
 #if defined(ALPACA_CAMERA)
     CameraList.Add(AlpacaCamName());
-#endif
-#if defined(INDI_CAMERA)
-    CameraList.Add(INDICamName());
-#endif
-#if defined(ASCOM_CAMERA)
-    {
-        wxArrayString ascomCameras = ASCOMCameraFactory::EnumAscomCameras();
-        for (unsigned int i = 0; i < ascomCameras.Count(); i++)
-            CameraList.Add(ascomCameras[i]);
-    }
 #endif
 
     CameraList.Sort(&CompareNoCase);
@@ -162,29 +136,12 @@ GuideCamera *GuideCamera::Factory(const wxString& choice)
         if (false) // so else ifs can follow
         {
         }
-        // Route by explicit prefix (INDI/Alpaca) or by the marker appended by
-        // each transport's displayName helper (ASCOM). Avoid plain Contains()
-        // matches: a vendor name containing "INDI"/"Alpaca"/"ASCOM" anywhere
-        // would otherwise misroute.
-#if defined(INDI_CAMERA)
-        else if (choice.StartsWith(_T("INDI Camera")))
-        {
-            pReturn = INDICameraFactory::MakeINDICamera();
-        }
-#endif
+        // Route by explicit prefix. Avoid plain Contains() matches: a vendor
+        // name containing "Alpaca" anywhere would otherwise misroute.
 #if defined(ALPACA_CAMERA)
         else if (choice.StartsWith(_T("Alpaca Camera")))
         {
             pReturn = AlpacaCameraFactory::MakeAlpacaCamera();
-        }
-#endif
-#if defined(ASCOM_CAMERA)
-        // displayName() in cam_ascom.cpp either appends " (ASCOM)" or leaves
-        // the vendor's already-ASCOM-prefixed name as-is (e.g. "ASCOM OmniSim
-        // ..."). Match both shapes explicitly.
-        else if (choice.EndsWith(_T(" (ASCOM)")) || choice.StartsWith(_T("ASCOM ")))
-        {
-            pReturn = ASCOMCameraFactory::MakeASCOMCamera(choice);
         }
 #endif
         else if (choice == _("None"))

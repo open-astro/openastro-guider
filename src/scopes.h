@@ -35,29 +35,10 @@
 #ifndef SCOPES_H_INCLUDED
 #define SCOPES_H_INCLUDED
 
-#if defined(__WINDOWS__)
-
-# define GUIDE_ASCOM
-# ifdef HAVE_SHOESTRING
-#  define GUIDE_GPUSB
-#  define GUIDE_GPINT
-# endif
-# define GUIDE_ALPACA
-
-#elif defined(__APPLE__)
-
-# define GUIDE_ALPACA
-
-#elif defined(__linux__) || defined(__FreeBSD__)
-
-# define GUIDE_ALPACA
-
-#endif // WINDOWS/APPLE/LINUX
+// Equipment is reached over ASCOM Alpaca only.
+#define GUIDE_ALPACA
 
 #include "scope.h"
-#include "scope_gpusb.h"
-#include "scope_gpint.h"
-#include "scope_GC_USBST4.h"
 #include "scope_alpaca.h"
 #include "scope_manual_pointing.h"
 

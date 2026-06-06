@@ -49,6 +49,9 @@ https://www-users.cs.york.ac.uk/~fisher/mkfilter/
 
 ZFilterFactory::ZFilterFactory(FILTER_DESIGN f, int o, double p, bool mzt)
 {
+    // A 33-row constant lookup table in a one-time factory ctor; body-assigned
+    // for readability rather than as a multi-line member-initializer.
+    // cppcheck-suppress useInitializationList
     bessel_poles = {
         /* table produced by /usr/fisher/bessel --  N.B. only one member of each C.Conj. pair is listed */
         std::complex<double>(-1.00000000000e+00, 0.00000000000e+00),

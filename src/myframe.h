@@ -328,10 +328,6 @@ public:
     void OnCharHook(wxKeyEvent& evt);
     void OnTextControlSetFocus(wxFocusEvent& evt);
     void OnTextControlKillFocus(wxFocusEvent& evt);
-#if defined(GUIDE_INDI) || defined(INDI_CAMERA)
-    void OnINDIConfig(wxCommandEvent& evt);
-    void OnINDIDialog(wxCommandEvent& evt);
-#endif
     void OnPanelClose(wxAuiManagerEvent& evt);
 #if defined(V4L_CAMERA)
     void OnSaveSettings(wxCommandEvent& evt);

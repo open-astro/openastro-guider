@@ -41,13 +41,5 @@ SerialPort::~SerialPort(void) { }
 
 SerialPort *SerialPort::SerialPortFactory(void)
 {
-#if defined(_WINDOWS_)
-    return new SerialPortWin32();
-#elif defined(__APPLE__)
-    return new SerialPortMac();
-#elif defined(__linux__)
     return new SerialPortPosix();
-#else
-    return 0;
-#endif
 }

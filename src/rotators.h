@@ -35,15 +35,8 @@
 #ifndef ROTATORS_INCLUDED
 #define ROTATORS_INCLUDED
 
-#if defined(__WINDOWS__)
-# define ROTATOR_ASCOM
-# define ROTATOR_ALPACA
-#elif defined(__APPLE__)
-# define ROTATOR_ALPACA
-#elif defined(__linux__) || defined(__FreeBSD__)
-# define ROTATOR_ALPACA
-#endif
-
+// Equipment is reached over ASCOM Alpaca only.
+#define ROTATOR_ALPACA
 #define ROTATOR_SIMULATOR
 
 #include "rotator.h"

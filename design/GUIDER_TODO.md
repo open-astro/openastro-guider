@@ -40,3 +40,12 @@ code during the strip, grouped by phase. Swept before the relevant phase closes.
     `myframe.h`, and the `INDIRotatorName()` helper in `rotator.cpp`.
   - stale "shared with `INDIDiscovery`" comments in `tests/discovery/test_discovery_logic.cpp`,
     `tests/CMakeLists.txt`, and `tests/README.md` (the parse/dedupe model is now Alpaca-only).
+
+## Resolved — dead-code cleanup (branch `cleanup/dead-platform-ifdefs`)
+The deferred inline-ifdef / inert-CMake cleanups logged under the Phase 1/2/3 sections
+above are **done**: the dead `#ifdef` factory stubs (ASCOM/INDI/macOS scopes), the
+platform macro blocks (collapsed to Linux/Alpaca), the `phd.h`/`serialport` `__WINDOWS__`/
+`__APPLE__` paths, and the inert `if(WIN32)`/`if(APPLE)` blocks in `thirdparty.cmake` /
+`cmake_modules` have all been removed. FreeBSD support and the Shoestring/direct-ST4
+backends (`scope_gpusb`/`gpint`/`GC_USBST4`/`parallelport`) were dropped too. Tree builds
+Linux-only and reports 0 cppcheck findings.

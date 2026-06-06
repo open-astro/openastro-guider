@@ -44,8 +44,4 @@
 # define ALPACA_CAMERA
 # define SIMULATOR
 
-# if defined(__WINDOWS__)
-#  define ASCOM_CAMERA
-# endif
-
 #endif // CAMERAS_INCLUDED

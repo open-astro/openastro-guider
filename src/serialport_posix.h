@@ -35,7 +35,7 @@
 #if !defined(SERIALPORT_POSIX_H_INCLUDED)
 # define SERIALPORT_POSIX_H_INCLUDED
 
-# if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
+# if defined(__linux__)
 
 #  include <termios.h>
 

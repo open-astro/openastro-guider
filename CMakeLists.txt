@@ -60,7 +60,6 @@ add_custom_target(CmakeAdditionalFiles
   SOURCES
   ${PHD_PROJECT_ROOT_DIR}/thirdparty/thirdparty.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindCFITSIO.cmake
-  ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindNova.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2BuildDoc.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2GenerateDocScript.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2Removegettextwarning.cmake
@@ -199,12 +198,6 @@ set(scopes_SRC
   ${phd_src_dir}/mount.h
   ${phd_src_dir}/scope.cpp
   ${phd_src_dir}/scope.h
-  ${phd_src_dir}/scope_GC_USBST4.cpp
-  ${phd_src_dir}/scope_GC_USBST4.h
-  ${phd_src_dir}/scope_gpint.cpp
-  ${phd_src_dir}/scope_gpint.h
-  ${phd_src_dir}/scope_gpusb.cpp
-  ${phd_src_dir}/scope_gpusb.h
   ${phd_src_dir}/scope_manual_pointing.cpp
   ${phd_src_dir}/scope_manual_pointing.h
   ${phd_src_dir}/scopes.h
