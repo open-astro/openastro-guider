@@ -363,7 +363,7 @@ bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *error
     wxString alpacaErrorMessage;
     if (ExtractAlpacaError(parser.Root(), &alpacaErrorNumber, &alpacaErrorMessage))
     {
-        Debug.Write(wxString::Format("AlpacaClient PUT: Alpaca API error for %s: ErrorNumber=%d, ErrorMessage=%s\n", endpoint,
+        Debug.Write(wxString::Format("AlpacaClient GET: Alpaca API error for %s: ErrorNumber=%d, ErrorMessage=%s\n", endpoint,
                                      alpacaErrorNumber, alpacaErrorMessage));
         if (errorCode)
         {
