@@ -431,7 +431,7 @@ endforeach() # for all locales
 
 ## #########################
 ## Unix
-if(UNIX)
+if(UNIX AND NOT APPLE)
 
   add_executable(
     phd2

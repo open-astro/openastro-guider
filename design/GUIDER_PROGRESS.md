@@ -20,4 +20,4 @@ for the full plan.
 - PR #15 — final cppcheck cleanup (tree at 0 findings).
 
 ## Next step
-- Verify `./build-deb.sh` green on arm64, push `phase/2-drop-macos`, open PR, merge; then Phase 3.
+- Phase 2 PR (#16) is open and green; once merged, start Phase 3 (drop INDI).
