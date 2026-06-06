@@ -331,9 +331,8 @@ static bool MigrateLegacyConfig(int instance, wxConfigBase *dst)
 {
     // Override wxApp-level Vendor/AppName via the wxConfig constructor so we
     // open a wxConfig at the pre-2.0.0 location independent of what
-    // PhdApp::OnInit() set globally. Empty file args mean wxFileConfig (Unix)
-    // uses its default `~/.<appName>` path, and wxRegConfig (Windows) uses
-    // `HKCU\Software\<vendor>\<appName>`.
+    // PhdApp::OnInit() set globally. Empty file args mean wxFileConfig uses its
+    // default `~/.<appName>` path.
     wxConfig legacy(LegacyConfigName(instance), _T("StarkLabs"), wxEmptyString, wxEmptyString,
                     wxCONFIG_USE_LOCAL_FILE | wxCONFIG_USE_GLOBAL_FILE);
 
@@ -984,8 +983,7 @@ bool PhdConfig::Flush()
 {
     Debug.Write("PhdConfig flush\n");
 
-    // On Linux and Mac, this will write the config file if it is dirty
-    // (no-op if it is not dirty).  Always a no-op on Windows.
+    // Writes the config file if it is dirty (no-op if it is not dirty).
     bool ok = Global.m_pConfig->Flush();
     return ok;
 }

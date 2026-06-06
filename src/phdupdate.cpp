@@ -54,8 +54,8 @@ struct UpdaterDialog : public wxDialog
 {
     enum Mode
     {
-        MODE_NOTIFY, // notification that a new version is available (Linux/OSX)
-        MODE_INSTALL, // ready to install a new version (Windows)
+        MODE_NOTIFY, // notification that a new version is available
+        MODE_INSTALL, // ready to install a new version
     };
     enum Interactive
     {
@@ -578,14 +578,14 @@ struct Updater
 
         if (installer_url.IsEmpty())
         {
-            // OSX and Linux: no installer, just show a message indicating
+            // No installer available: just show a message indicating
             // that a newer version is available
 
             SetStatus(UPD_UPDATE_NEEDED);
         }
         else
         {
-            // Windows: download the installer
+            // Installer available: download it
 
             if (DownloadNeeded())
             {

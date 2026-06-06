@@ -292,11 +292,9 @@ bool PhdApp::OnInit()
     //
     // These must be set BEFORE the wxSingleInstanceChecker construction below:
     // GetAppName() falls back to the executable basename if SetAppName hasn't
-    // been called yet. On Windows the .exe filename is still phd2.exe (it
-    // gets relocated into OpenAstroPHD2\ at install time, but the file itself
-    // keeps the short name), so the basename collides with upstream PHD2's
-    // phd2.exe and both apps end up taking the lock named "phd2.1" — the
-    // second one to launch hits "PHD2 instance 1 is already running".
+    // been called yet. If the basename collides with upstream PHD2's, both apps
+    // end up taking the lock named "phd2.1" — the second one to launch hits
+    // "PHD2 instance 1 is already running".
     SetVendorName(_T("OpenAstro"));
     // use SetAppName() to ensure the local data directory is found even if the name of the executable is changed
     SetAppName(_T("openastro-phd2"));

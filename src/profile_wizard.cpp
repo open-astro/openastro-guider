@@ -526,7 +526,7 @@ void ProfileWizard::ShowHelp(DialogState state)
         break;
     }
 
-    // Need to do it this way to handle 125% font scaling in Windows accessibility
+    // Need to do it this way to handle large font-scaling / accessibility settings
     m_pHelpText = new wxStaticText(this, wxID_ANY, hText, wxDefaultPosition, wxSize(DialogWidth, -1));
     m_pHelpText->Wrap(TextWrapPoint);
     m_pHelpGroup->Clear(true);

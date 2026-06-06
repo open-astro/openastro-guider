@@ -120,8 +120,7 @@ CometToolWin::CometToolWin()
     m_stop->SetToolTip(_("Stop training"));
     m_stop->Enable(false);
 
-    // Use a text ctrl for status, wxStaticText flickers. Adding the wxTE_NO_VSCROLL style also causes the control to flicker on
-    // Windows 7.
+    // Use a text ctrl for status, wxStaticText flickers. The wxTE_NO_VSCROLL style can also cause the control to flicker.
     long style = wxSTATIC_BORDER | wxTE_MULTILINE /*| wxTE_NO_VSCROLL*/;
     m_status = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(400, 60), style);
     m_status->Enable(false);

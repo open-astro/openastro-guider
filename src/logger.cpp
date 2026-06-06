@@ -51,8 +51,7 @@ bool Logger::ChangeDirLog(const wxString& newdir)
     return false;
 }
 
-// Return a valid default directory location for log files.  On
-// Windows, this will normally be "My Documents\PHD2"
+// Return a valid default directory location for log files.
 static wxString DefaultDir()
 {
     wxStandardPathsBase& stdpath = wxStandardPaths::Get();
