@@ -139,16 +139,19 @@ Circle CircleFrom2PointsAndAngle(const Px& p1, const Px& p2, double radiff, int 
     // So subtract PI/2 in NH or add PI/2 in SH to get the slope to the CoR
     // Invert y values as pixels are +ve downwards
     double slopebase = std::atan2(y1 - y2, x2 - x1) - hemi * M_PI / 2.0;
-    if (slopebaseRadOut)
-        *slopebaseRadOut = slopebase;
 
     // No (sintheta2 == 0) or near-zero rotation between the two shots drives
     // the radius to infinity. Guard !isfinite rather than only the exact-zero
     // case, so a tiny non-zero radiff can't return valid == true with r == Inf
     // — the caller gates only on valid. Guard before computing lenbase, since
     // lenbase = cr*cos(theta2) would be Inf*0 == NaN when cos(theta2) == 0.
+    // slopebaseRadOut is written only on the success path (zeroed on the
+    // invalid paths) so it never carries a meaningful-looking value for a
+    // result the caller must reject.
     if (!std::isfinite(cr))
     {
+        if (slopebaseRadOut)
+            *slopebaseRadOut = 0.;
         return Circle { 0., 0., 0., false };
     }
 
@@ -159,8 +162,13 @@ Circle CircleFrom2PointsAndAngle(const Px& p1, const Px& p2, double radiff, int 
     out.r = cr;
     if (!std::isfinite(out.cx) || !std::isfinite(out.cy))
     {
+        if (slopebaseRadOut)
+            *slopebaseRadOut = 0.;
         return Circle { 0., 0., 0., false };
     }
+
+    if (slopebaseRadOut)
+        *slopebaseRadOut = slopebase;
     return out;
 }
 

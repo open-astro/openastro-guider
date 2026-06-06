@@ -86,9 +86,11 @@ TEST(PaGeometry, CircleFrom3PointsCollinearIsInvalid)
 TEST(PaGeometry, CircleFrom2PointsAndAngleZeroRotationIsInvalid)
 {
     // No RA rotation between the two captures -> radius undefined -> invalid.
-    Circle c = CircleFrom2PointsAndAngle({ 100., 120. }, { 180., 90. }, /*radiff*/ 0.0, /*hemi*/ 1);
+    double slopebase = -999.;
+    Circle c = CircleFrom2PointsAndAngle({ 100., 120. }, { 180., 90. }, /*radiff*/ 0.0, /*hemi*/ 1, &slopebase);
     EXPECT_FALSE(c.valid);
     EXPECT_EQ(c.r, 0.0);
+    EXPECT_EQ(slopebase, 0.0); // out-param zeroed (not left at a meaningful-looking value) on the invalid path
 }
 
 TEST(PaGeometry, CircleFrom2PointsAndAngleNearZeroRotationNeverInfiniteWhenValid)
