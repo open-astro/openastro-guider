@@ -6,20 +6,36 @@ for the full plan.
 ---
 
 ## Current phase
-**Dead-code cleanup (post-strip).** (In flight on branch `cleanup/dead-platform-ifdefs`.)
+**Phase 4 complete (headless run mode + systemd).** Next up: **Phase 5 — API gap-fill**.
 
 ## Status
 - ✅ Repo created as a hard-fork of `open-astro/openastro-phd2` (full history; `upstream` remote = openastro-phd2).
-- ✅ **Phase 0 complete** — tracking files + playbook (PR #1), Claude PR-review workflow (PR #2), non-compiling CI baseline (PR #3). Project *build*+GTest CI job still deferred until after Phase 3 (INDI weight).
-- ✅ **Phase 1 complete (PR #4)** — dropped Windows. cppcheck CI now gates on changed lines + `--library=wxwidgets`.
-- ✅ **Static-analysis cleanup (PRs #11–#15)** — drove the inherited tree to **0 cppcheck findings** (epic #10).
-- ✅ **Phase 2 complete (PR #16)** — dropped macOS: dmg/mac scripts, `extra_frameworks/`, mac backends, `if(APPLE)` CMake.
-- 🔄 **Phase 3 complete (PR #17)** — dropped INDI (Alpaca-only): backends + config/GUI/discovery, the INDI macros, the libindi dep (find_package + thirdparty source-build + libnova/zlib), `FindINDI.cmake`, the `debian` INDI logic, `test_indi_discovery`. Builds no longer compile INDI.
-- 🔄 **Dead-code cleanup** — swept the deferred dead `#ifdef` stubs the strips left (ASCOM/INDI/macOS-scope factory branches), collapsed the platform macro blocks + `phd.h`/`serialport` to Linux-only, **dropped FreeBSD** + the Shoestring/direct-ST4 backends (`scope_gpusb`/`gpint`/`GC_USBST4`/`parallelport`), removed the inert `if(WIN32)`/`if(APPLE)` blocks from `thirdparty.cmake`/`cmake_modules`, and cleared the Phase-3 review nit (`FindNova.cmake`). Tree at **0 cppcheck findings**, ctest 9/9.
-- ⏭️ Next: Phase 4 (headless run mode).
+- ✅ **Phase 0** — tracking files + playbook, Claude PR-review workflow, non-compiling CI baseline.
+- ✅ **Phase 1** — dropped Windows (build scripts, WinLibs, ASCOM/win32 backends, win CMake).
+- ✅ **Phase 2** — dropped macOS (dmg/mac scripts, frameworks, mac backends, `if(APPLE)` CMake).
+- ✅ **Phase 3** — dropped INDI (Alpaca-only): backends + config/GUI/discovery, INDI macros, the
+  libindi dependency, `FindINDI.cmake`, the `debian` INDI logic.
+- ✅ **Dead-code + platform cleanup** — drove the tree to **0 cppcheck findings**; stripped all
+  inline platform `#ifdef`s (incl. the late `_WINDOWS`/`_WIN64` spellings) so `src/` has **zero**
+  platform `#if`s; dropped FreeBSD + the Shoestring/direct-ST4 backends; removed help + all
+  translation catalogs (~49 MB); restricted the build to **arm64 only**; scrubbed the last
+  historical Windows/macOS code comments.
+- ✅ **Test expansion** — extracted PA geometry, calibration transforms, lowpass guide math, and
+  star detection into wx-free kernels with unit tests; suite grew 9 → 15 binaries.
+- ✅ **Phase 4 (headless run mode)** — headless is now the **default** (`--gui` opts into the
+  window; `--auto-connect` added; `--headless`/`--headless-auto-connect` kept as back-compat).
+  systemd unit (`debian/openastro-phd2.service`) runs the daemon as a dedicated `openastro-phd2`
+  user under Xvfb with the event/JSON-RPC server forced on; maintainer scripts create the user +
+  state dir. Verified end-to-end: `:4400` (NINA) and `:8080` (`/api/rpc` + web UI for ARA) both
+  reachable, `get_app_state` answers over both.
+- ⏭️ Next: **Phase 5 — API gap-fill** (expose the Advanced/"Brain" settings over the shared
+  JSON-RPC dispatch so ARA can fully control the app; log each in `API_CONTRACT.md`).
 
 ## Last merged
-- PR #17 — Phase 3 (drop INDI).
+- See `git log` / the GitHub PR list for the latest (the headless/Phase-4 PR is the most recent
+  daemon work; #37 was the comment scrub before it).
 
 ## Next step
-- Land the dead-code cleanup PR, then start Phase 4 (headless `--daemon` run mode + systemd).
+- Phase 5: audit the Advanced Settings dialog → map each control to an existing or new RPC method
+  (see the Phase 5 list in `GUIDER_TODO.md`). Also pending: systemd hardening + dropping the
+  vestigial `plugdev`/`dialout` grants, and removing the dead `*_indi_*` RPC methods.

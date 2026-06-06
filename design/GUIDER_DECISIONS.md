@@ -99,3 +99,40 @@ entries; add new ones at the bottom.**
   follow-up as Windows/macOS (see `GUIDER_TODO.md`).
 - **Verified:** `./build-deb.sh --force` builds the `.deb` + ctest 9/9 green on arm64 with no
   libindi present.
+
+## 2026-06-06 — Phase 4: headless run mode + systemd
+
+- **What:** Made **headless the default run mode**. Previously the app launched the GUI unless
+  `--headless` was passed; now it starts headless (window hidden, event/JSON-RPC server forced
+  on) and `--gui` is the opt-in to show the window for local debugging. The constructor default
+  and `OnCmdLineParsed` both default `m_headless = true`. Added a clean `--auto-connect` switch
+  (auto-connect the selected equipment on startup); `--headless` is now an accepted no-op and
+  `--headless-auto-connect` is a back-compat alias for `--auto-connect`, so existing
+  scripts/units/NINA invocations keep working. The systemd unit's `ExecStart` drops `--headless`
+  and uses `--auto-connect`.
+- **Why:** `openastro-guider` is a guiding *daemon*, not an app (playbook §2). It should "just
+  start headless" under systemd with no flag; the GUI is only a local-diagnosis affordance.
+- **Display strategy — Xvfb (documented, not Xvfb-free):** the daemon runs the wxGTK core under
+  `xvfb-run` (a virtual X server) with the window hidden. wxGTK genuinely needs a display to
+  initialize even when nothing is shown, so a truly Xvfb-free build would mean decoupling the
+  guide engine + event server from `wxApp`/GTK startup — a large, higher-risk refactor of app
+  init that we explicitly chose **not** to do (rule #1: no scope creep). Xvfb is lightweight
+  and is the same approach KStars/Ekos-style headless guiders use. `xvfb` is a runtime `Depends`
+  in `debian/control`. Encoded in `debian/openastro-phd2.service` (with a comment pointing here).
+- **Two API surfaces, one method table:** the event server exposes the same ~95 JSON-RPC methods
+  over **two** sockets — raw TCP `:4400` (the standard PHD2 event-server protocol, used by
+  **NINA** and the future NINA plugin) and an embedded HTTP server `:8080` (`8080+instance-1`)
+  that serves the static web UI and bridges `POST /api/rpc` → `call_rpc_result_raw` (the surface
+  **ARA**/browsers drive). Phase 5 (API gap-fill) adds methods to that shared table so both
+  surfaces gain them at once. Recorded so the protocol-compat constraint on `:4400` is explicit.
+- **Packaging:** verified the daemon end-to-end (starts headless under Xvfb, `:4400` + `:8080`
+  both listen, `get_app_state` answers over both). Fixed the unit's `Documentation=` URL
+  (`phd2-alpaca-indi` → `openastro-guider`) and deleted the stale duplicate
+  `packaging/systemd/phd2-headless.service` (old `phd2`/`phd2.bin`/`/var/lib/phd2` names) — the
+  installed `debian/openastro-phd2.service` is canonical.
+- **Deferred** (tracked in `GUIDER_TODO.md`): systemd sandboxing hardening; the now-vestigial
+  `plugdev`/`dialout` group grants in `postinst` (Alpaca-only ⇒ no local USB/serial backends);
+  the dead `*_indi_*` JSON-RPC methods left after the INDI drop; the web-UI UX rework; and the
+  NINA plugin. Phase 5 = the API gap-fill (Advanced/"Brain" settings).
+- **Verified:** full `phd2` target builds; headless smoke test green (both sockets reachable,
+  RPC answers).
