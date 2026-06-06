@@ -40,6 +40,7 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 | `test_guiding_stats` | `src/guiding_stats.cpp` — `DescriptiveStats`, `HighPassFilter`/`LowPassFilter`, `AxisStats` (count/mean/variance/sigma/median/min-max/maxDelta/move+reversal counts/linear fit), `WindowedAxisStats` (auto-window trim, `RemoveOldestEntry`, `ChangeWindowSize`, min/max recompute on age-out) | Direct: links the production source unmodified — zero wx coupling |
 | `test_zfilter` | `src/zfilterfactory.cpp` — Bessel/Butterworth filter-design invariants (order, corner, name, coefficient shape, normalized `ycoeffs[0] == -1`, finiteness) plus an end-to-end recurrence (the exact `GuideAlgorithmZFilter::result()` difference equation) proving unity-DC-gain low-pass behaviour and high-frequency attenuation | Direct: links the production source unmodified |
 | `test_polar_alignment` | `src/staticpa_geometry.cpp` — the Static PA geometry/astrometry extracted from `StaticPaToolWin`: circle-from-3-points, circle-from-2-points-plus-rotation, CoR Dec/Cone decomposition, reference-star projection (`Radec2Px`), Alt/Az error decomposition, and IAU-2000 precession (`J2000Now`) | Direct (extract-for-testability): pure kernels factored out of the wxFrame and linked unmodified; verified via geometric invariants |
+| `test_guide_algorithm_lowpass` | `src/guide_algorithm_lowpass_math.cpp` — the Lowpass and Lowpass2 decision math (`reset`/`result`): median + slope*weight + input clamp; warm-up attenuation, outlier-dump, drift slope, sign guard, min-move gate — run against the real `WindowedAxisStats` | Direct (extract-for-testability): math factored out of the GUI-coupled algorithm `.cpp`; production `result()`/`reset()` now delegate to it |
 
 ## How the build infra works (and why)
 
@@ -85,14 +86,16 @@ or fixture-contract style is what's in tree today; see "Deferred", below.
 Filed as future work, with notes in the relevant test files explaining the
 specific blocker.
 
-- **Lowpass / Lowpass2 / ZFilter guide *algorithms*.** The underlying math
-  is now covered directly: `WindowedAxisStats` (median + linear fit) by
-  `test_guiding_stats` and `ZFilterFactory` by `test_zfilter`. What's still
-  deferred is the thin `GuideAlgorithm*::result()` wrapper around them,
-  which reads `pConfig`/`Debug`/`pFrame`/`Mount` and so needs the stub
-  `Mount`/`MyFrame` layer that doesn't exist yet (only the `phd.h` shadow
-  does). See the header comment in
-  `tests/algorithms/test_guide_algorithm_math.cpp`.
+- **Lowpass / Lowpass2** — done. The decision math was extracted into the
+  wx-free `guide_algorithm_lowpass_math.{h,cpp}` (the algorithm `.cpp` files
+  carry wx GUI `ConfigDialogPane`s, so they can't be linked into a test) and
+  is covered by `test_guide_algorithm_lowpass` against the real
+  `WindowedAxisStats`.
+- **ZFilter algorithm.** The filter-design math (`ZFilterFactory`) and the
+  exact `result()` difference equation are already covered by `test_zfilter`
+  (the recurrence test replicates `GuideAlgorithmZFilter::result()` verbatim).
+  Only the thin `m_sumCorr` correction-feedback wrapper around it is not yet
+  pulled out — a small follow-up.
 - **Star detection (`star.cpp`, `star_profile.cpp`).** Uses `usImage`
   which is wx + cfitsio coupled. The repo already ships `savetest.fit`
   and `simimage.fit` as fixtures — the right shape for these is a

@@ -147,3 +147,19 @@ add_executable(test_polar_alignment
 target_link_libraries(test_polar_alignment PRIVATE phd_test_common)
 set_property(TARGET test_polar_alignment PROPERTY FOLDER "Unit tests")
 add_test(NAME test_polar_alignment COMMAND test_polar_alignment)
+
+############################################################################
+# test_guide_algorithm_lowpass  --  links the REAL Lowpass/Lowpass2 decision
+# math (guide_algorithm_lowpass_math.cpp) against the REAL WindowedAxisStats
+# (guiding_stats.cpp). The algorithm .cpp files themselves carry wx GUI
+# ConfigDialogPanes, so the math was factored into a wx-free helper the
+# production result()/reset() now delegate to.
+############################################################################
+add_executable(test_guide_algorithm_lowpass
+  ${PHD_TESTS_DIR}/algorithms/test_guide_algorithm_lowpass.cpp
+  ${phd_src_dir}/guide_algorithm_lowpass_math.cpp
+  ${phd_src_dir}/guiding_stats.cpp
+)
+target_link_libraries(test_guide_algorithm_lowpass PRIVATE phd_test_common)
+set_property(TARGET test_guide_algorithm_lowpass PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guide_algorithm_lowpass COMMAND test_guide_algorithm_lowpass)
