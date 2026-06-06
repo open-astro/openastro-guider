@@ -88,23 +88,6 @@ void AdvancedDialog::CleanupCtrlSets()
     m_pRotatorCtrlSet = nullptr;
 }
 
-static wxString HelpLink(wxBookCtrlBase *nb)
-{
-    const wxString& txt = nb->GetPageText(nb->GetSelection());
-    if (txt == _("Global"))
-        return _T("Advanced_settings.htm#Global_Tab");
-    else if (txt == _("Camera"))
-        return _T("Advanced_settings.htm#Camera_Tab");
-    else if (txt == _("Guiding"))
-        return _T("Advanced_settings.htm#Guiding_Tab");
-    else if (txt == _("Algorithms"))
-        return _T("Advanced_settings.htm#Algorithms_Tab");
-    else if (txt == _("Other Devices"))
-        return _T("Advanced_settings.htm#Other_Devices_Tab");
-    else
-        return wxEmptyString;
-}
-
 static void EnableValidators(wxWindow *win)
 {
     win->SetExtraStyle(wxWS_EX_VALIDATE_RECURSIVELY);
@@ -216,8 +199,9 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
 #include "icons/help22.png.h"
     wxBitmap help_bmp(wxBITMAP_PNG_FROM_DATA(help22));
     helpbtn->SetBitmap(help_bmp, wxLEFT);
+    // Bundled GUI help was removed for the headless build; open the online help.
     helpbtn->Bind(wxEVT_COMMAND_BUTTON_CLICKED,
-                  [this](wxCommandEvent& evt) { ::pFrame->help->Display(HelpLink(m_pNotebook)); });
+                  [](wxCommandEvent& evt) { wxLaunchDefaultBrowser("https://openphdguiding.org/getting-help/"); });
     bsz->Prepend(helpbtn);
     pTopLevelSizer->Add(bsz, wxSizerFlags(0).Expand().Border(wxALL, 5));
     SetSizerAndFit(pTopLevelSizer);

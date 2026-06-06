@@ -60,17 +60,15 @@ add_custom_target(CmakeAdditionalFiles
   SOURCES
   ${PHD_PROJECT_ROOT_DIR}/thirdparty/thirdparty.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/FindCFITSIO.cmake
-  ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2BuildDoc.cmake
-  ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2GenerateDocScript.cmake
-  ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2Removegettextwarning.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/compiler_options.cmake
+  ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2Version.cmake
   ${PHD_PROJECT_ROOT_DIR}/cmake_modules/PHD2Packaging.cmake)
 
 # compiler options
 include(cmake_modules/compiler_options.cmake)
 
-# declare useful functions about documentation
-include(cmake_modules/PHD2BuildDoc.cmake)
+# get_phd_version()
+include(cmake_modules/PHD2Version.cmake)
 
 # retrieves the version from version.md
 get_phd_version()
@@ -121,17 +119,6 @@ enable_testing()
 # external libraries
 # to be changed in add_subdirectory
 include(thirdparty/thirdparty.cmake)
-
-
-#################################################################################
-#
-# generates the documentation targets. Part of those targets define the
-# zip files PHD2GuideHelp.zip. In order to include them in the main build
-# we need to declare them here. Those targets should not depend on any source file
-# but may require thirdparty (gettext etc).
-generate_doc_targets(
-  DEFAULT_LOCALE default_locale
-  GENERATED_LOCALES all_locales)
 
 
 
@@ -389,24 +376,6 @@ set(phd2_SRC
 
 source_group(src FILES ${phd2_SRC})
 
-# Add the messages.mo directly in the project such that this triggers a new build
-# and all the post_build commands are honored properly
-foreach(current_locale IN LISTS all_locales)
-  # installation of the document and translation files
-  get_zip_file(current_zip LOCALE ${current_locale})
-  get_translation_files(current_translations LOCALE ${current_locale})
-
-  foreach(current_file IN LISTS current_translations)
-    get_filename_component(message_file_basename ${current_file} NAME)
-    get_filename_component(message_file_ext ${current_file} EXT)
-    if(("${message_file_ext}" STREQUAL ".mo") OR ("${message_file_ext}" STREQUAL ".zip"))
-      # message(STATUS "Harhar ${message_file_ext} / ${current_file}")
-      list(APPEND phd2_SRC ${current_file})
-    endif()
-  endforeach()
-
-endforeach() # for all locales
-
 ## #########################
 ## Unix
 if(UNIX AND NOT APPLE)
@@ -453,86 +422,6 @@ endforeach()
 target_link_libraries(phd2
                       GPGuider # GP Guider (pulls in MPIIS_GP and MPIIS_GP_TOOLS transitively)
                       ${PHD_LINK_EXTERNAL})
-
-################################################################
-#
-# documentation + translation
-#
-################################################################
-
-# adding dependencies on the generation of the htmls/translations
-# Adding the generated documentation artifacts to the project
-if(NOT TARGET ${default_locale}_html)
-  message(FATAL_ERROR "The HTML target for the default locale cannot be found")
-endif()
-
-if(NOT TARGET ${target_string_extraction_from_sources})
-  message(FATAL_ERROR "The translation target for the default locale cannot be found")
-endif()
-
-foreach(locale IN LISTS all_locales)
-  get_zip_file(current_zip LOCALE ${locale})
-  if(NOT "${current_zip}" STREQUAL "")
-    add_dependencies(phd2 ${locale}_html)
-  endif()
-
-  get_translation_files(current_messages LOCALE ${locale})
-  if(NOT "${current_messages}" STREQUAL "")
-    if("${locale}" STREQUAL "${default_locale}")
-      #set(dependent_target ${target_string_extraction_from_sources})
-    else()
-      #set(dependent_target ${locale}_translation)
-      add_dependencies(phd2 ${locale}_translation)
-    endif()
-  else()
-    if(NOT "${locale}" STREQUAL "${default_locale}")
-      message(WARNING "The translation for locale ${locale} is not found")
-    endif()
-  endif()
-
-endforeach()
-
-## Linux bundling of documentation + translation
-if(UNIX AND NOT APPLE)
-
-  foreach(current_locale IN LISTS all_locales)
-    if("${current_locale}" STREQUAL "${default_locale}")
-      set(destination share/phd2/)
-      set(install_help_options DESTINATION ${CMAKE_INSTALL_PREFIX}/share/phd2/)
-    else()
-      set(destination share/phd2/locale/${current_locale}/)
-      set(install_help_options DESTINATION ${CMAKE_INSTALL_PREFIX}/share/phd2/locale/${current_locale}/ OPTIONAL)
-    endif()
-
-    get_zip_file(current_zip LOCALE ${current_locale})
-    get_translation_files(current_translations LOCALE ${current_locale})
-
-    foreach(current_file IN LISTS current_translations current_zip)
-      get_filename_component(message_file_name ${current_file} NAME)
-      get_filename_component(message_file_ext ${current_file} EXT)
-      if("${message_file_name}" STREQUAL "messages.mo" OR "${message_file_ext}" STREQUAL ".zip")
-        add_custom_command(
-          TARGET phd2
-          POST_BUILD
-          COMMAND "${CMAKE_COMMAND}" -E make_directory $<TARGET_FILE_DIR:phd2>/${destination}
-          COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${current_file} $<TARGET_FILE_DIR:phd2>/${destination}${message_file_name}
-        )
-      endif()
-
-      if("${message_file_name}" STREQUAL "messages.mo")
-          install(FILES       ${current_file}
-                  DESTINATION  ${CMAKE_INSTALL_PREFIX}/share/locale/${current_locale}/LC_MESSAGES/
-                  RENAME "phd2.mo"
-                  OPTIONAL)
-      endif()
-
-      if("${message_file_ext}" STREQUAL ".zip")
-          install(FILES ${current_file}
-                  ${install_help_options})
-      endif()
-    endforeach()
-  endforeach()
-endif()
 
 ## Bundle/install embedded web portal assets
 if(UNIX AND NOT APPLE)

@@ -212,7 +212,6 @@ jobs:
       - name: Scan for Trojan-Source / invisible Unicode
         # Guards against CVE-2021-42574: bidi controls / zero-width characters
         # (incl. BOMs) that make source render differently than it compiles.
-        # The gettext locale/ catalogs are excluded (see the script).
         run: python3 .github/scripts/check-unicode.py
 
   shellcheck:
@@ -246,7 +245,6 @@ jobs:
           candidates=(
             build-deb.sh
             run_deb.sh
-            build/locales_compile.sh
             debian/openastro-phd2.postinst
             debian/openastro-phd2.postrm
             debian/openastro-phd2.prerm

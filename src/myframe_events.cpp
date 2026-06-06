@@ -190,11 +190,6 @@ problems, read the 'Best Practices' document and the help files! ")),
                  _("Instructions"));
 }
 
-void MyFrame::OnHelp(wxCommandEvent& WXUNUSED(event))
-{
-    help->Display(_("Introduction"));
-}
-
 void MyFrame::OnAbout(wxCommandEvent& WXUNUSED(event))
 {
     AboutDialog dlg;
