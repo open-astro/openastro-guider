@@ -36,6 +36,7 @@
  */
 
 #include "phd.h"
+#include "star_find_core.h"
 #include <algorithm>
 
 Star::Star()
@@ -70,395 +71,67 @@ void Star::SetError(FindResult error)
     m_lastFindResult = error;
 }
 
-// helper struct for HFR calculation
-struct R2M
-{
-    double r2 = 0.;
-    wxPoint p;
-    double m;
-    R2M() { }
-    R2M(int x, int y, double m_) : p(x, y), m(m_) { }
-    bool operator<(const R2M& rhs) const { return r2 < rhs.r2; }
-};
-
-static double hfr(std::vector<R2M>& vec, double cx, double cy, double mass)
-{
-    if (vec.size() == 1) // hot pixel?
-        return 0.25;
-
-    // compute Half Flux Radius (HFR)
-    for (auto it = vec.begin(); it != vec.end(); ++it)
-    {
-        double dx = (double) it->p.x - cx;
-        double dy = (double) it->p.y - cy;
-        it->r2 = dx * dx + dy * dy;
-    }
-    std::sort(vec.begin(), vec.end()); // sort by ascending radius^2
-
-    // find radius of half-mass
-    double r20, r21, m0, m1;
-    r20 = r21 = m0 = m1 = 0.0;
-    double halfm = 0.5 * mass;
-    for (auto it = vec.begin(); it != vec.end(); ++it)
-    {
-        const R2M& rm = *it;
-        r20 = r21;
-        m0 = m1;
-        r21 = rm.r2;
-        m1 += rm.m;
-        if (m1 > halfm)
-            break;
-    }
-
-    // interpolate
-    double hfr;
-    if (m1 > m0)
-    {
-        double r0 = sqrt(r20), r1 = sqrt(r21);
-        double s = (r1 - r0) / (m1 - m0);
-        hfr = r0 + s * (halfm - m0);
-    }
-    else
-        hfr = 0.25;
-
-    return hfr;
-}
-
 bool Star::Find(const usImage *pImg, int searchRegion, int base_x, int base_y, FindMode mode, double minHFD, double maxHFD,
                 unsigned short maxADU, StarFindLogType loggingControl)
 {
-    FindResult Result = STAR_OK;
-    double newX = base_x;
-    double newY = base_y;
+    if (loggingControl == FIND_LOGGING_VERBOSE)
+        Debug.Write(wxString::Format("Star::Find(%d, %d, %d, %d, (%d,%d,%d,%d), %.1f, %0.1f, %hu) frame %u\n", searchRegion,
+                                     base_x, base_y, mode, pImg->Subframe.x, pImg->Subframe.y, pImg->Subframe.width,
+                                     pImg->Subframe.height, minHFD, maxHFD, maxADU, pImg->FrameNum));
 
-    try
+    // Build a wx-free view of the image and run the pure pixel math.
+    star_find::StarImage im;
+    im.data = pImg->ImageData;
+    im.width = pImg->Size.GetWidth();
+    im.height = pImg->Size.GetHeight();
+    im.subframeEmpty = pImg->Subframe.IsEmpty();
+    if (!im.subframeEmpty)
     {
-        if (loggingControl == FIND_LOGGING_VERBOSE)
-            Debug.Write(wxString::Format("Star::Find(%d, %d, %d, %d, (%d,%d,%d,%d), %.1f, %0.1f, %hu) frame %u\n", searchRegion,
-                                         base_x, base_y, mode, pImg->Subframe.x, pImg->Subframe.y, pImg->Subframe.width,
-                                         pImg->Subframe.height, minHFD, maxHFD, maxADU, pImg->FrameNum));
-
-        int minx, miny, maxx, maxy;
-
-        if (pImg->Subframe.IsEmpty())
-        {
-            minx = miny = 0;
-            maxx = pImg->Size.GetWidth() - 1;
-            maxy = pImg->Size.GetHeight() - 1;
-        }
-        else
-        {
-            minx = pImg->Subframe.GetLeft();
-            maxx = pImg->Subframe.GetRight();
-            miny = pImg->Subframe.GetTop();
-            maxy = pImg->Subframe.GetBottom();
-        }
-
-        // search region bounds
-        int start_x = wxMax(base_x - searchRegion, minx);
-        int end_x = wxMin(base_x + searchRegion, maxx);
-        int start_y = wxMax(base_y - searchRegion, miny);
-        int end_y = wxMin(base_y + searchRegion, maxy);
-
-        if (end_x <= start_x || end_y <= start_y)
-        {
-            throw ERROR_INFO("coordinates are invalid");
-        }
-
-        const unsigned short *imgdata = pImg->ImageData;
-        int rowsize = pImg->Size.GetWidth();
-
-        int peak_x = 0, peak_y = 0;
-        unsigned int peak_val = 0;
-        unsigned short max3[3] = { 0, 0, 0 };
-
-        if (mode == FIND_PEAK)
-        {
-            for (int y = start_y; y <= end_y; y++)
-            {
-                for (int x = start_x; x <= end_x; x++)
-                {
-                    unsigned short val = imgdata[y * rowsize + x];
-
-                    if (val > peak_val)
-                    {
-                        peak_val = val;
-                        peak_x = x;
-                        peak_y = y;
-                    }
-                }
-            }
-
-            PeakVal = peak_val;
-        }
-        else
-        {
-            // find the peak value within the search region using a smoothing function
-            // also check for saturation
-
-            for (int y = start_y + 1; y <= end_y - 1; y++)
-            {
-                for (int x = start_x + 1; x <= end_x - 1; x++)
-                {
-                    unsigned short p = imgdata[y * rowsize + x];
-                    unsigned int val = 4 * (unsigned int) p + imgdata[(y - 1) * rowsize + (x - 1)] +
-                        imgdata[(y - 1) * rowsize + (x + 1)] + imgdata[(y + 1) * rowsize + (x - 1)] +
-                        imgdata[(y + 1) * rowsize + (x + 1)] + 2 * imgdata[(y - 1) * rowsize + (x + 0)] +
-                        2 * imgdata[(y + 0) * rowsize + (x - 1)] + 2 * imgdata[(y + 0) * rowsize + (x + 1)] +
-                        2 * imgdata[(y + 1) * rowsize + (x + 0)];
-
-                    if (val > peak_val)
-                    {
-                        peak_val = val;
-                        peak_x = x;
-                        peak_y = y;
-                    }
-
-                    if (p > max3[0])
-                        std::swap(p, max3[0]);
-                    if (p > max3[1])
-                        std::swap(p, max3[1]);
-                    if (p > max3[2])
-                        std::swap(p, max3[2]);
-                }
-            }
-
-            PeakVal = max3[0]; // raw peak val
-            peak_val /= 16; // smoothed peak value
-        }
-
-        // measure noise in the annulus with inner radius A and outer radius B
-        int const A = 7; // inner radius
-        int const B = 12; // outer radius
-        int const A2 = A * A;
-        int const B2 = B * B;
-
-        // center window around peak value
-        start_x = wxMax(peak_x - B, minx);
-        end_x = wxMin(peak_x + B, maxx);
-        start_y = wxMax(peak_y - B, miny);
-        end_y = wxMin(peak_y + B, maxy);
-
-        // find the mean and stdev of the background
-
-        unsigned int nbg;
-        double mean_bg = 0., prev_mean_bg;
-        double sigma2_bg = 0.;
-        double sigma_bg = 0.;
-
-        for (int iter = 0; iter < 9; iter++)
-        {
-            double sum = 0.0;
-            double a = 0.0;
-            double q = 0.0;
-            nbg = 0;
-
-            const unsigned short *row = imgdata + rowsize * start_y;
-            for (int y = start_y; y <= end_y; y++, row += rowsize)
-            {
-                int dy = y - peak_y;
-                int dy2 = dy * dy;
-                for (int x = start_x; x <= end_x; x++)
-                {
-                    int dx = x - peak_x;
-                    int r2 = dx * dx + dy2;
-
-                    // exclude points not in annulus
-                    if (r2 <= A2 || r2 > B2)
-                        continue;
-
-                    double const val = (double) row[x];
-
-                    if (iter > 0 && (val < mean_bg - 2.0 * sigma_bg || val > mean_bg + 2.0 * sigma_bg))
-                        continue;
-
-                    sum += val;
-                    ++nbg;
-                    double const k = (double) nbg;
-                    double const a0 = a;
-                    a += (val - a) / k;
-                    q += (val - a0) * (val - a);
-                }
-            }
-
-            if (nbg < 10) // only possible after the first iteration
-            {
-                Debug.Write(wxString::Format("Star::Find: too few background points! nbg=%u mean=%.1f sigma=%.1f\n", nbg,
-                                             mean_bg, sigma_bg));
-                break;
-            }
-
-            prev_mean_bg = mean_bg;
-            mean_bg = sum / (double) nbg;
-            sigma2_bg = q / (double) (nbg - 1);
-            sigma_bg = sqrt(sigma2_bg);
-
-            if (iter > 0 && fabs(mean_bg - prev_mean_bg) < 0.5)
-                break;
-        }
-
-        unsigned short thresh;
-
-        double cx = 0.0;
-        double cy = 0.0;
-        double mass = 0.0;
-        unsigned int n;
-
-        std::vector<R2M> hfrvec;
-
-        if (mode == FIND_PEAK)
-        {
-            mass = peak_val;
-            n = 1;
-            thresh = 0;
-        }
-        else
-        {
-            thresh = (unsigned short) (mean_bg + 3.0 * sigma_bg + 0.5);
-
-            // find pixels over threshold within aperture; compute mass and centroid
-
-            start_x = wxMax(peak_x - A, minx);
-            end_x = wxMin(peak_x + A, maxx);
-            start_y = wxMax(peak_y - A, miny);
-            end_y = wxMin(peak_y + A, maxy);
-
-            n = 0;
-
-            const unsigned short *row = imgdata + rowsize * start_y;
-            for (int y = start_y; y <= end_y; y++, row += rowsize)
-            {
-                int dy = y - peak_y;
-                int dy2 = dy * dy;
-                if (dy2 > A2)
-                    continue;
-
-                for (int x = start_x; x <= end_x; x++)
-                {
-                    int dx = x - peak_x;
-
-                    // exclude points outside aperture
-                    if (dx * dx + dy2 > A2)
-                        continue;
-
-                    // exclude points below threshold
-                    unsigned short val = row[x];
-                    if (val < thresh)
-                        continue;
-
-                    double const d = (double) val - mean_bg;
-
-                    cx += dx * d;
-                    cy += dy * d;
-                    mass += d;
-                    ++n;
-
-                    hfrvec.push_back(R2M(x, y, d));
-                }
-            }
-        }
-
-        Mass = mass;
-
-        // SNR estimate from: Measuring the Signal-to-Noise Ratio S/N of the CCD Image of a Star or Nebula, J.H.Simonetti, 2004
-        // January 8
-        //     http://www.phys.vt.edu/~jhs/phys3154/snr20040108.pdf
-        double const gain = .5; // electrons per ADU, nominal
-        SNR = n > 0 ? mass / sqrt(mass / gain + sigma2_bg * (double) n * (1.0 + 1.0 / (double) nbg)) : 0.0;
-
-        double const LOW_SNR = 3.0;
-
-        // a few scattered pixels over threshold can give a false positive
-        // avoid this by requiring the smoothed peak value to be above the threshold
-        if (peak_val <= thresh && SNR >= LOW_SNR)
-        {
-            Debug.Write(wxString::Format("Star::Find false star n=%u nbg=%u bg=%.1f sigma=%.1f thresh=%u peak=%u\n", n, nbg,
-                                         mean_bg, sigma_bg, thresh, peak_val));
-            SNR = LOW_SNR - 0.1;
-        }
-
-        if (mass < 10.0)
-        {
-            HFD = 0.;
-            Result = STAR_LOWMASS;
-            goto done;
-        }
-
-        if (SNR < LOW_SNR)
-        {
-            HFD = 0.;
-            Result = STAR_LOWSNR;
-            goto done;
-        }
-
-        newX = peak_x + cx / mass;
-        newY = peak_y + cy / mass;
-
-        HFD = 2.0 * hfr(hfrvec, newX, newY, mass);
-        // Check for constraints on HFD value
-        if (mode != FIND_PEAK)
-        {
-            if (HFD < minHFD)
-            {
-                Result = STAR_LOWHFD;
-                goto done;
-            }
-            if (HFD > maxHFD)
-            {
-                Result = STAR_HIHFD;
-                goto done;
-            }
-        }
-
-        // check for saturation
-
-        unsigned int mx = (unsigned int) max3[0];
-
-        // remove pedestal
-        if (mx >= pImg->Pedestal)
-            mx -= pImg->Pedestal;
-        else
-            mx = 0; // unlikely
-
-        if (maxADU > 0)
-        {
-            // maxADU is known
-            if (mx >= maxADU)
-                Result = STAR_SATURATED;
-            goto done;
-        }
-
-        // maxADU not known, use the "flat-top" heuristic
-        //
-        // even at saturation, the max values may vary a bit due to noise
-        // Call it saturated if the the top three values are within 32 parts per 65535 of max for 16-bit cameras,
-        // or within 1 part per 191 for 8-bit cameras
-        unsigned int d = (unsigned int) (max3[0] - max3[2]);
-
-        if (pImg->BitsPerPixel < 12)
-        {
-            if (d * 191U < 1U * mx)
-                Result = STAR_SATURATED;
-        }
-        else
-        {
-            if (d * 65535U < 32U * mx)
-                Result = STAR_SATURATED;
-        }
+        im.subLeft = pImg->Subframe.GetLeft();
+        im.subRight = pImg->Subframe.GetRight();
+        im.subTop = pImg->Subframe.GetTop();
+        im.subBottom = pImg->Subframe.GetBottom();
     }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
+    im.pedestal = pImg->Pedestal;
+    im.bitsPerPixel = pImg->BitsPerPixel;
 
-        if (Result == STAR_OK)
-        {
-            Result = STAR_ERROR;
-        }
+    star_find::Output o =
+        star_find::FindStar(im, base_x, base_y, searchRegion,
+                            mode == FIND_PEAK ? star_find::Mode::Peak : star_find::Mode::Centroid, minHFD, maxHFD, maxADU);
+
+    FindResult Result;
+    switch (o.result)
+    {
+    case star_find::Result::Ok:
+        Result = STAR_OK;
+        break;
+    case star_find::Result::Saturated:
+        Result = STAR_SATURATED;
+        break;
+    case star_find::Result::LowSNR:
+        Result = STAR_LOWSNR;
+        break;
+    case star_find::Result::LowMass:
+        Result = STAR_LOWMASS;
+        break;
+    case star_find::Result::LowHFD:
+        Result = STAR_LOWHFD;
+        break;
+    case star_find::Result::HiHFD:
+        Result = STAR_HIHFD;
+        break;
+    default:
+        Result = STAR_ERROR;
+        break;
     }
 
-done:
+    Mass = o.mass;
+    SNR = o.snr;
+    HFD = o.hfd;
+    PeakVal = o.peakVal;
+
     // update state
-    SetXY(newX, newY);
+    SetXY(o.x, o.y);
     m_lastFindResult = Result;
 
     bool wasFound = WasFound(Result);
@@ -472,7 +145,7 @@ done:
 
     if (loggingControl == FIND_LOGGING_VERBOSE)
         Debug.Write(wxString::Format("Star::Find returns %d (%d), X=%.2f, Y=%.2f, Mass=%.f, SNR=%.1f, Peak=%hu HFD=%.1f\n",
-                                     wasFound, Result, newX, newY, Mass, SNR, PeakVal, HFD));
+                                     wasFound, Result, o.x, o.y, Mass, SNR, PeakVal, HFD));
 
     return wasFound;
 }
