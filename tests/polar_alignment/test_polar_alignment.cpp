@@ -91,6 +91,24 @@ TEST(PaGeometry, CircleFrom2PointsAndAngleZeroRotationIsInvalid)
     EXPECT_EQ(c.r, 0.0);
 }
 
+TEST(PaGeometry, CircleFrom3PointsNearCollinearNeverReturnsNaNWhenValid)
+{
+    // Near-collinear (but not exactly collinear) points drive m11 toward zero,
+    // where catastrophic cancellation could otherwise produce a NaN radius.
+    // Invariant: a result flagged valid must always have a finite centre/radius.
+    for (double eps : { 1e-1, 1e-3, 1e-6, 1e-9, 1e-12 })
+    {
+        Circle c = CircleFrom3Points({ 0., 0. }, { 5., 5. + eps }, { 10., 10. });
+        if (c.valid)
+        {
+            EXPECT_TRUE(std::isfinite(c.cx)) << "eps=" << eps;
+            EXPECT_TRUE(std::isfinite(c.cy)) << "eps=" << eps;
+            EXPECT_TRUE(std::isfinite(c.r)) << "eps=" << eps;
+            EXPECT_GE(c.r, 0.0) << "eps=" << eps;
+        }
+    }
+}
+
 // --- DecomposeCoR -----------------------------------------------------------
 
 TEST(PaGeometry, DecomposeCoRCentreGivesZeroCorrection)
@@ -183,6 +201,19 @@ TEST(PaGeometry, DecomposeAltAzZeroResidualGivesZeroError)
 }
 
 // --- PrecessJ2000 -----------------------------------------------------------
+
+TEST(PaGeometry, PrecessJ2000AtPoleStaysFinite)
+{
+    // Dec at the pole (±90°): floating-point rounding can push the rotated z
+    // just past 1.0, and sqrt(1 - z*z) would go NaN without the clamp.
+    for (double dec : { 90.0, -90.0 })
+    {
+        Px p = PrecessJ2000(365.25 * 50.0, 45.0, dec);
+        EXPECT_TRUE(std::isfinite(p.x)) << "dec=" << dec;
+        EXPECT_TRUE(std::isfinite(p.y)) << "dec=" << dec;
+        EXPECT_LE(std::fabs(p.y), 90.0 + 1e-9) << "dec=" << dec;
+    }
+}
 
 TEST(PaGeometry, PrecessJ2000OutputsAreInRange)
 {

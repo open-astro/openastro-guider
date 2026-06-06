@@ -35,6 +35,7 @@
 
 #include "staticpa_geometry.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -110,7 +111,16 @@ Circle CircleFrom3Points(const Px& p1, const Px& p2, const Px& p3)
     }
     out.cx = (1. / 2.) * m12 / m11;
     out.cy = (-1. / 2.) * m13 / m11;
-    out.r = std::sqrt(out.cx * out.cx + out.cy * out.cy + m14 / m11);
+    double rsq = out.cx * out.cx + out.cy * out.cy + m14 / m11;
+    // For near-collinear points m11 is tiny, so cx/cy/m14/m11 blow up and
+    // catastrophic cancellation can push rsq slightly negative (sqrt -> NaN)
+    // or the centre to a non-finite value. Reject rather than return a NaN
+    // radius with valid == true, which the caller only gates on valid.
+    if (rsq < 0. || !std::isfinite(rsq) || !std::isfinite(out.cx) || !std::isfinite(out.cy))
+    {
+        return Circle { 0., 0., 0., false };
+    }
+    out.r = std::sqrt(rsq);
     return out;
 }
 
@@ -263,6 +273,9 @@ Px PrecessJ2000(double daysSinceJ2000, double raDeg, double decDeg)
     x = Xx * x0 + Yx * y0 + Zx * z0;
     y = Xy * x0 + Yy * y0 + Zy * z0;
     z = Xz * x0 + Yz * y0 + Zz * z0;
+    // Clamp to [-1, 1]: floating-point rounding can push z just past 1.0 near
+    // the poles (dec ±90°), which would make 1 - z*z negative and sqrt NaN.
+    z = std::clamp(z, -1.0, 1.0);
     double radeg, decdeg;
     radeg = norm(degrees(std::atan2(y, x)), 0, 360);
     decdeg = degrees(std::atan2(z, std::sqrt(1 - z * z)));
