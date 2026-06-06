@@ -41,6 +41,7 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 | `test_zfilter` | `src/zfilterfactory.cpp` — Bessel/Butterworth filter-design invariants (order, corner, name, coefficient shape, normalized `ycoeffs[0] == -1`, finiteness) plus an end-to-end recurrence (the exact `GuideAlgorithmZFilter::result()` difference equation) proving unity-DC-gain low-pass behaviour and high-frequency attenuation | Direct: links the production source unmodified |
 | `test_polar_alignment` | `src/staticpa_geometry.cpp` — the Static PA geometry/astrometry extracted from `StaticPaToolWin`: circle-from-3-points, circle-from-2-points-plus-rotation, CoR Dec/Cone decomposition, reference-star projection (`Radec2Px`), Alt/Az error decomposition, and IAU-2000 precession (`J2000Now`) | Direct (extract-for-testability): pure kernels factored out of the wxFrame and linked unmodified; verified via geometric invariants |
 | `test_guide_algorithm_lowpass` | `src/guide_algorithm_lowpass_math.cpp` — the Lowpass and Lowpass2 decision math (`reset`/`result`): median + slope*weight + input clamp; warm-up attenuation, outlier-dump, drift slope, sign guard, min-move gate — run against the real `WindowedAxisStats` | Direct (extract-for-testability): math factored out of the GUI-coupled algorithm `.cpp`; production `result()`/`reset()` now delegate to it |
+| `test_calibration_transform` | `src/calibration_transform.cpp` — the camera↔mount coordinate transforms extracted from `Mount`: rotate by the calibration RA-axis angle, skew the Dec component by the axis-orthogonality error, and the `mountTheta` sign flip for `\|yAngleError\| > π/2` | Direct (extract-for-testability): pure math factored out of `Mount`; `Mount::Transform*` delegate to it; verified via rotation/round-trip/skew/sign-flip invariants |
 
 ## How the build infra works (and why)
 
@@ -101,11 +102,13 @@ specific blocker.
   and `simimage.fit` as fixtures — the right shape for these is a
   golden-file harness that drives a built `phd2.bin`, probably as a small
   Python script invoked from `ctest`.
-- **Calibration math (`calibration_assistant.cpp`, `backlash_comp.cpp`).**
-  Sign conventions, RA/Dec angle, and step-size selection — high-value
-  surface but the math is wired through `Mount` and `Scope` virtuals.
-  Either revisit the full stub-layer approach or extract the pure math
-  into a header in a follow-up PR.
+- **Calibration math.** The camera↔mount coordinate transforms are now
+  covered directly by `test_calibration_transform` (extracted to the wx-free
+  `calibration_transform.{h,cpp}`). Still deferred: the calibration
+  *sequence* sign conventions / RA-Dec angle + rate derivation
+  (`scope.cpp` calibration state machine) and step-size selection
+  (`calstep_dialog.cpp`, `calibration_assistant.cpp`), which are wired
+  through `Mount`/`Scope` virtuals and the GUI.
 - **End-to-end test of `CameraAlpaca::Capture()`'s bounded-retry fix
   (e7a91ddc).** Lives inside the `WorkerThread` polling loop; can't be
   unit-tested without an integration harness against a fake Alpaca

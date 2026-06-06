@@ -35,6 +35,7 @@
 
 #include "phd.h"
 #include "backlash_comp.h"
+#include "calibration_transform.h"
 #include "guiding_assistant.h"
 #include "gaussian_process_guider.h"
 
@@ -1144,27 +1145,22 @@ bool Mount::TransformCameraCoordinatesToMountCoordinates(const PHD_Point& camera
             throw ERROR_INFO("invalid cameraVectorEndPoint");
         }
 
-        double hyp = cameraVectorEndpoint.Distance();
-        double cameraTheta = cameraVectorEndpoint.Angle();
+        // Convert theta and hyp into X and Y (pure math in calibration_transform)
+        calibration_transform::CamToMount r =
+            calibration_transform::CameraToMount(cameraVectorEndpoint.X, cameraVectorEndpoint.Y, m_cal.xAngle, m_yAngleError);
 
-        double xAngle =
-            cameraTheta - m_cal.xAngle; // xAngle measures RA axis rotation vs camera X axis, positive is CW from x axis
-        double yAngle = cameraTheta - (m_cal.xAngle + m_yAngleError); // m_yAngleError is the orthogonality error
-
-        // Convert theta and hyp into X and Y
-
-        mountVectorEndpoint.SetXY(cos(xAngle) * hyp, sin(yAngle) * hyp);
+        mountVectorEndpoint.SetXY(r.mount.x, r.mount.y);
 
         if (logged)
         {
             Debug.Write(wxString::Format("CameraToMount -- cameraTheta (%.2f) - m_xAngle (%.2f) = xAngle (%.2f = %.2f)\n",
-                                         cameraTheta, m_cal.xAngle, xAngle, norm_angle(xAngle)));
+                                         r.cameraTheta, m_cal.xAngle, r.xAngle, norm_angle(r.xAngle)));
             Debug.Write(wxString::Format(
                 "CameraToMount -- cameraTheta (%.2f) - (m_xAngle (%.2f) + m_yAngleError (%.2f)) = yAngle (%.2f = %.2f)\n",
-                cameraTheta, m_cal.xAngle, m_yAngleError, yAngle, norm_angle(yAngle)));
+                r.cameraTheta, m_cal.xAngle, m_yAngleError, r.yAngle, norm_angle(r.yAngle)));
             Debug.Write(wxString::Format("CameraToMount -- cameraX=%.2f cameraY=%.2f hyp=%.2f cameraTheta=%.2f mountX=%.2f "
                                          "mountY=%.2f, mountTheta=%.2f\n",
-                                         cameraVectorEndpoint.X, cameraVectorEndpoint.Y, hyp, cameraTheta,
+                                         cameraVectorEndpoint.X, cameraVectorEndpoint.Y, r.hyp, r.cameraTheta,
                                          mountVectorEndpoint.X, mountVectorEndpoint.Y, mountVectorEndpoint.Angle()));
         }
     }
@@ -1190,26 +1186,19 @@ bool Mount::TransformMountCoordinatesToCameraCoordinates(const PHD_Point& mountV
             throw ERROR_INFO("invalid mountVectorEndPoint");
         }
 
-        double hyp = mountVectorEndpoint.Distance();
-        double mountTheta = mountVectorEndpoint.Angle();
+        calibration_transform::MountToCam r =
+            calibration_transform::MountToCamera(mountVectorEndpoint.X, mountVectorEndpoint.Y, m_cal.xAngle, m_yAngleError);
 
-        if (fabs(m_yAngleError) > M_PI / 2.)
-        {
-            mountTheta = -mountTheta;
-        }
-
-        double xAngle = mountTheta + m_cal.xAngle;
-
-        cameraVectorEndpoint.SetXY(cos(xAngle) * hyp, sin(xAngle) * hyp);
+        cameraVectorEndpoint.SetXY(r.camera.x, r.camera.y);
 
         if (logged)
         {
             Debug.Write(wxString::Format("MountToCamera -- mountTheta (%.2f) + m_xAngle (%.2f) = xAngle (%.2f = %.2f)\n",
-                                         mountTheta, m_cal.xAngle, xAngle, norm_angle(xAngle)));
+                                         r.mountTheta, m_cal.xAngle, r.xAngle, norm_angle(r.xAngle)));
             Debug.Write(wxString::Format("MountToCamera -- mountX=%.2f mountY=%.2f hyp=%.2f mountTheta=%.2f cameraX=%.2f, "
                                          "cameraY=%.2f cameraTheta=%.2f\n",
-                                         mountVectorEndpoint.X, mountVectorEndpoint.Y, hyp, mountTheta, cameraVectorEndpoint.X,
-                                         cameraVectorEndpoint.Y, cameraVectorEndpoint.Angle()));
+                                         mountVectorEndpoint.X, mountVectorEndpoint.Y, r.hyp, r.mountTheta,
+                                         cameraVectorEndpoint.X, cameraVectorEndpoint.Y, cameraVectorEndpoint.Angle()));
         }
     }
     catch (const wxString& Msg)
