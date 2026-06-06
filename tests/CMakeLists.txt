@@ -177,3 +177,26 @@ add_executable(test_calibration_transform
 target_link_libraries(test_calibration_transform PRIVATE phd_test_common)
 set_property(TARGET test_calibration_transform PROPERTY FOLDER "Unit tests")
 add_test(NAME test_calibration_transform COMMAND test_calibration_transform)
+
+############################################################################
+# test_star_find  --  links the REAL production star_find_core.cpp (the star
+# detection pixel math extracted from Star::Find) and feeds it a real FITS
+# fixture loaded directly with cfitsio. Unlike the other suites this needs
+# cfitsio (not wx); the production star.cpp/usImage.cpp are too app-coupled to
+# link, which is exactly why the math was extracted.
+############################################################################
+find_library(CFITSIO_LIB NAMES cfitsio)
+find_path(CFITSIO_INC NAMES fitsio.h)
+if(CFITSIO_LIB AND CFITSIO_INC)
+  add_executable(test_star_find
+    ${PHD_TESTS_DIR}/star/test_star_find.cpp
+    ${phd_src_dir}/star_find_core.cpp
+  )
+  target_link_libraries(test_star_find PRIVATE phd_test_common ${CFITSIO_LIB})
+  target_include_directories(test_star_find PRIVATE ${CFITSIO_INC})
+  target_compile_definitions(test_star_find PRIVATE PHD_FIXTURE_DIR="${PHD_PROJECT_ROOT_DIR}")
+  set_property(TARGET test_star_find PROPERTY FOLDER "Unit tests")
+  add_test(NAME test_star_find COMMAND test_star_find)
+else()
+  message(STATUS "cfitsio not found - skipping test_star_find")
+endif()

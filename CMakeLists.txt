@@ -371,6 +371,8 @@ set(phd2_SRC
 
   ${phd_src_dir}/star.cpp
   ${phd_src_dir}/star.h
+  ${phd_src_dir}/star_find_core.cpp
+  ${phd_src_dir}/star_find_core.h
   ${phd_src_dir}/star_profile.cpp
   ${phd_src_dir}/star_profile.h
   ${phd_src_dir}/target.cpp

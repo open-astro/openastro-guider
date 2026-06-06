@@ -42,6 +42,7 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 | `test_polar_alignment` | `src/staticpa_geometry.cpp` — the Static PA geometry/astrometry extracted from `StaticPaToolWin`: circle-from-3-points, circle-from-2-points-plus-rotation, CoR Dec/Cone decomposition, reference-star projection (`Radec2Px`), Alt/Az error decomposition, and IAU-2000 precession (`J2000Now`) | Direct (extract-for-testability): pure kernels factored out of the wxFrame and linked unmodified; verified via geometric invariants |
 | `test_guide_algorithm_lowpass` | `src/guide_algorithm_lowpass_math.cpp` — the Lowpass and Lowpass2 decision math (`reset`/`result`): median + slope*weight + input clamp; warm-up attenuation, outlier-dump, drift slope, sign guard, min-move gate — run against the real `WindowedAxisStats` | Direct (extract-for-testability): math factored out of the GUI-coupled algorithm `.cpp`; production `result()`/`reset()` now delegate to it |
 | `test_calibration_transform` | `src/calibration_transform.cpp` — the camera↔mount coordinate transforms extracted from `Mount`: rotate by the calibration RA-axis angle, skew the Dec component by the axis-orthogonality error, and the `mountTheta` sign flip for `\|yAngleError\| > π/2` | Direct (extract-for-testability): pure math factored out of `Mount`; `Mount::Transform*` delegate to it; verified via rotation/round-trip/skew/sign-flip invariants |
+| `test_star_find` | `src/star_find_core.cpp` — the star-detection pixel math extracted from `Star::Find`: smoothed-peak search, background-annulus mean/sigma, 3σ threshold, centroid + mass, Simonetti SNR, half-flux radius, saturation heuristic | Golden-file: links the wx-free kernel only (the real `star.cpp`/`usImage.cpp` drag in ~half the app) and runs it on the real `simimage.fit` fixture loaded with cfitsio; pins centroid/mass/SNR/HFD |
 
 ## How the build infra works (and why)
 
@@ -97,11 +98,11 @@ specific blocker.
   (the recurrence test replicates `GuideAlgorithmZFilter::result()` verbatim).
   Only the thin `m_sumCorr` correction-feedback wrapper around it is not yet
   pulled out — a small follow-up.
-- **Star detection (`star.cpp`, `star_profile.cpp`).** Uses `usImage`
-  which is wx + cfitsio coupled. The repo already ships `savetest.fit`
-  and `simimage.fit` as fixtures — the right shape for these is a
-  golden-file harness that drives a built `phd2.bin`, probably as a small
-  Python script invoked from `ctest`.
+- **Star detection.** The core `Star::Find` pixel math is now covered by
+  `test_star_find` (extracted to the wx-free `star_find_core.{h,cpp}`,
+  golden-tested against `simimage.fit`). Still deferred: `Star::AutoFind`
+  (whole-frame auto-select) and `star_profile.cpp`, which are wired through
+  `pFrame->pGuider` and the GUI; and the `usImage`/FITS save path.
 - **Calibration math.** The camera↔mount coordinate transforms are now
   covered directly by `test_calibration_transform` (extracted to the wx-free
   `calibration_transform.{h,cpp}`). Still deferred: the calibration
