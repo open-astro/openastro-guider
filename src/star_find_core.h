@@ -47,6 +47,13 @@ enum class Mode
     Peak, // mirrors Star::FIND_PEAK
 };
 
+// Known limitation (pre-existing in Star::Find, preserved by this extraction):
+// the saturation check only runs in Centroid mode. In Peak mode the top-3 raw
+// pixel values (max3[]) are never collected, so FindStar() never returns
+// Result::Saturated for a Peak-mode call — a fully saturated frame comes back
+// Result::Ok. Fixing it would change guiding detection behaviour, so it is
+// tracked rather than changed here (see design/GUIDER_TODO.md).
+
 // Mirrors Star::FindResult (subset reachable from the pixel math; the higher-
 // level STAR_TOO_NEAR_EDGE / STAR_MASSCHANGE are decided by callers).
 enum class Result

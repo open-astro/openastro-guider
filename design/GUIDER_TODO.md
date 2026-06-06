@@ -5,6 +5,15 @@ code during the strip, grouped by phase. Swept before the relevant phase closes.
 
 ---
 
+## Test-expansion follow-ups
+- **Star detection: no saturation check in Peak mode.** `Star::Find` / `star_find::FindStar`
+  only collect the top-3 raw pixel values (`max3[]`) in Centroid mode, so a Peak-mode call
+  never returns `STAR_SATURATED` / `Result::Saturated` — a fully saturated frame comes back
+  `Ok`. Pre-existing in upstream PHD2; preserved by the `star_find_core` extraction (PR #24)
+  and documented at the `star_find.h` API boundary. Fixing it changes guiding detection
+  behaviour (out of scope per rule #1), so it's tracked here rather than changed. Flagged by
+  the PR #24 review.
+
 ## Phase 0
 - _none yet_
 
