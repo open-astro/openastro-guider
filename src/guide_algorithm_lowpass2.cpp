@@ -39,6 +39,8 @@
 
 #include "phd.h"
 
+#include "guide_algorithm_lowpass_math.h"
+
 static const double DefaultMinMove = 0.2;
 static const double DefaultAggressiveness = 80.0;
 
@@ -64,62 +66,27 @@ GUIDE_ALGORITHM GuideAlgorithmLowpass2::Algorithm() const
 
 void GuideAlgorithmLowpass2::reset(void)
 {
-    m_axisStats.ClearAll();
-    m_timeBase = 0;
-    m_rejects = 0;
+    guide_lowpass2::Reset(m_axisStats, m_timeBase, m_rejects);
 }
 
 double GuideAlgorithmLowpass2::result(double input)
 {
-    m_axisStats.AddGuideInfo(m_timeBase++, input, 0); // AxisStats instance is auto-windowed
-    unsigned int numpts = m_axisStats.GetCount();
-    double dReturn;
-    double attenuation = m_aggressiveness / 100.;
-    double newSlope = 0;
+    guide_lowpass2::Result r = guide_lowpass2::Compute(m_axisStats, m_timeBase, m_rejects, m_aggressiveness, m_minMove, input);
 
-    if (numpts < 4)
-        dReturn = input * attenuation; // Don't fall behind while we're figuring things out
-    else
-    {
-        if (fabs(input) > 4.0 * m_minMove) // Outlier deflection - dump the history
-        {
-            dReturn = input * attenuation;
-            reset();
-            numpts = 0;
-            Debug.Write("Lowpass2 history cleared, outlier deflection\n");
-        }
-        else
-        {
-            double intcpt;
-            m_axisStats.GetLinearFitResults(&newSlope, &intcpt);
-            dReturn = newSlope * (double) numpts * attenuation;
-            // Don't return a result that will push the star further in the wrong direction
-            if (input * dReturn < 0)
-                dReturn = 0;
-        }
-    }
+    if (r.outlierDumped)
+        Debug.Write("Lowpass2 history cleared, outlier deflection\n");
 
-    if (fabs(dReturn) > fabs(input)) // Keep guide pulses below magnitude of last deflection
+    if (r.clampedToInput)
     {
         Debug.Write(wxString::Format("GuideAlgorithmLowpass2::Result() input %.2f is < calculated value %.2f, using input\n",
-                                     input, dReturn));
-        dReturn = input * attenuation;
-        m_rejects++;
-        if (m_rejects > 3) // 3-in-a-row, our slope is not useful
-        {
-            reset();
+                                     input, r.computed));
+        if (r.threeRejectReset) // 3-in-a-row, our slope is not useful
             Debug.Write("Lowpass2 history cleared, 3 successive rejected correction values\n");
-        }
     }
-    else
-        m_rejects = 0;
 
-    if (fabs(input) < m_minMove)
-        dReturn = 0.0;
-
-    Debug.Write(wxString::Format("GuideAlgorithmLowpass2::Result() returns %.2f from input %.2f, slope = %.2f\n", dReturn,
-                                 input, newSlope));
-    return dReturn;
+    Debug.Write(wxString::Format("GuideAlgorithmLowpass2::Result() returns %.2f from input %.2f, slope = %.2f\n", r.value,
+                                 input, r.slope));
+    return r.value;
 }
 
 bool GuideAlgorithmLowpass2::SetMinMove(double minMove)

@@ -39,6 +39,8 @@
 
 #include "phd.h"
 
+#include "guide_algorithm_lowpass_math.h"
+
 static const double DefaultMinMove = 0.2;
 static const double DefaultSlopeWeight = 5.0;
 
@@ -64,42 +66,22 @@ GUIDE_ALGORITHM GuideAlgorithmLowpass::Algorithm() const
 }
 void GuideAlgorithmLowpass::reset(void)
 {
-    m_axisStats.ClearAll();
-    m_timeBase = 0;
-
-    // Needs to be zero-filled to start
-    while (m_axisStats.GetCount() < HISTORY_SIZE)
-    {
-        m_axisStats.AddGuideInfo(m_timeBase++, 0, 0);
-    }
+    guide_lowpass::Reset(m_axisStats, m_timeBase, HISTORY_SIZE);
 }
 
 double GuideAlgorithmLowpass::result(double input)
 {
-    // Manual trimming of window (instead of auto-size) is done for full backward compatibility with original algo
-    m_axisStats.AddGuideInfo(m_timeBase++, input, 0);
-    double median = m_axisStats.GetMedian();
-    m_axisStats.RemoveOldestEntry();
-    double slope;
-    double intcpt;
-    m_axisStats.GetLinearFitResults(&slope, &intcpt);
-    double dReturn = median + m_slopeWeight * slope;
+    guide_lowpass::Result r = guide_lowpass::Compute(m_axisStats, m_timeBase, m_slopeWeight, m_minMove, input);
 
-    if (fabs(dReturn) > fabs(input))
+    if (r.clampedToInput)
     {
         Debug.Write(wxString::Format("GuideAlgorithmLowpass::Result() input %.2f is < calculated value %.2f, using input\n",
-                                     input, dReturn));
-        dReturn = input;
+                                     input, r.computed));
     }
 
-    if (fabs(input) < m_minMove)
-    {
-        dReturn = 0.0;
-    }
+    Debug.Write(wxString::Format("GuideAlgorithmLowpass::Result() returns %.2f from input %.2f\n", r.value, input));
 
-    Debug.Write(wxString::Format("GuideAlgorithmLowpass::Result() returns %.2f from input %.2f\n", dReturn, input));
-
-    return dReturn;
+    return r.value;
 }
 
 bool GuideAlgorithmLowpass::SetMinMove(double minMove)

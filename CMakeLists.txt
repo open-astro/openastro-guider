@@ -219,6 +219,8 @@ set(guiding_SRC
   ${phd_src_dir}/guide_algorithm_identity.h
   ${phd_src_dir}/guide_algorithm_lowpass.cpp
   ${phd_src_dir}/guide_algorithm_lowpass.h
+  ${phd_src_dir}/guide_algorithm_lowpass_math.cpp
+  ${phd_src_dir}/guide_algorithm_lowpass_math.h
   ${phd_src_dir}/guide_algorithm_lowpass2.cpp
   ${phd_src_dir}/guide_algorithm_lowpass2.h
   ${phd_src_dir}/guide_algorithm_resistswitch.cpp
