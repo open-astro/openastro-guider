@@ -43,7 +43,6 @@ enum FILTER_DESIGN
 {
     BESSEL,
     BUTTERWORTH,
-    CHEBYCHEV,
 };
 
 class ZFilterFactory
@@ -67,7 +66,6 @@ private:
 
     std::complex<double> dc_gain, fc_gain, hf_gain;
     double warped_alpha1, warped_alpha2;
-    double chripple;
     std::vector<std::complex<double>> bessel_poles;
     std::vector<std::complex<double>> spoles, szeros;
     std::vector<std::complex<double>> zpoles, zzeros;
@@ -105,8 +103,6 @@ inline std::string ZFilterFactory::getname() const
         return "Butterworth";
     case BESSEL:
         return "Bessel";
-    case CHEBYCHEV:
-        return "Chebychev";
     default:
         return "Unknown filter";
     }

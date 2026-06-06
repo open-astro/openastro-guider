@@ -36,8 +36,10 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 | `test_jsonrpc_schema` | `src/event_server.cpp`'s outgoing message shapes — `Version`, `AppState`, `SettleDone`, `Settling`, `StarSelected`, JSON-RPC envelope, `get_profiles`, `get_profile`, `get_lock_shift_params` | Fixture-based contract: pins the documented field names so a rename in either the production formatter or a downstream consumer (NINA, KStars, web UI) becomes a visible PR diff |
 | `test_alpaca_schema` | `src/alpaca_client.cpp` and `src/alpaca_discovery.cpp` JSON shapes — Alpaca standard envelope, `ErrorNumber`/`ErrorMessage` extraction (incl. lenient float→int coerce), camera/telescope `Value` shapes, the property-name fallback for non-standard servers, management API responses, the discovery UDP `{"AlpacaPort": N}` reply | Fixture-based contract |
 | `test_discovery_logic` | `host:port` parsing and the `std::set` dedupe model shared by `AlpacaDiscovery::DiscoverServers` and `INDIDiscovery::DiscoverServers` | Model: reproduces the dedupe / parse semantics in `std::string` form, so the actual sockets-bound functions don't have to be runnable in a unit-test process |
-| `test_indi_discovery` | `indi_discovery.cpp` INDI-specific math — subnet enumeration prefix clamping (16..30, default /24), mask construction, loopback skip, scan-range network/broadcast skip, the always-add-`127.0.0.1` contract from the 1.3.0 loopback fix | Model |
 | `test_guide_algorithm_math` | `result()` / `reset()` for `GuideAlgorithmIdentity`, `GuideAlgorithmHysteresis`, `GuideAlgorithmResistSwitch` | Math-twin: each algorithm's formula is reimplemented in the test alongside the production line numbers; tests pin the input/output curve on a fixed scenario |
+| `test_guiding_stats` | `src/guiding_stats.cpp` — `DescriptiveStats`, `HighPassFilter`/`LowPassFilter`, `AxisStats` (count/mean/variance/sigma/median/min-max/maxDelta/move+reversal counts/linear fit), `WindowedAxisStats` (auto-window trim, `RemoveOldestEntry`, `ChangeWindowSize`, min/max recompute on age-out) | Direct: links the production source unmodified — zero wx coupling |
+| `test_zfilter` | `src/zfilterfactory.cpp` — Bessel/Butterworth filter-design invariants (order, corner, name, coefficient shape, normalized `ycoeffs[0] == -1`, finiteness) plus an end-to-end recurrence (the exact `GuideAlgorithmZFilter::result()` difference equation) proving unity-DC-gain low-pass behaviour and high-frequency attenuation | Direct: links the production source unmodified |
+| `test_polar_alignment` | `src/staticpa_geometry.cpp` — the Static PA geometry/astrometry extracted from `StaticPaToolWin`: circle-from-3-points, circle-from-2-points-plus-rotation, CoR Dec/Cone decomposition, reference-star projection (`Radec2Px`), Alt/Az error decomposition, and IAU-2000 precession (`J2000Now`) | Direct (extract-for-testability): pure kernels factored out of the wxFrame and linked unmodified; verified via geometric invariants |
 
 ## How the build infra works (and why)
 
@@ -83,12 +85,13 @@ or fixture-contract style is what's in tree today; see "Deferred", below.
 Filed as future work, with notes in the relevant test files explaining the
 specific blocker.
 
-- **Lowpass / Lowpass2 / ZFilter algorithms.** The `result()` math reads
-  from `WindowedAxisStats` (median + linear fit) or a `ZFilterFactory`
-  coefficient set. Mirroring those in a math-twin would mean
-  reimplementing a few hundred lines of stats / filter design code.
-  Better path: extract the stats class into a header-only target the tests
-  can link directly. See the header comment in
+- **Lowpass / Lowpass2 / ZFilter guide *algorithms*.** The underlying math
+  is now covered directly: `WindowedAxisStats` (median + linear fit) by
+  `test_guiding_stats` and `ZFilterFactory` by `test_zfilter`. What's still
+  deferred is the thin `GuideAlgorithm*::result()` wrapper around them,
+  which reads `pConfig`/`Debug`/`pFrame`/`Mount` and so needs the stub
+  `Mount`/`MyFrame` layer that doesn't exist yet (only the `phd.h` shadow
+  does). See the header comment in
   `tests/algorithms/test_guide_algorithm_math.cpp`.
 - **Star detection (`star.cpp`, `star_profile.cpp`).** Uses `usImage`
   which is wx + cfitsio coupled. The repo already ships `savetest.fit`

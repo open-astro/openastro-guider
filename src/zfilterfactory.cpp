@@ -123,28 +123,12 @@ void ZFilterFactory::splane() // compute S-plane poles for prototype LP filter
             p++;
         }
     }
-    if (filt == BUTTERWORTH || filt == CHEBYCHEV) // Butterworth filter
+    if (filt == BUTTERWORTH) // Butterworth filter
     {
         for (int i = 0; i < 2 * m_order; i++)
         {
             double theta = (m_order & 1) ? (i * M_PI) / m_order : ((i + 0.5) * M_PI) / m_order;
             setpole(std::polar(1.0, theta));
-        }
-    }
-    if (filt == CHEBYCHEV) // modify for Chebyshev (p. 136 DeFatta et al.)
-    {
-        if (chripple >= 0.0)
-        {
-            fprintf(stderr, "mkfilter: Chebyshev ripple is %g dB; must be .lt. 0.0\n", chripple);
-            exit(1);
-        }
-        double rip = pow(10.0, -chripple / 10.0);
-        double eps = sqrt(rip - 1.0);
-        double y = asinh(1.0 / eps) / (double) m_order;
-        for (int i = 0; i < spoles.size(); i++)
-        {
-            spoles[i].real(spoles[i].real() * sinh(y));
-            spoles[i].imag(spoles[i].imag() * cosh(y));
         }
     }
 }

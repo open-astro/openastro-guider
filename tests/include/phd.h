@@ -20,10 +20,12 @@
 #define PHD_H_INCLUDED
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdarg>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <map>
 #include <math.h>
 #include <memory.h>
