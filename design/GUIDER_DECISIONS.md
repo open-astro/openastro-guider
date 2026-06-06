@@ -73,3 +73,29 @@ entries; add new ones at the bottom.**
   `#ifdef GUIDE_EQMAC|EQUINOX|VOYAGER` factory blocks in `scope.cpp`). All inert on Linux;
   tracked in `GUIDER_TODO.md`.
 - **Verified:** `./build-deb.sh --force` builds the `.deb` + ctest green on arm64.
+
+## 2026-06-05 — Phase 3: drop INDI (Alpaca-only)
+
+- **What:** Removed INDI end to end (branch `phase/3-drop-indi`). Deleted the INDI device
+  backends (`cam_indi`, `scope_indi`, `rotator_indi`) and the shared INDI config/GUI/discovery
+  (`config_indi`, `indi_gui`, `indi_discovery`); removed the `INDI_CAMERA` / `GUIDE_INDI` /
+  `ROTATOR_INDI` feature macros (so the factory `#ifdef` branches in `camera.cpp` / `scope.cpp` /
+  `rotator.cpp` compile out, like the ASCOM/macOS ones) and the unconditional `config_indi.h`
+  include + `INDIConfig::LoadProfileSettings()` call in `myframe.cpp`. Removed the libindi
+  dependency from `thirdparty.cmake` (the `find_package(INDI)` path **and** the INDI 2.2.1.1
+  `ExternalProject` source-build, plus the libnova/zlib links that existed only for INDI —
+  nothing in our own code uses libnova), deleted `cmake_modules/FindINDI.cmake`, and dropped
+  the `USE_SYSTEM_LIBINDI` auto-detect + INDI runtime-bundling from `debian/rules` and
+  `libindi-dev`/`libnova-dev`/`indi-bin` from `debian/control`. Removed the
+  `test_indi_discovery` unit test.
+- **Why:** `openastro-guider` is Alpaca-only (playbook §1-§2); INDI was the last non-Alpaca
+  equipment backend. Unlike Windows/macOS, INDI was *live* on Linux, so this rewired the
+  device factories (via the macros) rather than just deleting dead-guarded code.
+- **Payoff:** builds no longer compile INDI — the slow INDI 2.2.1.1 source-build (Debian Trixie
+  only ships 1.9.9) and the `libindi-dev`/`libgsl`/`libfftw` build-dep burden are gone, so
+  `./build-deb.sh` is substantially faster.
+- **Deferred:** the dead inline `#ifdef GUIDE_INDI`/`INDI_CAMERA`/`ROTATOR_INDI` factory stubs
+  and stale "shared with INDIDiscovery" test comments — folded into the same ifdef-cleanup
+  follow-up as Windows/macOS (see `GUIDER_TODO.md`).
+- **Verified:** `./build-deb.sh --force` builds the `.deb` + ctest 9/9 green on arm64 with no
+  libindi present.

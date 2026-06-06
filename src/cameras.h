@@ -39,11 +39,9 @@
   to detect or package this
   */
 
-// phd2-alpaca build: Alpaca + INDI on all platforms; ASCOM on Windows only.
-// ASCOM_CAMERA is a thin late-bound COM shim over user-installed ASCOM camera
-// drivers (no vendor SDKs are bundled), mirroring how scopes.h gates GUIDE_ASCOM.
+// openastro-guider build: Alpaca only (INDI dropped in Phase 3; ASCOM was
+// Windows-only and dropped in Phase 1).
 # define ALPACA_CAMERA
-# define INDI_CAMERA
 # define SIMULATOR
 
 # if defined(__WINDOWS__)
