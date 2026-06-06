@@ -150,51 +150,6 @@ if(UNIX AND NOT APPLE)
 
 endif()
 
-#############################################
-#
-# gettext and msgmerge tools for documentation/internationalization
-#
-#############################################
-
-# On Linux the system gettext (msgfmt/msgmerge, from the gettext package) is
-# used directly via the find logic below. The bundled Windows gettext-0.14.4
-# zips and their deflate step were removed with the Windows build.
-
-set(GETTEXT_FINDPROGRAM_OPTIONS)
-if(NOT ("${GETTEXT_ROOT}" STREQUAL ""))
-  set(GETTEXT_FINDPROGRAM_OPTIONS
-      PATHS ${GETTEXT_ROOT}
-               PATH_SUFFIXES bin
-               DOC "gettext program deflated from the thirdparties"
-               NO_DEFAULT_PATH)
-endif()
-
-find_program(XGETTEXT
-             NAMES xgettext
-             ${GETTEXT_FINDPROGRAM_OPTIONS})
-
-find_program(MSGFMT
-              NAMES msgfmt
-             ${GETTEXT_FINDPROGRAM_OPTIONS})
-
-find_program(MSGMERGE
-              NAMES msgmerge
-             ${GETTEXT_FINDPROGRAM_OPTIONS})
-
-if(NOT XGETTEXT)
-  message(STATUS "'xgettext' program not found")
-else()
-  message(STATUS "'xgettext' program found at '${XGETTEXT}'")
-endif()
-
-if(NOT MSGFMT)
-  message(STATUS "'msgfmt' program not found")
-else()
-  message(STATUS "'msgfmt' program found at '${MSGFMT}'")
-endif()
-
-if(NOT MSGMERGE)
-  message(STATUS "'msgmerge' program not found")
-else()
-  message(STATUS "'msgmerge' program found at '${MSGMERGE}'")
-endif()
+# gettext / msgfmt / msgmerge are no longer needed: the GUI help system and
+# translation catalogs (help/ and locale/) were removed for the headless,
+# English-only build, along with the CMake machinery that compiled them.

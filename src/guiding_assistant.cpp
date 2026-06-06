@@ -912,7 +912,8 @@ void GuidingAsstWin::OnGraph(wxCommandEvent& event)
 
 void GuidingAsstWin::OnHelp(wxCommandEvent& event)
 {
-    pFrame->help->Display("Tools.htm#Guiding_Assistant"); // named anchors in help file are not subject to translation
+    // Bundled GUI help was removed for the headless build; open the online help.
+    wxLaunchDefaultBrowser("https://openphdguiding.org/getting-help/");
 }
 
 static wxString SizedMsg(const wxString& msg)

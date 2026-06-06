@@ -129,7 +129,7 @@ BUILD_DEPS_CORE=(
     build-essential cmake pkg-config debhelper
     libcfitsio-dev libopencv-dev libv4l-dev
     libcurl4-gnutls-dev libeigen3-dev libgtest-dev
-    gettext zlib1g-dev
+    zlib1g-dev
 )
 BUILD_DEPS_WX=(libwxgtk3.2-dev)
 
@@ -150,7 +150,7 @@ check_deps() {
         echo "Install build deps (Debian 13 Trixie / Raspberry Pi OS Trixie):"
         echo "  sudo apt-get install -y build-essential cmake pkg-config debhelper \\"
         echo "    libwxgtk3.2-dev libcfitsio-dev libopencv-dev libv4l-dev \\"
-        echo "    libcurl4-gnutls-dev libeigen3-dev libgtest-dev gettext zlib1g-dev"
+        echo "    libcurl4-gnutls-dev libeigen3-dev libgtest-dev zlib1g-dev"
         echo ""
         echo "Or run: $0 --install-deps"
         return 1
@@ -163,7 +163,7 @@ install_deps() {
     sudo apt-get update
     sudo apt-get install -y build-essential cmake pkg-config debhelper \
         libwxgtk3.2-dev libcfitsio-dev libopencv-dev libv4l-dev \
-        libcurl4-gnutls-dev libeigen3-dev libgtest-dev gettext zlib1g-dev
+        libcurl4-gnutls-dev libeigen3-dev libgtest-dev zlib1g-dev
     info "Build dependencies installed."
 }
 

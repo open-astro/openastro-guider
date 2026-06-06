@@ -101,7 +101,6 @@ EVT_MENU(MENU_HELP_ONLINE, MyFrame::OnHelpOnline)
 EVT_MENU(MENU_HELP_LOG_FOLDER, MyFrame::OnHelpLogFolder)
 EVT_MENU(MENU_HELP_UPLOAD_LOGS, MyFrame::OnHelpUploadLogs)
 EVT_MENU(wxID_HELP_PROCEDURES, MyFrame::OnInstructions)
-EVT_MENU(wxID_HELP_CONTENTS, MyFrame::OnHelp)
 EVT_MENU(wxID_SAVE, MyFrame::OnSave)
 EVT_MENU(MENU_TAKEDARKS, MyFrame::OnDark)
 EVT_MENU(MENU_LOADDARK, MyFrame::OnLoadDark)
@@ -348,8 +347,6 @@ MyFrame::MyFrame()
     UpdateTitle();
     StatusMsg(_("OpenAstro PHD2 - Alpaca and full device support"));
 
-    SetupHelpFile();
-
     if (m_serverMode)
     {
         tools_menu->Check(MENU_SERVER, true);
@@ -566,7 +563,6 @@ void MyFrame::SetupMenuBar()
     help_menu->Append(MENU_HELP_ONLINE, _("Online Support"), _("Ask for help in the PHD2 Forum"));
     help_menu->Append(MENU_HELP_LOG_FOLDER, _("Open Log Folder"), _("Open the log folder"));
     help_menu->Append(MENU_HELP_UPLOAD_LOGS, _("Upload Log Files..."), _("Upload log files for review"));
-    help_menu->Append(wxID_HELP_CONTENTS, _("&Contents...\tF1"), _("Full help"));
     help_menu->Append(wxID_HELP_PROCEDURES, _("&Impatient Instructions"), _("Quick instructions for the impatient"));
 
     Menubar = new wxMenuBar();
@@ -1033,38 +1029,6 @@ void MyFrame::SetupKeyboardShortcuts()
     SetAcceleratorTable(accel);
 }
 
-struct PHDHelpController : public wxHtmlHelpController
-{
-    PHDHelpController() { UseConfig(pConfig->Global.GetWxConfig(), "/help"); }
-};
-
-void MyFrame::SetupHelpFile()
-{
-    wxFileSystem::AddHandler(new wxZipFSHandler);
-
-    int langid = wxGetApp().GetLocale().GetLanguage();
-
-    // first try to find locale-specific help file
-    wxString filename = wxGetApp().GetLocalesDir() + wxFILE_SEP_PATH + wxLocale::GetLanguageCanonicalName(langid) +
-        wxFILE_SEP_PATH + _T("PHD2GuideHelp.zip");
-
-    Debug.Write(wxString::Format("SetupHelpFile: langid=%d, locale-specific help = %s\n", langid, filename));
-
-    if (!wxFileExists(filename))
-    {
-        filename = wxGetApp().GetPHDResourcesDir() + wxFILE_SEP_PATH + _T("PHD2GuideHelp.zip");
-
-        Debug.Write(wxString::Format("SetupHelpFile: using default help %s\n", filename));
-    }
-
-    help = new PHDHelpController();
-
-    if (!help->AddBook(filename))
-    {
-        Alert(wxString::Format(_("Could not find help file %s"), filename));
-    }
-}
-
 static bool cond_update_tool(wxAuiToolBar *tb, int toolId, wxMenuItem *mi, bool enable)
 {
     bool ret = false;
@@ -1223,8 +1187,9 @@ void MyFrame::ClearAlert()
 
 void MyFrame::OnAlertHelp(wxCommandEvent& evt)
 {
-    // Any open help window will be re-directed
-    help->Display(_("Trouble-shooting and Analysis"));
+    // The bundled GUI help was removed for the headless build; send the user
+    // to the online troubleshooting/help page instead.
+    wxLaunchDefaultBrowser("https://openphdguiding.org/getting-help/");
 }
 
 // Alerts may have a combination of 'Don't show', help, close, and 'Custom' buttons.  The 'close' button is added automatically
@@ -2181,11 +2146,6 @@ void MyFrame::OnClose(wxCloseEvent& event)
     wxString geometry = wxString::Format("%c;%d;%d;%d;%d", this->IsMaximized() ? '1' : '0', this->GetSize().x,
                                          this->GetSize().y, this->GetScreenPosition().x, this->GetScreenPosition().y);
     pConfig->Global.SetString("/geometry", geometry);
-
-    if (help->GetFrame())
-        help->GetFrame()->Close();
-    delete help;
-    help = 0;
 
     Destroy();
 }

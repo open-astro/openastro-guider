@@ -244,7 +244,6 @@ public:
     wxInfoBar *m_infoBar;
     wxComboBox *Dur_Choice;
     wxCheckBox *HotPixel_Checkbox;
-    wxHtmlHelpController *help;
     wxSlider *Gamma_Slider;
     AdvancedDialog *pAdvancedDialog;
     GraphLogWindow *pGraphLog;
@@ -286,7 +285,6 @@ public:
     void OnQuit(wxCommandEvent& evt);
     void OnClose(wxCloseEvent& evt);
     void OnAbout(wxCommandEvent& evt);
-    void OnHelp(wxCommandEvent& evt);
     void OnOverlay(wxCommandEvent& evt);
     void OnOverlaySlitCoords(wxCommandEvent& evt);
     void OnUpgrade(wxCommandEvent& evt);
@@ -516,7 +514,6 @@ private:
     void SetupStatusBar();
     void SetupToolBar();
     void SetupKeyboardShortcuts();
-    void SetupHelpFile();
     int GetTextWidth(wxControl *pControl, const wxString& string);
     void SetComboBoxWidth(wxComboBox *pComboBox, unsigned int extra);
     void FinishStop();

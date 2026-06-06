@@ -1472,7 +1472,8 @@ void ProfileWizard::OnNext(wxCommandEvent& evt)
 
 void ProfileWizard::OnContextHelp(wxCommandEvent& evt)
 {
-    pFrame->help->Display("Basic_use.htm#New_profile_wizard");
+    // Bundled GUI help was removed for the headless build; open the online help.
+    wxLaunchDefaultBrowser("https://openphdguiding.org/getting-help/");
 }
 
 void ProfileWizard::OnPrev(wxCommandEvent& evt)
