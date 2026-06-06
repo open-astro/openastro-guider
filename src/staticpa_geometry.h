@@ -52,12 +52,15 @@ struct Px
     double y = 0.;
 };
 
-// Centre + radius of the rotation circle, in sensor pixels.
+// Centre + radius of the rotation circle, in sensor pixels. `valid` is false
+// for degenerate inputs (see the CircleFrom* docs); when false cx/cy/r are
+// left at 0 rather than NaN/inf, and callers must reject the result.
 struct Circle
 {
     double cx = 0.;
     double cy = 0.;
     double r = 0.;
+    bool valid = true;
 };
 
 // A pair of correction vectors (each an offset in sensor pixels).
@@ -71,7 +74,8 @@ struct CorrVectors
 
 // Manual mode: the unique circle through three measured star positions, via
 // the determinant (matrix-minor) construction. Mirrors the !m_auto branch of
-// CalcRotationCentre().
+// CalcRotationCentre(). If the three points are collinear (or coincident) no
+// finite circle exists; the result has valid == false and cx/cy/r == 0.
 Circle CircleFrom3Points(const Px& p1, const Px& p2, const Px& p3);
 
 // Auto mode: the circle implied by two measured positions on the arc plus the
@@ -79,7 +83,9 @@ Circle CircleFrom3Points(const Px& p1, const Px& p2, const Px& p3);
 // sign-inverted, normalised) image rotation in radians; hemi is +1 (north) or
 // -1 (south). Mirrors the m_auto branch of CalcRotationCentre(). If
 // slopebaseRadOut is non-null it receives the chord-to-CoR slope in radians
-// (used only for the diagnostic log).
+// (used only for the diagnostic log). If raDiffRad is ~0 (no rotation between
+// the two shots) the radius is undefined; the result has valid == false and
+// cx/cy/r == 0.
 Circle CircleFrom2PointsAndAngle(const Px& p1, const Px& p2, double raDiffRad, int hemi, double *slopebaseRadOut = nullptr);
 
 // Decompose the offset of the centre of rotation from the sensor centre into

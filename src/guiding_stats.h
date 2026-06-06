@@ -63,7 +63,10 @@ public:
     double GetSum(); // Sum of all added vars
     double GetMinimum(); // Returns the min value
     double GetMaximum(); // Returns the max value
-    double GetVariance(); // Variance for those who need it
+    // NB: returns the raw accumulated sum of squared deviations (Knuth's S),
+    // NOT S/(n-1) or S/n. "Variance" here is the unnormalized numerator;
+    // GetSigma()/GetPopulationSigma() apply the /(n-1) and /n divisors.
+    double GetVariance();
     double GetSigma(); // Returns the standard deviation
     double GetPopulationSigma(); // Population sigma ('n' vs 'n-1')
     double GetMaxDelta(); // Returns max of absolute delta(new - previous) values

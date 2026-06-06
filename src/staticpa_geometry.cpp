@@ -100,6 +100,14 @@ Circle CircleFrom3Points(const Px& p1, const Px& p2, const Px& p3)
     m14 = a * f * k + b * g * i + c * e * j - c * f * i - b * e * k - a * g * j;
 
     Circle out;
+    // m11 is (twice) the signed area of the triangle p1 p2 p3; it is zero when
+    // the points are collinear or coincident, in which case no finite circle
+    // exists. Guard rather than divide by zero and propagate NaN/inf.
+    if (m11 == 0.)
+    {
+        out.valid = false;
+        return out;
+    }
     out.cx = (1. / 2.) * m12 / m11;
     out.cy = (-1. / 2.) * m13 / m11;
     out.r = std::sqrt(out.cx * out.cx + out.cy * out.cy + m14 / m11);
@@ -113,8 +121,18 @@ Circle CircleFrom2PointsAndAngle(const Px& p1, const Px& p2, double radiff, int 
 
     // Alternative algorithm based on two points and angle rotated
     double theta2 = radiff / 2.0; // Half the image rotation for midpoint of chord
+    double sintheta2 = std::sin(theta2);
+    if (sintheta2 == 0.)
+    {
+        // No (or full 2*pi) rotation between the two shots: radius undefined.
+        Circle out;
+        out.valid = false;
+        if (slopebaseRadOut)
+            *slopebaseRadOut = 0.;
+        return out;
+    }
     double lenchord = std::hypot(x1 - x2, y1 - y2);
-    double cr = std::fabs(lenchord / 2.0 / std::sin(theta2));
+    double cr = std::fabs(lenchord / 2.0 / sintheta2);
     double lenbase = std::fabs(cr * std::cos(theta2));
     // Calculate the slope of the chord in pixels
     // We know the image is moving clockwise in NH and anti-clockwise in SH

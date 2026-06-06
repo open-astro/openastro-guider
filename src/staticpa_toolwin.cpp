@@ -697,6 +697,17 @@ void StaticPaToolWin::CalcRotationCentre(void)
         Debug.AddLine(wxString::Format("StaticPA CalcCoR: radiff(deg): %.1f; cr: %.1f; slopebase(deg) %.1f", degrees(radiff),
                                        cor.r, degrees(slopebase)));
     }
+    if (!cor.valid)
+    {
+        // Degenerate input: collinear/coincident points (manual) or no RA
+        // rotation between shots (auto). No finite centre of rotation exists.
+        // UnsetState(0) above already left the display uncalced; report and
+        // bail rather than store NaN/inf in m_pxCentre / m_radius.
+        Debug.AddLine("StaticPA CalcCoR: degenerate input, cannot determine centre of rotation");
+        SetStatusText(_("Could not determine the centre of rotation - move the mount further between "
+                        "captures and use well-separated points."));
+        return;
+    }
     cx = cor.cx;
     cy = cor.cy;
     cr = cor.r;

@@ -72,6 +72,25 @@ TEST(PaGeometry, CircleFrom2PointsAndAnglePutsBothPointsOnCircle)
     }
 }
 
+TEST(PaGeometry, CircleFrom3PointsCollinearIsInvalid)
+{
+    // Three collinear points define no finite circle: must be flagged invalid
+    // with zeroed outputs rather than silently returning NaN/inf.
+    Circle c = CircleFrom3Points({ 0., 0. }, { 5., 5. }, { 10., 10. });
+    EXPECT_FALSE(c.valid);
+    EXPECT_EQ(c.cx, 0.0);
+    EXPECT_EQ(c.cy, 0.0);
+    EXPECT_EQ(c.r, 0.0);
+}
+
+TEST(PaGeometry, CircleFrom2PointsAndAngleZeroRotationIsInvalid)
+{
+    // No RA rotation between the two captures -> radius undefined -> invalid.
+    Circle c = CircleFrom2PointsAndAngle({ 100., 120. }, { 180., 90. }, /*radiff*/ 0.0, /*hemi*/ 1);
+    EXPECT_FALSE(c.valid);
+    EXPECT_EQ(c.r, 0.0);
+}
+
 // --- DecomposeCoR -----------------------------------------------------------
 
 TEST(PaGeometry, DecomposeCoRCentreGivesZeroCorrection)
@@ -195,8 +214,10 @@ TEST(PaGeometry, PrecessJ2000MovesAtGeneralPrecessionRate)
 
 TEST(PaGeometry, PrecessJ2000IsIdentityAtZeroIsSmall)
 {
-    // At t=0 only the tiny constant terms of the series apply (~2.6 arcsec),
-    // so the point should barely move.
+    // At t=0 only the series' constant frame-bias terms apply (~2.6 arcsec ≈
+    // 0.0007 deg), so the point barely moves. The 0.01 deg tolerance sits
+    // comfortably above that small offset while still failing if precession
+    // were ever (mis)applied at full scale.
     Px p = PrecessJ2000(0.0, 100.0, 20.0);
     EXPECT_NEAR(p.x, 100.0, 0.01);
     EXPECT_NEAR(p.y, 20.0, 0.01);

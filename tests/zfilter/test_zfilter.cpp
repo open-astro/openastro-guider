@@ -14,10 +14,9 @@
 //      unity-DC-gain low-pass filter. This validates the gain normalization
 //      and all coefficients together, not just their shape.
 //
-// Only BESSEL and BUTTERWORTH are exercised: those are the only designs the
-// app instantiates (guide_algorithm_zfilter.cpp uses BESSEL by default and
-// BUTTERWORTH when corner < 6). CHEBYCHEV reads an uninitialized chripple
-// member and is never used, so it is intentionally not tested here.
+// BESSEL and BUTTERWORTH are the only designs the factory supports
+// (guide_algorithm_zfilter.cpp uses BESSEL by default and BUTTERWORTH when
+// corner < 6); both are exercised here.
 
 #include <gtest/gtest.h>
 
@@ -29,35 +28,35 @@
 namespace
 {
 
-// Mirrors the steady-state difference equation in
-// GuideAlgorithmZFilter::result() with m_sumCorr == 0 (no feedback): runs a
-// constant input through the filter for enough steps to settle, returns the
-// final output. For a unity-gain low-pass this converges to `input`.
+// One step of the exact difference equation GuideAlgorithmZFilter::result()
+// uses (with m_sumCorr == 0): shift in `input`, return the new output. xv/yv
+// are the filter's input/output histories, carried across calls.
+double StepFilter(const std::vector<double>& xc, const std::vector<double>& yc, double gain, std::deque<double>& xv,
+                  std::deque<double>& yv, double input)
+{
+    xv.push_front(input / gain);
+    xv.pop_back();
+    yv.push_front(0.0);
+    yv.pop_back();
+
+    double acc = 0.0;
+    for (size_t i = 0; i < xc.size(); ++i)
+        acc += xv[i] * xc[i];
+    for (size_t i = 1; i < yc.size(); ++i)
+        acc += yv[i] * yc[i];
+    yv[0] = acc;
+    return acc;
+}
+
+// Runs a constant input through the filter for enough steps to settle and
+// returns the final output. For a unity-gain low-pass this converges to `input`.
 double SettledResponse(ZFilterFactory& f, double input, int steps = 5000)
 {
-    const auto& xc = f.xcoeffs;
-    const auto& yc = f.ycoeffs;
-    const double gain = f.gain();
-
-    std::deque<double> xv(xc.size(), 0.0);
-    std::deque<double> yv(yc.size(), 0.0);
-
+    std::deque<double> xv(f.xcoeffs.size(), 0.0);
+    std::deque<double> yv(f.ycoeffs.size(), 0.0);
     double out = 0.0;
     for (int n = 0; n < steps; ++n)
-    {
-        xv.push_front(input / gain);
-        xv.pop_back();
-        yv.push_front(0.0);
-        yv.pop_back();
-
-        double acc = 0.0;
-        for (size_t i = 0; i < xc.size(); ++i)
-            acc += xv[i] * xc[i];
-        for (size_t i = 1; i < yc.size(); ++i)
-            acc += yv[i] * yc[i];
-        yv[0] = acc;
-        out = acc;
-    }
+        out = StepFilter(f.xcoeffs, f.ycoeffs, f.gain(), xv, yv, input);
     return out;
 }
 
@@ -128,28 +127,16 @@ TEST(ZFilterFactory, AttenuatesAlternatingSignal)
     // frequency representable; a low-pass should knock it down hard. Compare
     // the settled output magnitude against the input amplitude.
     ZFilterFactory f(BUTTERWORTH, 3, 10.0);
-    const auto& xc = f.xcoeffs;
-    const auto& yc = f.ycoeffs;
-    const double gain = f.gain();
     const double amp = 10.0;
 
-    std::deque<double> xv(xc.size(), 0.0);
-    std::deque<double> yv(yc.size(), 0.0);
+    std::deque<double> xv(f.xcoeffs.size(), 0.0);
+    std::deque<double> yv(f.ycoeffs.size(), 0.0);
 
     double maxOut = 0.0;
     for (int n = 0; n < 4000; ++n)
     {
         double input = (n & 1) ? amp : -amp;
-        xv.push_front(input / gain);
-        xv.pop_back();
-        yv.push_front(0.0);
-        yv.pop_back();
-        double acc = 0.0;
-        for (size_t i = 0; i < xc.size(); ++i)
-            acc += xv[i] * xc[i];
-        for (size_t i = 1; i < yc.size(); ++i)
-            acc += yv[i] * yc[i];
-        yv[0] = acc;
+        double acc = StepFilter(f.xcoeffs, f.ycoeffs, f.gain(), xv, yv, input);
         if (n > 2000) // after settling
             maxOut = std::max(maxOut, std::fabs(acc));
     }
