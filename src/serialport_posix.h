@@ -35,16 +35,11 @@
 #if !defined(SERIALPORT_POSIX_H_INCLUDED)
 # define SERIALPORT_POSIX_H_INCLUDED
 
-# if defined(__linux__)
-
-#  include <termios.h>
+# include <termios.h>
 
 class SerialPortPosix : public SerialPort
 {
     int m_fd;
-#  if defined(__APPLE__)
-    struct termios m_originalAttrs;
-#  endif
 
 public:
     wxArrayString GetSerialPortList() override;
@@ -64,7 +59,5 @@ public:
     bool SetRTS(bool asserted) override;
     bool SetDTR(bool asserted) override;
 };
-
-# endif // __linux__ || __APPLE__
 
 #endif // SERIALPORT_POSIX_H_INCLUDED
