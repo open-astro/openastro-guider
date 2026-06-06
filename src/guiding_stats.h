@@ -205,6 +205,8 @@ public:
     // elements
     bool ChangeWindowSize(unsigned int NewWSize);
     void RemoveOldestEntry();
+    // Intentionally redefines AxisStats::AddGuideInfo for the windowed subclass.
+    // cppcheck-suppress duplInheritedMember
     void AddGuideInfo(double DeltaT, double StarPos, double GuideAmt);
 };
 

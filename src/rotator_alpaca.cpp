@@ -42,10 +42,8 @@
 static const int kConnectTimeoutMs = 10000;
 static const int kConnectPollIntervalMs = 100;
 
-RotatorAlpaca::RotatorAlpaca()
+RotatorAlpaca::RotatorAlpaca() : m_client(nullptr), m_host(pConfig->Profile.GetString("/alpaca/host", _T("localhost")))
 {
-    m_client = nullptr;
-    m_host = pConfig->Profile.GetString("/alpaca/host", _T("localhost"));
     m_port = pConfig->Profile.GetLong("/alpaca/port", 0);
     m_deviceNumber = pConfig->Profile.GetLong("/alpaca/rotator_device", 0);
     m_Name = wxString::Format("Alpaca Rotator [%s:%ld/%ld]", m_host, m_port, m_deviceNumber);

@@ -419,7 +419,7 @@ void DarksDialog::OnReset(wxCommandEvent& evt)
     }
 }
 
-void DarksDialog::ShowStatus(const wxString msg, bool appending)
+void DarksDialog::ShowStatus(const wxString& msg, bool appending)
 {
     static wxString preamble;
 

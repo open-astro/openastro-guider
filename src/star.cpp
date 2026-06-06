@@ -55,6 +55,7 @@ bool Star::WasFound() const
     return IsValid() && WasFound(m_lastFindResult);
 }
 
+// cppcheck-suppress duplInheritedMember
 void Star::Invalidate()
 {
     Mass = 0.0;

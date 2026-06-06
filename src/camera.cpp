@@ -68,7 +68,7 @@ double GuideCamera::GetProfilePixelSize()
     return pConfig->Profile.GetDouble("/camera/pixelsize", UnknownPixelSize);
 }
 
-GuideCamera::GuideCamera()
+GuideCamera::GuideCamera() : FrameSize(UNDEFINED_FRAME_SIZE)
 {
     Connected = false;
     m_hasGuideOutput = false;
@@ -80,7 +80,6 @@ GuideCamera::GuideCamera()
     HasFrameLimiting = false;
     HasCooler = false;
     HasBayer = false;
-    FrameSize = UNDEFINED_FRAME_SIZE;
     UseSubframes = pConfig->Profile.GetBoolean("/camera/UseSubframes", DefaultUseSubframes);
     GuideCameraGain = pConfig->Profile.GetInt("/camera/gain", DefaultGuideCameraGain);
     m_timeoutMs = pConfig->Profile.GetInt("/camera/TimeoutMs", DefaultGuideCameraTimeoutMs);

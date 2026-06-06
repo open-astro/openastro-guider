@@ -393,11 +393,7 @@ struct AutoConfigPath
     wxConfigBase *m_cfg;
     wxString m_savePath;
 
-    AutoConfigPath(wxConfigBase *cfg, const wxString& path) : m_cfg(cfg)
-    {
-        m_savePath = cfg->GetPath();
-        cfg->SetPath(path);
-    }
+    AutoConfigPath(wxConfigBase *cfg, const wxString& path) : m_cfg(cfg), m_savePath(cfg->GetPath()) { cfg->SetPath(path); }
     ~AutoConfigPath() { m_cfg->SetPath(m_savePath); }
 };
 

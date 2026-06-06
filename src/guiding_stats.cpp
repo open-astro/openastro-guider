@@ -683,6 +683,7 @@ void WindowedAxisStats::RemoveOldestEntry()
 }
 
 // DeltaT should be a small number, on the order of a guide exposure time, not a full time-of-day
+// cppcheck-suppress duplInheritedMember
 void WindowedAxisStats::AddGuideInfo(double DeltaT, double StarPos, double GuideAmt)
 {
     AxisStats::AddGuideInfo(DeltaT, StarPos, GuideAmt);

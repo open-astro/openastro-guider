@@ -87,6 +87,8 @@ public:
 
     static bool WasFound(FindResult result);
     bool WasFound() const;
+    // Intentionally hides PHD_Point::Invalidate to also reset star-specific state.
+    // cppcheck-suppress duplInheritedMember
     void Invalidate();
     void SetError(FindResult error);
     FindResult GetError() const;

@@ -60,7 +60,7 @@ private:
     void OnStop(wxCommandEvent& evt);
     void OnReset(wxCommandEvent& evt);
     void SaveProfileInfo();
-    void ShowStatus(const wxString msg, bool appending);
+    void ShowStatus(const wxString& msg, bool appending);
     bool CreateMasterDarkFrame(usImage& dark, int expTime, int frameCount);
 
 public:

@@ -187,11 +187,10 @@ public:
     bool Capture(usImage& img, const CaptureParams& captureParams) override;
 };
 
-CameraINDI::CameraINDI() : sync_cond(sync_lock), m_lastFrame_cond(m_lastFrame_lock), m_gui(nullptr)
+CameraINDI::CameraINDI()
+    : sync_cond(sync_lock), m_lastFrame_cond(m_lastFrame_lock), m_gui(nullptr), stacking(false), modal(false)
 {
     m_lastFrame = nullptr;
-    stacking = false;
-    modal = false;
     ClearStatus();
     // load the values from the current profile
     INDIhost = pConfig->Profile.GetString("/indi/INDIhost", _T("localhost"));

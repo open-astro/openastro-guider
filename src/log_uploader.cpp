@@ -856,11 +856,7 @@ void LogUploadDialog::OnColSort(wxGridEvent& event)
 struct AutoChdir
 {
     wxString m_prev;
-    AutoChdir(const wxString& dir)
-    {
-        m_prev = wxFileName::GetCwd();
-        wxFileName::SetCwd(dir);
-    }
+    AutoChdir(const wxString& dir) : m_prev(wxFileName::GetCwd()) { wxFileName::SetCwd(dir); }
     ~AutoChdir() { wxFileName::SetCwd(m_prev); }
 };
 

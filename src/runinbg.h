@@ -58,6 +58,8 @@ public:
     bool IsCanceled(void);
 
     void SetErrorMsg(const wxString& msg);
+    // Returns a copy on purpose: set from the worker thread, read from the main thread.
+    // cppcheck-suppress returnByReference
     wxString GetErrorMsg(void);
 
     // Sub-classes can override OnCancel() to do something when the cancel button is clicked (in

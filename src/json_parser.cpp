@@ -59,6 +59,7 @@
 
 #include <algorithm>
 #include <memory.h>
+#include <new>
 
 class block_allocator
 {
@@ -302,8 +303,9 @@ static char *atof(char *first, char *last, float *out)
 
 static json_value *json_alloc(block_allocator *allocator)
 {
-    json_value *value = (json_value *) allocator->malloc(sizeof(json_value));
-    memset(value, 0, sizeof(json_value));
+    // Placement-new value-initializes all members (incl. the float field as 0.0)
+    // portably, instead of memset() which assumes all-zero-bits == 0.0.
+    json_value *value = new (allocator->malloc(sizeof(json_value))) json_value();
     return value;
 }
 
