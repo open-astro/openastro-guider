@@ -65,11 +65,12 @@ Headless-by-default + the systemd unit landed; these are the deliberate follow-u
   (Phase 3) — they reference no live backend. Remove or stub once ARA's method usage is pinned.
 
 ## Phase 5 — API gap-fill (planned)
-- **Advanced/"Brain" settings over RPC.** The ~95 existing methods cover equipment, profiles,
+- **Advanced/"Brain" settings over RPC.** The existing methods cover equipment, profiles,
   dark library, algo params, and guide/dither/calibrate, but the Advanced Settings dialog
-  surface (global guiding params, calibration step, star-mass detection, camera gain/timeout,
-  etc.) isn't fully exposed. Audit the Advanced dialog → map each control to an existing or new
-  method on the shared dispatch (so both `:4400` and `/api/rpc` gain it); log each in
+  surface (algorithm *selection*, max RA/Dec, dec-comp, star detection thresholds, dither
+  defaults, camera gain, backlash, …) isn't fully exposed. **Audit done — see
+  `design/API_GAP_AUDIT.md`** for the full gap table + prioritized batches. Implement on the
+  shared dispatch (so both `:4400` and `/api/rpc` gain each), logging each in
   `design/API_CONTRACT.md`. This is what lets ARA fully drive the app.
 - **Web-UI UX rework** (`scripts/webui/index.html`) — functional but poor UX; revisit once the
   API is complete (or let ARA supersede it).
