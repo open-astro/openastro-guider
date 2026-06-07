@@ -40,6 +40,8 @@
 #include "image_math.h"
 #include "messagebox_proxy.h"
 
+#include <vector>
+
 class BacklashComp;
 struct GuiderOffset;
 
@@ -235,6 +237,19 @@ public:
 
     static GUIDE_ALGORITHM GetGuideAlgorithm(const GuideAlgorithm *pAlgorithm);
     static bool CreateGuideAlgorithm(int guideAlgorithm, Mount *mount, GuideAxis axis, GuideAlgorithm **ppAlgorithm);
+
+    // untranslated guide-algorithm name <-> enum (shared by the GUI choice list and the
+    // event-server get_algos / get_algo / set_algo methods)
+    static wxString GuideAlgorithmName(int algo);
+    static GUIDE_ALGORITHM GuideAlgorithmFromName(const wxString& s);
+
+    // The guide algorithms valid for an axis (shared by the GUI choice list and the
+    // event-server get_algos): scope RA / Dec differ, an AO uses one set for both axes.
+    static std::vector<GUIDE_ALGORITHM> AvailableAlgorithms(bool isStepGuider, GuideAxis axis);
+
+    // Every guide algorithm (including identity/"None"), the single source of truth for
+    // GuideAlgorithmFromName and the no-axis event-server get_algos.
+    static std::vector<GUIDE_ALGORITHM> AllAlgorithms();
 
 #ifdef TEST_TRANSFORMS
     void TestTransforms();

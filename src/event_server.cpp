@@ -582,6 +582,9 @@ enum
     JSONRPC_METHOD_NOT_FOUND = -32601,
     JSONRPC_INVALID_PARAMS = -32602,
     JSONRPC_INTERNAL_ERROR = -32603,
+    // JSON-RPC reserves -32000..-32099 for implementation-defined server errors;
+    // used for operational preconditions like "no mount/scope connected".
+    JSONRPC_SERVER_ERROR = -32000,
 };
 
 static NV jrpc_error(int code, const wxString& msg)
@@ -3877,7 +3880,7 @@ static void get_guide_output_enabled(JObj& response, const json_value *params)
     if (pMount)
         response << jrpc_result(pMount->GetGuidingEnabled());
     else
-        response << jrpc_error(1, "mount not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
 }
 
 static void set_guide_output_enabled(JObj& response, const json_value *params)
@@ -3897,7 +3900,7 @@ static void set_guide_output_enabled(JObj& response, const json_value *params)
         response << jrpc_result(0);
     }
     else
-        response << jrpc_error(1, "mount not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
 }
 
 static bool axis_param(const Params& p, GuideAxis *a)
@@ -4059,6 +4062,259 @@ static void set_dec_guide_mode(JObj& response, const json_value *params)
     if (pFrame->pGraphLog)
         pFrame->pGraphLog->UpdateControls();
 
+    response << jrpc_result(0);
+}
+
+// ---- Phase 5 Batch A: guiding-control settings ----
+
+// List guide-algorithm names. With no params, returns every algorithm. With an
+// `axis` ("ra"/"dec"), returns only the algorithms valid for that axis on the
+// current mount type (RA, Dec, and AO each expose a different subset) — so a
+// client can populate a per-axis picker without trial-and-error via set_algo.
+static void get_algos(JObj& response, const json_value *params)
+{
+    Params p("axis", params);
+    wxArrayString names;
+    if (p.param("axis"))
+    {
+        GuideAxis a;
+        if (!axis_param(p, &a))
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected axis name param");
+            return;
+        }
+        if (!pMount)
+        {
+            // The valid set is mount-type-dependent (scope RA/Dec vs AO), so an
+            // axis query needs a connected mount; call without `axis` for the full list.
+            response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
+            return;
+        }
+        for (GUIDE_ALGORITHM ga : Mount::AvailableAlgorithms(pMount->IsStepGuider(), a))
+            names.push_back(Mount::GuideAlgorithmName(ga));
+    }
+    else
+    {
+        for (GUIDE_ALGORITHM ga : Mount::AllAlgorithms())
+            names.push_back(Mount::GuideAlgorithmName(ga));
+    }
+    JAry algos = json_string_array(names);
+    response << jrpc_result(algos);
+}
+
+// Get the guide algorithm selected for an axis (returns the untranslated name).
+static void get_algo(JObj& response, const json_value *params)
+{
+    Params p("axis", params);
+    GuideAxis a;
+    if (!axis_param(p, &a))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected axis name param");
+        return;
+    }
+    if (!pMount)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
+        return;
+    }
+    GUIDE_ALGORITHM alg = a == GUIDE_X ? pMount->GetXGuideAlgorithmSelection() : pMount->GetYGuideAlgorithmSelection();
+    response << jrpc_result(Mount::GuideAlgorithmName(alg));
+}
+
+// Switch the guide algorithm for an axis. name is an untranslated algorithm name
+// from get_algos(axis); algorithms not valid for the axis/mount (including
+// "None"/identity, which isn't per-axis selectable) are rejected.
+static void set_algo(JObj& response, const json_value *params)
+{
+    Params p("axis", "name", params);
+    GuideAxis a;
+    if (!axis_param(p, &a))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected axis name param");
+        return;
+    }
+    const json_value *name = p.param("name");
+    if (!name || name->type != JSON_STRING)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected algorithm name param");
+        return;
+    }
+    if (!pMount)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
+        return;
+    }
+    // GUIDE_ALGORITHM_NONE (-1) is the "name not recognized" sentinel here, not a
+    // selectable algorithm; the no-op identity algorithm is GUIDE_ALGORITHM_IDENTITY
+    // ("None"), which is caught below by the per-axis AvailableAlgorithms check.
+    GUIDE_ALGORITHM alg = Mount::GuideAlgorithmFromName(name->string_value);
+    if (alg == GUIDE_ALGORITHM_NONE)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid algorithm name param");
+        return;
+    }
+    // Validate against the same per-axis list get_algos returns, so the settable
+    // set matches what a client's picker shows. This also rejects "None"/identity,
+    // which (like the GUI) isn't a per-axis selectable algorithm.
+    std::vector<GUIDE_ALGORITHM> valid = Mount::AvailableAlgorithms(pMount->IsStepGuider(), a);
+    if (std::find(valid.begin(), valid.end(), alg) == valid.end())
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "algorithm not valid for this axis");
+        return;
+    }
+    if (a == GUIDE_X)
+        pMount->SetXGuideAlgorithm(alg);
+    else
+        pMount->SetYGuideAlgorithm(alg);
+    if (pFrame->pGraphLog)
+        pFrame->pGraphLog->UpdateControls();
+    response << jrpc_result(0);
+}
+
+// Get the max RA/Dec guide pulse limits (ms).
+static void get_guide_limits(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
+        return;
+    }
+    JObj rslt;
+    rslt << NV("MaxRaDuration", scope->GetMaxRaDuration()) << NV("MaxDecDuration", scope->GetMaxDecDuration());
+    response << jrpc_result(rslt);
+}
+
+// Set the max RA and/or Dec guide pulse limits (ms). Either field is optional.
+static void set_guide_limits(JObj& response, const json_value *params)
+{
+    Params p("MaxRaDuration", "MaxDecDuration", params);
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
+        return;
+    }
+    const json_value *ra = p.param("MaxRaDuration");
+    const json_value *dec = p.param("MaxDecDuration");
+    if (!ra && !dec)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected MaxRaDuration and/or MaxDecDuration param");
+        return;
+    }
+    // Durations are ms; cap well below INT_MAX so the (int) cast can't overflow
+    // (UB) on a bad RPC value. 1e6 ms = 1000 s, far beyond any real guide pulse.
+    const double kMaxDurationMs = 1.e6;
+    // Validate both before applying either, so a bad second value can't leave a
+    // partial update (e.g. RA written then Dec rejected).
+    double raVal = 0., decVal = 0.;
+    if (ra && (!float_param(ra, &raVal) || raVal < 0. || raVal > kMaxDurationMs))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxRaDuration param");
+        return;
+    }
+    if (dec && (!float_param(dec, &decVal) || decVal < 0. || decVal > kMaxDurationMs))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxDecDuration param");
+        return;
+    }
+    // Setters return true on error; both are pre-validated above so this is a
+    // belt-and-suspenders check. Round, don't truncate (durations are integer ms).
+    bool err = false;
+    if (ra)
+        err = scope->SetMaxRaDuration((int) (raVal + 0.5));
+    if (!err && dec)
+        err = scope->SetMaxDecDuration((int) (decVal + 0.5));
+    if (err)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "failed to set guide limit");
+        return;
+    }
+    response << jrpc_result(0);
+}
+
+// Get whether declination-based RA-rate compensation is enabled.
+static void get_dec_comp(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
+        return;
+    }
+    response << jrpc_result(scope->DecCompensationEnabled());
+}
+
+// Enable/disable declination-based RA-rate compensation.
+static void set_dec_comp(JObj& response, const json_value *params)
+{
+    Params p("enabled", params);
+    const json_value *en = p.param("enabled");
+    bool enabled;
+    if (!en || !bool_param(en, &enabled))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled bool param");
+        return;
+    }
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
+        return;
+    }
+    scope->EnableDecCompensation(enabled);
+    response << jrpc_result(0);
+}
+
+// Get the default dither settings (scale factor + RA-only).
+static void get_dither_settings(JObj& response, const json_value *params)
+{
+    if (!pFrame)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "frame not available");
+        return;
+    }
+    JObj rslt;
+    rslt << NV("ScaleFactor", pFrame->GetDitherScaleFactor(), 2) << NV("RaOnly", pFrame->GetDitherRaOnly());
+    response << jrpc_result(rslt);
+}
+
+// Set the default dither settings. Either field is optional.
+static void set_dither_settings(JObj& response, const json_value *params)
+{
+    if (!pFrame)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "frame not available");
+        return;
+    }
+    Params p("ScaleFactor", "RaOnly", params);
+    const json_value *sf = p.param("ScaleFactor");
+    const json_value *ro = p.param("RaOnly");
+    if (!sf && !ro)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected ScaleFactor and/or RaOnly param");
+        return;
+    }
+    // Validate both before applying either, so a bad second value can't leave a
+    // partial update.
+    double scaleFactor = 0.;
+    bool raOnly = false;
+    // Upper bound keeps a stray RPC value from producing an absurd dither; 100x is
+    // already far beyond any sensible scale.
+    if (sf && (!float_param(sf, &scaleFactor) || scaleFactor <= 0. || scaleFactor > 100.))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid ScaleFactor param");
+        return;
+    }
+    if (ro && !bool_param(ro, &raOnly))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid RaOnly param");
+        return;
+    }
+    if (sf)
+        pFrame->SetDitherScaleFactor(scaleFactor);
+    if (ro)
+        pFrame->SetDitherRaOnly(raOnly);
     response << jrpc_result(0);
 }
 
@@ -4531,6 +4787,15 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_algo_param", &set_algo_param },
         { "get_dec_guide_mode", &get_dec_guide_mode },
         { "set_dec_guide_mode", &set_dec_guide_mode },
+        { "get_algos", &get_algos },
+        { "get_algo", &get_algo },
+        { "set_algo", &set_algo },
+        { "get_guide_limits", &get_guide_limits },
+        { "set_guide_limits", &set_guide_limits },
+        { "get_dec_comp", &get_dec_comp },
+        { "set_dec_comp", &set_dec_comp },
+        { "get_dither_settings", &get_dither_settings },
+        { "set_dither_settings", &set_dither_settings },
         { "get_settling", &get_settling },
         { "guide_pulse", &guide_pulse },
         { "get_calibration_data", &get_calibration_data },
