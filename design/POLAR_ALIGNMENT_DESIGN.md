@@ -132,7 +132,7 @@ the cam directly — rejected for v1; it loses the guider's centroiding and comp
      propagates straight into the axis. The spike (§12) must measure the real single-solve error
      budget (typical ASTAP residuals ~1–2″); add a **3rd point (over-determined least-squares
      fit)** if 2-pt can't hit sub-arcmin reliably.
-   - **Refraction + precession are v1 requirements, not v2.** A routine that claims "sub-arcmin"
+   - **Refraction + precession are required for v1 (they may not be deferred to v2).** A routine that claims "sub-arcmin"
      cannot defer the refraction term on the pole position (it is itself arcmin-scale at typical
      pole altitudes). Precess catalog/pole positions to date (`PrecessJ2000`) and apply
      atmospheric refraction for the apparent pole. **Refraction is ARA's responsibility** (it
@@ -208,7 +208,9 @@ Key adaptations:
 Most pieces already exist (see `design/API_REFERENCE.md`):
 
 - **Capture full frame for solving:** `capture_single_frame` (with `save`/`path`) → ARA solves the
-  saved FITS. *Confirm it writes a solver-friendly FITS and returns the path.*
+  saved FITS. *Confirm it writes a solver-friendly FITS and returns the path.* **Seed the solver**
+  with an approximate RA/Dec + pixel scale (from the mount's current pointing + the profile) as a
+  position/WCS hint — this dramatically speeds and stabilizes ASTAP, especially for narrow OAG FOV.
 - **Centroids for live tracking:** `find_star` / `get_star_image` give star position(s); for the
   high-refresh track loop ARA needs a star (or few) centroid per frame. *Possible small addition:
   a "report centroids for the current frame / a list of stars" call if `find_star` (single best
