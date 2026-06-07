@@ -4393,6 +4393,18 @@ static void set_star_detection(JObj& response, const json_value *params)
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxStarHFD param");
         return;
     }
+    // Cross-check min < max against the effective values (a newly-supplied field,
+    // or the stored one if not supplied), so a single call can't invert them.
+    if (minhfd || maxhfd)
+    {
+        double effMin = minhfd ? minhfdVal : guider->GetMinStarHFD();
+        double effMax = maxhfd ? maxhfdVal : guider->GetMaxStarHFD();
+        if (effMin >= effMax)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "MinStarHFD must be less than MaxStarHFD");
+            return;
+        }
+    }
     if (sr)
     {
         double v;
