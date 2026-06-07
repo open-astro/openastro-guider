@@ -4086,8 +4086,14 @@ static void get_algos(JObj& response, const json_value *params)
     }
     else
     {
-        for (int a = GUIDE_ALGORITHM_IDENTITY; a <= GUIDE_ALGORITHM_ZFILTER; a++)
-            names.push_back(Mount::GuideAlgorithmName(a));
+        // Explicit set (not an enum-range loop) so a future gap in GUIDE_ALGORITHM
+        // can't slip an unnamed value through to GuideAlgorithmName's fallthrough.
+        static const GUIDE_ALGORITHM kAllAlgorithms[] = {
+            GUIDE_ALGORITHM_IDENTITY,      GUIDE_ALGORITHM_HYSTERESIS,       GUIDE_ALGORITHM_LOWPASS, GUIDE_ALGORITHM_LOWPASS2,
+            GUIDE_ALGORITHM_RESIST_SWITCH, GUIDE_ALGORITHM_GAUSSIAN_PROCESS, GUIDE_ALGORITHM_ZFILTER,
+        };
+        for (GUIDE_ALGORITHM ga : kAllAlgorithms)
+            names.push_back(Mount::GuideAlgorithmName(ga));
     }
     JAry algos = json_string_array(names);
     response << jrpc_result(algos);
