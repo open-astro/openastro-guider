@@ -121,9 +121,16 @@ the cam directly — rejected for v1; it loses the guider's centroiding and comp
    - Capture frame A (guider, full frame, saved FITS) → ARA plate-solves → (RA, Dec, PA, parity)₁.
    - ARA slews the mount in RA by Δ (default ~60°; smaller near the pole, see §7).
    - Capture frame B → solve → (RA, Dec, PA, parity)₂.
-   - Compute the **RA rotation axis** on the sky from the two pointings (+ optionally a 3rd point
-     for robustness/over-determination), then the **alt/az offset** from the true refracted pole
-     at the observer's location/time. (Refraction + precession matter at the arcmin level.)
+   - Compute the **RA rotation axis** on the sky from the two pointings, then the **alt/az
+     offset** from the true refracted pole at the observer's location/time.
+   - **Two points give a unique axis but zero redundancy** — any solve error in either point
+     propagates straight into the axis. The spike (§12) must measure the real single-solve error
+     budget (typical ASTAP residuals ~1–2″); add a **3rd point (over-determined least-squares
+     fit)** if 2-pt can't hit sub-arcmin reliably.
+   - **Refraction + precession are v1 requirements, not v2.** A routine that claims "sub-arcmin"
+     cannot defer the refraction term on the pole position (it is itself arcmin-scale at typical
+     pole altitudes). Precess catalog/pole positions to date (`PrecessJ2000`) and apply
+     atmospheric refraction for the apparent pole.
 
 3. **Adjust-phase calibration nudge** (§3) — derive bolt→image mapping.
 
@@ -174,9 +181,14 @@ Key adaptations:
 - **Exposure / star threshold** auto-scale (longer, more sensitive for small FOV).
 - For tiny FOV, re-solving every frame is too slow → after the initial solve, **track stars'
   centroids** (guider's strength) for a high-refresh live readout, re-solving only periodically
-  to re-anchor.
-- RA slew Δ shrinks as you approach the pole (a 60° slew near the pole moves the field a lot;
-  away from the pole it's fine).
+  to re-anchor. **Cap the time between re-anchors (e.g. 30–60 s) even when stars are held** —
+  centroid tracking accumulates drift (refraction, flexure, differential refraction across the
+  FOV) that a star-lost fallback alone won't catch.
+- **RA slew Δ rule:** the two measurement points must be far enough apart *on the projected sky
+  plane* for a stable axis fit. Far from the pole a fixed ~60° RA Δ is fine; near the pole the
+  same angular Δ collapses to a tiny projected separation. Define Δ by a **target projected
+  separation** (e.g. keep the field displacement above a set arcmin threshold given the current
+  Dec and pixel scale) rather than a fixed angle.
 
 ---
 
@@ -232,8 +244,10 @@ For v1 (ARA-orchestrated) these may be unnecessary — ARA already has the numbe
 - Does `capture_single_frame` already emit a solver-ready FITS? (verify)
 
 ## 12. Phasing
-1. **Spike:** ARA drives guider `capture_single_frame` → ASTAP solve → 2-pt axis → static alt/az
-   error printout (no live loop). Proves the pipeline end-to-end.
+1. **Spike:** *first* verify `capture_single_frame` emits a solver-ready FITS at a known path
+   (the highest-risk unknown — gate everything else on it). Then ARA drives `capture_single_frame`
+   → ASTAP solve → 2-pt axis → static alt/az error printout (no live loop), and **measures the
+   solve error budget** to decide 2-pt vs 3-pt (§5). Proves the pipeline end-to-end.
 2. **Live adjust:** continuous re-solve + decoupled arrows; target threshold; verify step.
 3. **Bolt calibration nudge** → labelled physical directions.
 4. **FOV adaptivity:** centroid-track-between-solves for small FOV; reticle mode for framed pole.
