@@ -4110,21 +4110,31 @@ static void set_algo(JObj& response, const json_value *params)
         response << jrpc_error(1, "expected algorithm name param");
         return;
     }
+    if (!pMount)
+    {
+        response << jrpc_error(1, "mount not defined");
+        return;
+    }
     GUIDE_ALGORITHM alg = Mount::GuideAlgorithmFromName(name->string_value);
     if (alg == GUIDE_ALGORITHM_NONE)
     {
         response << jrpc_error(1, "invalid algorithm name param");
         return;
     }
-    if (!pMount)
-    {
-        response << jrpc_error(1, "mount not defined");
-        return;
-    }
+    // get_algos lists every algorithm, but not all are valid on every axis/mount
+    // (e.g. Predictive PEC is RA-only; AO has its own subset). Apply, then read
+    // back the selection so an axis-invalid choice is a clear error, not a silent
+    // no-op.
     if (a == GUIDE_X)
         pMount->SetXGuideAlgorithm(alg);
     else
         pMount->SetYGuideAlgorithm(alg);
+    GUIDE_ALGORITHM applied = a == GUIDE_X ? pMount->GetXGuideAlgorithmSelection() : pMount->GetYGuideAlgorithmSelection();
+    if (applied != alg)
+    {
+        response << jrpc_error(1, "algorithm not valid for this axis");
+        return;
+    }
     if (pFrame->pGraphLog)
         pFrame->pGraphLog->UpdateControls();
     response << jrpc_result(0);

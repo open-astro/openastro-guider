@@ -76,9 +76,9 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `get_algo_param_names` | `axis` (`ra`/`dec`/`x`/`y`) | Parameter names of the axis's current algorithm (incl. `algorithmName`). |
 | `get_algo_param` | `axis`, `name` | Value of one algorithm parameter (`name="algorithmName"` returns the algorithm class name). |
 | `set_algo_param` | `axis`, `name`, `value` | Set one algorithm parameter value. |
-| `get_algos` | — | **(Batch A)** List of selectable guide-algorithm names. |
+| `get_algos` | — | **(Batch A)** All guide-algorithm names. Note: not every algorithm is valid on every axis/mount — e.g. *Predictive PEC* is RA-only and an AO has its own subset. |
 | `get_algo` | `axis` | **(Batch A)** The algorithm selected for an axis (e.g. `Hysteresis`). |
-| `set_algo` | `axis`, `name` | **(Batch A)** Switch the axis's guide algorithm (`name` from `get_algos`; `None` = no-op). |
+| `set_algo` | `axis`, `name` | **(Batch A)** Switch the axis's guide algorithm (`name` from `get_algos`; `None` = no-op). Errors with *"algorithm not valid for this axis"* if the algorithm isn't applicable to that axis/mount. |
 | `get_guide_limits` | — | **(Batch A)** `{MaxRaDuration, MaxDecDuration}` in ms. |
 | `set_guide_limits` | `MaxRaDuration`, `MaxDecDuration` (ms; either optional) | **(Batch A)** Set the max guide pulse durations. |
 | `get_dec_comp` | — | **(Batch A)** Whether declination RA-rate compensation is on. |
