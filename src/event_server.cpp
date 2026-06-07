@@ -4160,10 +4160,13 @@ static void set_guide_limits(JObj& response, const json_value *params)
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected MaxRaDuration and/or MaxDecDuration param");
         return;
     }
+    // Durations are ms; cap well below INT_MAX so the (int) cast can't overflow
+    // (UB) on a bad RPC value. 1e6 ms = 1000 s, far beyond any real guide pulse.
+    const double kMaxDurationMs = 1.e6;
     double v;
     if (ra)
     {
-        if (!float_param(ra, &v) || v < 0.)
+        if (!float_param(ra, &v) || v < 0. || v > kMaxDurationMs)
         {
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxRaDuration param");
             return;
@@ -4172,7 +4175,7 @@ static void set_guide_limits(JObj& response, const json_value *params)
     }
     if (dec)
     {
-        if (!float_param(dec, &v) || v < 0.)
+        if (!float_param(dec, &v) || v < 0. || v > kMaxDurationMs)
         {
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxDecDuration param");
             return;

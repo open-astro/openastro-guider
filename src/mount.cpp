@@ -163,20 +163,24 @@ Mount::MountConfigDialogPane::MountConfigDialogPane(wxWindow *pParent, const wxS
 
 GUIDE_ALGORITHM Mount::GuideAlgorithmFromName(const wxString& s)
 {
-    if (s == _("None"))
-        return GUIDE_ALGORITHM_IDENTITY;
-    if (s == _("Hysteresis"))
-        return GUIDE_ALGORITHM_HYSTERESIS;
-    if (s == _("Lowpass"))
-        return GUIDE_ALGORITHM_LOWPASS;
-    if (s == _("Lowpass2"))
-        return GUIDE_ALGORITHM_LOWPASS2;
-    if (s == _("Resist Switch"))
-        return GUIDE_ALGORITHM_RESIST_SWITCH;
-    if (s == _("Predictive PEC"))
-        return GUIDE_ALGORITHM_GAUSSIAN_PROCESS;
-    if (s.StartsWith(_("ZFilter")))
-        return GUIDE_ALGORITHM_ZFILTER;
+    // Accept either the untranslated wire name (the API path: get_algos / set_algo,
+    // which speaks GuideAlgorithmName()'s bare strings) or the translated display
+    // name (the GUI choice list via GetStringSelection()). ZFilter's GUI label can
+    // carry a suffix, so it is matched by prefix. "None" maps to the identity algo.
+    for (int a = GUIDE_ALGORITHM_IDENTITY; a <= GUIDE_ALGORITHM_ZFILTER; a++)
+    {
+        wxString untranslated = GuideAlgorithmName(a);
+        wxString translated = wxGetTranslation(untranslated);
+        if (a == GUIDE_ALGORITHM_ZFILTER)
+        {
+            if (s.StartsWith(untranslated) || s.StartsWith(translated))
+                return GUIDE_ALGORITHM_ZFILTER;
+        }
+        else if (s == untranslated || s == translated)
+        {
+            return (GUIDE_ALGORITHM) a;
+        }
+    }
     return GUIDE_ALGORITHM_NONE;
 }
 
