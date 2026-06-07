@@ -181,11 +181,9 @@ public:
 
 static const double DefaultMassChangeThreshold = 0.5;
 
+// MIN/DEFAULT/MAX_SEARCH_REGION are public GuiderMultiStar statics (guider_multistar.h).
 enum
 {
-    MIN_SEARCH_REGION = 7,
-    DEFAULT_SEARCH_REGION = 15,
-    MAX_SEARCH_REGION = 50,
     DEFAULT_MAX_STAR_COUNT = 9,
     DEFAULT_STABILITY_SIGMAX = 5,
     MAX_LIST_SIZE = 12
@@ -1381,7 +1379,8 @@ GuiderMultiStarConfigDialogCtrlSet::GuiderMultiStarConfigDialogCtrlSet(wxWindow 
     width = StringWidth(_T("0000"));
     m_pSearchRegion =
         pFrame->MakeSpinCtrl(GetParentWindow(AD_szStarTracking), wxID_ANY, _T(" "), wxDefaultPosition, wxSize(width, -1),
-                             wxSP_ARROW_KEYS, MIN_SEARCH_REGION, MAX_SEARCH_REGION, DEFAULT_SEARCH_REGION, _T("Search"));
+                             wxSP_ARROW_KEYS, GuiderMultiStar::MIN_SEARCH_REGION, GuiderMultiStar::MAX_SEARCH_REGION,
+                             GuiderMultiStar::DEFAULT_SEARCH_REGION, _T("Search"));
     wxSizer *pSearchRegion =
         MakeLabeledControl(AD_szStarTracking, _("Search region (pixels)"), m_pSearchRegion,
                            _("How many pixels (up/down/left/right) do we examine to find the star? Default = 15"));

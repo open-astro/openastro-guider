@@ -108,6 +108,12 @@ public:
         void LayoutControls(Guider *pGuider, BrainCtrlIdMap& CtrlMap);
     };
 
+    // Search-region bounds (px), shared by the GUI spin control, SetSearchRegion,
+    // and the event-server set_star_detection validation (single source of truth).
+    static const int MIN_SEARCH_REGION = 7;
+    static const int DEFAULT_SEARCH_REGION = 15;
+    static const int MAX_SEARCH_REGION = 50;
+
     bool GetMassChangeThresholdEnabled() const;
     void SetMassChangeThresholdEnabled(bool enable);
     double GetMassChangeThreshold() const;

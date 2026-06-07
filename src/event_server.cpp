@@ -4410,9 +4410,11 @@ static void set_star_detection(JObj& response, const json_value *params)
     if (sr)
     {
         double v;
-        if (!float_param(sr, &v) || v < 7. || v > 50.) // MIN_SEARCH_REGION .. MAX_SEARCH_REGION
+        if (!float_param(sr, &v) || v < GuiderMultiStar::MIN_SEARCH_REGION || v > GuiderMultiStar::MAX_SEARCH_REGION)
         {
-            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid SearchRegion param (7..50)");
+            response << jrpc_error(JSONRPC_INVALID_PARAMS,
+                                   wxString::Format("invalid SearchRegion param (%d..%d)", GuiderMultiStar::MIN_SEARCH_REGION,
+                                                    GuiderMultiStar::MAX_SEARCH_REGION));
             return;
         }
         srVal = (long) (v + 0.5);
