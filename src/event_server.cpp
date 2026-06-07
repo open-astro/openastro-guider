@@ -4067,10 +4067,10 @@ static void set_dec_guide_mode(JObj& response, const json_value *params)
 // List the selectable guide algorithms by their (untranslated) names.
 static void get_algos(JObj& response, const json_value *params)
 {
-    JAry algos;
+    wxArrayString names;
     for (int a = GUIDE_ALGORITHM_IDENTITY; a <= GUIDE_ALGORITHM_ZFILTER; a++)
-        algos << ('"' + json_escape(Mount::GuideAlgorithmName(a)) + '"');
-    response << jrpc_result(algos);
+        names.push_back(Mount::GuideAlgorithmName(a));
+    response << jrpc_result(json_string_array(names));
 }
 
 // Get the guide algorithm selected for an axis (returns the untranslated name).
@@ -4189,8 +4189,12 @@ static void set_guide_limits(JObj& response, const json_value *params)
 static void get_dec_comp(JObj& response, const json_value *params)
 {
     Scope *scope = TheScope();
-    bool enabled = scope ? scope->DecCompensationEnabled() : false;
-    response << jrpc_result(enabled);
+    if (!scope)
+    {
+        response << jrpc_error(1, "scope not defined");
+        return;
+    }
+    response << jrpc_result(scope->DecCompensationEnabled());
 }
 
 // Enable/disable declination-based RA-rate compensation.
