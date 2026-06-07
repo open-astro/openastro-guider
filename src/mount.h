@@ -247,6 +247,10 @@ public:
     // event-server get_algos): scope RA / Dec differ, an AO uses one set for both axes.
     static std::vector<GUIDE_ALGORITHM> AvailableAlgorithms(bool isStepGuider, GuideAxis axis);
 
+    // Every guide algorithm (including identity/"None"), the single source of truth for
+    // GuideAlgorithmFromName and the no-axis event-server get_algos.
+    static std::vector<GUIDE_ALGORITHM> AllAlgorithms();
+
 #ifdef TEST_TRANSFORMS
     void TestTransforms();
 #endif

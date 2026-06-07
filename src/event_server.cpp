@@ -4095,13 +4095,7 @@ static void get_algos(JObj& response, const json_value *params)
     }
     else
     {
-        // Explicit set (not an enum-range loop) so a future gap in GUIDE_ALGORITHM
-        // can't slip an unnamed value through to GuideAlgorithmName's fallthrough.
-        static const GUIDE_ALGORITHM kAllAlgorithms[] = {
-            GUIDE_ALGORITHM_IDENTITY,      GUIDE_ALGORITHM_HYSTERESIS,       GUIDE_ALGORITHM_LOWPASS, GUIDE_ALGORITHM_LOWPASS2,
-            GUIDE_ALGORITHM_RESIST_SWITCH, GUIDE_ALGORITHM_GAUSSIAN_PROCESS, GUIDE_ALGORITHM_ZFILTER,
-        };
-        for (GUIDE_ALGORITHM ga : kAllAlgorithms)
+        for (GUIDE_ALGORITHM ga : Mount::AllAlgorithms())
             names.push_back(Mount::GuideAlgorithmName(ga));
     }
     JAry algos = json_string_array(names);
@@ -4150,6 +4144,9 @@ static void set_algo(JObj& response, const json_value *params)
         response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
         return;
     }
+    // GUIDE_ALGORITHM_NONE (-1) is the "name not recognized" sentinel here, not a
+    // selectable algorithm; the no-op identity algorithm is GUIDE_ALGORITHM_IDENTITY
+    // ("None"), which is caught below by the per-axis AvailableAlgorithms check.
     GUIDE_ALGORITHM alg = Mount::GuideAlgorithmFromName(name->string_value);
     if (alg == GUIDE_ALGORITHM_NONE)
     {
@@ -4221,10 +4218,18 @@ static void set_guide_limits(JObj& response, const json_value *params)
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxDecDuration param");
         return;
     }
+    // Setters return true on error; both are pre-validated above so this is a
+    // belt-and-suspenders check. Round, don't truncate (durations are integer ms).
+    bool err = false;
     if (ra)
-        scope->SetMaxRaDuration((int) (raVal + 0.5)); // round, don't truncate (durations are integer ms)
-    if (dec)
-        scope->SetMaxDecDuration((int) (decVal + 0.5));
+        err = scope->SetMaxRaDuration((int) (raVal + 0.5));
+    if (!err && dec)
+        err = scope->SetMaxDecDuration((int) (decVal + 0.5));
+    if (err)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "failed to set guide limit");
+        return;
+    }
     response << jrpc_result(0);
 }
 
