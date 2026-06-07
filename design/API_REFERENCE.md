@@ -111,7 +111,7 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `get_star_detection` | — | **(Batch B)** `{MinStarSNR, MinStarHFD, MaxStarHFD}`, plus `{SearchRegion, MassChangeThreshold, MassChangeThresholdEnabled}` when the multi-star guider is active. Requires a guider. |
 | `set_star_detection` | `MinStarSNR`?, `MinStarHFD`?, `MaxStarHFD`?, `SearchRegion`? (7–50), `MassChangeThreshold`? (0–1), `MassChangeThresholdEnabled`? | **(Batch B)** Set star-detection thresholds (all optional, validated before applying; `MinStarHFD` must stay below `MaxStarHFD`). `SearchRegion` and the `MassChange*` fields require the multi-star guider. |
 | `get_guider_options` | — | **(Batch C)** `{FastRecenter, AutoSelDownsample}`, plus `{TolerateJumps, TolerateJumpsThreshold}` with the multi-star guider. |
-| `set_guider_options` | `FastRecenter`?, `AutoSelDownsample`? (0–4), `TolerateJumps`?, `TolerateJumpsThreshold`? (0–100) | **(Batch C)** Set the niche guider options (all optional). `TolerateJumps*` require the multi-star guider. |
+| `set_guider_options` | `FastRecenter`?, `AutoSelDownsample`? (0–4), `TolerateJumps`?, `TolerateJumpsThreshold`? (>0–100) | **(Batch C)** Set the niche guider options (all optional). `TolerateJumps*` require the multi-star guider. |
 
 ## Exposure & frame timing
 

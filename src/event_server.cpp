@@ -5037,7 +5037,7 @@ static void set_guider_options(JObj& response, const json_value *params)
     double tjtVal = 0.;
     if (tjt && (!float_param(tjt, &tjtVal) || tjtVal <= 0. || tjtVal > 100.))
     {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid TolerateJumpsThreshold param (0..100)");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid TolerateJumpsThreshold param (must be >0 and <=100)");
         return;
     }
     if (fr)
