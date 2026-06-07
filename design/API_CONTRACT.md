@@ -59,18 +59,31 @@ ARA call sites: the star-detection / camera panels.
 - `set_mount_options` { any of the above (bool) } → result: 0. All optional.
 - `get_backlash_comp` → result: { `Enabled`, `PulseWidth`, `Floor`, `Ceiling` } (ms).
 - `set_backlash_comp` { `Enabled`?, `PulseWidth`?, `Floor`?, `Ceiling`? } → result: 0. All
-  optional; unspecified pulse/floor/ceiling keep current; `Floor` <= `Ceiling`; pulse within
-  the backlash min/max.
+  optional; unspecified pulse/floor/ceiling keep current. Constraints (rejected, not clamped):
+  `PulseWidth` in [min, max], `Floor` in [min, PulseWidth], `Ceiling` in [PulseWidth, max]
+  (min/max = backlash pulse min/max = 20/8000 ms).
 - `get_auto_exposure` → result: { `Enabled`, `MinExposure`, `MaxExposure` (ms), `TargetSNR` }.
 - `set_auto_exposure` { `MinExposure`?, `MaxExposure`?, `TargetSNR`? } → result: 0. All optional;
   `Min` <= `Max`. (Auto-exposure is *enabled* by selecting "Auto" via `set_exposure`.)
 - `get_noise_reduction` → result: method name ("None" / "2x2 Mean" / "3x3 Median").
 - `set_noise_reduction` { `method` } → result: 0.
 
-### Still to do (Batch C2 + later — see `API_GAP_AUDIT.md`)
-Camera subframes-setter / cooler-setpoint / saturation / software-binning, rotator reverse, the
-niche star options (tolerate-jumps, fast-recenter, auto-select-downsample). Plus the original
-known gap:
-**dark/bad-pixel-map library management** (`build_dark_library` / `build_defect_map_darks` /
-`set_dark_library_enabled` / `set_defect_map_enabled` now exist; create/select/delete coverage
-to be confirmed against ARA's needs).
+### Batch C2 — camera extras, rotator, guider options (2026-06-07)
+- `set_use_subframes` { `enabled`: bool } → result: 0 (get_use_subframes already existed;
+  enabling requires camera subframe support).
+- `set_cooler_setpoint` { `setpoint`: °C, -100..50 } → result: 0. Requires a cooler.
+- `get_camera_saturation` → result: { `ByADU`, `SaturationADU` }.
+- `set_camera_saturation` { `ByADU`?, `SaturationADU`? (0..65535) } → result: 0 (applied together).
+- `get_rotator_reversed` / `set_rotator_reversed` { `reversed`: bool } → result: 0 / bool.
+- `get_guider_options` → result: { `FastRecenter`, `AutoSelDownsample` }, plus
+  { `TolerateJumps`, `TolerateJumpsThreshold` } with the multi-star guider.
+- `set_guider_options` { `FastRecenter`?, `AutoSelDownsample`? (0..4), `TolerateJumps`?,
+  `TolerateJumpsThreshold`? } → result: 0. `TolerateJumps*` require the multi-star guider.
+
+This completes the `API_GAP_AUDIT.md` batches (A/B/C). Software binning is already covered by
+`set_profile_setup` (`software_binning`).
+
+### Still to do
+The original known gap: **dark/bad-pixel-map library management** — `build_dark_library` /
+`build_defect_map_darks` / `set_dark_library_enabled` / `set_defect_map_enabled` exist, but
+explicit create/select/delete coverage is still to be confirmed against ARA's needs.

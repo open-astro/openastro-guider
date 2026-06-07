@@ -110,6 +110,8 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 |--------|--------|-------------|
 | `get_star_detection` | — | **(Batch B)** `{MinStarSNR, MinStarHFD, MaxStarHFD}`, plus `{SearchRegion, MassChangeThreshold, MassChangeThresholdEnabled}` when the multi-star guider is active. Requires a guider. |
 | `set_star_detection` | `MinStarSNR`?, `MinStarHFD`?, `MaxStarHFD`?, `SearchRegion`? (7–50), `MassChangeThreshold`? (0–1), `MassChangeThresholdEnabled`? | **(Batch B)** Set star-detection thresholds (all optional, validated before applying; `MinStarHFD` must stay below `MaxStarHFD`). `SearchRegion` and the `MassChange*` fields require the multi-star guider. |
+| `get_guider_options` | — | **(Batch C)** `{FastRecenter, AutoSelDownsample}`, plus `{TolerateJumps, TolerateJumpsThreshold}` with the multi-star guider. |
+| `set_guider_options` | `FastRecenter`?, `AutoSelDownsample`? (0–4), `TolerateJumps`?, `TolerateJumpsThreshold`? (>0–100) | **(Batch C)** Set the niche guider options (all optional). `TolerateJumps*` require the multi-star guider. |
 
 ## Exposure & frame timing
 
@@ -119,6 +121,7 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `set_exposure` | `exposure` (ms) | Set the exposure duration. |
 | `get_exposure_durations` | — | The selectable exposure presets (ms). |
 | `get_use_subframes` | — | Whether the camera uses subframes. |
+| `set_use_subframes` | `enabled` (bool) | **(Batch C)** Enable/disable subframes (enabling requires camera subframe support). |
 | `get_limit_frame` | — | The current capture ROI/limit frame. |
 | `set_limit_frame` | `roi` | Set a capture ROI/limit frame. |
 | `get_variable_delay_settings` | — | `{Enabled, ShortDelaySeconds, LongDelaySeconds}`. |
@@ -142,7 +145,10 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `set_camera_timeout` | `timeout_ms` (5000–600000) | **(Batch B)** Set the read timeout; values below the 5000 ms floor are rejected. |
 | `get_ccd_temperature` | — | Sensor temperature (°C). |
 | `get_cooler_status` | — | Cooler on/off, setpoint, power, temperature. |
-| `set_cooler_state` | `enabled` (bool) | Turn the cooler on/off. *(No setpoint — see Phase-5 gap audit row #10.)* |
+| `set_cooler_state` | `enabled` (bool) | Turn the cooler on/off. |
+| `set_cooler_setpoint` | `setpoint` (°C, −100…50) | **(Batch C)** Set the cooler target temperature (requires a cooler). |
+| `get_camera_saturation` | — | **(Batch C)** `{ByADU, SaturationADU}`. |
+| `set_camera_saturation` | `ByADU`?, `SaturationADU`? (0–65535) | **(Batch C)** Set saturation detection (either optional; applied together). |
 
 ## Profiles
 
@@ -176,6 +182,7 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `get_selected_aux_mount` / `set_selected_aux_mount` | — / (choice) | Get/set the aux (pointing) mount. |
 | `get_selected_ao` / `set_selected_ao` | — / (choice) | Get/set the adaptive-optics device. |
 | `get_selected_rotator` / `set_selected_rotator` | `rotator` | Get/set the rotator. |
+| `get_rotator_reversed` / `set_rotator_reversed` | `reversed` (bool) | **(Batch C)** Get/set whether the rotator angle is reversed. |
 
 ## Alpaca equipment
 

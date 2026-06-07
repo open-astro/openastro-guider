@@ -119,6 +119,8 @@ public:
     double GetMassChangeThreshold() const;
     bool SetMassChangeThreshold(double starMassChangeThreshold);
     bool SetTolerateJumps(bool enable, double threshold);
+    bool GetTolerateJumpsEnabled() const { return m_tolerateJumpsEnabled; }
+    double GetTolerateJumpsThreshold() const { return m_tolerateJumpsThreshold; }
     bool SetSearchRegion(int searchRegion);
     bool RefineOffset(const usImage *pImage, GuiderOffset *pOffset);
 

@@ -4825,6 +4825,236 @@ static void set_noise_reduction(JObj& response, const json_value *params)
     response << jrpc_result(0);
 }
 
+// ---- Phase 5 Batch C2: camera extras, rotator, guider options ----
+
+// Enable/disable camera subframes (get_use_subframes reads the current value).
+static void set_use_subframes(JObj& response, const json_value *params)
+{
+    if (!pCamera || !pCamera->Connected)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
+        return;
+    }
+    Params p("enabled", params);
+    const json_value *e = p.param("enabled");
+    bool enabled;
+    if (!e || !bool_param(e, &enabled))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled bool param");
+        return;
+    }
+    if (enabled && !pCamera->HasSubframes)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera does not support subframes");
+        return;
+    }
+    pCamera->UseSubframes = enabled;
+    pConfig->Profile.SetBoolean("/camera/UseSubframes", enabled);
+    response << jrpc_result(0);
+}
+
+// Set the cooler target temperature (°C). get_cooler_status reports the setpoint.
+static void set_cooler_setpoint(JObj& response, const json_value *params)
+{
+    if (!pCamera || !pCamera->Connected)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
+        return;
+    }
+    if (!pCamera->HasCooler)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera lacks a cooler");
+        return;
+    }
+    Params p("setpoint", params);
+    const json_value *s = p.param("setpoint");
+    double temp;
+    if (!s || !float_param(s, &temp) || temp < -100. || temp > 50.)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected setpoint param in range -100..50");
+        return;
+    }
+    if (pCamera->SetCoolerSetpoint(temp))
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "failed to set cooler setpoint");
+        return;
+    }
+    response << jrpc_result(0);
+}
+
+// Get the saturation-detection settings.
+static void get_camera_saturation(JObj& response, const json_value *params)
+{
+    if (!pCamera || !pCamera->Connected)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
+        return;
+    }
+    JObj rslt;
+    rslt << NV("ByADU", pCamera->IsSaturationByADU()) << NV("SaturationADU", (int) pCamera->GetSaturationADU());
+    response << jrpc_result(rslt);
+}
+
+// Set the saturation-detection settings. Either field optional; unspecified
+// fields keep their current value (the two are applied together).
+static void set_camera_saturation(JObj& response, const json_value *params)
+{
+    if (!pCamera || !pCamera->Connected)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
+        return;
+    }
+    Params p("ByADU", "SaturationADU", params);
+    const json_value *ba = p.param("ByADU");
+    const json_value *sa = p.param("SaturationADU");
+    if (!ba && !sa)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected ByADU and/or SaturationADU param");
+        return;
+    }
+    bool byADU = pCamera->IsSaturationByADU();
+    int satADU = pCamera->GetSaturationADU();
+    if (ba && !bool_param(ba, &byADU))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid ByADU param");
+        return;
+    }
+    if (sa)
+    {
+        double v;
+        if (!float_param(sa, &v) || v < 0. || v > 65535.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid SaturationADU param (0..65535)");
+            return;
+        }
+        satADU = (int) (v + 0.5);
+    }
+    pCamera->SetSaturationByADU(byADU, (unsigned short) satADU);
+    response << jrpc_result(0);
+}
+
+// Get whether the rotator angle is reversed.
+static void get_rotator_reversed(JObj& response, const json_value *params)
+{
+    if (!pRotator)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "rotator not connected");
+        return;
+    }
+    response << jrpc_result(pRotator->IsReversed());
+}
+
+// Set whether the rotator angle is reversed.
+static void set_rotator_reversed(JObj& response, const json_value *params)
+{
+    if (!pRotator)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "rotator not connected");
+        return;
+    }
+    Params p("reversed", params);
+    const json_value *r = p.param("reversed");
+    bool reversed;
+    if (!r || !bool_param(r, &reversed))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected reversed bool param");
+        return;
+    }
+    pRotator->SetReversed(reversed);
+    response << jrpc_result(0);
+}
+
+// Get the niche guider options. TolerateJumps* are reported only with the
+// multi-star guider.
+static void get_guider_options(JObj& response, const json_value *params)
+{
+    Guider *guider = pFrame ? pFrame->pGuider : nullptr;
+    if (!guider)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "guider not available");
+        return;
+    }
+    JObj rslt;
+    rslt << NV("FastRecenter", guider->IsFastRecenterEnabled())
+         << NV("AutoSelDownsample", (int) guider->GetAutoSelDownsample());
+    GuiderMultiStar *ms = dynamic_cast<GuiderMultiStar *>(guider);
+    if (ms)
+    {
+        rslt << NV("TolerateJumps", ms->GetTolerateJumpsEnabled())
+             << NV("TolerateJumpsThreshold", ms->GetTolerateJumpsThreshold(), 1);
+    }
+    response << jrpc_result(rslt);
+}
+
+// Set the niche guider options. All optional; TolerateJumps* require the
+// multi-star guider. Validated before applying.
+static void set_guider_options(JObj& response, const json_value *params)
+{
+    Guider *guider = pFrame ? pFrame->pGuider : nullptr;
+    if (!guider)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "guider not available");
+        return;
+    }
+    GuiderMultiStar *ms = dynamic_cast<GuiderMultiStar *>(guider);
+    Params p("FastRecenter", "AutoSelDownsample", "TolerateJumps", "TolerateJumpsThreshold", params);
+    const json_value *fr = p.param("FastRecenter");
+    const json_value *ad = p.param("AutoSelDownsample");
+    const json_value *tj = p.param("TolerateJumps");
+    const json_value *tjt = p.param("TolerateJumpsThreshold");
+    if (!fr && !ad && !tj && !tjt)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected at least one guider option");
+        return;
+    }
+    if ((tj || tjt) && !ms)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "TolerateJumps requires the multi-star guider");
+        return;
+    }
+    bool frVal = false, tjVal = false;
+    long adVal = 0;
+    double v;
+    if (fr && !bool_param(fr, &frVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid FastRecenter param");
+        return;
+    }
+    if (ad)
+    {
+        if (!float_param(ad, &v) || v < 0. || v > 4.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid AutoSelDownsample param (0..4)");
+            return;
+        }
+        adVal = (long) (v + 0.5);
+    }
+    if (tj && !bool_param(tj, &tjVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid TolerateJumps param");
+        return;
+    }
+    double tjtVal = 0.;
+    if (tjt && (!float_param(tjt, &tjtVal) || tjtVal <= 0. || tjtVal > 100.))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid TolerateJumpsThreshold param (must be >0 and <=100)");
+        return;
+    }
+    if (fr)
+        guider->EnableFastRecenter(frVal);
+    if (ad)
+        guider->SetAutoSelDownsample((unsigned int) adVal);
+    if (tj || tjt)
+    {
+        // SetTolerateJumps applies enable + threshold together; keep current for
+        // whichever wasn't supplied.
+        bool en = tj ? tjVal : ms->GetTolerateJumpsEnabled();
+        double th = tjt ? tjtVal : ms->GetTolerateJumpsThreshold();
+        ms->SetTolerateJumps(en, th);
+    }
+    response << jrpc_result(0);
+}
+
 static void get_settling(JObj& response, const json_value *params)
 {
     bool settling = PhdController::IsSettling();
@@ -5317,6 +5547,14 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_auto_exposure", &set_auto_exposure },
         { "get_noise_reduction", &get_noise_reduction },
         { "set_noise_reduction", &set_noise_reduction },
+        { "set_use_subframes", &set_use_subframes },
+        { "set_cooler_setpoint", &set_cooler_setpoint },
+        { "get_camera_saturation", &get_camera_saturation },
+        { "set_camera_saturation", &set_camera_saturation },
+        { "get_rotator_reversed", &get_rotator_reversed },
+        { "set_rotator_reversed", &set_rotator_reversed },
+        { "get_guider_options", &get_guider_options },
+        { "set_guider_options", &set_guider_options },
         { "get_settling", &get_settling },
         { "guide_pulse", &guide_pulse },
         { "get_calibration_data", &get_calibration_data },

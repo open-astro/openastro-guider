@@ -73,11 +73,11 @@ Headless-by-default + the systemd unit landed; these are the deliberate follow-u
   shared dispatch (so both `:4400` and `/api/rpc` gain each), logging each in
   `design/API_CONTRACT.md`. This is what lets ARA fully drive the app.
   **Done: Batch A** (algorithm selection, max RA/Dec, dec-comp, dither defaults),
-  **Batch B** (star detection thresholds, camera gain/timeout), and **Batch C1** (mount flags,
-  backlash comp, auto-exposure, noise reduction). **Remaining: Batch C2** — camera
-  subframes-setter/cooler-setpoint/saturation/software-binning, rotator reverse, and the niche
-  star options (tolerate-jumps, fast-recenter, auto-select-downsample); see `API_CONTRACT.md`
-  "Still to do".
+  **Batch B** (star detection thresholds, camera gain/timeout), **Batch C1** (mount flags,
+  backlash comp, auto-exposure, noise reduction), and **Batch C2** (camera subframes-setter /
+  cooler-setpoint / saturation, rotator reverse, niche guider options). **The A/B/C audit
+  batches are complete.** Remaining known gap: explicit dark/bad-pixel-map library
+  create/select/delete coverage, to be confirmed against ARA's needs (see `API_CONTRACT.md`).
 - **Web-UI UX rework** (`scripts/webui/index.html`) — functional but poor UX; revisit once the
   API is complete (or let ARA supersede it).
 - **NINA plugin** (future) — configure settings through a plugin while guiding runs through the
