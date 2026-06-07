@@ -38,9 +38,24 @@ All on the shared dispatch (served over both `:4400` and `/api/rpc`). ARA call s
 guiding-settings panel (algorithm pickers, RA/Dec aggression limits, dec-comp toggle, dither
 defaults).
 
+### Batch B — star detection + camera (2026-06-07)
+- `get_star_detection` → result: { `MinStarSNR`, `MinStarHFD`, `MaxStarHFD`, `SearchRegion` }, plus
+  { `MassChangeThreshold`, `MassChangeThresholdEnabled` } when the multi-star guider is active.
+  Requires a guider.
+- `set_star_detection` { `MinStarSNR`?, `MinStarHFD`?, `MaxStarHFD`?, `SearchRegion`? (7..50),
+  `MassChangeThreshold`?, `MassChangeThresholdEnabled`? } → result: 0. All optional, validated
+  before applying; `SearchRegion` and `MassChange*` require the multi-star guider.
+- `get_camera_gain` → result: { `Gain` (0..100), `HasGainControl` }. Requires a connected camera.
+- `set_camera_gain` { `gain`: 0..100 } → result: 0. Errors if the camera has no gain control.
+- `get_camera_timeout` → result: download/read timeout ms.
+- `set_camera_timeout` { `timeout_ms` } → result: 0 (raised to the 5000 ms floor if lower).
+
+ARA call sites: the star-detection / camera panels.
+
 ### Still to do (later batches — see `API_GAP_AUDIT.md`)
-Star-detection thresholds, camera gain/subframes/timeout/cooler-setpoint, backlash comp, mount
-flags, auto-exposure, noise reduction, rotator reverse. Plus the original known gap:
+Camera subframes-setter / cooler-setpoint / saturation / software-binning, the niche star
+options (tolerate-jumps, fast-recenter, auto-select-downsample), backlash comp, mount flags,
+auto-exposure, noise reduction, rotator reverse. Plus the original known gap:
 **dark/bad-pixel-map library management** (`build_dark_library` / `build_defect_map_darks` /
 `set_dark_library_enabled` / `set_defect_map_enabled` now exist; create/select/delete coverage
 to be confirmed against ARA's needs).
