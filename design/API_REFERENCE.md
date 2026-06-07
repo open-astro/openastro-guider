@@ -76,7 +76,7 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `get_algo_param_names` | `axis` (`ra`/`dec`/`x`/`y`) | Parameter names of the axis's current algorithm (incl. `algorithmName`). |
 | `get_algo_param` | `axis`, `name` | Value of one algorithm parameter (`name="algorithmName"` returns the algorithm class name). |
 | `set_algo_param` | `axis`, `name`, `value` | Set one algorithm parameter value. |
-| `get_algos` | `axis`? (`ra`/`dec`) | **(Batch A)** Guide-algorithm names. With no params: all algorithms. With `axis`: only those valid for that axis on the current mount type (RA / Dec / AO differ — e.g. *Predictive PEC* is RA-only). |
+| `get_algos` | `axis`? (`ra`/`dec`) | **(Batch A)** Guide-algorithm names. With no params: all algorithms. With `axis`: only those valid for that axis on the current mount type (RA / Dec / AO differ — e.g. *Predictive PEC* is RA-only); requires a connected mount (errors otherwise). |
 | `get_algo` | `axis` | **(Batch A)** The algorithm selected for an axis (e.g. `Hysteresis`). |
 | `set_algo` | `axis`, `name` | **(Batch A)** Switch the axis's guide algorithm. `name` must come from `get_algos(axis)`; algorithms not valid for that axis/mount — including `None`/identity, which isn't per-axis selectable — are rejected with *"algorithm not valid for this axis"*. |
 | `get_guide_limits` | — | **(Batch A)** `{MaxRaDuration, MaxDecDuration}` in ms. |

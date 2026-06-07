@@ -4083,8 +4083,14 @@ static void get_algos(JObj& response, const json_value *params)
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected axis name param");
             return;
         }
-        bool isStepGuider = pMount && pMount->IsStepGuider();
-        for (GUIDE_ALGORITHM ga : Mount::AvailableAlgorithms(isStepGuider, a))
+        if (!pMount)
+        {
+            // The valid set is mount-type-dependent (scope RA/Dec vs AO), so an
+            // axis query needs a connected mount; call without `axis` for the full list.
+            response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
+            return;
+        }
+        for (GUIDE_ALGORITHM ga : Mount::AvailableAlgorithms(pMount->IsStepGuider(), a))
             names.push_back(Mount::GuideAlgorithmName(ga));
     }
     else

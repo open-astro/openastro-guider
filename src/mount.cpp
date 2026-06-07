@@ -161,13 +161,20 @@ Mount::MountConfigDialogPane::MountConfigDialogPane(wxWindow *pParent, const wxS
     m_pDecBox = nullptr;
 }
 
+// The full set of guide algorithms, listed explicitly (not an enum-range loop) so
+// a future gap in the GUIDE_ALGORITHM enum can't slip an unnamed value through.
+static const GUIDE_ALGORITHM ALL_GUIDE_ALGORITHMS[] = {
+    GUIDE_ALGORITHM_IDENTITY,      GUIDE_ALGORITHM_HYSTERESIS,       GUIDE_ALGORITHM_LOWPASS, GUIDE_ALGORITHM_LOWPASS2,
+    GUIDE_ALGORITHM_RESIST_SWITCH, GUIDE_ALGORITHM_GAUSSIAN_PROCESS, GUIDE_ALGORITHM_ZFILTER,
+};
+
 GUIDE_ALGORITHM Mount::GuideAlgorithmFromName(const wxString& s)
 {
     // Accept either the untranslated wire name (the API path: get_algos / set_algo,
     // which speaks GuideAlgorithmName()'s bare strings) or the translated display
     // name (the GUI choice list via GetStringSelection()). ZFilter's GUI label can
     // carry a suffix, so it is matched by prefix. "None" maps to the identity algo.
-    for (int a = GUIDE_ALGORITHM_IDENTITY; a <= GUIDE_ALGORITHM_ZFILTER; a++)
+    for (GUIDE_ALGORITHM a : ALL_GUIDE_ALGORITHMS)
     {
         wxString untranslated = GuideAlgorithmName(a);
         wxString translated = wxGetTranslation(untranslated);
@@ -178,7 +185,7 @@ GUIDE_ALGORITHM Mount::GuideAlgorithmFromName(const wxString& s)
         }
         else if (s == untranslated || s == translated)
         {
-            return (GUIDE_ALGORITHM) a;
+            return a;
         }
     }
     return GUIDE_ALGORITHM_NONE;
