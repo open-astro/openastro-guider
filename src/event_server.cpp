@@ -4065,6 +4065,10 @@ static void set_dec_guide_mode(JObj& response, const json_value *params)
 // ---- Phase 5 Batch A: guiding-control settings ----
 
 // List the selectable guide algorithms by their (untranslated) names.
+// TODO(api): not every algorithm is valid on every axis/mount (Predictive PEC is
+// RA-only; AO has its own subset). Consider an optional axis filter so clients can
+// get the per-axis valid set instead of relying on set_algo's error. For now
+// set_algo validates by reading back the applied selection.
 static void get_algos(JObj& response, const json_value *params)
 {
     wxArrayString names;
@@ -4107,7 +4111,7 @@ static void set_algo(JObj& response, const json_value *params)
     const json_value *name = p.param("name");
     if (!name || name->type != JSON_STRING)
     {
-        response << jrpc_error(1, "expected algorithm name param");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected algorithm name param");
         return;
     }
     if (!pMount)
@@ -4118,7 +4122,7 @@ static void set_algo(JObj& response, const json_value *params)
     GUIDE_ALGORITHM alg = Mount::GuideAlgorithmFromName(name->string_value);
     if (alg == GUIDE_ALGORITHM_NONE)
     {
-        response << jrpc_error(1, "invalid algorithm name param");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid algorithm name param");
         return;
     }
     // get_algos lists every algorithm, but not all are valid on every axis/mount
