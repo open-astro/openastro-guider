@@ -4208,25 +4208,23 @@ static void set_guide_limits(JObj& response, const json_value *params)
     // Durations are ms; cap well below INT_MAX so the (int) cast can't overflow
     // (UB) on a bad RPC value. 1e6 ms = 1000 s, far beyond any real guide pulse.
     const double kMaxDurationMs = 1.e6;
-    double v;
+    // Validate both before applying either, so a bad second value can't leave a
+    // partial update (e.g. RA written then Dec rejected).
+    double raVal = 0., decVal = 0.;
+    if (ra && (!float_param(ra, &raVal) || raVal < 0. || raVal > kMaxDurationMs))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxRaDuration param");
+        return;
+    }
+    if (dec && (!float_param(dec, &decVal) || decVal < 0. || decVal > kMaxDurationMs))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxDecDuration param");
+        return;
+    }
     if (ra)
-    {
-        if (!float_param(ra, &v) || v < 0. || v > kMaxDurationMs)
-        {
-            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxRaDuration param");
-            return;
-        }
-        scope->SetMaxRaDuration((int) (v + 0.5)); // round, don't truncate (durations are integer ms)
-    }
+        scope->SetMaxRaDuration((int) (raVal + 0.5)); // round, don't truncate (durations are integer ms)
     if (dec)
-    {
-        if (!float_param(dec, &v) || v < 0. || v > kMaxDurationMs)
-        {
-            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxDecDuration param");
-            return;
-        }
-        scope->SetMaxDecDuration((int) (v + 0.5)); // round, don't truncate (durations are integer ms)
-    }
+        scope->SetMaxDecDuration((int) (decVal + 0.5));
     response << jrpc_result(0);
 }
 
@@ -4292,28 +4290,26 @@ static void set_dither_settings(JObj& response, const json_value *params)
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected ScaleFactor and/or RaOnly param");
         return;
     }
+    // Validate both before applying either, so a bad second value can't leave a
+    // partial update.
+    double scaleFactor = 0.;
+    bool raOnly = false;
+    // Upper bound keeps a stray RPC value from producing an absurd dither; 100x is
+    // already far beyond any sensible scale.
+    if (sf && (!float_param(sf, &scaleFactor) || scaleFactor <= 0. || scaleFactor > 100.))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid ScaleFactor param");
+        return;
+    }
+    if (ro && !bool_param(ro, &raOnly))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid RaOnly param");
+        return;
+    }
     if (sf)
-    {
-        double v;
-        // Upper bound keeps a stray RPC value from producing an absurd dither;
-        // 100x is already far beyond any sensible scale.
-        if (!float_param(sf, &v) || v <= 0. || v > 100.)
-        {
-            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid ScaleFactor param");
-            return;
-        }
-        pFrame->SetDitherScaleFactor(v);
-    }
+        pFrame->SetDitherScaleFactor(scaleFactor);
     if (ro)
-    {
-        bool b;
-        if (!bool_param(ro, &b))
-        {
-            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid RaOnly param");
-            return;
-        }
-        pFrame->SetDitherRaOnly(b);
-    }
+        pFrame->SetDitherRaOnly(raOnly);
     response << jrpc_result(0);
 }
 

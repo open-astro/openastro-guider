@@ -20,10 +20,13 @@ stream (`GuideStep`, `SettleDone`, `StarLost`, `CalibrationComplete`, …).
 ## Added for headless (Phase 5 gap-fill)
 
 ### Batch A — guiding control (2026-06-07)
-- `get_algos` → result: array of selectable guide-algorithm names (untranslated).
+- `get_algos` { `axis`?: "ra"|"dec" } → result: array of guide-algorithm names (untranslated).
+  No `axis` → all algorithms; with `axis` → only those valid for that axis/mount (requires a
+  connected mount).
 - `get_algo` { `axis`: "ra"|"dec" } → result: the axis's selected algorithm name.
 - `set_algo` { `axis`, `name` } → result: 0. Switches the axis's guide algorithm (`name` from
-  `get_algos`; "None" selects the no-op/identity algorithm). Invalid name → error.
+  `get_algos(axis)`). Names not valid for the axis/mount — including "None"/identity, which
+  isn't per-axis selectable — are rejected with an error.
 - `get_guide_limits` → result: { `MaxRaDuration`, `MaxDecDuration` } (ms).
 - `set_guide_limits` { `MaxRaDuration`?, `MaxDecDuration`? } → result: 0. Either field optional.
 - `get_dec_comp` → result: bool (declination RA-rate compensation enabled).
