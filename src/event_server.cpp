@@ -582,6 +582,9 @@ enum
     JSONRPC_METHOD_NOT_FOUND = -32601,
     JSONRPC_INVALID_PARAMS = -32602,
     JSONRPC_INTERNAL_ERROR = -32603,
+    // JSON-RPC reserves -32000..-32099 for implementation-defined server errors;
+    // used for operational preconditions like "no mount/scope connected".
+    JSONRPC_SERVER_ERROR = -32000,
 };
 
 static NV jrpc_error(int code, const wxString& msg)
@@ -3877,7 +3880,7 @@ static void get_guide_output_enabled(JObj& response, const json_value *params)
     if (pMount)
         response << jrpc_result(pMount->GetGuidingEnabled());
     else
-        response << jrpc_error(1, "mount not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
 }
 
 static void set_guide_output_enabled(JObj& response, const json_value *params)
@@ -3897,7 +3900,7 @@ static void set_guide_output_enabled(JObj& response, const json_value *params)
         response << jrpc_result(0);
     }
     else
-        response << jrpc_error(1, "mount not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
 }
 
 static bool axis_param(const Params& p, GuideAxis *a)
@@ -4111,7 +4114,7 @@ static void get_algo(JObj& response, const json_value *params)
     }
     if (!pMount)
     {
-        response << jrpc_error(1, "mount not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
         return;
     }
     GUIDE_ALGORITHM alg = a == GUIDE_X ? pMount->GetXGuideAlgorithmSelection() : pMount->GetYGuideAlgorithmSelection();
@@ -4137,7 +4140,7 @@ static void set_algo(JObj& response, const json_value *params)
     }
     if (!pMount)
     {
-        response << jrpc_error(1, "mount not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "mount not defined");
         return;
     }
     GUIDE_ALGORITHM alg = Mount::GuideAlgorithmFromName(name->string_value);
@@ -4171,7 +4174,7 @@ static void get_guide_limits(JObj& response, const json_value *params)
     Scope *scope = TheScope();
     if (!scope)
     {
-        response << jrpc_error(1, "scope not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
         return;
     }
     JObj rslt;
@@ -4186,7 +4189,7 @@ static void set_guide_limits(JObj& response, const json_value *params)
     Scope *scope = TheScope();
     if (!scope)
     {
-        response << jrpc_error(1, "scope not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
         return;
     }
     const json_value *ra = p.param("MaxRaDuration");
@@ -4227,7 +4230,7 @@ static void get_dec_comp(JObj& response, const json_value *params)
     Scope *scope = TheScope();
     if (!scope)
     {
-        response << jrpc_error(1, "scope not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
         return;
     }
     response << jrpc_result(scope->DecCompensationEnabled());
@@ -4247,7 +4250,7 @@ static void set_dec_comp(JObj& response, const json_value *params)
     Scope *scope = TheScope();
     if (!scope)
     {
-        response << jrpc_error(1, "scope not defined");
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
         return;
     }
     scope->EnableDecCompensation(enabled);
@@ -4257,6 +4260,11 @@ static void set_dec_comp(JObj& response, const json_value *params)
 // Get the default dither settings (scale factor + RA-only).
 static void get_dither_settings(JObj& response, const json_value *params)
 {
+    if (!pFrame)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "frame not available");
+        return;
+    }
     JObj rslt;
     rslt << NV("ScaleFactor", pFrame->GetDitherScaleFactor(), 2) << NV("RaOnly", pFrame->GetDitherRaOnly());
     response << jrpc_result(rslt);
@@ -4265,6 +4273,11 @@ static void get_dither_settings(JObj& response, const json_value *params)
 // Set the default dither settings. Either field is optional.
 static void set_dither_settings(JObj& response, const json_value *params)
 {
+    if (!pFrame)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "frame not available");
+        return;
+    }
     Params p("ScaleFactor", "RaOnly", params);
     const json_value *sf = p.param("ScaleFactor");
     const json_value *ro = p.param("RaOnly");
