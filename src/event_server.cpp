@@ -4830,7 +4830,7 @@ static void set_noise_reduction(JObj& response, const json_value *params)
 // Enable/disable camera subframes (get_use_subframes reads the current value).
 static void set_use_subframes(JObj& response, const json_value *params)
 {
-    if (!pCamera)
+    if (!pCamera || !pCamera->Connected)
     {
         response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
         return;
@@ -4885,7 +4885,7 @@ static void set_cooler_setpoint(JObj& response, const json_value *params)
 // Get the saturation-detection settings.
 static void get_camera_saturation(JObj& response, const json_value *params)
 {
-    if (!pCamera)
+    if (!pCamera || !pCamera->Connected)
     {
         response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
         return;
@@ -4899,7 +4899,7 @@ static void get_camera_saturation(JObj& response, const json_value *params)
 // fields keep their current value (the two are applied together).
 static void set_camera_saturation(JObj& response, const json_value *params)
 {
-    if (!pCamera)
+    if (!pCamera || !pCamera->Connected)
     {
         response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
         return;
@@ -5035,9 +5035,9 @@ static void set_guider_options(JObj& response, const json_value *params)
         return;
     }
     double tjtVal = 0.;
-    if (tjt && (!float_param(tjt, &tjtVal) || tjtVal <= 0.))
+    if (tjt && (!float_param(tjt, &tjtVal) || tjtVal <= 0. || tjtVal > 100.))
     {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid TolerateJumpsThreshold param");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid TolerateJumpsThreshold param (0..100)");
         return;
     }
     if (fr)
