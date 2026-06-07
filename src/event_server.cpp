@@ -4109,7 +4109,7 @@ static void get_algo(JObj& response, const json_value *params)
     GuideAxis a;
     if (!axis_param(p, &a))
     {
-        response << jrpc_error(1, "expected axis name param");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected axis name param");
         return;
     }
     if (!pMount)
@@ -4122,14 +4122,15 @@ static void get_algo(JObj& response, const json_value *params)
 }
 
 // Switch the guide algorithm for an axis. name is an untranslated algorithm name
-// (see get_algos); "None" selects the identity/no-op algorithm.
+// from get_algos(axis); algorithms not valid for the axis/mount (including
+// "None"/identity, which isn't per-axis selectable) are rejected.
 static void set_algo(JObj& response, const json_value *params)
 {
     Params p("axis", "name", params);
     GuideAxis a;
     if (!axis_param(p, &a))
     {
-        response << jrpc_error(1, "expected axis name param");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected axis name param");
         return;
     }
     const json_value *name = p.param("name");
@@ -4149,20 +4150,19 @@ static void set_algo(JObj& response, const json_value *params)
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid algorithm name param");
         return;
     }
-    // get_algos lists every algorithm, but not all are valid on every axis/mount
-    // (e.g. Predictive PEC is RA-only; AO has its own subset). Apply, then read
-    // back the selection so an axis-invalid choice is a clear error, not a silent
-    // no-op.
+    // Validate against the same per-axis list get_algos returns, so the settable
+    // set matches what a client's picker shows. This also rejects "None"/identity,
+    // which (like the GUI) isn't a per-axis selectable algorithm.
+    std::vector<GUIDE_ALGORITHM> valid = Mount::AvailableAlgorithms(pMount->IsStepGuider(), a);
+    if (std::find(valid.begin(), valid.end(), alg) == valid.end())
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "algorithm not valid for this axis");
+        return;
+    }
     if (a == GUIDE_X)
         pMount->SetXGuideAlgorithm(alg);
     else
         pMount->SetYGuideAlgorithm(alg);
-    GUIDE_ALGORITHM applied = a == GUIDE_X ? pMount->GetXGuideAlgorithmSelection() : pMount->GetYGuideAlgorithmSelection();
-    if (applied != alg)
-    {
-        response << jrpc_error(1, "algorithm not valid for this axis");
-        return;
-    }
     if (pFrame->pGraphLog)
         pFrame->pGraphLog->UpdateControls();
     response << jrpc_result(0);
