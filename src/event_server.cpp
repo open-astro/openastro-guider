@@ -4236,7 +4236,9 @@ static void set_dither_settings(JObj& response, const json_value *params)
     if (sf)
     {
         double v;
-        if (!float_param(sf, &v) || v <= 0.)
+        // Upper bound keeps a stray RPC value from producing an absurd dither;
+        // 100x is already far beyond any sensible scale.
+        if (!float_param(sf, &v) || v <= 0. || v > 100.)
         {
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid ScaleFactor param");
             return;
