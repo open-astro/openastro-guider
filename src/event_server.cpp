@@ -4645,7 +4645,7 @@ static void set_backlash_comp(JObj& response, const json_value *params)
     }
     if (fl)
     {
-        if (!float_param(fl, &v) || v < 0.)
+        if (!float_param(fl, &v))
         {
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid Floor param");
             return;
@@ -4654,16 +4654,25 @@ static void set_backlash_comp(JObj& response, const json_value *params)
     }
     if (ce)
     {
-        if (!float_param(ce, &v) || v < 0.)
+        if (!float_param(ce, &v))
         {
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid Ceiling param");
             return;
         }
         ceilingVal = (int) (v + 0.5);
     }
-    if (floorVal > ceilingVal)
+    // Enforce BacklashComp's own constraints up front so nothing is silently
+    // adjusted: Floor in [min, PulseWidth], Ceiling in [PulseWidth, max].
+    if (floorVal < pulseMin || floorVal > pulseVal)
     {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "Floor must be <= Ceiling");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS,
+                               wxString::Format("Floor must be in [%d, %d (PulseWidth)]", pulseMin, pulseVal));
+        return;
+    }
+    if (ceilingVal < pulseVal || ceilingVal > pulseMax)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS,
+                               wxString::Format("Ceiling must be in [%d (PulseWidth), %d]", pulseVal, pulseMax));
         return;
     }
 

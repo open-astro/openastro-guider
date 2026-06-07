@@ -90,7 +90,7 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `get_mount_options` | — | **(Batch C)** `{AssumeOrthogonal, CalFlipRequiresDecFlip, StopGuidingWhenSlewing}`. |
 | `set_mount_options` | `AssumeOrthogonal`?, `CalFlipRequiresDecFlip`?, `StopGuidingWhenSlewing`? (bool) | **(Batch C)** Set the mount behaviour flags (all optional). |
 | `get_backlash_comp` | — | **(Batch C)** `{Enabled, PulseWidth, Floor, Ceiling}` (ms) for declination backlash compensation. |
-| `set_backlash_comp` | `Enabled`?, `PulseWidth`?, `Floor`?, `Ceiling`? | **(Batch C)** Set backlash compensation (all optional; unspecified pulse/floor/ceiling keep current; `Floor` ≤ `Ceiling`). |
+| `set_backlash_comp` | `Enabled`?, `PulseWidth`?, `Floor`?, `Ceiling`? | **(Batch C)** Set backlash compensation (all optional; unspecified pulse/floor/ceiling keep current). Constraints (rejected, not clamped): `PulseWidth` in [20, 8000], `Floor` in [20, PulseWidth], `Ceiling` in [PulseWidth, 8000]. |
 
 ## Lock position & shift
 
