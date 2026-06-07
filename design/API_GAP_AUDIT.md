@@ -62,9 +62,9 @@ Priority: **P1** = needed for real guiding control / tuning; **P2** = useful; **
 | 7 | **P1** | Dither | **Default dither scale / RA-only / mode** | `/DitherScaleFactor`, `/DitherRaOnly`, `/DitherMode` | `get/set_dither_settings` |
 | 8 | **P1** | Camera | **Gain** | `/camera/gain` | `get/set_camera_gain` |
 | 9 | **P2** | Camera | **Subframes on/off** (setter; getter exists), **read timeout** | `/camera/UseSubframes`, `/camera/TimeoutMs` | `set_use_subframes`, `get/set_camera_timeout` |
-| 10 | **P2** | Camera | **Cooler setpoint** (`set_cooler_state` is on/off only) | `/camera/CoolerSetpt` | extend `set_cooler_state` w/ `setpoint` |
+| 10 | **P2** | Camera | **Cooler setpoint** (`set_cooler_state` is on/off only) | `/camera/CoolerSetpt` | new `set_cooler_setpoint` — **don't** overload `set_cooler_state` (would break existing callers) |
 | 11 | **P2** | Camera | **Saturation ADU / by-ADU**, **software binning toggle** | `/camera/SaturationADU`, `SaturationByADU`, `SoftwareBinning` | `get/set_camera_saturation` |
-| 12 | **P2** | Mount | **Backlash compensation** (mode, pulse, floor/ceiling) | `backlash_comp` (no key grep — class state) | `get/set_backlash_comp` |
+| 12 | **P2** | Mount | **Backlash compensation** (enabled, pulse, floor/ceiling) | `/<mount>/BacklashCompEnabled`, `DecBacklashPulse`, `DecBacklashFloor`, `DecBacklashCeiling` (persisted; keys built dynamically in `backlash_comp.cpp`) | `get/set_backlash_comp` |
 | 13 | **P2** | Mount | **Mount behaviour flags**: assume-orthogonal, cal-flip-requires-dec-flip, stop-guiding-when-slewing | `AssumeOrthogonal`, `CalFlipRequiresDecFlip`, `StopGuidingWhenSlewing` | `get/set_mount_options` |
 | 14 | **P2** | Star | **Tolerate jumps (+threshold)**, fast recenter, auto-select downsample | `/guider/onestar/TolerateJumps*`, `/guider/FastRecenter`, `AutoSelDownsample` | extend `get/set_star_detection` |
 | 15 | **P2** | Global | **Auto-exposure** min/max/target-SNR | `/auto_exp/exposure_min`, `exposure_max`, `target_snr` | `get/set_auto_exposure` |
@@ -95,6 +95,9 @@ Priority: **P1** = needed for real guiding control / tuning; **P2** = useful; **
 - **Validation + events:** setters should clamp/validate (e.g. SNR > 0, durations ≥ 0) and, where
   a change affects a running session, emit the existing config-change event so NINA/ARA stay in
   sync.
+- **Back-compat:** add **new** methods rather than changing the signature/response of existing
+  ones (NINA and ARA already depend on the current shapes). This is why #10 proposes a separate
+  `set_cooler_setpoint` instead of overloading `set_cooler_state`.
 - **AO scope:** StepGuider/AO settings (#19) are only worth doing if an AO device is actually
   targeted; defer unless ARA needs it.
 
