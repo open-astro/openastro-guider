@@ -114,6 +114,9 @@ the cam directly — rejected for v1; it loses the guider's centroiding and comp
 
 1. **Setup / preflight**
    - Confirm mount connected (ARA↔Alpaca) and guide cam connected (guider).
+   - **Stop any active guiding/looping** (`stop_capture`) and **record the prior state** so it can
+     be restored at the end — PA drives slews and owns the capture cadence, so it must not run
+     concurrently with guiding.
    - Read pixel scale from the profile (focal length + pixel size) → pick the live strategy (§7).
    - Pick an exposure that yields a solvable frame (auto-stretch / star count; longer for OAG).
 
@@ -130,16 +133,21 @@ the cam directly — rejected for v1; it loses the guider's centroiding and comp
    - **Refraction + precession are v1 requirements, not v2.** A routine that claims "sub-arcmin"
      cannot defer the refraction term on the pole position (it is itself arcmin-scale at typical
      pole altitudes). Precess catalog/pole positions to date (`PrecessJ2000`) and apply
-     atmospheric refraction for the apparent pole.
+     atmospheric refraction for the apparent pole. **Refraction is ARA's responsibility** (it
+     owns the solver/geometry orchestration); use a standard model (e.g. Bennett / Saemundsson).
 
-3. **Adjust-phase calibration nudge** (§3) — derive bolt→image mapping.
-
-4. **Live adjust loop**
+3. **Live adjust loop** (the calibration nudge happens *inside* this loop, so there is no stale
+   baseline — the loop re-derives the current error every cycle, so the nudge's deliberate error
+   change is simply observed, not a problem):
    - Continuously refresh the error (§7: re-solve, or centroid-track between sparse solves).
+   - **Calibration nudge** (§3) as the first live action: prompt a small alt-knob turn, observe
+     how the marker moves in the just-refreshed frames → derive the bolt→image mapping. Because
+     the loop is already measuring live, the nudge needs no separate re-measurement of the axis.
    - Render reticle (pole framed) or decoupled alt/az arrows + arcmin (pole not framed).
    - Update until both components are under the target threshold (configurable; e.g. < 0.5–1′).
 
-5. **Verify** — one more solve to confirm residual error; report final alt/az.
+4. **Verify & hand back** — one more solve to confirm residual error; report final alt/az; then
+   **restore the pre-PA state** recorded in step 1 (resume looping/guiding if it was running).
 
 Events stream throughout so ARA's UI updates in real time (§9).
 
@@ -188,7 +196,8 @@ Key adaptations:
   plane* for a stable axis fit. Far from the pole a fixed ~60° RA Δ is fine; near the pole the
   same angular Δ collapses to a tiny projected separation. Define Δ by a **target projected
   separation** (e.g. keep the field displacement above a set arcmin threshold given the current
-  Dec and pixel scale) rather than a fixed angle.
+  Dec and pixel scale) rather than a fixed angle. Also **bound Δ against the mount's slew limits**
+  — if the target Δ would exceed them, fall back to a smaller Δ or a different start position (§10).
 
 ---
 
