@@ -4332,11 +4332,13 @@ static void get_star_detection(JObj& response, const json_value *params)
     }
     JObj rslt;
     rslt << NV("MinStarSNR", guider->GetAFMinStarSNR(), 1) << NV("MinStarHFD", guider->GetMinStarHFD(), 2)
-         << NV("MaxStarHFD", guider->GetMaxStarHFD(), 2) << NV("SearchRegion", guider->GetSearchRegion());
+         << NV("MaxStarHFD", guider->GetMaxStarHFD(), 2);
     GuiderMultiStar *ms = dynamic_cast<GuiderMultiStar *>(guider);
     if (ms)
     {
-        rslt << NV("MassChangeThreshold", ms->GetMassChangeThreshold(), 2)
+        // SearchRegion lives on the base Guider but is only *settable* via the
+        // multi-star guider, so report it only here to keep get/set symmetric.
+        rslt << NV("SearchRegion", guider->GetSearchRegion()) << NV("MassChangeThreshold", ms->GetMassChangeThreshold(), 2)
              << NV("MassChangeThresholdEnabled", ms->GetMassChangeThresholdEnabled());
     }
     response << jrpc_result(rslt);
@@ -4415,9 +4417,10 @@ static void set_star_detection(JObj& response, const json_value *params)
         }
         srVal = (long) (v + 0.5);
     }
-    if (mct && (!float_param(mct, &mctVal) || mctVal < 0.))
+    // MassChangeThreshold is a fraction (GUI shows it as 10..100%); cap at 1.0.
+    if (mct && (!float_param(mct, &mctVal) || mctVal < 0. || mctVal > 1.0))
     {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MassChangeThreshold param");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MassChangeThreshold param (0..1)");
         return;
     }
     if (mcte && !bool_param(mcte, &mcteVal))
@@ -4495,16 +4498,16 @@ static void get_camera_timeout(JObj& response, const json_value *params)
     response << jrpc_result(pCamera->GetTimeoutMs());
 }
 
-// Set the camera download/read timeout (ms). Values below the 5000 ms floor are
-// raised to it by the camera.
+// Set the camera download/read timeout (ms). The camera enforces a 5000 ms floor,
+// so reject values below it rather than silently raising them.
 static void set_camera_timeout(JObj& response, const json_value *params)
 {
     Params p("timeout_ms", params);
     const json_value *t = p.param("timeout_ms");
     double v;
-    if (!t || !float_param(t, &v) || v < 0. || v > 600000.)
+    if (!t || !float_param(t, &v) || v < 5000. || v > 600000.)
     {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected timeout_ms param in range 0..600000");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected timeout_ms param in range 5000..600000");
         return;
     }
     if (!pCamera)
