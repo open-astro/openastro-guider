@@ -33,6 +33,7 @@
  */
 
 #include "phd.h"
+#include "backlash_comp.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
@@ -4521,6 +4522,300 @@ static void set_camera_timeout(JObj& response, const json_value *params)
     response << jrpc_result(0);
 }
 
+// ---- Phase 5 Batch C1: mount options, backlash, auto-exposure, noise reduction ----
+
+// Get the mount behaviour flags.
+static void get_mount_options(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
+        return;
+    }
+    JObj rslt;
+    rslt << NV("AssumeOrthogonal", scope->IsAssumeOrthogonal())
+         << NV("CalFlipRequiresDecFlip", scope->CalibrationFlipRequiresDecFlip())
+         << NV("StopGuidingWhenSlewing", scope->IsStopGuidingWhenSlewingEnabled());
+    response << jrpc_result(rslt);
+}
+
+// Set the mount behaviour flags. All fields optional; validated before applying.
+static void set_mount_options(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "scope not defined");
+        return;
+    }
+    Params p("AssumeOrthogonal", "CalFlipRequiresDecFlip", "StopGuidingWhenSlewing", params);
+    const json_value *ao = p.param("AssumeOrthogonal");
+    const json_value *cf = p.param("CalFlipRequiresDecFlip");
+    const json_value *sg = p.param("StopGuidingWhenSlewing");
+    if (!ao && !cf && !sg)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected at least one mount option");
+        return;
+    }
+    bool aoVal = false, cfVal = false, sgVal = false;
+    if (ao && !bool_param(ao, &aoVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid AssumeOrthogonal param");
+        return;
+    }
+    if (cf && !bool_param(cf, &cfVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid CalFlipRequiresDecFlip param");
+        return;
+    }
+    if (sg && !bool_param(sg, &sgVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid StopGuidingWhenSlewing param");
+        return;
+    }
+    if (ao)
+        scope->SetAssumeOrthogonal(aoVal);
+    if (cf)
+        scope->SetCalibrationFlipRequiresDecFlip(cfVal);
+    if (sg)
+        scope->EnableStopGuidingWhenSlewing(sgVal);
+    response << jrpc_result(0);
+}
+
+// Get the declination backlash-compensation settings (pulse/floor/ceiling in ms).
+static void get_backlash_comp(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    BacklashComp *bc = scope ? scope->GetBacklashComp() : nullptr;
+    if (!bc)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "backlash compensation not available");
+        return;
+    }
+    int pulse, floor, ceiling;
+    bc->GetBacklashCompSettings(&pulse, &floor, &ceiling);
+    JObj rslt;
+    rslt << NV("Enabled", bc->IsEnabled()) << NV("PulseWidth", pulse) << NV("Floor", floor) << NV("Ceiling", ceiling);
+    response << jrpc_result(rslt);
+}
+
+// Set the declination backlash compensation. All fields optional; unspecified
+// pulse/floor/ceiling keep their current value. Validated before applying.
+static void set_backlash_comp(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    BacklashComp *bc = scope ? scope->GetBacklashComp() : nullptr;
+    if (!bc)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "backlash compensation not available");
+        return;
+    }
+    Params p("Enabled", "PulseWidth", "Floor", "Ceiling", params);
+    const json_value *en = p.param("Enabled");
+    const json_value *pw = p.param("PulseWidth");
+    const json_value *fl = p.param("Floor");
+    const json_value *ce = p.param("Ceiling");
+    if (!en && !pw && !fl && !ce)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected at least one backlash param");
+        return;
+    }
+
+    int pulseVal, floorVal, ceilingVal;
+    bc->GetBacklashCompSettings(&pulseVal, &floorVal, &ceilingVal); // defaults for unspecified fields
+    const int pulseMin = BacklashComp::GetBacklashPulseMinValue();
+    const int pulseMax = BacklashComp::GetBacklashPulseMaxValue();
+    bool enVal = false;
+    double v;
+    if (en && !bool_param(en, &enVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid Enabled param");
+        return;
+    }
+    if (pw)
+    {
+        if (!float_param(pw, &v) || v < pulseMin || v > pulseMax)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS,
+                                   wxString::Format("invalid PulseWidth param (%d..%d)", pulseMin, pulseMax));
+            return;
+        }
+        pulseVal = (int) (v + 0.5);
+    }
+    if (fl)
+    {
+        if (!float_param(fl, &v) || v < 0.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid Floor param");
+            return;
+        }
+        floorVal = (int) (v + 0.5);
+    }
+    if (ce)
+    {
+        if (!float_param(ce, &v) || v < 0.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid Ceiling param");
+            return;
+        }
+        ceilingVal = (int) (v + 0.5);
+    }
+    if (floorVal > ceilingVal)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "Floor must be <= Ceiling");
+        return;
+    }
+
+    if (pw || fl || ce)
+        bc->SetBacklashPulseWidth(pulseVal, floorVal, ceilingVal);
+    if (en)
+        bc->EnableBacklashComp(enVal);
+    response << jrpc_result(0);
+}
+
+// Get the auto-exposure config (exposures in ms).
+static void get_auto_exposure(JObj& response, const json_value *params)
+{
+    if (!pFrame)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "frame not available");
+        return;
+    }
+    const AutoExposureCfg& cfg = pFrame->GetAutoExposureCfg();
+    JObj rslt;
+    rslt << NV("Enabled", cfg.enabled) << NV("MinExposure", cfg.minExposure) << NV("MaxExposure", cfg.maxExposure)
+         << NV("TargetSNR", cfg.targetSNR, 1);
+    response << jrpc_result(rslt);
+}
+
+// Set the auto-exposure min/max exposure (ms) and target SNR. All optional;
+// unspecified fields keep their current value. (Auto-exposure is enabled by
+// selecting the "Auto" exposure via set_exposure, not here.)
+static void set_auto_exposure(JObj& response, const json_value *params)
+{
+    if (!pFrame)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "frame not available");
+        return;
+    }
+    Params p("MinExposure", "MaxExposure", "TargetSNR", params);
+    const json_value *mn = p.param("MinExposure");
+    const json_value *mx = p.param("MaxExposure");
+    const json_value *ts = p.param("TargetSNR");
+    if (!mn && !mx && !ts)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected at least one auto-exposure param");
+        return;
+    }
+    const AutoExposureCfg& cur = pFrame->GetAutoExposureCfg();
+    int minExp = cur.minExposure, maxExp = cur.maxExposure;
+    double targetSNR = cur.targetSNR;
+    double v;
+    if (mn)
+    {
+        if (!float_param(mn, &v) || v <= 0.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MinExposure param");
+            return;
+        }
+        minExp = (int) (v + 0.5);
+    }
+    if (mx)
+    {
+        if (!float_param(mx, &v) || v <= 0.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxExposure param");
+            return;
+        }
+        maxExp = (int) (v + 0.5);
+    }
+    if (ts)
+    {
+        if (!float_param(ts, &v) || v <= 0.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid TargetSNR param");
+            return;
+        }
+        targetSNR = v;
+    }
+    if (minExp > maxExp)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "MinExposure must be <= MaxExposure");
+        return;
+    }
+    pFrame->SetAutoExposureCfg(minExp, maxExp, targetSNR); // returns whether changed, not an error
+    response << jrpc_result(0);
+}
+
+// Untranslated noise-reduction method names <-> enum (the API wire names).
+static const char *noise_reduction_name(NOISE_REDUCTION_METHOD m)
+{
+    switch (m)
+    {
+    case NR_2x2MEAN:
+        return "2x2 Mean";
+    case NR_3x3MEDIAN:
+        return "3x3 Median";
+    case NR_NONE:
+    default:
+        return "None";
+    }
+}
+
+static bool noise_reduction_from_name(const char *s, int *out)
+{
+    if (wxStricmp(s, "None") == 0)
+        *out = NR_NONE;
+    else if (wxStricmp(s, "2x2 Mean") == 0)
+        *out = NR_2x2MEAN;
+    else if (wxStricmp(s, "3x3 Median") == 0)
+        *out = NR_3x3MEDIAN;
+    else
+        return false;
+    return true;
+}
+
+// Get the image noise-reduction method ("None" / "2x2 Mean" / "3x3 Median").
+static void get_noise_reduction(JObj& response, const json_value *params)
+{
+    if (!pFrame)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "frame not available");
+        return;
+    }
+    response << jrpc_result(noise_reduction_name(pFrame->GetNoiseReductionMethod()));
+}
+
+// Set the image noise-reduction method.
+static void set_noise_reduction(JObj& response, const json_value *params)
+{
+    if (!pFrame)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "frame not available");
+        return;
+    }
+    Params p("method", params);
+    const json_value *m = p.param("method");
+    if (!m || m->type != JSON_STRING)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected method param");
+        return;
+    }
+    int method;
+    if (!noise_reduction_from_name(m->string_value, &method))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid noise-reduction method (None / 2x2 Mean / 3x3 Median)");
+        return;
+    }
+    if (pFrame->SetNoiseReductionMethod(method))
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "failed to set noise-reduction method");
+        return;
+    }
+    response << jrpc_result(0);
+}
+
 static void get_settling(JObj& response, const json_value *params)
 {
     bool settling = PhdController::IsSettling();
@@ -5005,6 +5300,14 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_camera_gain", &set_camera_gain },
         { "get_camera_timeout", &get_camera_timeout },
         { "set_camera_timeout", &set_camera_timeout },
+        { "get_mount_options", &get_mount_options },
+        { "set_mount_options", &set_mount_options },
+        { "get_backlash_comp", &get_backlash_comp },
+        { "set_backlash_comp", &set_backlash_comp },
+        { "get_auto_exposure", &get_auto_exposure },
+        { "set_auto_exposure", &set_auto_exposure },
+        { "get_noise_reduction", &get_noise_reduction },
+        { "set_noise_reduction", &set_noise_reduction },
         { "get_settling", &get_settling },
         { "guide_pulse", &guide_pulse },
         { "get_calibration_data", &get_calibration_data },
