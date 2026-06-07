@@ -116,7 +116,9 @@ the cam directly — rejected for v1; it loses the guider's centroiding and comp
    - Confirm mount connected (ARA↔Alpaca) and guide cam connected (guider).
    - **Stop any active guiding/looping** (`stop_capture`) and **record the prior state** so it can
      be restored at the end — PA drives slews and owns the capture cadence, so it must not run
-     concurrently with guiding.
+     concurrently with guiding. PA relies on the **guider holding the single camera client** (the
+     single-client constraint, §4); there's no separate exclusive lock, so ARA must not grab the
+     camera directly while PA is running.
    - Read pixel scale from the profile (focal length + pixel size) → pick the live strategy (§7).
    - Pick an exposure that yields a solvable frame (auto-stretch / star count; longer for OAG).
 
@@ -244,10 +246,17 @@ For v1 (ARA-orchestrated) these may be unnecessary — ARA already has the numbe
 - **Mount won't slew the requested Δ** (limits): use a smaller Δ or a different start position.
 - **Refraction near the horizon / low pole altitude:** include a refraction term for the target
   pole position.
+- **User abort / non-convergence:** the user can cancel at **any** phase. Abort (and an overall
+  timeout if the error never converges) must run the **same hand-back** as normal completion —
+  restore the pre-PA guiding/looping state recorded in step 1 — so a cancelled PA never leaves the
+  rig in a half-configured state.
 
 ## 11. Open questions / decisions
 - **Solver:** ASTAP (fast, local, good for small FOV) vs astrometry.net index files — likely ASTAP.
 - Do we add the **multi-star centroid** RPC, or is `find_star` enough for the track loop?
+  **Resolve in the phase-1 spike** (don't decide on paper): if single-star tracking is too fragile
+  (one lost star → forced full re-solve, disrupting the live UX), add a multi-star centroid report;
+  note that a re-solve *is* the re-anchor, so occasional single-star loss may be acceptable.
 - Is the **near-pole CoR / reticle** mode worth shipping in v1, or start decoupled-arrows-only?
 - Default **target threshold** and RA slew Δ; make both configurable.
 - Does `capture_single_frame` already emit a solver-ready FITS? (verify)
