@@ -161,7 +161,7 @@ Mount::MountConfigDialogPane::MountConfigDialogPane(wxWindow *pParent, const wxS
     m_pDecBox = nullptr;
 }
 
-static GUIDE_ALGORITHM GuideAlgorithmFromName(const wxString& s)
+GUIDE_ALGORITHM Mount::GuideAlgorithmFromName(const wxString& s)
 {
     if (s == _("None"))
         return GUIDE_ALGORITHM_IDENTITY;
@@ -181,7 +181,7 @@ static GUIDE_ALGORITHM GuideAlgorithmFromName(const wxString& s)
 }
 
 // returns the untranslated name
-static wxString GuideAlgorithmName(int algo)
+wxString Mount::GuideAlgorithmName(int algo)
 {
     switch (algo)
     {
@@ -206,7 +206,7 @@ static wxString GuideAlgorithmName(int algo)
 
 static wxString GuideAlgorithmNameTr(int algo)
 {
-    return wxGetTranslation(GuideAlgorithmName(algo));
+    return wxGetTranslation(Mount::GuideAlgorithmName(algo));
 }
 
 // Lots of dynamic controls on this pane - keep the creation/management in ConfigDialogPane

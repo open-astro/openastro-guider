@@ -236,6 +236,11 @@ public:
     static GUIDE_ALGORITHM GetGuideAlgorithm(const GuideAlgorithm *pAlgorithm);
     static bool CreateGuideAlgorithm(int guideAlgorithm, Mount *mount, GuideAxis axis, GuideAlgorithm **ppAlgorithm);
 
+    // untranslated guide-algorithm name <-> enum (shared by the GUI choice list and the
+    // event-server get_algos / get_algo / set_algo methods)
+    static wxString GuideAlgorithmName(int algo);
+    static GUIDE_ALGORITHM GuideAlgorithmFromName(const wxString& s);
+
 #ifdef TEST_TRANSFORMS
     void TestTransforms();
 #endif

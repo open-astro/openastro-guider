@@ -136,3 +136,33 @@ entries; add new ones at the bottom.**
   NINA plugin. Phase 5 = the API gap-fill (Advanced/"Brain" settings).
 - **Verified:** full `phd2` target builds; headless smoke test green (both sockets reachable,
   RPC answers).
+
+## 2026-06-07 — No authentication (LAN-trusted, HTTP-only)
+
+- **What:** The event server (`:4400`) and the embedded HTTP `/api/rpc` (`:8080`) have **no
+  authentication, no TLS, no CORS**, and bind `0.0.0.0`. We are **keeping it that way.**
+- **Why:** This is an astro LAN appliance, not an internet service. `:4400` is the *standard*
+  PHD2 protocol — **NINA has no way to authenticate to it**, so adding auth there would break
+  the primary client. Deploy on a trusted local network (the same assumption upstream PHD2 and
+  every ASIAIR-style guider makes). Flagged repeatedly by the code-review bot; recorded here so
+  it stops being re-litigated.
+- **If that ever changes:** auth would go on the `:8080` HTTP surface only (a static bearer
+  token + CORS), leaving `:4400` for NINA, or bind `:4400` to localhost behind a proxy.
+
+## 2026-06-07 — Phase 5 Batch A: guiding-control API + reference doc
+
+- **What:** Added the first Phase-5 gap-fill methods to the shared event-server dispatch (so
+  they serve both `:4400` and `/api/rpc`): guide-algorithm **selection** (`get_algos`,
+  `get_algo`, `set_algo` — params were already exposed; *switching* the algorithm was the gap),
+  max RA/Dec pulse limits (`get/set_guide_limits`), dec compensation (`get/set_dec_comp`), and
+  dither defaults (`get/set_dither_settings`). Exposed the previously file-local
+  `GuideAlgorithmName`/`GuideAlgorithmFromName` as public `Mount` statics so the GUI choice
+  list and the API share one name↔enum mapping.
+- **Why:** Batch A of the `API_GAP_AUDIT.md` plan — the live knobs that make ARA a real guiding
+  controller. Dither *mode* (vs scale/RA-only) was left out of this batch (no public accessor;
+  deferred).
+- **Docs:** created `design/API_REFERENCE.md` — the full human-readable reference for **all**
+  ~104 methods + the event stream (companion to the append-only `API_CONTRACT.md`).
+- **Verified:** full `phd2` target builds; all 9 new methods present in the dispatch table /
+  binary. (Runtime RPC round-trip couldn't be exercised in the sandbox — wxGTK needs Xvfb,
+  which the harness kills — but the handlers mirror the existing proven ones.)

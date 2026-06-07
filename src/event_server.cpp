@@ -4062,6 +4062,197 @@ static void set_dec_guide_mode(JObj& response, const json_value *params)
     response << jrpc_result(0);
 }
 
+// ---- Phase 5 Batch A: guiding-control settings ----
+
+// List the selectable guide algorithms by their (untranslated) names.
+static void get_algos(JObj& response, const json_value *params)
+{
+    JAry algos;
+    for (int a = GUIDE_ALGORITHM_IDENTITY; a <= GUIDE_ALGORITHM_ZFILTER; a++)
+        algos << ('"' + json_escape(Mount::GuideAlgorithmName(a)) + '"');
+    response << jrpc_result(algos);
+}
+
+// Get the guide algorithm selected for an axis (returns the untranslated name).
+static void get_algo(JObj& response, const json_value *params)
+{
+    Params p("axis", params);
+    GuideAxis a;
+    if (!axis_param(p, &a))
+    {
+        response << jrpc_error(1, "expected axis name param");
+        return;
+    }
+    if (!pMount)
+    {
+        response << jrpc_error(1, "mount not defined");
+        return;
+    }
+    GUIDE_ALGORITHM alg = a == GUIDE_X ? pMount->GetXGuideAlgorithmSelection() : pMount->GetYGuideAlgorithmSelection();
+    response << jrpc_result(Mount::GuideAlgorithmName(alg));
+}
+
+// Switch the guide algorithm for an axis. name is an untranslated algorithm name
+// (see get_algos); "None" selects the identity/no-op algorithm.
+static void set_algo(JObj& response, const json_value *params)
+{
+    Params p("axis", "name", params);
+    GuideAxis a;
+    if (!axis_param(p, &a))
+    {
+        response << jrpc_error(1, "expected axis name param");
+        return;
+    }
+    const json_value *name = p.param("name");
+    if (!name || name->type != JSON_STRING)
+    {
+        response << jrpc_error(1, "expected algorithm name param");
+        return;
+    }
+    GUIDE_ALGORITHM alg = Mount::GuideAlgorithmFromName(name->string_value);
+    if (alg == GUIDE_ALGORITHM_NONE)
+    {
+        response << jrpc_error(1, "invalid algorithm name param");
+        return;
+    }
+    if (!pMount)
+    {
+        response << jrpc_error(1, "mount not defined");
+        return;
+    }
+    if (a == GUIDE_X)
+        pMount->SetXGuideAlgorithm(alg);
+    else
+        pMount->SetYGuideAlgorithm(alg);
+    if (pFrame->pGraphLog)
+        pFrame->pGraphLog->UpdateControls();
+    response << jrpc_result(0);
+}
+
+// Get the max RA/Dec guide pulse limits (ms).
+static void get_guide_limits(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(1, "scope not defined");
+        return;
+    }
+    JObj rslt;
+    rslt << NV("MaxRaDuration", scope->GetMaxRaDuration()) << NV("MaxDecDuration", scope->GetMaxDecDuration());
+    response << jrpc_result(rslt);
+}
+
+// Set the max RA and/or Dec guide pulse limits (ms). Either field is optional.
+static void set_guide_limits(JObj& response, const json_value *params)
+{
+    Params p("MaxRaDuration", "MaxDecDuration", params);
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(1, "scope not defined");
+        return;
+    }
+    const json_value *ra = p.param("MaxRaDuration");
+    const json_value *dec = p.param("MaxDecDuration");
+    if (!ra && !dec)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected MaxRaDuration and/or MaxDecDuration param");
+        return;
+    }
+    double v;
+    if (ra)
+    {
+        if (!float_param(ra, &v) || v < 0.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxRaDuration param");
+            return;
+        }
+        scope->SetMaxRaDuration((int) v);
+    }
+    if (dec)
+    {
+        if (!float_param(dec, &v) || v < 0.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxDecDuration param");
+            return;
+        }
+        scope->SetMaxDecDuration((int) v);
+    }
+    response << jrpc_result(0);
+}
+
+// Get whether declination-based RA-rate compensation is enabled.
+static void get_dec_comp(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    bool enabled = scope ? scope->DecCompensationEnabled() : false;
+    response << jrpc_result(enabled);
+}
+
+// Enable/disable declination-based RA-rate compensation.
+static void set_dec_comp(JObj& response, const json_value *params)
+{
+    Params p("enabled", params);
+    const json_value *en = p.param("enabled");
+    bool enabled;
+    if (!en || !bool_param(en, &enabled))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled bool param");
+        return;
+    }
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(1, "scope not defined");
+        return;
+    }
+    scope->EnableDecCompensation(enabled);
+    response << jrpc_result(0);
+}
+
+// Get the default dither settings (scale factor + RA-only).
+static void get_dither_settings(JObj& response, const json_value *params)
+{
+    JObj rslt;
+    rslt << NV("ScaleFactor", pFrame->GetDitherScaleFactor(), 2) << NV("RaOnly", pFrame->GetDitherRaOnly());
+    response << jrpc_result(rslt);
+}
+
+// Set the default dither settings. Either field is optional.
+static void set_dither_settings(JObj& response, const json_value *params)
+{
+    Params p("ScaleFactor", "RaOnly", params);
+    const json_value *sf = p.param("ScaleFactor");
+    const json_value *ro = p.param("RaOnly");
+    if (!sf && !ro)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected ScaleFactor and/or RaOnly param");
+        return;
+    }
+    if (sf)
+    {
+        double v;
+        if (!float_param(sf, &v) || v <= 0.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid ScaleFactor param");
+            return;
+        }
+        pFrame->SetDitherScaleFactor(v);
+    }
+    if (ro)
+    {
+        bool b;
+        if (!bool_param(ro, &b))
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid RaOnly param");
+            return;
+        }
+        pFrame->SetDitherRaOnly(b);
+    }
+    response << jrpc_result(0);
+}
+
 static void get_settling(JObj& response, const json_value *params)
 {
     bool settling = PhdController::IsSettling();
@@ -4531,6 +4722,15 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_algo_param", &set_algo_param },
         { "get_dec_guide_mode", &get_dec_guide_mode },
         { "set_dec_guide_mode", &set_dec_guide_mode },
+        { "get_algos", &get_algos },
+        { "get_algo", &get_algo },
+        { "set_algo", &set_algo },
+        { "get_guide_limits", &get_guide_limits },
+        { "set_guide_limits", &set_guide_limits },
+        { "get_dec_comp", &get_dec_comp },
+        { "set_dec_comp", &set_dec_comp },
+        { "get_dither_settings", &get_dither_settings },
+        { "set_dither_settings", &set_dither_settings },
         { "get_settling", &get_settling },
         { "guide_pulse", &guide_pulse },
         { "get_calibration_data", &get_calibration_data },
