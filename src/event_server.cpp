@@ -4070,7 +4070,8 @@ static void get_algos(JObj& response, const json_value *params)
     wxArrayString names;
     for (int a = GUIDE_ALGORITHM_IDENTITY; a <= GUIDE_ALGORITHM_ZFILTER; a++)
         names.push_back(Mount::GuideAlgorithmName(a));
-    response << jrpc_result(json_string_array(names));
+    JAry algos = json_string_array(names);
+    response << jrpc_result(algos);
 }
 
 // Get the guide algorithm selected for an axis (returns the untranslated name).
