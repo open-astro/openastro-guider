@@ -53,10 +53,24 @@ defaults).
 
 ARA call sites: the star-detection / camera panels.
 
-### Still to do (later batches — see `API_GAP_AUDIT.md`)
-Camera subframes-setter / cooler-setpoint / saturation / software-binning, the niche star
-options (tolerate-jumps, fast-recenter, auto-select-downsample), backlash comp, mount flags,
-auto-exposure, noise reduction, rotator reverse. Plus the original known gap:
+### Batch C1 — mount options, backlash, exposure (2026-06-07)
+- `get_mount_options` → result: { `AssumeOrthogonal`, `CalFlipRequiresDecFlip`,
+  `StopGuidingWhenSlewing` } (bool). Requires a scope.
+- `set_mount_options` { any of the above (bool) } → result: 0. All optional.
+- `get_backlash_comp` → result: { `Enabled`, `PulseWidth`, `Floor`, `Ceiling` } (ms).
+- `set_backlash_comp` { `Enabled`?, `PulseWidth`?, `Floor`?, `Ceiling`? } → result: 0. All
+  optional; unspecified pulse/floor/ceiling keep current; `Floor` <= `Ceiling`; pulse within
+  the backlash min/max.
+- `get_auto_exposure` → result: { `Enabled`, `MinExposure`, `MaxExposure` (ms), `TargetSNR` }.
+- `set_auto_exposure` { `MinExposure`?, `MaxExposure`?, `TargetSNR`? } → result: 0. All optional;
+  `Min` <= `Max`. (Auto-exposure is *enabled* by selecting "Auto" via `set_exposure`.)
+- `get_noise_reduction` → result: method name ("None" / "2x2 Mean" / "3x3 Median").
+- `set_noise_reduction` { `method` } → result: 0.
+
+### Still to do (Batch C2 + later — see `API_GAP_AUDIT.md`)
+Camera subframes-setter / cooler-setpoint / saturation / software-binning, rotator reverse, the
+niche star options (tolerate-jumps, fast-recenter, auto-select-downsample). Plus the original
+known gap:
 **dark/bad-pixel-map library management** (`build_dark_library` / `build_defect_map_darks` /
 `set_dark_library_enabled` / `set_defect_map_enabled` now exist; create/select/delete coverage
 to be confirmed against ARA's needs).

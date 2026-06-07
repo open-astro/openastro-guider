@@ -87,6 +87,10 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `set_dither_settings` | `ScaleFactor`, `RaOnly` (either optional) | **(Batch A)** Set default dither scale / RA-only. |
 | `get_guide_output_enabled` | — | Whether guide output (corrections) is enabled. |
 | `set_guide_output_enabled` | `enabled` (bool) | Enable/disable sending guide corrections. |
+| `get_mount_options` | — | **(Batch C)** `{AssumeOrthogonal, CalFlipRequiresDecFlip, StopGuidingWhenSlewing}`. |
+| `set_mount_options` | `AssumeOrthogonal`?, `CalFlipRequiresDecFlip`?, `StopGuidingWhenSlewing`? (bool) | **(Batch C)** Set the mount behaviour flags (all optional). |
+| `get_backlash_comp` | — | **(Batch C)** `{Enabled, PulseWidth, Floor, Ceiling}` (ms) for declination backlash compensation. |
+| `set_backlash_comp` | `Enabled`?, `PulseWidth`?, `Floor`?, `Ceiling`? | **(Batch C)** Set backlash compensation (all optional; unspecified pulse/floor/ceiling keep current). Constraints (rejected, not clamped): `PulseWidth` in [20, 8000], `Floor` in [20, PulseWidth], `Ceiling` in [PulseWidth, 8000]. |
 
 ## Lock position & shift
 
@@ -119,6 +123,10 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `set_limit_frame` | `roi` | Set a capture ROI/limit frame. |
 | `get_variable_delay_settings` | — | `{Enabled, ShortDelaySeconds, LongDelaySeconds}`. |
 | `set_variable_delay_settings` | `Enabled`, `ShortDelaySeconds`, `LongDelaySeconds` | Inter-frame variable delay (seconds). |
+| `get_auto_exposure` | — | **(Batch C)** `{Enabled, MinExposure, MaxExposure (ms), TargetSNR}`. |
+| `set_auto_exposure` | `MinExposure`?, `MaxExposure`? (ms), `TargetSNR`? | **(Batch C)** Set auto-exposure min/max/target SNR (all optional; `Min` ≤ `Max`). Enable auto-exposure via `set_exposure` "Auto", not here. |
+| `get_noise_reduction` | — | **(Batch C)** Image noise-reduction method (`None` / `2x2 Mean` / `3x3 Median`). |
+| `set_noise_reduction` | `method` | **(Batch C)** Set the noise-reduction method. |
 
 ## Camera & cooler
 

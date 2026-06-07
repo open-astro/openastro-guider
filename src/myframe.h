@@ -179,9 +179,6 @@ public:
 class MyFrame : public wxFrame
 {
 protected:
-    NOISE_REDUCTION_METHOD GetNoiseReductionMethod() const;
-    bool SetNoiseReductionMethod(int noiseReductionMethod);
-
     bool GetServerMode() const;
     bool SetServerMode(bool val);
 
@@ -360,6 +357,8 @@ public:
     const AutoExposureCfg& GetAutoExposureCfg() const { return m_autoExp; }
     bool SetAutoExposureCfg(int minExp, int maxExp, double targetSNR);
     void ResetAutoExposure();
+    NOISE_REDUCTION_METHOD GetNoiseReductionMethod() const;
+    bool SetNoiseReductionMethod(int noiseReductionMethod);
     void AdjustAutoExposure(double curSNR);
     static wxString ExposureDurationLabel(int exposure);
     const VarDelayCfg& GetVariableDelayConfig() const { return m_varDelayConfig; }

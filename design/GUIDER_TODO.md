@@ -72,10 +72,12 @@ Headless-by-default + the systemd unit landed; these are the deliberate follow-u
   `design/API_GAP_AUDIT.md`** for the full gap table + prioritized batches. Implement on the
   shared dispatch (so both `:4400` and `/api/rpc` gain each), logging each in
   `design/API_CONTRACT.md`. This is what lets ARA fully drive the app.
-  **Done: Batch A** (algorithm selection, max RA/Dec, dec-comp, dither defaults) and
-  **Batch B** (star detection thresholds, camera gain/timeout). **Remaining: Batch C** —
-  camera subframes-setter/cooler-setpoint/saturation, backlash comp, mount flags, auto-exposure,
-  noise reduction, rotator reverse, and the niche star options (see `API_CONTRACT.md` "Still to do").
+  **Done: Batch A** (algorithm selection, max RA/Dec, dec-comp, dither defaults),
+  **Batch B** (star detection thresholds, camera gain/timeout), and **Batch C1** (mount flags,
+  backlash comp, auto-exposure, noise reduction). **Remaining: Batch C2** — camera
+  subframes-setter/cooler-setpoint/saturation/software-binning, rotator reverse, and the niche
+  star options (tolerate-jumps, fast-recenter, auto-select-downsample); see `API_CONTRACT.md`
+  "Still to do".
 - **Web-UI UX rework** (`scripts/webui/index.html`) — functional but poor UX; revisit once the
   API is complete (or let ARA supersede it).
 - **NINA plugin** (future) — configure settings through a plugin while guiding runs through the
