@@ -257,12 +257,12 @@ public:
     bool SetCameraGain(int cameraGain);
     virtual int GetDefaultCameraGain();
 
-    virtual bool Capture(usImage& img, const CaptureParams& captureParams) = 0;
-
-protected:
     int GetTimeoutMs() const;
     void SetTimeoutMs(int timeoutMs);
 
+    virtual bool Capture(usImage& img, const CaptureParams& captureParams) = 0;
+
+protected:
     static bool CamConnectFailed(const wxString& errorMessage);
 
     enum CaptureFailType

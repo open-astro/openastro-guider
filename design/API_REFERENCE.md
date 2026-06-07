@@ -100,6 +100,13 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `get_lock_shift_params` | — | Shift rate/units/axes. |
 | `set_lock_shift_params` | `rate`, `units`, `axes` | Set lock-shift parameters. |
 
+## Star detection & selection
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `get_star_detection` | — | **(Batch B)** `{MinStarSNR, MinStarHFD, MaxStarHFD}`, plus `{SearchRegion, MassChangeThreshold, MassChangeThresholdEnabled}` when the multi-star guider is active. Requires a guider. |
+| `set_star_detection` | `MinStarSNR`?, `MinStarHFD`?, `MaxStarHFD`?, `SearchRegion`? (7–50), `MassChangeThreshold`? (0–1), `MassChangeThresholdEnabled`? | **(Batch B)** Set star-detection thresholds (all optional, validated before applying; `MinStarHFD` must stay below `MaxStarHFD`). `SearchRegion` and the `MassChange*` fields require the multi-star guider. |
+
 ## Exposure & frame timing
 
 | Method | Params | Description |
@@ -121,6 +128,10 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `get_camera_frame_size` | — | Sensor frame size `[w, h]`. |
 | `get_camera_bitdepth` | — | Camera bit depth. |
 | `set_camera_bitdepth` | `bitdepth` | Set the camera bit depth. |
+| `get_camera_gain` | — | **(Batch B)** `{Gain (0–100), HasGainControl}`. Requires a connected camera. |
+| `set_camera_gain` | `gain` (0–100) | **(Batch B)** Set the camera gain. Errors if the camera has no gain control. |
+| `get_camera_timeout` | — | **(Batch B)** Camera download/read timeout (ms). |
+| `set_camera_timeout` | `timeout_ms` (5000–600000) | **(Batch B)** Set the read timeout; values below the 5000 ms floor are rejected. |
 | `get_ccd_temperature` | — | Sensor temperature (°C). |
 | `get_cooler_status` | — | Cooler on/off, setpoint, power, temperature. |
 | `set_cooler_state` | `enabled` (bool) | Turn the cooler on/off. *(No setpoint — see Phase-5 gap audit row #10.)* |

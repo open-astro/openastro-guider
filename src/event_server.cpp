@@ -4318,6 +4318,209 @@ static void set_dither_settings(JObj& response, const json_value *params)
     response << jrpc_result(0);
 }
 
+// ---- Phase 5 Batch B: star-detection + camera settings ----
+
+// Get the star-detection / selection thresholds. MassChangeThreshold* are
+// reported only when the multi-star guider is active.
+static void get_star_detection(JObj& response, const json_value *params)
+{
+    Guider *guider = pFrame ? pFrame->pGuider : nullptr;
+    if (!guider)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "guider not available");
+        return;
+    }
+    JObj rslt;
+    rslt << NV("MinStarSNR", guider->GetAFMinStarSNR(), 1) << NV("MinStarHFD", guider->GetMinStarHFD(), 2)
+         << NV("MaxStarHFD", guider->GetMaxStarHFD(), 2);
+    GuiderMultiStar *ms = dynamic_cast<GuiderMultiStar *>(guider);
+    if (ms)
+    {
+        // SearchRegion lives on the base Guider but is only *settable* via the
+        // multi-star guider, so report it only here to keep get/set symmetric.
+        rslt << NV("SearchRegion", guider->GetSearchRegion()) << NV("MassChangeThreshold", ms->GetMassChangeThreshold(), 2)
+             << NV("MassChangeThresholdEnabled", ms->GetMassChangeThresholdEnabled());
+    }
+    response << jrpc_result(rslt);
+}
+
+// Set star-detection thresholds. All fields optional; SearchRegion and the
+// MassChange* fields require the multi-star guider. Validates everything before
+// applying so a bad field can't leave a partial update.
+static void set_star_detection(JObj& response, const json_value *params)
+{
+    Guider *guider = pFrame ? pFrame->pGuider : nullptr;
+    if (!guider)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "guider not available");
+        return;
+    }
+    GuiderMultiStar *ms = dynamic_cast<GuiderMultiStar *>(guider);
+
+    Params p("MinStarSNR", "MinStarHFD", "MaxStarHFD", "SearchRegion", "MassChangeThreshold", "MassChangeThresholdEnabled",
+             params);
+    const json_value *snr = p.param("MinStarSNR");
+    const json_value *minhfd = p.param("MinStarHFD");
+    const json_value *maxhfd = p.param("MaxStarHFD");
+    const json_value *sr = p.param("SearchRegion");
+    const json_value *mct = p.param("MassChangeThreshold");
+    const json_value *mcte = p.param("MassChangeThresholdEnabled");
+    if (!snr && !minhfd && !maxhfd && !sr && !mct && !mcte)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected at least one star-detection param");
+        return;
+    }
+    if ((sr || mct || mcte) && !ms)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "SearchRegion / MassChange settings require the multi-star guider");
+        return;
+    }
+
+    // Validate all provided fields before applying any.
+    double snrVal = 0., minhfdVal = 0., maxhfdVal = 0., mctVal = 0.;
+    long srVal = 0;
+    bool mcteVal = false;
+    if (snr && (!float_param(snr, &snrVal) || snrVal <= 0.))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MinStarSNR param");
+        return;
+    }
+    if (minhfd && (!float_param(minhfd, &minhfdVal) || minhfdVal <= 0.))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MinStarHFD param");
+        return;
+    }
+    if (maxhfd && (!float_param(maxhfd, &maxhfdVal) || maxhfdVal <= 0.))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxStarHFD param");
+        return;
+    }
+    // Cross-check min < max against the effective values (a newly-supplied field,
+    // or the stored one if not supplied), so a single call can't invert them.
+    if (minhfd || maxhfd)
+    {
+        double effMin = minhfd ? minhfdVal : guider->GetMinStarHFD();
+        double effMax = maxhfd ? maxhfdVal : guider->GetMaxStarHFD();
+        if (effMin >= effMax)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "MinStarHFD must be less than MaxStarHFD");
+            return;
+        }
+    }
+    if (sr)
+    {
+        double v;
+        if (!float_param(sr, &v) || v < GuiderMultiStar::MIN_SEARCH_REGION || v > GuiderMultiStar::MAX_SEARCH_REGION)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS,
+                                   wxString::Format("invalid SearchRegion param (%d..%d)", GuiderMultiStar::MIN_SEARCH_REGION,
+                                                    GuiderMultiStar::MAX_SEARCH_REGION));
+            return;
+        }
+        srVal = (long) (v + 0.5);
+    }
+    // MassChangeThreshold is a fraction (GUI shows it as 10..100%); cap at 1.0.
+    if (mct && (!float_param(mct, &mctVal) || mctVal < 0. || mctVal > 1.0))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MassChangeThreshold param (0..1)");
+        return;
+    }
+    if (mcte && !bool_param(mcte, &mcteVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MassChangeThresholdEnabled param");
+        return;
+    }
+
+    // Apply (all values pre-validated, so the bool-returning setters can't fail).
+    if (snr)
+        guider->SetAFMinStarSNR(snrVal);
+    if (minhfd)
+        guider->SetMinStarHFD(minhfdVal);
+    if (maxhfd)
+        guider->SetMaxStarHFD(maxhfdVal);
+    if (sr)
+        ms->SetSearchRegion((int) srVal);
+    if (mct)
+        ms->SetMassChangeThreshold(mctVal);
+    if (mcte)
+        ms->SetMassChangeThresholdEnabled(mcteVal);
+    response << jrpc_result(0);
+}
+
+// Get the camera gain (0..100) and whether the camera supports gain control.
+static void get_camera_gain(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
+        return;
+    }
+    JObj rslt;
+    rslt << NV("Gain", pCamera->GetCameraGain()) << NV("HasGainControl", pCamera->HasGainControl);
+    response << jrpc_result(rslt);
+}
+
+// Set the camera gain (0..100).
+static void set_camera_gain(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
+        return;
+    }
+    if (!pCamera->HasGainControl)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera has no gain control");
+        return;
+    }
+    Params p("gain", params);
+    const json_value *g = p.param("gain");
+    double v;
+    if (!g || !float_param(g, &v) || v < 0. || v > 100.)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected gain param in range 0..100");
+        return;
+    }
+    if (pCamera->SetCameraGain((int) (v + 0.5)))
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "failed to set camera gain");
+        return;
+    }
+    response << jrpc_result(0);
+}
+
+// Get the camera download/read timeout (ms).
+static void get_camera_timeout(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
+        return;
+    }
+    response << jrpc_result(pCamera->GetTimeoutMs());
+}
+
+// Set the camera download/read timeout (ms). The camera enforces a 5000 ms floor,
+// so reject values below it rather than silently raising them.
+static void set_camera_timeout(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
+        return;
+    }
+    Params p("timeout_ms", params);
+    const json_value *t = p.param("timeout_ms");
+    double v;
+    if (!t || !float_param(t, &v) || v < 5000. || v > 600000.)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected timeout_ms param in range 5000..600000");
+        return;
+    }
+    pCamera->SetTimeoutMs((int) (v + 0.5));
+    response << jrpc_result(0);
+}
+
 static void get_settling(JObj& response, const json_value *params)
 {
     bool settling = PhdController::IsSettling();
@@ -4796,6 +4999,12 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_dec_comp", &set_dec_comp },
         { "get_dither_settings", &get_dither_settings },
         { "set_dither_settings", &set_dither_settings },
+        { "get_star_detection", &get_star_detection },
+        { "set_star_detection", &set_star_detection },
+        { "get_camera_gain", &get_camera_gain },
+        { "set_camera_gain", &set_camera_gain },
+        { "get_camera_timeout", &get_camera_timeout },
+        { "set_camera_timeout", &set_camera_timeout },
         { "get_settling", &get_settling },
         { "guide_pulse", &guide_pulse },
         { "get_calibration_data", &get_calibration_data },
