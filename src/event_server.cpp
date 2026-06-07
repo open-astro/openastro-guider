@@ -4504,17 +4504,17 @@ static void get_camera_timeout(JObj& response, const json_value *params)
 // so reject values below it rather than silently raising them.
 static void set_camera_timeout(JObj& response, const json_value *params)
 {
+    if (!pCamera)
+    {
+        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
+        return;
+    }
     Params p("timeout_ms", params);
     const json_value *t = p.param("timeout_ms");
     double v;
     if (!t || !float_param(t, &v) || v < 5000. || v > 600000.)
     {
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected timeout_ms param in range 5000..600000");
-        return;
-    }
-    if (!pCamera)
-    {
-        response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
         return;
     }
     pCamera->SetTimeoutMs((int) (v + 0.5));
