@@ -71,6 +71,10 @@ vs CCW), do a one-time **calibration nudge** at the start of the adjust phase:
    turn-unit, optionally).
 4. Repeat for azimuth (often inferable from alt + the known transform, so step 4 may be skipped).
 
+The nudge must be **large enough to be detectable above solve/centroid noise** — set a minimum
+expected displacement (in pixels, from the pixel scale) and, if the observed move is below it,
+prompt a larger turn rather than derive a mapping from noise.
+
 From then on the arrows are labelled with the **actual physical direction** ("Altitude: ↑
 clockwise"), self-correcting for camera rotation, hemisphere, and meridian side. This is exactly
 PHD2's guiding-calibration idea applied to manual bolts. (If a user prefers, the calibration
@@ -107,6 +111,10 @@ knob direction.)
 guider holds the guide cam, so ARA must get frames/centroids **through the guider's API**
 (§8) rather than grabbing the camera itself. (Alternative: ARA disconnects the guider and drives
 the cam directly — rejected for v1; it loses the guider's centroiding and complicates handoff.)
+This must be **enforced, not left to convention**: signal ownership explicitly — e.g. a
+guider-side "PA session" flag (set on PA start, cleared on completion/abort) that rejects
+conflicting capture/guide requests, or a lease token ARA holds for the session — so a future code
+path can't silently violate the single-client rule.
 
 ---
 
@@ -124,7 +132,14 @@ the cam directly — rejected for v1; it loses the guider's centroiding and comp
 
 2. **Axis determination (2-point, ASIAIR-style)**
    - Capture frame A (guider, full frame, saved FITS) → ARA plate-solves → (RA, Dec, PA, parity)₁.
-   - ARA slews the mount in RA by Δ (default ~60°; smaller near the pole, see §7).
+   - ARA slews the mount in RA by Δ (default ~60°; smaller near the pole, see §7). **Choose the
+     slew direction / start position so Δ does not cross the meridian** — a 60° slew near the
+     meridian can trigger a **meridian flip**, which flips the OTA (camera angle/parity + opposite
+     side of pier) and turns the 2-point axis fit to garbage. Mitigation: start ≥ Δ from the
+     meridian, or slew away from it.
+   - **Wait for the mount to settle** after the slew (a configurable settle delay, or a
+     settle-confirmed signal) before capturing frame B — a still-moving frame injects a systematic
+     error into the axis fit (the very budget the spike measures).
    - Capture frame B → solve → (RA, Dec, PA, parity)₂.
    - Compute the **RA rotation axis** on the sky from the two pointings, then the **alt/az
      offset** from the true refracted pole at the observer's location/time.
@@ -200,6 +215,9 @@ Key adaptations:
   separation** (e.g. keep the field displacement above a set arcmin threshold given the current
   Dec and pixel scale) rather than a fixed angle. Also **bound Δ against the mount's slew limits**
   — if the target Δ would exceed them, fall back to a smaller Δ or a different start position (§10).
+- **Differential refraction across the frame** is negligible for the narrow-FOV/OAG regime
+  (≲ 0.5°) and is intentionally ignored in the centroid-track loop; only the single refraction
+  term for the apparent pole position (§5) matters at v1 accuracy.
 
 ---
 
@@ -246,6 +264,10 @@ For v1 (ARA-orchestrated) these may be unnecessary — ARA already has the numbe
   (no hard-coded N/S/E/W), plus the calibration nudge for knob sense.
 - **Star lost during the live track loop:** fall back to a fresh solve to re-anchor.
 - **Mount won't slew the requested Δ** (limits): use a smaller Δ or a different start position.
+- **Meridian flip mid-routine:** a Δ that crosses the meridian flips the OTA and invalidates the
+  axis fit — pick the slew direction / start position to avoid it (§5 step 2).
+- **Mount not settled:** never capture the second/each measurement frame until the mount has
+  settled (§5 step 2), or the solve reflects a moving target.
 - **Refraction near the horizon / low pole altitude:** include a refraction term for the target
   pole position.
 - **User abort / non-convergence:** the user can cancel at **any** phase. Abort (and an overall
@@ -267,7 +289,8 @@ For v1 (ARA-orchestrated) these may be unnecessary — ARA already has the numbe
 1. **Spike:** *first* verify `capture_single_frame` emits a solver-ready FITS at a known path
    (the highest-risk unknown — gate everything else on it). Then ARA drives `capture_single_frame`
    → ASTAP solve → 2-pt axis → static alt/az error printout (no live loop), and **measures the
-   solve error budget** to decide 2-pt vs 3-pt (§5). Proves the pipeline end-to-end.
+   solve error budget** to decide 2-pt vs 3-pt (§5) — record ASTAP's **per-solve residuals**, not
+   just the final error, so the budget is attributed correctly. Proves the pipeline end-to-end.
 2. **Live adjust:** continuous re-solve + decoupled arrows; target threshold; verify step.
 3. **Bolt calibration nudge** → labelled physical directions.
 4. **FOV adaptivity:** centroid-track-between-solves for small FOV; reticle mode for framed pole.
