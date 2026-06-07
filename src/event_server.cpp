@@ -4210,7 +4210,7 @@ static void set_guide_limits(JObj& response, const json_value *params)
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxRaDuration param");
             return;
         }
-        scope->SetMaxRaDuration((int) v);
+        scope->SetMaxRaDuration((int) (v + 0.5)); // round, don't truncate (durations are integer ms)
     }
     if (dec)
     {
@@ -4219,7 +4219,7 @@ static void set_guide_limits(JObj& response, const json_value *params)
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid MaxDecDuration param");
             return;
         }
-        scope->SetMaxDecDuration((int) v);
+        scope->SetMaxDecDuration((int) (v + 0.5)); // round, don't truncate (durations are integer ms)
     }
     response << jrpc_result(0);
 }
