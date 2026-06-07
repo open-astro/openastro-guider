@@ -48,7 +48,8 @@ defaults).
 - `get_camera_gain` → result: { `Gain` (0..100), `HasGainControl` }. Requires a connected camera.
 - `set_camera_gain` { `gain`: 0..100 } → result: 0. Errors if the camera has no gain control.
 - `get_camera_timeout` → result: download/read timeout ms.
-- `set_camera_timeout` { `timeout_ms` } → result: 0 (raised to the 5000 ms floor if lower).
+- `set_camera_timeout` { `timeout_ms`: 5000..600000 } → result: 0. Values below the 5000 ms
+  floor are rejected (not silently raised).
 
 ARA call sites: the star-detection / camera panels.
 

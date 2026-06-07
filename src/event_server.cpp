@@ -4461,14 +4461,6 @@ static void get_camera_gain(JObj& response, const json_value *params)
 // Set the camera gain (0..100).
 static void set_camera_gain(JObj& response, const json_value *params)
 {
-    Params p("gain", params);
-    const json_value *g = p.param("gain");
-    double v;
-    if (!g || !float_param(g, &v) || v < 0. || v > 100.)
-    {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected gain param in range 0..100");
-        return;
-    }
     if (!pCamera)
     {
         response << jrpc_error(JSONRPC_SERVER_ERROR, "camera not connected");
@@ -4477,6 +4469,14 @@ static void set_camera_gain(JObj& response, const json_value *params)
     if (!pCamera->HasGainControl)
     {
         response << jrpc_error(JSONRPC_SERVER_ERROR, "camera has no gain control");
+        return;
+    }
+    Params p("gain", params);
+    const json_value *g = p.param("gain");
+    double v;
+    if (!g || !float_param(g, &v) || v < 0. || v > 100.)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected gain param in range 0..100");
         return;
     }
     if (pCamera->SetCameraGain((int) (v + 0.5)))
