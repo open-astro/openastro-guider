@@ -213,6 +213,18 @@ static wxString GuideAlgorithmNameTr(int algo)
     return wxGetTranslation(Mount::GuideAlgorithmName(algo));
 }
 
+std::vector<GUIDE_ALGORITHM> Mount::AvailableAlgorithms(bool isStepGuider, GuideAxis axis)
+{
+    if (isStepGuider)
+        return { GUIDE_ALGORITHM_HYSTERESIS, GUIDE_ALGORITHM_LOWPASS, GUIDE_ALGORITHM_LOWPASS2, GUIDE_ALGORITHM_ZFILTER };
+    if (axis == GUIDE_X) // Right Ascension
+        return { GUIDE_ALGORITHM_HYSTERESIS,    GUIDE_ALGORITHM_LOWPASS,          GUIDE_ALGORITHM_LOWPASS2,
+                 GUIDE_ALGORITHM_RESIST_SWITCH, GUIDE_ALGORITHM_GAUSSIAN_PROCESS, GUIDE_ALGORITHM_ZFILTER };
+    // Declination (Gaussian Process / Predictive PEC is RA-only)
+    return { GUIDE_ALGORITHM_HYSTERESIS, GUIDE_ALGORITHM_LOWPASS, GUIDE_ALGORITHM_LOWPASS2, GUIDE_ALGORITHM_RESIST_SWITCH,
+             GUIDE_ALGORITHM_ZFILTER };
+}
+
 // Lots of dynamic controls on this pane - keep the creation/management in ConfigDialogPane
 void Mount::MountConfigDialogPane::LayoutControls(wxPanel *pParent, BrainCtrlIdMap& CtrlMap)
 {
@@ -229,32 +241,9 @@ void Mount::MountConfigDialogPane::LayoutControls(wxPanel *pParent, BrainCtrlIdM
         m_pDecBox = new wxStaticBoxSizer(wxVERTICAL, m_pParent, stepGuider ? _("AO Y-Axis") : _("Declination"));
         wxSizerFlags def_flags = wxSizerFlags(0).Border(wxALL, 5).Expand();
 
-        static GUIDE_ALGORITHM const RA_ALGORITHMS[] = {
-            GUIDE_ALGORITHM_HYSTERESIS,    GUIDE_ALGORITHM_LOWPASS,          GUIDE_ALGORITHM_LOWPASS2,
-            GUIDE_ALGORITHM_RESIST_SWITCH, GUIDE_ALGORITHM_GAUSSIAN_PROCESS, GUIDE_ALGORITHM_ZFILTER,
-        };
-        static GUIDE_ALGORITHM const DEC_ALGORITHMS[] = {
-            GUIDE_ALGORITHM_HYSTERESIS,    GUIDE_ALGORITHM_LOWPASS, GUIDE_ALGORITHM_LOWPASS2,
-            GUIDE_ALGORITHM_RESIST_SWITCH, GUIDE_ALGORITHM_ZFILTER,
-        };
-        static GUIDE_ALGORITHM const AO_ALGORITHMS[] = {
-            GUIDE_ALGORITHM_HYSTERESIS,
-            GUIDE_ALGORITHM_LOWPASS,
-            GUIDE_ALGORITHM_LOWPASS2,
-            GUIDE_ALGORITHM_ZFILTER,
-        };
-
         wxArrayString xAlgorithms;
-        if (stepGuider)
-        {
-            for (int i = 0; i < WXSIZEOF(AO_ALGORITHMS); i++)
-                xAlgorithms.push_back(GuideAlgorithmNameTr(AO_ALGORITHMS[i]));
-        }
-        else
-        {
-            for (int i = 0; i < WXSIZEOF(RA_ALGORITHMS); i++)
-                xAlgorithms.push_back(GuideAlgorithmNameTr(RA_ALGORITHMS[i]));
-        }
+        for (GUIDE_ALGORITHM ga : Mount::AvailableAlgorithms(stepGuider, GUIDE_X))
+            xAlgorithms.push_back(GuideAlgorithmNameTr(ga));
 
         width = StringArrayWidth(&xAlgorithms[0], xAlgorithms.size());
         m_pXGuideAlgorithmChoice = new wxChoice(m_pParent, wxID_ANY, wxPoint(-1, -1), wxSize(width + 35, -1), xAlgorithms);
@@ -292,17 +281,8 @@ void Mount::MountConfigDialogPane::LayoutControls(wxPanel *pParent, BrainCtrlIdM
             m_pRABox->Add(m_pResetRAParams, wxSizerFlags(0).Border(wxTOP, 30).Center());
 
         wxArrayString yAlgorithms;
-
-        if (stepGuider)
-        {
-            for (int i = 0; i < WXSIZEOF(AO_ALGORITHMS); i++)
-                yAlgorithms.push_back(GuideAlgorithmNameTr(AO_ALGORITHMS[i]));
-        }
-        else
-        {
-            for (int i = 0; i < WXSIZEOF(DEC_ALGORITHMS); i++)
-                yAlgorithms.push_back(GuideAlgorithmNameTr(DEC_ALGORITHMS[i]));
-        }
+        for (GUIDE_ALGORITHM ga : Mount::AvailableAlgorithms(stepGuider, GUIDE_Y))
+            yAlgorithms.push_back(GuideAlgorithmNameTr(ga));
 
         width = StringArrayWidth(&yAlgorithms[0], yAlgorithms.size());
         m_pYGuideAlgorithmChoice = new wxChoice(m_pParent, wxID_ANY, wxPoint(-1, -1), wxSize(width + 35, -1), yAlgorithms);
