@@ -5,7 +5,20 @@ taking the best of ASIAIR / iPolar / PoleMaster / PHD2 and — crucially — **s
 "which bolt, which way, how much" problem** for users with any optical train (guide scope,
 OAG, short or long focal length).
 
-Status: **proposal** (not yet built). Owner: ARA + openastro-guider.
+Status: **guider-side enablers built and verified** (2026-06-10); ARA-side routine not yet
+started. Owner: ARA + openastro-guider.
+
+What landed in the guider (see §8/§4 and `API_REFERENCE.md`):
+- **§12.1 spike gate verified:** `capture_single_frame` saves a solver-ready FITS at the
+  caller's absolute path (16-bit unsigned, `EXPOSURE`, `DATE-OBS`, `XBINNING`, `XPIXSZ`/`YPIXSZ`,
+  `SCALE`/`PIXSCALE` arcsec/px hint, `INSTRUME`, `SATURATE`) and the `SingleFrameComplete` event
+  carries `Success` + `Path`. No RA/Dec in the header — ARA seeds the solver per §8.
+- **`get_star_centroids`** { `roi`?, `max_stars`? } → sub-pixel centroids (`x,y,snr,mass,hfd`)
+  of the current frame, no guider-state change — the §8/§11 multi-star centroid report, so the
+  narrow-FOV track loop can choose single- vs multi-star at runtime.
+- **`set_pa_session` / `get_pa_session`** — the §4 ownership enforcement: a renewable,
+  auto-expiring lease that rejects `guide`/`loop`/`dither`/`guide_pulse`/dark-building/
+  `set_connected` while active (capture/centroid/find_star stay available).
 
 ---
 

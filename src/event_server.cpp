@@ -896,6 +896,30 @@ static bool any_equipment_connected()
         (TheAO() && TheAO()->IsConnected());
 }
 
+// Polar-alignment session lease (design/POLAR_ALIGNMENT_DESIGN.md §4): while a
+// PA session is active, requests that would fight ARA for the camera or move
+// the mount (guide/loop/dither/guide_pulse/dark-building/connect changes) are
+// rejected, so a stray client can't silently violate the single-camera-client
+// rule mid-routine. The lease auto-expires so a crashed orchestrator can't
+// wedge the daemon; renew by calling set_pa_session again.
+static wxLongLong s_paSessionExpiresMs(0);
+
+static bool pa_session_active()
+{
+    return s_paSessionExpiresMs != 0 && wxGetUTCTimeMillis() < s_paSessionExpiresMs;
+}
+
+// clang-format off
+#define VERIFY_NO_PA_SESSION(response) \
+    do { \
+        if (pa_session_active()) \
+        { \
+            response << jrpc_error(1, "polar-alignment session in progress"); \
+            return; \
+        } \
+    } while (0)
+// clang-format on
+
 static void apply_selection_to_control(int choiceControlId, const wxArrayString& choices, const wxString& selectedChoice)
 {
     wxWindow *wnd = pFrame->pGearDialog->FindWindow(choiceControlId);
@@ -1042,6 +1066,67 @@ static bool json_to_bool(const json_value *val, bool *out)
         return true;
     }
     return false;
+}
+
+static void pa_session_status(JObj& rslt)
+{
+    // snapshot the clock once so a session expiring mid-call cannot yield
+    // {"active":true,"expires_in_s":<negative>}
+    wxLongLong now = wxGetUTCTimeMillis();
+    bool active = s_paSessionExpiresMs != 0 && now < s_paSessionExpiresMs;
+    rslt << NV("active", active);
+    if (active)
+        rslt << NV("expires_in_s", (int) ((s_paSessionExpiresMs - now).GetValue() / 1000));
+}
+
+static void get_pa_session(JObj& response, const json_value *params)
+{
+    JObj rslt;
+    pa_session_status(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void set_pa_session(JObj& response, const json_value *params)
+{
+    Params p("active", "timeout_s", params);
+    const json_value *active = p.param("active");
+    bool activeVal = false;
+    if (!active || !json_to_bool(active, &activeVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected active boolean param");
+        return;
+    }
+
+    long timeoutS = 600;
+    const json_value *timeout = p.param("timeout_s");
+    if (timeout)
+    {
+        if (!json_to_long(timeout, &timeoutS) || timeoutS < 10 || timeoutS > 3600)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "timeout_s must be in range 10..3600");
+            return;
+        }
+    }
+
+    if (activeVal)
+    {
+        if (pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding())
+        {
+            response << jrpc_error(1, "cannot start polar-alignment session while calibrating or guiding");
+            return;
+        }
+        s_paSessionExpiresMs = wxGetUTCTimeMillis() + timeoutS * 1000;
+        Debug.Write(wxString::Format("PA session started/renewed, timeout %ld s\n", timeoutS));
+    }
+    else
+    {
+        s_paSessionExpiresMs = 0;
+        Debug.Write("PA session ended\n");
+    }
+
+    JObj rslt;
+    pa_session_status(rslt);
+    response << jrpc_result(rslt);
 }
 
 static bool parse_device_number_from_display(const wxString& display, long *deviceNumber)
@@ -2338,6 +2423,8 @@ static void get_connected(JObj& response, const json_value *params)
 
 static void set_connected(JObj& response, const json_value *params)
 {
+    VERIFY_NO_PA_SESSION(response);
+
     Params p("connected", params);
     const json_value *val = p.param("connected");
     if (!val || val->type != JSON_BOOL)
@@ -2451,6 +2538,8 @@ static void set_paused(JObj& response, const json_value *params)
 
 static void loop(JObj& response, const json_value *params)
 {
+    VERIFY_NO_PA_SESSION(response);
+
     bool error = pFrame->StartLooping();
 
     if (error)
@@ -2517,6 +2606,64 @@ static void find_star(JObj& response, const json_value *params)
     }
 
     response << jrpc_error(1, "could not find star");
+}
+
+// Multi-star centroid report for ARA's polar-alignment track loop (see
+// design/POLAR_ALIGNMENT_DESIGN.md §8): detect stars on the current frame and
+// return their sub-pixel centroids, without selecting a star or changing any
+// guider state (unlike find_star).
+static void get_star_centroids(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+
+    Params p("roi", "max_stars", params);
+
+    wxRect roi;
+    const json_value *j = p.param("roi");
+    if (j && !parse_rect(&roi, j))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid ROI param");
+        return;
+    }
+
+    long maxStars = 12;
+    if ((j = p.param("max_stars")) != nullptr)
+    {
+        if (!json_to_long(j, &maxStars) || maxStars < 1 || maxStars > 50)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "max_stars must be in range 1..50");
+            return;
+        }
+    }
+
+    usImage *image = pFrame->pGuider->CurrentImage();
+    if (!image || !image->ImageData)
+    {
+        response << jrpc_error(1, "no image available");
+        return;
+    }
+    if (!image->Subframe.IsEmpty())
+    {
+        response << jrpc_error(1, "cannot detect stars on a subframe image");
+        return;
+    }
+
+    GuideStar tmp;
+    std::vector<GuideStar> foundStars;
+    if (!tmp.AutoFind(*image, 0, pFrame->pGuider->GetSearchRegion(), roi, foundStars, (int) maxStars))
+    {
+        response << jrpc_error(1, "no stars found");
+        return;
+    }
+
+    JAry stars;
+    for (const GuideStar& s : foundStars)
+    {
+        JObj star;
+        star << NV("x", s.X, 3) << NV("y", s.Y, 3) << NV("snr", s.SNR, 2) << NV("mass", s.Mass, 1) << NV("hfd", s.HFD, 2);
+        stars << star;
+    }
+    response << jrpc_result(stars);
 }
 
 static void get_pixel_scale(JObj& response, const json_value *params)
@@ -3054,6 +3201,8 @@ static void set_defect_map_enabled(JObj& response, const json_value *params)
 
 static void build_dark_library(JObj& response, const json_value *params)
 {
+    VERIFY_NO_PA_SESSION(response);
+
     Params p("frame_count", "min_exposure_ms", "max_exposure_ms", "clear_existing", "notes", "load_after", params);
     long frameCount = 5;
     long minExposure = 0;
@@ -3180,6 +3329,8 @@ static void build_dark_library(JObj& response, const json_value *params)
 
 static void build_defect_map_darks(JObj& response, const json_value *params)
 {
+    VERIFY_NO_PA_SESSION(response);
+
     Params p("exposure_ms", "frame_count", "notes", "load_after", params);
     long exposureMs = 3000;
     long frameCount = 10;
@@ -3730,6 +3881,8 @@ static bool parse_settle(SettleParams *settle, const json_value *j, wxString *er
 
 static void guide(JObj& response, const json_value *params)
 {
+    VERIFY_NO_PA_SESSION(response);
+
     // params:
     //   settle [object]:
     //     pixels [float]
@@ -3802,6 +3955,8 @@ static void guide(JObj& response, const json_value *params)
 
 static void dither(JObj& response, const json_value *params)
 {
+    VERIFY_NO_PA_SESSION(response);
+
     // params:
     //   amount [integer] - max pixels to move in each axis
     //   raOnly [bool] - when true, only dither ra
@@ -5194,6 +5349,8 @@ static GUIDE_DIRECTION opposite(GUIDE_DIRECTION d)
 
 static void guide_pulse(JObj& response, const json_value *params)
 {
+    VERIFY_NO_PA_SESSION(response);
+
     Params p("amount", "direction", "which", params);
 
     const json_value *amount = p.param("amount");
@@ -5499,6 +5656,9 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "guide", &guide },
         { "dither", &dither },
         { "find_star", &find_star },
+        { "get_star_centroids", &get_star_centroids },
+        { "get_pa_session", &get_pa_session },
+        { "set_pa_session", &set_pa_session },
         { "get_pixel_scale", &get_pixel_scale },
         { "get_app_state", &get_app_state },
         { "flip_calibration", &flip_calibration },

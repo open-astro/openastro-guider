@@ -55,6 +55,18 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `guide_pulse` | `amount` (ms), `direction` (`N/S/E/W`/`Up`/…), `which` (`AO`/`Mount`) | Issue a manual guide pulse. |
 | `find_star` | `roi` ([x,y,w,h]) | Auto-select the best star (optionally within ROI); returns its position. |
 | `deselect_star` | — | Clear the selected star. |
+| `get_star_centroids` | `roi`?, `max_stars`? (1–50, default 12) | **(PA)** Detect stars on the current frame and return `[{x, y, snr, mass, hfd}, …]` (sub-pixel centroids), without selecting a star or changing guider state. Needs a current full frame (errors on subframes). |
+
+## Polar alignment (session lease)
+
+ARA orchestrates polar alignment (see `design/POLAR_ALIGNMENT_DESIGN.md`); the guider provides
+frames (`capture_single_frame` — saves a solver-ready FITS), centroids (`get_star_centroids`),
+and this **session lease** so nothing else can fight ARA for the camera mid-routine:
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `set_pa_session` | `active` (bool), `timeout_s` (10–3600, default 600) | Start/renew (or end) a PA session. While active, `guide`, `loop`, `dither`, `guide_pulse`, `build_dark_library`, `build_defect_map_darks`, and `set_connected` are rejected with *"polar-alignment session in progress"*; `capture_single_frame`, `find_star`, `get_star_centroids`, `stop_capture` stay available. The lease auto-expires (renew by calling again) so a crashed orchestrator can't wedge the daemon. Starting is rejected while calibrating/guiding. |
+| `get_pa_session` | — | `{active, expires_in_s?}`. |
 
 ## Calibration
 
