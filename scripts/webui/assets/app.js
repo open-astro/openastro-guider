@@ -493,6 +493,40 @@ $("eq-profile").addEventListener("change", async () => {
   } catch (e) { toast(e.message); }
 });
 
+action("eq-prof-new", async () => {
+  const name = prompt("Name for the new profile:");
+  if (!name) return;
+  const copy = $("eq-profile").options.length > 0 &&
+    confirm("Copy settings from the current profile?\n(Cancel starts from defaults.)");
+  const params = { name, select: true };
+  if (copy) params.copy_from_id = parseInt($("eq-profile").value, 10);
+  await rpc("create_profile", params);
+  toast(`profile "${name}" created and selected`, true);
+  loadEquipment();
+});
+
+action("eq-prof-rename", async () => {
+  const sel = $("eq-profile");
+  if (!sel.options.length) return;
+  const oldName = sel.options[sel.selectedIndex].textContent;
+  const name = prompt("New name for this profile:", oldName);
+  if (!name || name === oldName) return;
+  await rpc("rename_profile", { id: parseInt(sel.value, 10), new_name: name });
+  toast("profile renamed", true);
+  loadEquipment();
+});
+
+action("eq-prof-delete", async () => {
+  const sel = $("eq-profile");
+  if (!sel.options.length) return;
+  const name = sel.options[sel.selectedIndex].textContent;
+  if (!confirm(`Delete profile "${name}"?\n(Equipment must be disconnected.)`)) return;
+  const darks = confirm("Also delete its dark library / bad-pixel-map files?\n(Cancel keeps the files.)");
+  await rpc("delete_profile", { id: parseInt(sel.value, 10), delete_dark_files: darks });
+  toast(`profile "${name}" deleted`, true);
+  loadEquipment();
+});
+
 action("eq-save-profile", async () => {
   await rpc("set_profile_setup", {
     focal_length: parseInt($("eq-focal").value, 10) || 0,
