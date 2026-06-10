@@ -1414,10 +1414,17 @@ bool GearDialog::SetProfile(int profileId, wxString *error)
 
     wxString profile = pConfig->GetProfileName(profileId);
 
+    // the choice list only refreshes when the dialog (or the profile wizard)
+    // runs, so a profile created over the API since then won't be in it yet —
+    // refresh before selecting
     if (!m_profiles->SetStringSelection(profile))
     {
-        *error = "invalid profile id";
-        return true;
+        m_profiles->Set(pConfig->ProfileNames());
+        if (!m_profiles->SetStringSelection(profile))
+        {
+            *error = "invalid profile id";
+            return true;
+        }
     }
 
     // need the side-effects for making the selection
