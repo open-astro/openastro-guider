@@ -76,8 +76,10 @@ Headless-by-default + the systemd unit landed; these are the deliberate follow-u
   **Batch B** (star detection thresholds, camera gain/timeout), **Batch C1** (mount flags,
   backlash comp, auto-exposure, noise reduction), and **Batch C2** (camera subframes-setter /
   cooler-setpoint / saturation, rotator reverse, niche guider options). **The A/B/C audit
-  batches are complete.** Remaining known gap: explicit dark/bad-pixel-map library
-  create/select/delete coverage, to be confirmed against ARA's needs (see `API_CONTRACT.md`).
+  batches are complete.** The final dark/bad-pixel-map gap closed too: create/select/delete
+  were already covered, and the missing Refine-Bad-pixel-Map surface is now exposed as
+  `rebuild_defect_map` (custom hot/cold aggressiveness, dry-run preview), `add_bad_pixel`,
+  and `set_dark_auto_load` (see `API_CONTRACT.md`). **Phase 5 is complete.**
 - **Web-UI UX rework** (`scripts/webui/index.html`) — functional but poor UX; revisit once the
   API is complete (or let ARA supersede it).
 - **NINA plugin** (future) — configure settings through a plugin while guiding runs through the

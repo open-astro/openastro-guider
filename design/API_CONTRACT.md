@@ -83,7 +83,30 @@ ARA call sites: the star-detection / camera panels.
 This completes the `API_GAP_AUDIT.md` batches (A/B/C). Software binning is already covered by
 `set_profile_setup` (`software_binning`).
 
-### Still to do
-The original known gap: **dark/bad-pixel-map library management** — `build_dark_library` /
-`build_defect_map_darks` / `set_dark_library_enabled` / `set_defect_map_enabled` exist, but
-explicit create/select/delete coverage is still to be confirmed against ARA's needs.
+### Dark / bad-pixel-map tail (2026-06-10)
+Closes the last known Phase-5 gap. The audit found create/select/delete were already covered
+(`build_dark_library`, `build_defect_map_darks`, `set_dark_library_enabled`,
+`set_defect_map_enabled`, `get_calibration_files_status`, `delete_calibration_files`); what was
+missing was the **Refine Bad-pixel Map** surface (rebuild with custom aggressiveness, without
+recapturing) and the auto-load flags:
+
+- `rebuild_defect_map` { `aggressiveness_hot`? (0..100), `aggressiveness_cold`? (0..100),
+  `save`? (default true), `load_after`? (default true) } → result: { `profile_id`,
+  `defect_map_path`, `aggressiveness_hot/cold`, `hot_pixel_count`, `cold_pixel_count`,
+  `defect_count`, `master_dark_exposure_ms`, `master_dark_frame_count`,
+  `image_mean/stdev/median/mad`, `saved`, `loaded` }. Rebuilds the bad-pixel map from the
+  **existing** master dark (errors if `build_defect_map_darks` hasn't produced one).
+  Aggressiveness defaults to the profile's last-used values (GUI default 75). `save:false` is a
+  dry run — returns the predicted counts without touching the map file (mirrors the GUI's
+  slider preview). Saving persists the aggressiveness as the new profile defaults. Requires a
+  connected camera (the map info embeds the camera name). Manual pixels are discarded on
+  rebuild, same as the GUI.
+- `add_bad_pixel` { `x`, `y` } → result: { `x`, `y`, `added` }. Adds one pixel to the
+  **currently loaded** defect map (in-memory + disk, same as the GUI's "Add Bad Pixel");
+  `added:false` if already present. Requires a connected camera and a loaded map. Bounds are
+  checked against the frame size when known.
+- `set_dark_auto_load` { `auto_load_darks`?, `auto_load_defect_map`? (bool, at least one) } →
+  result: the `get_calibration_files_status` object. Controls whether the dark library /
+  defect map auto-load on camera connect (the flags `get_calibration_files_status` reports).
+
+ARA call sites: the dark-library / bad-pixel-map panel.

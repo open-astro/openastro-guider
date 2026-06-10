@@ -201,6 +201,9 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 |--------|--------|-------------|
 | `build_dark_library` | `frame_count`, `min_exposure_ms`, `max_exposure_ms`, `clear_existing`, `notes`, `load_after` | Build the dark-frame library. |
 | `build_defect_map_darks` | `exposure_ms`, `frame_count`, `notes`, `load_after` | Capture the darks used to build a bad-pixel (defect) map. |
+| `rebuild_defect_map` | `aggressiveness_hot` (0–100), `aggressiveness_cold` (0–100), `save` (default true), `load_after` (default true) | Rebuild the bad-pixel map from the existing master dark with custom hot/cold aggressiveness (no recapture); `save:false` is a dry run returning predicted counts. Requires a connected camera. |
+| `add_bad_pixel` | `x`, `y` | Add one pixel to the currently loaded defect map (in-memory + disk); `added:false` if already present. Discarded on the next rebuild, like the GUI's manual pixels. |
+| `set_dark_auto_load` | `auto_load_darks` (bool), `auto_load_defect_map` (bool) | Set whether the dark library / defect map auto-load on camera connect. Returns the status object. |
 | `set_dark_library_enabled` | `enabled` (bool) | Enable/disable dark subtraction. |
 | `set_defect_map_enabled` | `enabled` (bool) | Enable/disable the bad-pixel map. |
 

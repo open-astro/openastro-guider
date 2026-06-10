@@ -3427,6 +3427,179 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
     response << jrpc_result(rslt);
 }
 
+static void rebuild_defect_map(JObj& response, const json_value *params)
+{
+    Params p("aggressiveness_hot", "aggressiveness_cold", "save", "load_after", params);
+    // 75 is the GUI's default aggressiveness (DefDMSigmaX in Refine_DefMap.cpp)
+    long aggrHot = pConfig->Profile.GetInt("/camera/dmap_hot_factor", 75);
+    long aggrCold = pConfig->Profile.GetInt("/camera/dmap_cold_factor", 75);
+    bool save = true;
+    bool loadAfter = true;
+
+    const json_value *jv = nullptr;
+    if ((jv = p.param("aggressiveness_hot")) != nullptr)
+    {
+        if (!json_to_long(jv, &aggrHot) || aggrHot < 0 || aggrHot > 100)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "aggressiveness_hot must be in range 0..100");
+            return;
+        }
+    }
+    if ((jv = p.param("aggressiveness_cold")) != nullptr)
+    {
+        if (!json_to_long(jv, &aggrCold) || aggrCold < 0 || aggrCold > 100)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "aggressiveness_cold must be in range 0..100");
+            return;
+        }
+    }
+    if ((jv = p.param("save")) != nullptr && !json_to_bool(jv, &save))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected save boolean");
+        return;
+    }
+    if ((jv = p.param("load_after")) != nullptr && !json_to_bool(jv, &loadAfter))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected load_after boolean");
+        return;
+    }
+
+    // DefectMapBuilder::BuildDefectMap stamps the camera name into the map
+    // info, dereferencing pCamera unconditionally
+    if (!pCamera || !pCamera->Connected)
+    {
+        response << jrpc_error(1, "camera is not connected");
+        return;
+    }
+    if (save && pFrame->CaptureActive)
+    {
+        response << jrpc_error(1, "cannot rebuild defect map while capture is active");
+        return;
+    }
+
+    DefectMapDarks darks;
+    darks.LoadDarks();
+    if (!darks.masterDark.ImageData || !darks.filteredDark.ImageData)
+    {
+        response << jrpc_error(1, "no master dark files for this profile; run build_defect_map_darks first");
+        return;
+    }
+
+    DefectMapBuilder builder;
+    builder.Init(darks);
+    builder.SetAggressiveness((int) aggrCold, (int) aggrHot);
+
+    DefectMap defectMap;
+    builder.BuildDefectMap(defectMap, false);
+
+    bool loaded = false;
+    if (save)
+    {
+        defectMap.Save(builder.GetMapInfo());
+        pConfig->Profile.SetInt("/camera/dmap_hot_factor", (int) aggrHot);
+        pConfig->Profile.SetInt("/camera/dmap_cold_factor", (int) aggrCold);
+        pConfig->Flush();
+        if (loadAfter && pCamera && pCamera->Connected)
+        {
+            pFrame->LoadDefectMapHandler(true);
+            loaded = pCamera->CurrentDefectMap != nullptr;
+        }
+        pFrame->SetDarkMenuState();
+    }
+
+    const ImageStats& stats = builder.GetImageStats();
+    JObj rslt;
+    rslt << NV("profile_id", pConfig->GetCurrentProfileId())
+         << NV("defect_map_path", DefectMap::DefectMapFileName(pConfig->GetCurrentProfileId()))
+         << NV("aggressiveness_hot", (int) aggrHot) << NV("aggressiveness_cold", (int) aggrCold)
+         << NV("hot_pixel_count", builder.GetHotPixelCnt()) << NV("cold_pixel_count", builder.GetColdPixelCnt())
+         << NV("defect_count", (int) defectMap.size()) << NV("master_dark_exposure_ms", darks.masterDark.ImgExpDur)
+         << NV("master_dark_frame_count", darks.masterDark.ImgStackCnt) << NV("image_mean", stats.mean, 2)
+         << NV("image_stdev", stats.stdev, 2) << NV("image_median", (int) stats.median) << NV("image_mad", (int) stats.mad)
+         << NV("saved", save) << NV("loaded", loaded);
+    response << jrpc_result(rslt);
+}
+
+static void add_bad_pixel(JObj& response, const json_value *params)
+{
+    Params p("x", "y", params);
+    const json_value *jx = p.param("x");
+    const json_value *jy = p.param("y");
+    long x = -1, y = -1;
+    if (!jx || !json_to_long(jx, &x) || !jy || !json_to_long(jy, &y) || x < 0 || y < 0)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected non-negative x and y params");
+        return;
+    }
+
+    if (!pCamera || !pCamera->Connected)
+    {
+        response << jrpc_error(1, "camera is not connected");
+        return;
+    }
+    // best-effort bounds check: FrameSize is only known once a frame has been
+    // captured; an out-of-range entry is otherwise inert (RemoveDefects
+    // bounds-checks every defect against the light frame)
+    if (pCamera->FrameSize.GetWidth() > 0 && (x >= pCamera->FrameSize.GetWidth() || y >= pCamera->FrameSize.GetHeight()))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "pixel is outside the camera frame");
+        return;
+    }
+
+    bool added = false;
+    {
+        wxCriticalSectionLocker lck(pCamera->DarkFrameLock);
+        DefectMap *pCurrMap = pCamera->CurrentDefectMap;
+        if (!pCurrMap)
+        {
+            response << jrpc_error(1, "no defect map is loaded; enable it with set_defect_map_enabled");
+            return;
+        }
+        wxPoint badspot((int) x, (int) y);
+        if (!pCurrMap->FindDefect(badspot))
+        {
+            pCurrMap->AddDefect(badspot); // updates both the in-memory map and the disk file
+            added = true;
+        }
+    }
+
+    JObj rslt;
+    rslt << NV("x", (int) x) << NV("y", (int) y) << NV("added", added);
+    response << jrpc_result(rslt);
+}
+
+static void set_dark_auto_load(JObj& response, const json_value *params)
+{
+    Params p("auto_load_darks", "auto_load_defect_map", params);
+    const json_value *darks = p.param("auto_load_darks");
+    const json_value *defect = p.param("auto_load_defect_map");
+    bool darksVal = false, defectVal = false;
+
+    if (!darks && !defect)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected auto_load_darks and/or auto_load_defect_map param");
+        return;
+    }
+    if (darks && !json_to_bool(darks, &darksVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected auto_load_darks boolean");
+        return;
+    }
+    if (defect && !json_to_bool(defect, &defectVal))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected auto_load_defect_map boolean");
+        return;
+    }
+
+    if (darks)
+        pConfig->Profile.SetBoolean("/camera/AutoLoadDarks", darksVal);
+    if (defect)
+        pConfig->Profile.SetBoolean("/camera/AutoLoadDefectMap", defectVal);
+    pConfig->Flush();
+
+    get_calibration_files_status(response, nullptr);
+}
+
 static void delete_calibration_files(JObj& response, const json_value *params)
 {
     Params p("delete_dark_library", "delete_defect_map", params);
@@ -5564,6 +5737,9 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_defect_map_enabled", &set_defect_map_enabled },
         { "build_dark_library", &build_dark_library },
         { "build_defect_map_darks", &build_defect_map_darks },
+        { "rebuild_defect_map", &rebuild_defect_map },
+        { "add_bad_pixel", &add_bad_pixel },
+        { "set_dark_auto_load", &set_dark_auto_load },
         { "delete_calibration_files", &delete_calibration_files },
         { "get_cooler_status", &get_cooler_status },
         { "set_cooler_state", &set_cooler_state },
