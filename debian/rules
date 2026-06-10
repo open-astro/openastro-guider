@@ -7,10 +7,27 @@
 DPKG_EXPORT_BUILDFLAGS = 1
 include /usr/share/dpkg/default.mk
 
+# Build accelerators (same setup as AlpacaBridge): the Ninja generator and
+# the ccache compiler launcher, each used only when installed so a bare
+# dpkg-buildpackage still works without them. Neither is a hard
+# Build-Depends; build-deb.sh auto-installs both.
+ifneq (,$(shell command -v ninja 2>/dev/null))
+BUILDSYSTEM = cmake+ninja
+else
+BUILDSYSTEM = cmake
+endif
+ifneq (,$(shell command -v ccache 2>/dev/null))
+CCACHE_ARGS = -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+# debhelper compat 13 runs the build with HOME pointed at a scratch dir under
+# debian/.debhelper/ that dh clean wipes, so ccache's HOME-derived default
+# cache would be discarded between runs. Pin the real cache dir instead
+# (still overridable via the environment).
+export CCACHE_DIR ?= $(HOME)/.cache/ccache
+endif
 
 # main packaging script based on dh7 syntax
 %:
-	dh $@
+	dh $@ --buildsystem=$(BUILDSYSTEM)
 
 override_dh_auto_configure:
 	@set -e; \
@@ -24,7 +41,7 @@ override_dh_auto_configure:
 		echo "Syncing debian/changelog version $$CHANGELOG_VERSION -> $$VERSION"; \
 		sed -i -E "1 s/^openastro-phd2 \\([^)]*\\) /openastro-phd2 ($$VERSION) /" $(CURDIR)/debian/changelog; \
 	fi
-	dh_auto_configure -- -DUSE_SYSTEM_GTEST=1 -DOPENSOURCE_ONLY=1
+	dh_auto_configure --buildsystem=$(BUILDSYSTEM) -- -DUSE_SYSTEM_GTEST=1 -DOPENSOURCE_ONLY=1 $(CCACHE_ARGS)
 
 # Force ctest to run even when DEB_BUILD_OPTIONS=nocheck is set. The fork
 # does not ship through Debian autobuilders, so honouring the standard

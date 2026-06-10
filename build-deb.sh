@@ -192,6 +192,28 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Build accelerators: ccache + ninja (same setup as AlpacaBridge's
+# build_and_run.sh). debian/rules picks both up automatically when present:
+# Ninja as the cmake generator and ccache as the compiler launcher. Every
+# dpkg-buildpackage run starts from a clean tree, so ccache is what makes
+# repeat package builds fast. Both are tiny, stable Debian packages; if one
+# is missing and we have sudo+apt we install it, otherwise we just build
+# without (Make + plain compiles).
+# ---------------------------------------------------------------------------
+accel_missing=()
+command -v ccache &>/dev/null || accel_missing+=(ccache)
+command -v ninja &>/dev/null || accel_missing+=(ninja-build)
+if [[ ${#accel_missing[@]} -gt 0 ]]; then
+    if command -v sudo &>/dev/null && command -v apt-get &>/dev/null; then
+        step "Installing build accelerators: ${accel_missing[*]}"
+        sudo apt-get update -qq
+        sudo apt-get install -y "${accel_missing[@]}"
+    else
+        warn "Missing build accelerators (${accel_missing[*]}) and no sudo+apt; building with Make and no compiler cache."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Clean if requested
 # ---------------------------------------------------------------------------
 if "$CLEAN"; then
