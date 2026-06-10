@@ -18,10 +18,13 @@ Requires numpy (frame synthesis only).
 import argparse
 import json
 import re
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 W, H = 640, 480
 state = {"connected": False, "imageready": False}
+# handlers run on concurrent threads (ThreadingHTTPServer); guard shared state
+state_lock = threading.Lock()
 
 _frame = None
 
@@ -29,21 +32,22 @@ _frame = None
 def star_field():
     """Synthetic frame: noisy background + a dozen Gaussian stars."""
     global _frame
-    if _frame is None:
-        import numpy as np
+    with state_lock:
+        if _frame is None:
+            import numpy as np
 
-        rng = np.random.default_rng(7)
-        img = rng.normal(800, 15, (H, W))
-        stars = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000),
-                 (120, 350, 35000), (420, 380, 28000), (560, 300, 22000), (250, 420, 18000),
-                 (380, 60, 26000), (60, 250, 32000), (520, 430, 24000), (300, 160, 15000)]
-        yy, xx = np.mgrid[0:H, 0:W]
-        for sx, sy, flux in stars:
-            img += flux * np.exp(-(((xx - sx) ** 2 + (yy - sy) ** 2) / (2 * 2.0 ** 2)))
-        img = img.clip(0, 65535).astype(int)
-        # Alpaca imagearray is [x][y] (column-major)
-        _frame = img.T.tolist()
-    return _frame
+            rng = np.random.default_rng(7)
+            img = rng.normal(800, 15, (H, W))
+            stars = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000),
+                     (120, 350, 35000), (420, 380, 28000), (560, 300, 22000), (250, 420, 18000),
+                     (380, 60, 26000), (60, 250, 32000), (520, 430, 24000), (300, 160, 15000)]
+            yy, xx = np.mgrid[0:H, 0:W]
+            for sx, sy, flux in stars:
+                img += flux * np.exp(-(((xx - sx) ** 2 + (yy - sy) ** 2) / (2 * 2.0 ** 2)))
+            img = img.clip(0, 65535).astype(int)
+            # Alpaca imagearray is [x][y] (column-major)
+            _frame = img.T.tolist()
+        return _frame
 
 
 PROPS = {
@@ -93,9 +97,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         prop = self.prop_name()
         if prop == "connected":
-            return self.reply(state["connected"])
+            with state_lock:
+                value = state["connected"]
+            return self.reply(value)
         if prop == "imageready":
-            return self.reply(state["imageready"])
+            with state_lock:
+                value = state["imageready"]
+            return self.reply(value)
         if prop == "imagearray":
             return self.reply(star_field())
         if prop in PROPS:
@@ -108,11 +116,14 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length).decode() if length else ""
         prop = self.prop_name()
         if prop == "connected":
-            state["connected"] = "true" in body.lower()
+            with state_lock:
+                state["connected"] = "true" in body.lower()
         elif prop == "startexposure":
-            state["imageready"] = True
+            with state_lock:
+                state["imageready"] = True
         elif prop in ("abortexposure", "stopexposure"):
-            state["imageready"] = False
+            with state_lock:
+                state["imageready"] = False
         else:
             self.log_message("unknown PUT %s body=%s", self.path, body)
         return self.reply(None)

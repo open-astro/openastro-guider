@@ -1070,10 +1070,13 @@ static bool json_to_bool(const json_value *val, bool *out)
 
 static void pa_session_status(JObj& rslt)
 {
-    bool active = pa_session_active();
+    // snapshot the clock once so a session expiring mid-call cannot yield
+    // {"active":true,"expires_in_s":<negative>}
+    wxLongLong now = wxGetUTCTimeMillis();
+    bool active = s_paSessionExpiresMs != 0 && now < s_paSessionExpiresMs;
     rslt << NV("active", active);
     if (active)
-        rslt << NV("expires_in_s", (int) ((s_paSessionExpiresMs - wxGetUTCTimeMillis()).GetValue() / 1000));
+        rslt << NV("expires_in_s", (int) ((s_paSessionExpiresMs - now).GetValue() / 1000));
 }
 
 static void get_pa_session(JObj& response, const json_value *params)
