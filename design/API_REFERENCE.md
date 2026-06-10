@@ -13,8 +13,11 @@ The same method table is served over **two** sockets (both bind `0.0.0.0`, insta
 - **TCP `:4400`** — the standard PHD2 *event server*: newline-delimited JSON-RPC requests, plus
   an asynchronous **event stream** pushed to every connected client. This is what **NINA**
   speaks. Port = `4400 + (instance − 1)`.
-- **HTTP `:8080`** — an embedded server that (a) serves the static web UI and (b) bridges
-  `POST /api/rpc` to the *same* dispatch. This is what **ARA** / browsers use. Port =
+- **HTTP `:8080`** — an embedded server that (a) serves the static **web app** (a full
+  PHD2-like UI: guide graph + live frame + controls, all three polar-alignment tools,
+  equipment, settings, darks — `scripts/webui/`), (b) bridges `POST /api/rpc` to the *same*
+  dispatch, and (c) serves `GET /api/frame.jpg` — the current guide frame stretched for
+  display, polled by the web app's live view. This is what **ARA** / browsers use. Port =
   `8080 + (instance − 1)`.
 
 **Request** (JSON-RPC 2.0): `{"method": "<name>", "params": {...}|[...], "id": <n>}`.
@@ -150,6 +153,7 @@ drift/adjust until the error is small; switch phase and do the other axis.
 | `set_dither_settings` | `ScaleFactor`, `RaOnly` (either optional) | **(Batch A)** Set default dither scale / RA-only. |
 | `get_guide_output_enabled` | — | Whether guide output (corrections) is enabled. |
 | `set_guide_output_enabled` | `enabled` (bool) | Enable/disable sending guide corrections. |
+| `get_guide_history` | `max_points` (1–400, default 200) | Guide-step history + summary stats from the graph's data store (HTTP clients have no event stream, so they poll this): `{pixel_scale, stats {n, rms_ra, rms_dec, rms_tot, osc_index, ra_peak, dec_peak, star_lost, ra_limited, dec_limited}, points [{t (ms epoch), dx, dy, ra, dec (px), ra_dur, dec_dur (ms), ra_dir, dec_dir, mass, snr}]}`. |
 | `get_mount_options` | — | **(Batch C)** `{AssumeOrthogonal, CalFlipRequiresDecFlip, StopGuidingWhenSlewing}`. |
 | `set_mount_options` | `AssumeOrthogonal`?, `CalFlipRequiresDecFlip`?, `StopGuidingWhenSlewing`? (bool) | **(Batch C)** Set the mount behaviour flags (all optional). |
 | `get_backlash_comp` | — | **(Batch C)** `{Enabled, PulseWidth, Floor, Ceiling}` (ms) for declination backlash compensation. |

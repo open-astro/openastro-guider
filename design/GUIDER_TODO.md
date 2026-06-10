@@ -82,8 +82,12 @@ Headless-by-default + the systemd unit landed; these are the deliberate follow-u
   were already covered, and the missing Refine-Bad-pixel-Map surface is now exposed as
   `rebuild_defect_map` (custom hot/cold aggressiveness, dry-run preview), `add_bad_pixel`,
   and `set_dark_auto_load` (see `API_CONTRACT.md`). **Phase 5 is complete.**
-- **Web-UI UX rework** (`scripts/webui/index.html`) — functional but poor UX; revisit once the
-  API is complete (or let ARA supersede it).
+- ~~**Web-UI UX rework**~~ **Resolved.** `scripts/webui/` was rebuilt from the setup wizard
+  into a full PHD2-like single-page app (vanilla JS/CSS, no build step or CDN): guide tab
+  (live `/api/frame.jpg` view with star/lock overlays, PHD2-style guide graph polling the new
+  `get_guide_history`, loop/select/guide/dither/pause controls), all three polar-alignment
+  tools, equipment/profile/Alpaca management, the Batch A–C2 settings surface, and dark/BPM
+  management.
 - **NINA plugin** (future) — configure settings through a plugin while guiding runs through the
   main NINA app over `:4400`.
 

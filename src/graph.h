@@ -175,6 +175,10 @@ public:
     // fewer than 2 samples, zero time span, or |dec| beyond the comp limit).
     bool GetPolarAlignmentError(double *errArcmin, double *decDriftArcsecPerMin) const;
 
+    // read-only access to the guide-step history for the JSON-RPC
+    // get_guide_history readout (the web UI's guide graph)
+    const circular_buffer<S_HISTORY>& History() const { return m_history; }
+
 private:
     void RecalculateTrendLines();
     void UpdateStats(unsigned int nr, const S_HISTORY *cur);
@@ -272,6 +276,7 @@ public:
     {
         return m_pClient->GetPolarAlignmentError(errArcmin, decDriftArcsecPerMin);
     }
+    const circular_buffer<S_HISTORY>& History() const { return m_pClient->History(); }
     void ResetData();
 
     wxDECLARE_EVENT_TABLE();
