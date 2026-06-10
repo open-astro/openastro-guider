@@ -204,14 +204,11 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `set_dark_library_enabled` | `enabled` (bool) | Enable/disable dark subtraction. |
 | `set_defect_map_enabled` | `enabled` (bool) | Enable/disable the bad-pixel map. |
 
-## Deprecated (INDI — removed in Phase 3)
+## Removed methods (INDI — dropped in Phase 3)
 
-INDI support was removed; these remain only for protocol compatibility and reference no live
-backend. Do not use.
-
-`get_indi_server`, `set_indi_server`, `get_selected_indi_camera_driver`,
-`set_selected_indi_camera_driver`, `get_selected_indi_mount_driver`,
-`set_selected_indi_mount_driver`.
+INDI support was removed in Phase 3 and the vestigial `get_indi_server`, `set_indi_server`,
+`get/set_selected_indi_camera_driver`, and `get/set_selected_indi_mount_driver` methods were
+deleted afterwards; calling them now returns a standard "method not found" JSON-RPC error.
 
 ---
 

@@ -896,15 +896,6 @@ static bool any_equipment_connected()
         (TheAO() && TheAO()->IsConnected());
 }
 
-static wxString extract_bracketed_driver_name(const wxString& selection)
-{
-    int lbracket = selection.Find('[');
-    int rbracket = selection.Find(']', true);
-    if (lbracket == wxNOT_FOUND || rbracket == wxNOT_FOUND || rbracket <= lbracket + 1)
-        return wxEmptyString;
-    return selection.Mid(lbracket + 1, rbracket - lbracket - 1);
-}
-
 static void apply_selection_to_control(int choiceControlId, const wxArrayString& choices, const wxString& selectedChoice)
 {
     wxWindow *wnd = pFrame->pGearDialog->FindWindow(choiceControlId);
@@ -1068,57 +1059,6 @@ static bool parse_device_number_from_display(const wxString& display, long *devi
         return true;
     }
     return false;
-}
-
-static void get_indi_server(JObj& response, const json_value *params)
-{
-    JObj t;
-    t << NV("host", pConfig->Profile.GetString("/indi/INDIhost", _("localhost")))
-      << NV("port", static_cast<int>(pConfig->Profile.GetLong("/indi/INDIport", 7624)));
-    response << jrpc_result(t);
-}
-
-static void set_indi_server(JObj& response, const json_value *params)
-{
-    Params p("host", "port", params);
-    const json_value *host = p.param("host");
-    const json_value *port = p.param("port");
-
-    if (any_equipment_connected())
-    {
-        response << jrpc_error(1, "cannot change INDI server while equipment is connected");
-        return;
-    }
-
-    if (!host && !port)
-    {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected host and/or port param");
-        return;
-    }
-
-    if (host)
-    {
-        if (host->type != JSON_STRING || wxString(host->string_value).IsEmpty())
-        {
-            response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected non-empty host string");
-            return;
-        }
-        pConfig->Profile.SetString("/indi/INDIhost", host->string_value);
-    }
-
-    if (port)
-    {
-        long indiPort = 0;
-        if (!json_to_long(port, &indiPort) || indiPort < 1 || indiPort > 65535)
-        {
-            response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected INDI port in range 1..65535");
-            return;
-        }
-        pConfig->Profile.SetLong("/indi/INDIport", indiPort);
-    }
-
-    pConfig->Flush();
-    response << jrpc_result(0);
 }
 
 static void get_alpaca_server(JObj& response, const json_value *params)
@@ -1548,11 +1488,6 @@ static void get_selected_mount(JObj& response, const json_value *params)
     response << jrpc_result(pConfig->Profile.GetString("/scope/LastMenuChoice", _("None")));
 }
 
-static void get_selected_indi_mount_driver(JObj& response, const json_value *params)
-{
-    response << jrpc_result(pConfig->Profile.GetString("/indi/INDImount", wxEmptyString));
-}
-
 static void set_selected_mount(JObj& response, const json_value *params)
 {
     Params p("mount", params);
@@ -1578,50 +1513,8 @@ static void set_selected_mount(JObj& response, const json_value *params)
     }
 
     pConfig->Profile.SetString("/scope/LastMenuChoice", choice);
-    if (choice.Contains("INDI"))
-    {
-        wxString driverName = extract_bracketed_driver_name(choice);
-        if (!driverName.IsEmpty())
-            pConfig->Profile.SetString("/indi/INDImount", driverName);
-    }
     pConfig->Flush();
     apply_selection_to_control(GEAR_CHOICE_SCOPE, choices, choice);
-    response << jrpc_result(0);
-}
-
-static void set_selected_indi_mount_driver(JObj& response, const json_value *params)
-{
-    Params p("mount_driver", "mount", "driver", params);
-    const json_value *driver = p.param("mount_driver");
-    if (!driver)
-        driver = p.param("mount");
-    if (!driver)
-        driver = p.param("driver");
-    if (!driver || driver->type != JSON_STRING)
-    {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected mount_driver param");
-        return;
-    }
-
-    if (any_equipment_connected())
-    {
-        response << jrpc_error(1, "cannot change mount selection while equipment is connected");
-        return;
-    }
-
-    pConfig->Profile.SetString("/indi/INDImount", driver->string_value);
-
-    wxString selectedMount = pConfig->Profile.GetString("/scope/LastMenuChoice", _("None"));
-    if (selectedMount.Contains("INDI"))
-    {
-        pConfig->Profile.SetString("/scope/LastMenuChoice", wxString::Format(_("INDI Mount [%s]"), driver->string_value));
-        wxArrayString choices = Scope::MountList();
-        wxString choice;
-        if (FindMatchingChoice(choices, pConfig->Profile.GetString("/scope/LastMenuChoice", _("None")), &choice))
-            apply_selection_to_control(GEAR_CHOICE_SCOPE, choices, choice);
-    }
-
-    pConfig->Flush();
     response << jrpc_result(0);
 }
 
@@ -1636,11 +1529,6 @@ static void get_selected_camera_id(JObj& response, const json_value *params)
     wxString key = GearDialog::CameraSelectionKey(camName);
     wxString camId = pConfig->Profile.GetString(key, GuideCamera::DEFAULT_CAMERA_ID);
     response << jrpc_result(camId);
-}
-
-static void get_selected_indi_camera_driver(JObj& response, const json_value *params)
-{
-    response << jrpc_result(pConfig->Profile.GetString("/indi/INDIcam", wxEmptyString));
 }
 
 static void set_selected_camera(JObj& response, const json_value *params)
@@ -1668,12 +1556,6 @@ static void set_selected_camera(JObj& response, const json_value *params)
     }
 
     pConfig->Profile.SetString("/camera/LastMenuChoice", choice);
-    if (choice.Contains("INDI"))
-    {
-        wxString driverName = extract_bracketed_driver_name(choice);
-        if (!driverName.IsEmpty())
-            pConfig->Profile.SetString("/indi/INDIcam", driverName);
-    }
     pConfig->Flush();
     apply_selection_to_control(GEAR_CHOICE_CAMERA, choices, choice);
     response << jrpc_result(0);
@@ -1692,42 +1574,6 @@ static void set_selected_camera_id(JObj& response, const json_value *params)
     wxString camName = selected_camera_choice();
     wxString key = GearDialog::CameraSelectionKey(camName);
     pConfig->Profile.SetString(key, cameraId->string_value);
-    pConfig->Flush();
-    response << jrpc_result(0);
-}
-
-static void set_selected_indi_camera_driver(JObj& response, const json_value *params)
-{
-    Params p("camera_driver", "camera", "driver", params);
-    const json_value *driver = p.param("camera_driver");
-    if (!driver)
-        driver = p.param("camera");
-    if (!driver)
-        driver = p.param("driver");
-    if (!driver || driver->type != JSON_STRING)
-    {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected camera_driver param");
-        return;
-    }
-
-    if (any_equipment_connected())
-    {
-        response << jrpc_error(1, "cannot change camera selection while equipment is connected");
-        return;
-    }
-
-    pConfig->Profile.SetString("/indi/INDIcam", driver->string_value);
-
-    wxString selectedCamera = selected_camera_choice();
-    if (selectedCamera.Contains("INDI"))
-    {
-        pConfig->Profile.SetString("/camera/LastMenuChoice", wxString::Format("INDI Camera [%s]", driver->string_value));
-        wxArrayString choices = GuideCamera::GuideCameraList();
-        wxString choice;
-        if (FindMatchingChoice(choices, pConfig->Profile.GetString("/camera/LastMenuChoice", _("None")), &choice))
-            apply_selection_to_control(GEAR_CHOICE_CAMERA, choices, choice);
-    }
-
     pConfig->Flush();
     response << jrpc_result(0);
 }
@@ -1811,12 +1657,6 @@ static void set_selected_rotator(JObj& response, const json_value *params)
     }
 
     pConfig->Profile.SetString("/rotator/LastMenuChoice", choice);
-    if (choice.Contains("INDI"))
-    {
-        wxString driverName = extract_bracketed_driver_name(choice);
-        if (!driverName.IsEmpty())
-            pConfig->Profile.SetString("/indi/INDIrotator", driverName);
-    }
     pConfig->Flush();
     apply_selection_to_control(GEAR_CHOICE_ROTATOR, choices, choice);
     response << jrpc_result(0);
@@ -5489,8 +5329,6 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "get_camera_binning", &get_camera_binning },
         { "get_camera_frame_size", &get_camera_frame_size },
         { "get_current_equipment", &get_current_equipment },
-        { "get_indi_server", &get_indi_server },
-        { "set_indi_server", &set_indi_server },
         { "get_alpaca_server", &get_alpaca_server },
         { "set_alpaca_server", &set_alpaca_server },
         { "discover_alpaca_servers", &discover_alpaca_servers },
@@ -5500,15 +5338,11 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_selected_alpaca_device", &set_selected_alpaca_device },
         { "get_equipment_choices", &get_equipment_choices },
         { "get_selected_mount", &get_selected_mount },
-        { "get_selected_indi_mount_driver", &get_selected_indi_mount_driver },
         { "set_selected_mount", &set_selected_mount },
-        { "set_selected_indi_mount_driver", &set_selected_indi_mount_driver },
         { "get_selected_camera", &get_selected_camera },
         { "get_selected_camera_id", &get_selected_camera_id },
-        { "get_selected_indi_camera_driver", &get_selected_indi_camera_driver },
         { "set_selected_camera", &set_selected_camera },
         { "set_selected_camera_id", &set_selected_camera_id },
-        { "set_selected_indi_camera_driver", &set_selected_indi_camera_driver },
         { "get_camera_bitdepth", &get_camera_bitdepth },
         { "set_camera_bitdepth", &set_camera_bitdepth },
         { "get_selected_aux_mount", &get_selected_aux_mount },
