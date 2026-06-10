@@ -110,3 +110,29 @@ recapturing) and the auto-load flags:
   defect map auto-load on camera connect (the flags `get_calibration_files_status` reports).
 
 ARA call sites: the dark-library / bad-pixel-map panel.
+
+### Polar-alignment guider-side enablers (2026-06-10)
+The PA routine is ARA-orchestrated (`POLAR_ALIGNMENT_DESIGN.md`); these are the guider's
+contributions, on the shared dispatch:
+
+- `get_star_centroids` { `roi`? ([x,y,w,h]), `max_stars`? (1..50, default 12) } → result:
+  `[{ x, y, snr, mass, hfd }, …]` — sub-pixel centroids of stars detected on the **current**
+  frame, with no star selection / guider-state change (unlike `find_star`). Errors with no
+  current image, on subframe images, or when no stars are found. This is the §8/§11 multi-star
+  centroid report for the narrow-FOV centroid-track loop.
+- `set_pa_session` { `active` (bool), `timeout_s`? (10..3600, default 600) } → result:
+  { `active`, `expires_in_s`? }. Starts/renews (or ends) the §4 camera-ownership lease: while
+  active, `guide` / `loop` / `dither` / `guide_pulse` / `build_dark_library` /
+  `build_defect_map_darks` / `set_connected` are rejected ("polar-alignment session in
+  progress"); `capture_single_frame`, `find_star`, `get_star_centroids`, and `stop_capture`
+  stay available. Auto-expires so a crashed orchestrator can't wedge the daemon. Starting is
+  rejected while calibrating/guiding.
+- `get_pa_session` → result: { `active`, `expires_in_s`? }.
+
+Also verified (the §12.1 spike gate): `capture_single_frame` with `save` + absolute `path`
+writes a solver-ready FITS (16-bit unsigned; `EXPOSURE`, `DATE-OBS`, `XBINNING`,
+`XPIXSZ`/`YPIXSZ`, `SCALE`/`PIXSCALE` arcsec/px, `INSTRUME`, `SATURATE`) and the
+`SingleFrameComplete` event carries `Success` + `Path`. No RA/Dec in the header — ARA seeds
+the solver from the mount pointing.
+
+ARA call sites: the polar-alignment routine (all phases).
