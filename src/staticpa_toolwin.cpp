@@ -732,7 +732,8 @@ void StaticPaToolWin::CalcRotationCentre(void)
     return;
 }
 
-void StaticPaToolWin::CalcAdjustments(void)
+staticpa_geom::AltAzResult StaticPaToolWin::CalcAdjustmentsFor(const PHD_Point& measured, staticpa_geom::Px *targetOut,
+                                                               double *haDegOut)
 {
     // Caclulate pixel values for the alignment stars relative to the CoR
     PHD_Point starpx, stardeg;
@@ -741,10 +742,6 @@ void StaticPaToolWin::CalcAdjustments(void)
     // Convert to display pixel values by adding the CoR pixel coordinates
     double xt = starpx.X + m_pxCentre.X;
     double yt = starpx.Y + m_pxCentre.Y;
-
-    int idx = m_auto ? 1 : 2;
-    double xs = m_pxPos[idx].X;
-    double ys = m_pxPos[idx].Y;
 
     // Calculate the camera rotation from the Azimuth axis
     // HA = LST - RA
@@ -766,7 +763,18 @@ void StaticPaToolWin::CalcAdjustments(void)
     {
         ha_deg = norm((st_hrs - ra_hrs) * 15.0 + m_ha, 0, 360);
     }
-    staticpa_geom::AltAzResult adj = staticpa_geom::DecomposeAltAz({ xt, yt }, { xs, ys }, m_camAngle, ha_deg);
+    if (targetOut)
+        *targetOut = { xt, yt };
+    if (haDegOut)
+        *haDegOut = ha_deg;
+    return staticpa_geom::DecomposeAltAz({ xt, yt }, { measured.X, measured.Y }, m_camAngle, ha_deg);
+}
+
+void StaticPaToolWin::CalcAdjustments(void)
+{
+    int idx = m_auto ? 1 : 2;
+    double ha_deg = 0.;
+    staticpa_geom::AltAzResult adj = CalcAdjustmentsFor(m_pxPos[idx], nullptr, &ha_deg);
 
     m_AzCorr.X = adj.vec.a.x;
     m_AzCorr.Y = adj.vec.a.y;

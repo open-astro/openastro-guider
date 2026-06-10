@@ -136,3 +136,29 @@ writes a solver-ready FITS (16-bit unsigned; `EXPOSURE`, `DATE-OBS`, `XBINNING`,
 the solver from the mount pointing.
 
 ARA call sites: the polar-alignment routine (all phases).
+
+### Static Polar Alignment over RPC (2026-06-10)
+The in-guider **Static PA** (center-of-rotation) tool is now drivable headlessly. The RPC layer
+constructs the existing `StaticPaToolWin` without showing it and the alignment state machine
+runs from the guider's per-frame hook exactly as for the desktop GUI (no logic duplicated; the
+adjustment math was factored into `StaticPaToolWin::CalcAdjustmentsFor` so the GUI chart and
+the API status share one code path).
+
+- `staticpa_start` { `auto`?, `hemisphere`? ("north"/"south"), `ref_star`? (index),
+  `hour_angle`? (0..24 h), `flip_camera`? } → result: the status object. Requires camera,
+  known pixel scale, looping + selected star; rejects auto without an async-slew mount.
+- `staticpa_measure` { `position`: 2|3 } → status. Manual mode: record point 2/3 on the next
+  frame (client rotates RA between points).
+- `staticpa_get_status` → { `active`, `aligning`, `auto`, `can_slew`, `hemisphere`,
+  `hour_angle`, `flip_camera`, `pixel_scale`, `camera_angle`, `ref_star`, `ref_stars` (8
+  near-pole catalog stars, RA/Dec of date), `measured_points`, `rotation`? (auto progress),
+  `calced`, and when calced: `centre {x,y,radius_px}`, `adjustment` (alt/az/total error px +
+  arcmin, correction vectors), `ref_star_target`, `current_star`, `live_adjustment` (same
+  decomposition vs the live star — poll this during bolt adjustment; it converges to zero) }.
+- `staticpa_stop` → status. Auto: aborts slew + clears points; manual: keeps points.
+- `staticpa_close` → 0. Tears the tool down.
+
+Verified live against `scripts/fake_alpaca_camera.py` with its new `--rotate-deg-per-sec` /
+`--pole` star-field rotation: the manual 3-point flow recovered the simulated pole to ~0.2 px
+(centre (149.84, 200.02) vs true (150, 200), radius 150.15 px). ARA call sites: the
+polar-alignment routine's near-pole mode.

@@ -34,6 +34,7 @@
 
 #include "phd.h"
 #include "backlash_comp.h"
+#include "staticpa_toolwin.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
@@ -2664,6 +2665,323 @@ static void get_star_centroids(JObj& response, const json_value *params)
         stars << star;
     }
     response << jrpc_result(stars);
+}
+
+// --- Static Polar Alignment over RPC ----------------------------------------
+//
+// These methods drive the existing StaticPaToolWin headlessly: the window is
+// constructed but never shown, and the alignment state machine runs from the
+// guider's per-frame hook (StaticPaTool::UpdateState in Guider::UpdateGuideState,
+// STATE_SELECTED) exactly as it does for the desktop GUI. No tool logic is
+// duplicated here; the RPC layer only configures the tool and reads it out.
+
+static StaticPaToolWin *static_pa_tool()
+{
+    StaticPaToolWin *win = static_cast<StaticPaToolWin *>(pFrame->pStaticPaTool);
+    if (win && win->IsBeingDeleted())
+        return nullptr;
+    return win;
+}
+
+static void staticpa_adjustment_obj(StaticPaToolWin *tool, const staticpa_geom::AltAzResult& adj, JObj& out)
+{
+    JObj azVec, altVec;
+    azVec << NV("x", adj.vec.a.x, 2) << NV("y", adj.vec.a.y, 2);
+    altVec << NV("x", adj.vec.b.x, 2) << NV("y", adj.vec.b.y, 2);
+    out << NV("alt_error_px", adj.altErrPx, 2) << NV("az_error_px", adj.azErrPx, 2) << NV("total_error_px", adj.totErrPx, 2)
+        << NV("alt_error_arcmin", fabs(adj.altErrPx) * tool->m_pxScale / 60, 2)
+        << NV("az_error_arcmin", fabs(adj.azErrPx) * tool->m_pxScale / 60, 2)
+        << NV("total_error_arcmin", fabs(adj.totErrPx) * tool->m_pxScale / 60, 2) << NV("az_vector", azVec)
+        << NV("alt_vector", altVec);
+}
+
+static void staticpa_status_obj(JObj& rslt)
+{
+    StaticPaToolWin *tool = static_pa_tool();
+    rslt << NV("active", tool != nullptr);
+    if (!tool)
+        return;
+
+    rslt << NV("aligning", tool->IsAligning()) << NV("auto", tool->m_auto) << NV("can_slew", tool->m_canSlew)
+         << NV("hemisphere", tool->m_hemi > 0 ? "north" : "south") << NV("hour_angle", tool->m_ha / 15.0, 2)
+         << NV("flip_camera", tool->m_flip) << NV("pixel_scale", tool->m_pxScale, 2) << NV("camera_angle", tool->m_camAngle, 1);
+
+    JAry stars;
+    for (size_t i = 0; i < tool->m_poleStars->size(); i++)
+    {
+        const StaticPaToolWin::Star& s = tool->m_poleStars->at(i);
+        JObj star;
+        star << NV("index", (int) i) << NV("name", wxString(s.name)) << NV("ra", s.ra, 5) << NV("dec", s.dec, 5)
+             << NV("mag", s.mag, 2);
+        stars << star;
+    }
+    rslt << NV("ref_star", tool->m_refStar) << NV("ref_stars", stars);
+
+    JAry pts;
+    for (int i = 0; i < 3; i++)
+    {
+        if (tool->HasState(i + 1))
+        {
+            JObj pt;
+            pt << NV("position", i + 1) << NV("x", tool->m_pxPos[i].X, 2) << NV("y", tool->m_pxPos[i].Y, 2);
+            pts << pt;
+        }
+    }
+    rslt << NV("measured_points", pts);
+
+    if (tool->IsAligning() && tool->m_auto)
+    {
+        JObj rot;
+        rot << NV("required_deg", tool->m_reqRot, 2) << NV("rotated_deg", tool->m_totRot, 2) << NV("step", tool->m_nStep)
+            << NV("required_steps", tool->m_reqStep) << NV("slewing", pPointingSource && pPointingSource->Slewing());
+        rslt << NV("rotation", rot);
+    }
+
+    bool calced = tool->IsCalced();
+    rslt << NV("calced", calced);
+    if (!calced)
+        return;
+
+    JObj centre;
+    centre << NV("x", tool->m_pxCentre.X, 2) << NV("y", tool->m_pxCentre.Y, 2) << NV("radius_px", tool->m_radius, 2);
+    rslt << NV("centre", centre);
+
+    // adjustment at the measured alignment point (what the GUI chart shows)
+    int idx = tool->m_auto ? 1 : 2;
+    staticpa_geom::Px target;
+    staticpa_geom::AltAzResult adj = tool->CalcAdjustmentsFor(tool->m_pxPos[idx], &target);
+    JObj adjObj;
+    staticpa_adjustment_obj(tool, adj, adjObj);
+    rslt << NV("adjustment", adjObj);
+
+    JObj tgt;
+    tgt << NV("x", target.x, 2) << NV("y", target.y, 2);
+    rslt << NV("ref_star_target", tgt);
+
+    // live adjustment against the star's current position: this is what an
+    // adjust-the-bolts UI polls — it converges to zero as the user moves the
+    // reference star onto its target
+    const PHD_Point& cur = pFrame->pGuider->CurrentPosition();
+    if (cur.IsValid())
+    {
+        JObj curObj;
+        curObj << NV("x", cur.X, 2) << NV("y", cur.Y, 2);
+        rslt << NV("current_star", curObj);
+
+        staticpa_geom::AltAzResult live = tool->CalcAdjustmentsFor(cur);
+        JObj liveObj;
+        staticpa_adjustment_obj(tool, live, liveObj);
+        rslt << NV("live_adjustment", liveObj);
+    }
+}
+
+static void staticpa_get_status(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    JObj rslt;
+    staticpa_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void staticpa_start(JObj& response, const json_value *params)
+{
+    Params p("auto", "hemisphere", "ref_star", "hour_angle", "flip_camera", params);
+
+    if (!pCamera || !pCamera->Connected)
+    {
+        response << jrpc_error(1, "camera is not connected");
+        return;
+    }
+    VERIFY_GUIDER(response);
+    if (pFrame->pGuider->IsCalibratingOrGuiding())
+    {
+        response << jrpc_error(1, "cannot start static polar alignment while calibrating or guiding");
+        return;
+    }
+    if (pFrame->GetCameraPixelScale() == 1.0)
+    {
+        response << jrpc_error(1,
+                               "pixel scale unknown - set the guide scope focal length and camera pixel size in the profile");
+        return;
+    }
+    if (!pFrame->pGuider->IsLocked())
+    {
+        response << jrpc_error(1, "no star selected - start looping and select a star first (loop + find_star)");
+        return;
+    }
+
+    StaticPaToolWin *tool = static_pa_tool();
+    if (tool && tool->IsAligning())
+    {
+        response << jrpc_error(1, "static polar alignment is already running - call staticpa_stop first");
+        return;
+    }
+    if (!tool)
+    {
+        tool = new StaticPaToolWin();
+        pFrame->pStaticPaTool = tool;
+        // deliberately not Show()n: headless sessions drive it over RPC only
+    }
+
+    const json_value *jv;
+    if ((jv = p.param("hemisphere")) != nullptr)
+    {
+        wxString h = jv->type == JSON_STRING ? wxString(jv->string_value).Lower() : wxString();
+        int hemi = h == "north" ? 1 : h == "south" ? -1 : 0;
+        if (hemi == 0)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "hemisphere must be \"north\" or \"south\"");
+            return;
+        }
+        if (hemi != tool->m_hemi)
+        {
+            tool->m_refStar = 0;
+            tool->m_hemi = hemi;
+        }
+        pConfig->Profile.SetInt("/StaticPaTool/Hemisphere", hemi);
+    }
+
+    bool autoMode = tool->m_auto;
+    if ((jv = p.param("auto")) != nullptr && !bool_param(jv, &autoMode))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected auto boolean");
+        return;
+    }
+    if (autoMode && !tool->m_canSlew)
+    {
+        response << jrpc_error(1, "mount cannot slew - use manual mode (auto:false)");
+        return;
+    }
+    tool->m_auto = autoMode;
+    tool->FillPanel(); // refresh m_poleStars for the (possibly new) hemisphere
+
+    if ((jv = p.param("ref_star")) != nullptr)
+    {
+        long refStar = -1;
+        if (!json_to_long(jv, &refStar) || refStar < 0 || refStar >= (long) tool->m_poleStars->size())
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "ref_star must be a valid index from ref_stars");
+            return;
+        }
+        tool->m_refStar = (int) refStar;
+        pConfig->Profile.SetInt("/StaticPaTool/RefStar", (int) refStar);
+    }
+
+    if ((jv = p.param("hour_angle")) != nullptr)
+    {
+        double ha = 0.;
+        if (!float_param(jv, &ha) || ha < 0. || ha > 24.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "hour_angle must be in range 0..24 (hours)");
+            return;
+        }
+        tool->m_ha = ha * 15.0;
+    }
+
+    if ((jv = p.param("flip_camera")) != nullptr)
+    {
+        bool flip = tool->m_flip;
+        if (!bool_param(jv, &flip))
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected flip_camera boolean");
+            return;
+        }
+        tool->m_flip = flip;
+    }
+
+    tool->FillPanel();
+
+    // equivalent of the GUI's Rotate / "Get first position" button
+    tool->m_numPos = 1;
+    if (tool->m_auto)
+        tool->ClearState();
+    tool->m_aligning = true;
+
+    JObj rslt;
+    staticpa_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void staticpa_measure(JObj& response, const json_value *params)
+{
+    Params p("position", params);
+
+    VERIFY_GUIDER(response);
+    StaticPaToolWin *tool = static_pa_tool();
+    if (!tool)
+    {
+        response << jrpc_error(1, "static polar alignment is not active - call staticpa_start first");
+        return;
+    }
+    if (tool->m_auto)
+    {
+        response << jrpc_error(1, "staticpa_measure applies to manual mode only (auto mode measures by itself)");
+        return;
+    }
+
+    long pos = 0;
+    const json_value *jv = p.param("position");
+    if (!jv || !json_to_long(jv, &pos) || pos < 2 || pos > 3)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected position param (2 or 3)");
+        return;
+    }
+    if (!pFrame->pGuider->IsLocked())
+    {
+        response << jrpc_error(1, "no star selected - reselect the reference star first (find_star)");
+        return;
+    }
+
+    tool->m_numPos = (int) pos;
+    tool->m_aligning = true;
+
+    JObj rslt;
+    staticpa_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void staticpa_stop(JObj& response, const json_value *params)
+{
+    StaticPaToolWin *tool = static_pa_tool();
+    if (!tool)
+    {
+        response << jrpc_error(1, "static polar alignment is not active");
+        return;
+    }
+
+    if (tool->IsAligning())
+    {
+        if (tool->m_auto)
+        {
+            if (pPointingSource)
+                pPointingSource->AbortSlew();
+            tool->m_numPos = 0;
+            tool->ClearState();
+        }
+        tool->m_aligning = false;
+        tool->FillPanel();
+    }
+
+    JObj rslt;
+    staticpa_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void staticpa_close(JObj& response, const json_value *params)
+{
+    StaticPaToolWin *tool = static_pa_tool();
+    if (!tool)
+    {
+        response << jrpc_error(1, "static polar alignment is not active");
+        return;
+    }
+
+    if (tool->IsAligning() && tool->m_auto && pPointingSource)
+        pPointingSource->AbortSlew();
+    tool->m_aligning = false;
+    tool->Destroy(); // the destructor clears pFrame->pStaticPaTool
+
+    response << jrpc_result(0);
 }
 
 static void get_pixel_scale(JObj& response, const json_value *params)
@@ -5659,6 +5977,11 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "get_star_centroids", &get_star_centroids },
         { "get_pa_session", &get_pa_session },
         { "set_pa_session", &set_pa_session },
+        { "staticpa_start", &staticpa_start },
+        { "staticpa_measure", &staticpa_measure },
+        { "staticpa_get_status", &staticpa_get_status },
+        { "staticpa_stop", &staticpa_stop },
+        { "staticpa_close", &staticpa_close },
         { "get_pixel_scale", &get_pixel_scale },
         { "get_app_state", &get_app_state },
         { "flip_calibration", &flip_calibration },

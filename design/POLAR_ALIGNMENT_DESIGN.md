@@ -19,6 +19,13 @@ What landed in the guider (see §8/§4 and `API_REFERENCE.md`):
 - **`set_pa_session` / `get_pa_session`** — the §4 ownership enforcement: a renewable,
   auto-expiring lease that rejects `guide`/`loop`/`dither`/`guide_pulse`/dark-building/
   `set_connected` while active (capture/centroid/find_star stay available).
+- **The near-pole CoR mode (§2) shipped server-side, ahead of plan** (2026-06-10): the
+  in-guider Static PA tool is drivable over RPC (`staticpa_start` / `staticpa_measure` /
+  `staticpa_get_status` / `staticpa_stop` / `staticpa_close`), reusing the GUI tool's state
+  machine + the `staticpa_geometry` kernel. ARA gets the dot-to-bullseye reticle data
+  (`ref_star_target` + `current_star`) and a `live_adjustment` alt/az decomposition without
+  needing its plate-solve pipeline. Lease note: don't hold a `set_pa_session` lease while
+  using it (the lease blocks `loop`, which the tool needs).
 
 ---
 
