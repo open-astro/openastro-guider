@@ -5,8 +5,13 @@ Serves a single camera at device number 0 with a deterministic synthetic star
 field (noisy background + a dozen Gaussian stars), enough for the guider's
 camera connect path, capture_single_frame, find_star, and get_star_centroids.
 
+With --rotate-deg-per-sec the star field rotates about --pole (a fake celestial
+pole on the sensor), which is what the polar-alignment flows need: the static-PA
+circle fit should recover the pole point as its centre of rotation.
+
 Usage:
-    python3 scripts/fake_alpaca_camera.py [--host 127.0.0.1] [--port 11111]
+    python3 scripts/fake_alpaca_camera.py [--host 127.0.0.1] [--port 11111] \
+        [--rotate-deg-per-sec 0.8] [--pole 200,150]
 
 Then point the guider at it:
     {"method":"set_alpaca_server","params":{"host":"127.0.0.1","port":11111,"camera_device":0}}
@@ -17,8 +22,10 @@ Requires numpy (frame synthesis only).
 """
 import argparse
 import json
+import math
 import re
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 W, H = 640, 480
@@ -26,27 +33,45 @@ state = {"connected": False, "imageready": False}
 # handlers run on concurrent threads (ThreadingHTTPServer); guard shared state
 state_lock = threading.Lock()
 
-_frame = None
+# Star-field rotation about a fake on-sensor pole (off by default; see --rotate-deg-per-sec)
+ROTATE_DEG_PER_SEC = 0.0
+POLE = (200.0, 150.0)
+T0 = time.monotonic()
+
+STARS = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000),
+         (120, 350, 35000), (420, 380, 28000), (560, 300, 22000), (250, 420, 18000),
+         (380, 60, 26000), (60, 250, 32000), (520, 430, 24000), (300, 160, 15000)]
+
+_frame = None  # cache used only when rotation is off
+
+
+def render(theta_deg):
+    import numpy as np
+
+    rng = np.random.default_rng(7)
+    img = rng.normal(800, 15, (H, W))
+    th = math.radians(theta_deg)
+    px, py = POLE
+    yy, xx = np.mgrid[0:H, 0:W]
+    for sx, sy, flux in STARS:
+        rx, ry = sx - px, sy - py
+        cx = px + rx * math.cos(th) - ry * math.sin(th)
+        cy = py + rx * math.sin(th) + ry * math.cos(th)
+        img += flux * np.exp(-(((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * 2.0 ** 2)))
+    img = img.clip(0, 65535).astype(int)
+    # Alpaca imagearray is [x][y] (column-major)
+    return img.T.tolist()
 
 
 def star_field():
-    """Synthetic frame: noisy background + a dozen Gaussian stars."""
+    """Synthetic frame: noisy background + a dozen Gaussian stars, optionally
+    rotated about the fake pole by the elapsed-time angle."""
     global _frame
     with state_lock:
+        if ROTATE_DEG_PER_SEC != 0.0:
+            return render(ROTATE_DEG_PER_SEC * (time.monotonic() - T0))
         if _frame is None:
-            import numpy as np
-
-            rng = np.random.default_rng(7)
-            img = rng.normal(800, 15, (H, W))
-            stars = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000),
-                     (120, 350, 35000), (420, 380, 28000), (560, 300, 22000), (250, 420, 18000),
-                     (380, 60, 26000), (60, 250, 32000), (520, 430, 24000), (300, 160, 15000)]
-            yy, xx = np.mgrid[0:H, 0:W]
-            for sx, sy, flux in stars:
-                img += flux * np.exp(-(((xx - sx) ** 2 + (yy - sy) ** 2) / (2 * 2.0 ** 2)))
-            img = img.clip(0, 65535).astype(int)
-            # Alpaca imagearray is [x][y] (column-major)
-            _frame = img.T.tolist()
+            _frame = render(0.0)
         return _frame
 
 
@@ -136,6 +161,12 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=11111)
+    ap.add_argument("--rotate-deg-per-sec", type=float, default=0.0,
+                    help="rotate the star field about --pole at this rate (simulates RA rotation)")
+    ap.add_argument("--pole", default="200,150", help="fake on-sensor pole x,y for --rotate-deg-per-sec")
     args = ap.parse_args()
-    print(f"fake-alpaca: serving camera 0 on {args.host}:{args.port}", flush=True)
+    ROTATE_DEG_PER_SEC = args.rotate_deg_per_sec
+    POLE = tuple(float(v) for v in args.pole.split(","))
+    print(f"fake-alpaca: serving camera 0 on {args.host}:{args.port}"
+          f" (rotation {ROTATE_DEG_PER_SEC} deg/s about {POLE})", flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()

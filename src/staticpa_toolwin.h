@@ -35,6 +35,7 @@
 #define STATICPA_TOOLWIN_H
 
 #include "phd.h"
+#include "staticpa_geometry.h"
 
 #include <wx/gbsizer.h>
 #include <wx/valnum.h>
@@ -173,6 +174,14 @@ struct StaticPaToolWin : public wxFrame
     bool IsCalced() { return HasState(0); }
     void CalcRotationCentre(void);
     void CalcAdjustments(void);
+    // Alt/Az decomposition of the residual between the reference star's
+    // predicted position and `measured`, at the current time. Used by
+    // CalcAdjustments() (with the stored alignment point) and by the JSON-RPC
+    // status readout (with the live star position). Optionally returns the
+    // reference star's target pixel position (CoR + projection) and the hour
+    // angle used.
+    staticpa_geom::AltAzResult CalcAdjustmentsFor(const PHD_Point& measured, staticpa_geom::Px *targetOut = nullptr,
+                                                  double *haDegOut = nullptr);
     bool HasState(int ipos) { return (m_state & (1 << ipos)) > 0; }
     void SetState(int ipos) { m_state = m_state | (1 << ipos); }
     void UnsetState(int ipos) { m_state = m_state & ~(1 << ipos) & 15; }

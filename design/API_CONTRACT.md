@@ -136,3 +136,49 @@ writes a solver-ready FITS (16-bit unsigned; `EXPOSURE`, `DATE-OBS`, `XBINNING`,
 the solver from the mount pointing.
 
 ARA call sites: the polar-alignment routine (all phases).
+
+### Static Polar Alignment over RPC (2026-06-10)
+The in-guider **Static PA** (center-of-rotation) tool is now drivable headlessly. The RPC layer
+constructs the existing `StaticPaToolWin` without showing it and the alignment state machine
+runs from the guider's per-frame hook exactly as for the desktop GUI (no logic duplicated; the
+adjustment math was factored into `StaticPaToolWin::CalcAdjustmentsFor` so the GUI chart and
+the API status share one code path).
+
+- `staticpa_start` { `auto`?, `hemisphere`? ("north"/"south"), `ref_star`? (index),
+  `hour_angle`? (0..24 h), `flip_camera`? } → result: the status object. Requires camera,
+  known pixel scale, looping + selected star; rejects auto without an async-slew mount.
+- `staticpa_measure` { `position`: 2|3 } → status. Manual mode: record point 2/3 on the next
+  frame (client rotates RA between points).
+- `staticpa_get_status` → { `active`, `aligning`, `auto`, `can_slew`, `hemisphere`,
+  `hour_angle`, `flip_camera`, `pixel_scale`, `camera_angle`, `ref_star`, `ref_stars` (8
+  near-pole catalog stars, RA/Dec of date), `measured_points`, `rotation`? (auto progress),
+  `calced`, and when calced: `centre {x,y,radius_px}`, `adjustment` (alt/az/total error px +
+  arcmin, correction vectors), `ref_star_target`, `current_star`, `live_adjustment` (same
+  decomposition vs the live star — poll this during bolt adjustment; it converges to zero) }.
+- `staticpa_stop` → status. Auto: aborts slew + clears points; manual: keeps points.
+- `staticpa_close` → 0. Tears the tool down.
+
+Verified live against `scripts/fake_alpaca_camera.py` with its new `--rotate-deg-per-sec` /
+`--pole` star-field rotation: the manual 3-point flow recovered the simulated pole to ~0.2 px
+(centre (149.84, 200.02) vs true (150, 200), radius 150.15 px). ARA call sites: the
+polar-alignment routine's near-pole mode.
+
+### Polar Drift Alignment over RPC (2026-06-10)
+Same hidden-window pattern as the Static PA methods: the existing `PolarDriftToolWin` is
+constructed unshown and its per-frame drift accumulation runs from the guider hook.
+
+- `polardrift_start` { `hemisphere`? ("north"/"south"), `mirrored`? } → status. Disables guide
+  output (saving the prior enabled state) so the star drifts freely. Requires camera, known
+  pixel scale, looping + selected star.
+- `polardrift_get_status` → { `active`, `drifting`, `hemisphere`, `mirrored`, `pixel_scale`,
+  `num_samples`, `elapsed_s`?, and after ≥2 samples: `offset_px`, `error_arcmin`,
+  `pole_direction_deg`, `current_star`, `target` }. The fit improves with time; adjust alt/az
+  to put the star on `target`, then restart to re-measure.
+- `polardrift_stop` → status. Restores guide output; result stays readable.
+- `polardrift_close` → 0.
+
+Verified live against the rotating fake camera: the fitted offset matched the analytic value
+for the simulated rotation rate (28.7 kpx ≈ r·ω·13751 s/rad) and with the hemisphere matching
+the simulated rotation sense the `target` direction pointed at the fake pole (97.9° vs 89.9°
+geometric; the 8° residual is the arc-curvature shift of the 20 s fit window). ARA call sites:
+the polar-alignment routine's drift mode.

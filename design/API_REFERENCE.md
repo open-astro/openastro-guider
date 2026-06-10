@@ -68,6 +68,37 @@ and this **session lease** so nothing else can fight ARA for the camera mid-rout
 | `set_pa_session` | `active` (bool), `timeout_s` (10–3600, default 600) | Start/renew (or end) a PA session. While active, `guide`, `loop`, `dither`, `guide_pulse`, `build_dark_library`, `build_defect_map_darks`, and `set_connected` are rejected with *"polar-alignment session in progress"*; `capture_single_frame`, `find_star`, `get_star_centroids`, `stop_capture` stay available. The lease auto-expires (renew by calling again) so a crashed orchestrator can't wedge the daemon. Starting is rejected while calibrating/guiding. |
 | `get_pa_session` | — | `{active, expires_in_s?}`. |
 
+## Static Polar Alignment (in-guider tool over RPC)
+
+Drives the built-in **Static PA** (center-of-rotation, PoleMaster-style) tool headlessly — the
+same state machine the desktop GUI uses, run from the guider's per-frame hook. Requires the
+pole region framed, a known pixel scale, looping + a selected star (`loop` + `find_star`).
+**Auto** mode slews the mount in RA itself (needs an async-slew mount and 2 points); **manual**
+mode is for non-goto mounts — the user/client rotates RA between 3 measured points. *Do not
+mix with a `set_pa_session` lease — that lease blocks `loop`, which this tool needs.*
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `staticpa_start` | `auto`? (bool, default: mount can slew), `hemisphere`? (`"north"`/`"south"`), `ref_star`? (index from `ref_stars`), `hour_angle`? (0–24 h, for non-goto mounts), `flip_camera`? (bool) | Configure + start collecting: measures point 1 on the next frame; auto mode then slews and measures point 2 by itself. Errors: no camera, calibrating/guiding, pixel scale unknown, no star selected, already running, auto without a slewable mount. |
+| `staticpa_measure` | `position` (2 or 3) | Manual mode only: record the star position for measurement point 2/3 on the next frame (rotate the mount ≥ 0h20m in RA between points and reselect the star if lost). |
+| `staticpa_get_status` | — | Full state: `active`, `aligning`, `auto`, `can_slew`, `hemisphere`, `hour_angle`, `flip_camera`, `pixel_scale`, `camera_angle`, `ref_star` + `ref_stars` (the 8 near-pole catalog stars with RA/Dec-of-date), `measured_points`, `rotation` progress (auto, while aligning), `calced`, and when calced: `centre {x,y,radius_px}`, `adjustment` (alt/az/total error in px + arcmin and the correction vectors, at the measured point), `ref_star_target {x,y}`, `current_star {x,y}`, and `live_adjustment` — the same decomposition against the star's **current** position, which converges to zero as the bolts are adjusted. |
+| `staticpa_stop` | — | Stop collecting (auto: aborts the slew and clears the points; manual: keeps measured points). The computed result, if any, stays readable. |
+| `staticpa_close` | — | Tear the tool down (aborts any slew first). |
+
+## Polar Drift Alignment (in-guider tool over RPC)
+
+Drives the built-in **Polar Drift** tool headlessly (same hidden-window pattern as Static PA).
+Point near the pole, select a star, start, and let it accumulate — the longer it drifts, the
+better the estimate. Guide output is disabled while drifting (the star must drift freely) and
+restored on stop/close. Requires a known pixel scale, looping + a selected star.
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `polardrift_start` | `hemisphere`? (`"north"`/`"south"`), `mirrored`? (bool — image mirrored, e.g. OAG) | Start accumulating drift samples (one per frame). Errors: no camera, calibrating/guiding, pixel scale unknown, no star selected, already drifting. |
+| `polardrift_get_status` | — | `{active, drifting, hemisphere, mirrored, pixel_scale, num_samples, elapsed_s?, offset_px?, error_arcmin?, pole_direction_deg?, current_star?, target?}` — after ≥ 2 samples the least-squares drift fit yields the polar-alignment error and the on-sensor `target`; adjust alt/az to move the star to the target, then restart to re-measure. |
+| `polardrift_stop` | — | Stop drifting and restore guide output; the result stays readable. |
+| `polardrift_close` | — | Stop (restoring guide output) and tear the tool down. |
+
 ## Calibration
 
 | Method | Params | Description |
