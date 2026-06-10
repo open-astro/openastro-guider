@@ -5074,6 +5074,18 @@ static void guide_pulse(JObj& response, const json_value *params)
         dir = opposite(dir);
     }
 
+    // cap well above any legitimate manual/calibration pulse so a bogus
+    // request cannot command a multi-hour slew
+    enum
+    {
+        MAX_GUIDE_PULSE_MS = 60000
+    };
+    if (duration > MAX_GUIDE_PULSE_MS)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "guide pulse amount exceeds 60000 ms");
+        return;
+    }
+
     pFrame->ScheduleManualMove(m, dir, duration);
 
     response << jrpc_result(0);
@@ -5494,6 +5506,21 @@ static void handle_cli_input_complete(wxSocketClient *cli, char *input)
     if (root->type == JSON_ARRAY)
     {
         // a batch request
+
+        enum
+        {
+            MAX_BATCH_REQUESTS = 100
+        };
+        int batchCount = 0;
+        json_for_each(req, root)++ batchCount;
+        if (batchCount > MAX_BATCH_REQUESTS)
+        {
+            JRpcCall call(cli, nullptr);
+            call.response << jrpc_error(JSONRPC_INVALID_REQUEST, "batch request exceeds 100 calls") << jrpc_id(0);
+            dump_response(call);
+            do_notify1(cli, call.response);
+            return;
+        }
 
         JAry ary;
 
@@ -6110,6 +6137,9 @@ bool EventServer::EventServerStart(unsigned int instanceId)
 
     unsigned int port = 4400 + instanceId - 1;
     wxIPV4address eventServerAddr;
+    // no Hostname() ⇒ INADDR_ANY: deliberately reachable from the LAN, same as
+    // the HTTP server below — NINA drives :4400 from another machine. The
+    // daemon is LAN-trusted by design (no auth); see design/API_REFERENCE.md.
     eventServerAddr.Service(port);
     m_serverSocket = new wxSocketServer(eventServerAddr, wxSOCKET_REUSEADDR);
 
