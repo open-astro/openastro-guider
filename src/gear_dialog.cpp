@@ -899,7 +899,18 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
                     wxString msg = _("By changing cameras in this profile, you won't be able to use the existing dark library "
                                      "or bad-pixel maps. You should consider"
                                      " creating a new profile for this set-up.  Do you want to connect to this camera anyway?");
-                    if (wxMessageBox(msg, _("Camera Change Warning"), wxYES_NO, this) == wxYES)
+                    if (wxGetApp().IsHeadless())
+                    {
+                        // headless: the connect arrived over JSON-RPC and a modal
+                        // would hang the daemon — proceed (the API client made the
+                        // selection deliberately) but surface the warning as a
+                        // non-modal alert
+                        pFrame->Alert(_("Camera changed in this profile - the existing dark library / bad-pixel map "
+                                        "may no longer match. Consider a separate profile per camera."));
+                        m_camWarningIssued = true;
+                        m_lastCamera = newCam;
+                    }
+                    else if (wxMessageBox(msg, _("Camera Change Warning"), wxYES_NO, this) == wxYES)
                     {
                         m_camWarningIssued = true;
                         m_lastCamera = newCam; // make consistent with what's in the UI

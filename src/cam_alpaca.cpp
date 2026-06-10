@@ -162,19 +162,21 @@ bool CameraAlpaca::GetDevicePixelSize(double *devPixelSize)
 
 bool CameraAlpaca::Connect(const wxString& camId)
 {
-    // If not configured open the setup dialog
+    // If not configured, reload the profile settings in case they were set
+    // over the API since this camera object was created. Never open the setup
+    // dialog from Connect(): connects arrive over JSON-RPC on the headless
+    // daemon, where a modal dialog would hang the main loop (or surface the
+    // hidden GUI on a desktop). The GUI's gear dialog has its own setup button.
     if (m_port == 0)
     {
-        CameraSetup();
-        // Reload values after dialog
         m_host = pConfig->Profile.GetString("/alpaca/host", _T("localhost"));
         m_port = pConfig->Profile.GetLong("/alpaca/port", 0);
         m_deviceNumber = pConfig->Profile.GetLong("/alpaca/camera_device", 0);
-        // If still unconfigured after setup, user probably cancelled - don't try to connect
         if (m_port == 0)
         {
-            Debug.Write("Alpaca Camera: Setup cancelled or not configured, skipping connection\n");
-            return CamConnectFailed(_("Alpaca Camera: Setup cancelled or not configured"));
+            Debug.Write("Alpaca Camera: not configured, skipping connection\n");
+            return CamConnectFailed(
+                _("Alpaca Camera is not configured - set the Alpaca server host and port first (set_alpaca_server)"));
         }
     }
 
