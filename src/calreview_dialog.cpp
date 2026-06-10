@@ -181,7 +181,7 @@ void CalReviewDialog::CreateDataGrids(wxPanel *parentPanel, wxSizer *parentHSize
     wxStaticBox *staticBoxLastCal = new wxStaticBox(parentPanel, wxID_ANY, _("Last Mount Calibration"));
     if (AO)
         staticBoxLastCal->SetLabelText(_("Last AO Calibration"));
-    wxStaticBoxSizer *calibFrame = new wxStaticBoxSizer(staticBoxLastCal, wxVERTICAL | wxEXPAND);
+    wxStaticBoxSizer *calibFrame = new wxStaticBoxSizer(staticBoxLastCal, wxVERTICAL);
     panelGridVSizer->Add(calibFrame, 0, wxALIGN_LEFT | wxALL, 5);
     wxGrid *calGrid =
         new wxGrid(parentPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxSUNKEN_BORDER | wxHSCROLL | wxVSCROLL);

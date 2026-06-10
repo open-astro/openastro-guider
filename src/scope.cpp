@@ -1363,7 +1363,7 @@ bool Scope::UpdateCalibrationState(const PHD_Point& currentLocation)
                 else
                 {
                     // Used up all our attempts - might be ok or not
-                    if (blCumDelta >= BL_MIN_CLEARING_DISTANCE)
+                    if (blCumDelta >= (double) BL_MIN_CLEARING_DISTANCE)
                     {
                         // Exhausted all the clearing pulses without reaching the goal - but we did move the mount > 3 px (same
                         // as PHD1)
