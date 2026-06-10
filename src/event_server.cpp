@@ -36,6 +36,7 @@
 #include "backlash_comp.h"
 #include "staticpa_toolwin.h"
 #include "polardrift_toolwin.h"
+#include "drift_tool.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
@@ -3173,6 +3174,156 @@ static void polardrift_close(JObj& response, const json_value *params)
     response << jrpc_result(0);
 }
 
+// --- Drift Alignment over RPC -------------------------------------------------
+//
+// Drives the classic drift-align tool (meridian/horizon dec-drift method)
+// through DriftTool's headless accessors (the tool window lives entirely in
+// drift_tool.cpp). The drift/adjust state machine runs from the existing
+// APPSTATE_NOTIFY pump; the polar-alignment error comes from the same dec
+// trendline the graph overlays (GraphLogWindow::GetPolarAlignmentError).
+
+static void driftalign_status_obj(JObj& rslt)
+{
+    DriftTool::ApiStatus st;
+    bool active = DriftTool::ApiGetStatus(&st);
+    rslt << NV("active", active);
+    if (!active)
+        return;
+
+    rslt << NV("phase", st.phase == DriftTool::API_PHASE_ALTITUDE ? "altitude" : "azimuth")
+         << NV("mode",
+               st.mode == DriftTool::API_MODE_DRIFT        ? "drift"
+                   : st.mode == DriftTool::API_MODE_ADJUST ? "adjust"
+                                                           : "idle")
+         << NV("drifting", st.drifting) << NV("can_slew", st.canSlew) << NV("slewing", st.slewing)
+         << NV("calibrated", pMount && pMount->IsConnected() && pMount->IsCalibrated())
+         << NV("guiding", pFrame->pGuider && pFrame->pGuider->IsGuiding());
+    if (!st.statusMessage.IsEmpty())
+        rslt << NV("status_message", st.statusMessage);
+
+    double errArcmin, driftRate;
+    if (pFrame->pGraphLog && pFrame->pGraphLog->GetPolarAlignmentError(&errArcmin, &driftRate))
+    {
+        JObj err;
+        err << NV("error_arcmin", errArcmin, 2) << NV("dec_drift_arcsec_per_min", driftRate, 3)
+            << NV("samples", (int) pFrame->pGraphLog->GetHistoryItemCount());
+        rslt << NV("polar_alignment_error", err);
+    }
+
+    if (pFrame->pGuider)
+    {
+        const PHD_Point& cur = pFrame->pGuider->CurrentPosition();
+        if (cur.IsValid())
+        {
+            JObj curObj;
+            curObj << NV("x", cur.X, 2) << NV("y", cur.Y, 2);
+            rslt << NV("current_star", curObj);
+        }
+        const PHD_Point& lock = pFrame->pGuider->LockPosition();
+        if (lock.IsValid())
+        {
+            JObj lockObj;
+            lockObj << NV("x", lock.X, 2) << NV("y", lock.Y, 2);
+            rslt << NV("lock_position", lockObj);
+        }
+    }
+
+    double ra, dec, lst;
+    if (pPointingSource && pPointingSource->IsConnected() && !pPointingSource->GetCoordinates(&ra, &dec, &lst))
+    {
+        JObj scope;
+        scope << NV("ra_hours", ra, 4) << NV("dec_degrees", dec, 3) << NV("lst_hours", lst, 4);
+        rslt << NV("scope", scope);
+    }
+}
+
+static void driftalign_get_status(JObj& response, const json_value *params)
+{
+    JObj rslt;
+    driftalign_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void driftalign_start(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+
+    wxString error;
+    if (!DriftTool::ApiStart(&error))
+    {
+        response << jrpc_error(1, error);
+        return;
+    }
+
+    JObj rslt;
+    driftalign_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void driftalign_set_phase(JObj& response, const json_value *params)
+{
+    Params p("phase", params);
+    const json_value *jv = p.param("phase");
+    wxString ph = jv && jv->type == JSON_STRING ? wxString(jv->string_value).Lower() : wxString();
+    int phase = ph == "azimuth" ? DriftTool::API_PHASE_AZIMUTH : ph == "altitude" ? DriftTool::API_PHASE_ALTITUDE : -1;
+    if (phase < 0)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "phase must be \"azimuth\" or \"altitude\"");
+        return;
+    }
+
+    wxString error;
+    if (!DriftTool::ApiSetPhase(phase, &error))
+    {
+        response << jrpc_error(1, error);
+        return;
+    }
+
+    JObj rslt;
+    driftalign_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void driftalign_drift(JObj& response, const json_value *params)
+{
+    wxString error;
+    if (!DriftTool::ApiSetMode(DriftTool::API_MODE_DRIFT, &error))
+    {
+        response << jrpc_error(1, error);
+        return;
+    }
+
+    JObj rslt;
+    driftalign_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void driftalign_adjust(JObj& response, const json_value *params)
+{
+    wxString error;
+    if (!DriftTool::ApiSetMode(DriftTool::API_MODE_ADJUST, &error))
+    {
+        response << jrpc_error(1, error);
+        return;
+    }
+
+    JObj rslt;
+    driftalign_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void driftalign_close(JObj& response, const json_value *params)
+{
+    wxString error;
+    if (!DriftTool::ApiClose(&error))
+    {
+        response << jrpc_error(1, error);
+        return;
+    }
+
+    response << jrpc_result(0);
+}
+
 static void get_pixel_scale(JObj& response, const json_value *params)
 {
     double scale = pFrame->GetCameraPixelScale();
@@ -6175,6 +6326,12 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "polardrift_get_status", &polardrift_get_status },
         { "polardrift_stop", &polardrift_stop },
         { "polardrift_close", &polardrift_close },
+        { "driftalign_start", &driftalign_start },
+        { "driftalign_set_phase", &driftalign_set_phase },
+        { "driftalign_drift", &driftalign_drift },
+        { "driftalign_adjust", &driftalign_adjust },
+        { "driftalign_get_status", &driftalign_get_status },
+        { "driftalign_close", &driftalign_close },
         { "get_pixel_scale", &get_pixel_scale },
         { "get_app_state", &get_app_state },
         { "flip_calibration", &flip_calibration },

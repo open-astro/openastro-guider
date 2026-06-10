@@ -168,6 +168,13 @@ public:
 
     void ResetData();
 
+    // Polar-alignment error estimate from the dec trendline over the visible
+    // plot window (Frank Barrett's formula) — the same number the graph
+    // overlays while dec-drifting during drift alignment. Returns false when
+    // unavailable (not RA/Dec mode, unknown pixel scale, not dec-drifting,
+    // fewer than 2 samples, zero time span, or |dec| beyond the comp limit).
+    bool GetPolarAlignmentError(double *errArcmin, double *decDriftArcsecPerMin) const;
+
 private:
     void RecalculateTrendLines();
     void UpdateStats(unsigned int nr, const S_HISTORY *cur);
@@ -261,6 +268,10 @@ public:
     const wxColor& GetDecOrDyColor();
 
     const SummaryStats& Stats() const { return m_pClient->m_stats; }
+    bool GetPolarAlignmentError(double *errArcmin, double *decDriftArcsecPerMin) const
+    {
+        return m_pClient->GetPolarAlignmentError(errArcmin, decDriftArcsecPerMin);
+    }
     void ResetData();
 
     wxDECLARE_EVENT_TABLE();

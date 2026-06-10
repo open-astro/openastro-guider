@@ -1163,6 +1163,50 @@ static std::pair<double, double> trendline(const TrendLineAccum& accum, int nn)
     return std::make_pair(a, b);
 }
 
+bool GraphLogClientWindow::GetPolarAlignmentError(double *errArcmin, double *decDriftArcsecPerMin) const
+{
+    // mirrors the dec-trendline overlay in OnPaint: Frank Barrett,
+    // "Determining Polar Axis Alignment Accuracy",
+    // http://celestialwonders.com/articles/polaralignment/PolarAlignmentAccuracy.pdf
+    if (m_mode != MODE_RADEC)
+        return false;
+
+    double sampling = pFrame->GetCameraPixelScale();
+    if (sampling == 1.0)
+        return false;
+
+    if (!pMount || !pMount->IsDecDrifting())
+        return false;
+
+    unsigned int plot_length = m_length;
+    if (plot_length > m_history.size())
+        plot_length = m_history.size();
+    if (plot_length < 2)
+        return false;
+
+    double declination = pPointingSource ? pPointingSource->GetDeclinationRadians() : 0.0;
+    if (declination == UNKNOWN_DECLINATION) // assume declination 0
+        declination = 0.0;
+    if (fabs(declination) > Scope::DEC_COMP_LIMIT)
+        return false;
+
+    unsigned int start_item = m_history.size() - plot_length;
+    const S_HISTORY& h0 = m_history[start_item];
+    const S_HISTORY& h1 = m_history[m_history.size() - 1];
+    double dt = (double) (h1.timestamp - h0.timestamp) / (1000.0 * 60.0); // time span in minutes
+    if (dt <= 0.0)
+        return false;
+
+    std::pair<double, double> trendDec = trendline(m_trendLineAccum[3], plot_length);
+    double ddec = (double) (plot_length - 1) * trendDec.first; // dec drift (pixels)
+    ddec *= sampling; // convert pixels to arc-seconds
+
+    *errArcmin = (3.82 * ddec) / (dt * cos(declination));
+    if (decDriftArcsecPerMin)
+        *decDriftArcsecPerMin = ddec / dt;
+    return true;
+}
+
 // helper class to scale and translate points
 struct ScaleAndTranslate
 {

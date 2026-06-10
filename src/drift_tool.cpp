@@ -72,6 +72,7 @@ struct DriftToolWin : public wxFrame
     Phase m_phase;
     Mode m_mode;
     bool m_drifting;
+    wxString m_lastStatus; // last status-bar text, surfaced over the API
     bool m_need_end_dec_drift;
     bool m_save_lock_pos_is_sticky;
     bool m_save_use_subframes;
@@ -811,6 +812,8 @@ void DriftToolWin::OnTimer(wxTimerEvent& evt)
 void DriftToolWin::SetStatusText(const wxString& text, int number)
 {
     Debug.Write(wxString::Format("Drift tool: status: %s\n", text));
+    if (number == 0)
+        m_lastStatus = text;
     wxFrame::SetStatusText(text, number);
 }
 
@@ -842,4 +845,133 @@ wxWindow *DriftTool::CreateDriftToolWindow()
     }
 
     return new DriftToolWin();
+}
+
+// --- Headless/API access ------------------------------------------------------
+//
+// The JSON-RPC layer (event_server.cpp) drives the tool through these
+// accessors: the window is constructed but never shown, and the existing
+// mode/phase state machine runs from the APPSTATE_NOTIFY_EVENT pump and the
+// scope-coordinate timer exactly as it does for the desktop GUI.
+
+static DriftToolWin *drift_tool_win()
+{
+    DriftToolWin *win = static_cast<DriftToolWin *>(pFrame->pDriftTool);
+    if (win && win->IsBeingDeleted())
+        return nullptr;
+    return win;
+}
+
+bool DriftTool::ApiStart(wxString *error)
+{
+    if (drift_tool_win())
+        return true; // already active
+
+    if (!pCamera || !pCamera->Connected)
+    {
+        *error = _T("camera is not connected");
+        return false;
+    }
+    if (!pMount || !pMount->IsConnected())
+    {
+        *error = _T("mount is not connected");
+        return false;
+    }
+    if (pFrame->GetCameraPixelScale() == 1.0)
+    {
+        *error = _T("pixel scale unknown - set the guide scope focal length and camera pixel size in the profile");
+        return false;
+    }
+
+    DriftToolWin *win = new DriftToolWin();
+    // API sessions are non-interactive: skip the PreparePositionInteractive
+    // prompt the GUI shows before the first drift
+    win->m_location_prompt_done = true;
+    pFrame->pDriftTool = win;
+    // deliberately not Show()n: headless sessions drive it over RPC only
+    return true;
+}
+
+bool DriftTool::ApiSetPhase(int phase, wxString *error)
+{
+    DriftToolWin *win = drift_tool_win();
+    if (!win)
+    {
+        *error = _T("drift alignment is not active - call driftalign_start first");
+        return false;
+    }
+
+    Phase newPhase = phase == API_PHASE_ALTITUDE ? PHASE_ADJUST_ALT : PHASE_ADJUST_AZ;
+    if (newPhase != win->m_phase)
+    {
+        win->m_phase = newPhase;
+        Debug.Write(wxString::Format("Drift tool: API phase %s\n", newPhase == PHASE_ADJUST_ALT ? wxS("Alt") : wxS("Az")));
+        win->UpdatePhaseState();
+        if (win->m_mode != MODE_IDLE)
+        {
+            win->m_mode = MODE_IDLE;
+            win->UpdateModeState();
+        }
+    }
+    return true;
+}
+
+bool DriftTool::ApiSetMode(int mode, wxString *error)
+{
+    DriftToolWin *win = drift_tool_win();
+    if (!win)
+    {
+        *error = _T("drift alignment is not active - call driftalign_start first");
+        return false;
+    }
+
+    switch (mode)
+    {
+    case API_MODE_DRIFT:
+        win->m_mode = MODE_DRIFT;
+        break;
+    case API_MODE_ADJUST:
+        win->m_mode = MODE_ADJUST;
+        break;
+    default:
+        win->m_mode = MODE_IDLE;
+        break;
+    }
+    win->UpdateModeState();
+    return true;
+}
+
+bool DriftTool::ApiGetStatus(ApiStatus *status)
+{
+    DriftToolWin *win = drift_tool_win();
+    if (!win)
+    {
+        status->active = false;
+        return false;
+    }
+
+    status->active = true;
+    status->drifting = win->m_drifting;
+    status->phase = win->m_phase == PHASE_ADJUST_ALT ? API_PHASE_ALTITUDE : API_PHASE_AZIMUTH;
+    status->mode = win->m_mode == MODE_DRIFT ? API_MODE_DRIFT : win->m_mode == MODE_ADJUST ? API_MODE_ADJUST : API_MODE_IDLE;
+    status->canSlew = win->m_can_slew;
+    status->slewing = win->m_slewing;
+    status->statusMessage = win->m_lastStatus;
+    return true;
+}
+
+bool DriftTool::ApiClose(wxString *error)
+{
+    DriftToolWin *win = drift_tool_win();
+    if (!win)
+    {
+        *error = _T("drift alignment is not active");
+        return false;
+    }
+
+    // run the same close path as the GUI: OnClose restores dec drift, graph
+    // mode/scale, sticky lock, subframes, and star-lost behavior, then
+    // Destroy()s (the destructor clears pFrame->pDriftTool)
+    win->Close(true);
+    return true;
 }

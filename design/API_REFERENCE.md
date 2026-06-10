@@ -99,6 +99,26 @@ restored on stop/close. Requires a known pixel scale, looping + a selected star.
 | `polardrift_stop` | — | Stop drifting and restore guide output; the result stays readable. |
 | `polardrift_close` | — | Stop (restoring guide output) and tear the tool down. |
 
+## Drift Alignment (in-guider tool over RPC)
+
+Drives the classic **Drift Align** tool headlessly (meridian/horizon dec-drift method). Needs a
+**calibrated** mount and *guiding*: in drift mode the tool starts guiding itself (looping →
+auto-select → guide) and then disables dec output so the dec trendline shows the polar
+misalignment; the error number is the same Frank-Barrett estimate the graph overlays. Flow per
+phase: point near meridian+equator (azimuth) or east/west horizon (altitude) — ARA slews via
+its own mount connection — then `driftalign_drift`, watch `polar_alignment_error` stabilise,
+`driftalign_adjust`, turn the bolt to re-centre the star on `lock_position`, and repeat
+drift/adjust until the error is small; switch phase and do the other axis.
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `driftalign_start` | — | Create the (hidden) tool. Errors: no camera, no mount, pixel scale unknown. |
+| `driftalign_set_phase` | `phase` (`"azimuth"`/`"altitude"`) | Switch the adjustment phase (drops to idle mode). |
+| `driftalign_drift` | — | Enter drift mode: starts guiding if needed (mount must already be calibrated), disables dec output, clears the graph, enables trendlines. |
+| `driftalign_adjust` | — | Enter adjust mode: stops guiding (keeps looping), locks the lock position at the drifted star, full frames, star-lost tolerant. |
+| `driftalign_get_status` | — | `{active, phase, mode, drifting, can_slew, slewing, calibrated, guiding, status_message?, polar_alignment_error? {error_arcmin, dec_drift_arcsec_per_min, samples}, current_star?, lock_position?, scope? {ra_hours, dec_degrees, lst_hours}}`. |
+| `driftalign_close` | — | Full restore (end dec drift, graph mode/scale, sticky lock, subframes, star-lost behavior) + teardown — same path as the GUI close. |
+
 ## Calibration
 
 | Method | Params | Description |
