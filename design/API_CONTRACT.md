@@ -162,3 +162,23 @@ Verified live against `scripts/fake_alpaca_camera.py` with its new `--rotate-deg
 `--pole` star-field rotation: the manual 3-point flow recovered the simulated pole to ~0.2 px
 (centre (149.84, 200.02) vs true (150, 200), radius 150.15 px). ARA call sites: the
 polar-alignment routine's near-pole mode.
+
+### Polar Drift Alignment over RPC (2026-06-10)
+Same hidden-window pattern as the Static PA methods: the existing `PolarDriftToolWin` is
+constructed unshown and its per-frame drift accumulation runs from the guider hook.
+
+- `polardrift_start` { `hemisphere`? ("north"/"south"), `mirrored`? } → status. Disables guide
+  output (saving the prior enabled state) so the star drifts freely. Requires camera, known
+  pixel scale, looping + selected star.
+- `polardrift_get_status` → { `active`, `drifting`, `hemisphere`, `mirrored`, `pixel_scale`,
+  `num_samples`, `elapsed_s`?, and after ≥2 samples: `offset_px`, `error_arcmin`,
+  `pole_direction_deg`, `current_star`, `target` }. The fit improves with time; adjust alt/az
+  to put the star on `target`, then restart to re-measure.
+- `polardrift_stop` → status. Restores guide output; result stays readable.
+- `polardrift_close` → 0.
+
+Verified live against the rotating fake camera: the fitted offset matched the analytic value
+for the simulated rotation rate (28.7 kpx ≈ r·ω·13751 s/rad) and with the hemisphere matching
+the simulated rotation sense the `target` direction pointed at the fake pole (97.9° vs 89.9°
+geometric; the 8° residual is the arc-curvature shift of the 20 s fit window). ARA call sites:
+the polar-alignment routine's drift mode.

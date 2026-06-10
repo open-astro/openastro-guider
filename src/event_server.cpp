@@ -35,6 +35,7 @@
 #include "phd.h"
 #include "backlash_comp.h"
 #include "staticpa_toolwin.h"
+#include "polardrift_toolwin.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
@@ -2980,6 +2981,194 @@ static void staticpa_close(JObj& response, const json_value *params)
         pPointingSource->AbortSlew();
     tool->m_aligning = false;
     tool->Destroy(); // the destructor clears pFrame->pStaticPaTool
+
+    response << jrpc_result(0);
+}
+
+// --- Polar Drift Alignment over RPC ------------------------------------------
+//
+// Same pattern as the Static PA methods above: the existing PolarDriftToolWin
+// is constructed hidden and its drift accumulation runs from the guider's
+// per-frame hook (PolarDriftTool::UpdateState).
+
+static PolarDriftToolWin *polar_drift_tool()
+{
+    PolarDriftToolWin *win = static_cast<PolarDriftToolWin *>(pFrame->pPolarDriftTool);
+    if (win && win->IsBeingDeleted())
+        return nullptr;
+    return win;
+}
+
+static void polardrift_status_obj(JObj& rslt)
+{
+    PolarDriftToolWin *tool = polar_drift_tool();
+    rslt << NV("active", tool != nullptr);
+    if (!tool)
+        return;
+
+    rslt << NV("drifting", tool->IsDrifting()) << NV("hemisphere", tool->m_hemi > 0 ? "north" : "south")
+         << NV("mirrored", tool->m_mirror == -1) << NV("pixel_scale", tool->m_pxScale, 2)
+         << NV("num_samples", (int) tool->m_num);
+
+    if (tool->IsDrifting() && tool->m_num > 0)
+        rslt << NV("elapsed_s", ::wxGetUTCTimeMillis().GetValue() / 1000.0 - tool->m_t0, 1);
+
+    // the linear fit needs at least two samples before offset/angle mean anything
+    if (tool->m_num > 1)
+    {
+        rslt << NV("offset_px", tool->m_offset, 2) << NV("error_arcmin", tool->m_offset * tool->m_pxScale / 60, 2)
+             << NV("pole_direction_deg", norm(-tool->m_alpha, -180, 180), 1);
+        if (tool->m_current.IsValid())
+        {
+            JObj cur;
+            cur << NV("x", tool->m_current.X, 2) << NV("y", tool->m_current.Y, 2);
+            rslt << NV("current_star", cur);
+        }
+        if (tool->m_target.IsValid())
+        {
+            JObj tgt;
+            tgt << NV("x", tool->m_target.X, 2) << NV("y", tool->m_target.Y, 2);
+            rslt << NV("target", tgt);
+        }
+    }
+}
+
+static void polardrift_get_status(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    JObj rslt;
+    polardrift_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void polardrift_start(JObj& response, const json_value *params)
+{
+    Params p("hemisphere", "mirrored", params);
+
+    if (!pCamera || !pCamera->Connected)
+    {
+        response << jrpc_error(1, "camera is not connected");
+        return;
+    }
+    VERIFY_GUIDER(response);
+    if (pFrame->pGuider->IsCalibratingOrGuiding())
+    {
+        response << jrpc_error(1, "cannot start polar drift alignment while calibrating or guiding");
+        return;
+    }
+    if (pFrame->GetCameraPixelScale() == 1.0)
+    {
+        response << jrpc_error(1,
+                               "pixel scale unknown - set the guide scope focal length and camera pixel size in the profile");
+        return;
+    }
+    if (!pFrame->pGuider->IsLocked())
+    {
+        response << jrpc_error(1, "no star selected - start looping and select a star first (loop + find_star)");
+        return;
+    }
+
+    PolarDriftToolWin *tool = polar_drift_tool();
+    if (tool && tool->IsDrifting())
+    {
+        response << jrpc_error(1, "polar drift alignment is already running - call polardrift_stop first");
+        return;
+    }
+    if (!tool)
+    {
+        tool = new PolarDriftToolWin();
+        pFrame->pPolarDriftTool = tool;
+        // deliberately not Show()n: headless sessions drive it over RPC only
+    }
+
+    const json_value *jv;
+    if ((jv = p.param("hemisphere")) != nullptr)
+    {
+        wxString h = jv->type == JSON_STRING ? wxString(jv->string_value).Lower() : wxString();
+        int hemi = h == "north" ? 1 : h == "south" ? -1 : 0;
+        if (hemi == 0)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "hemisphere must be \"north\" or \"south\"");
+            return;
+        }
+        tool->m_hemi = hemi;
+        pConfig->Profile.SetInt("/PolarDriftTool/Hemisphere", hemi);
+    }
+    if ((jv = p.param("mirrored")) != nullptr)
+    {
+        bool mirrored = tool->m_mirror == -1;
+        if (!bool_param(jv, &mirrored))
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected mirrored boolean");
+            return;
+        }
+        tool->m_mirror = mirrored ? -1 : 1;
+        pConfig->Profile.SetInt("/PolarDriftTool/Mirror", tool->m_mirror);
+    }
+    tool->FillPanel();
+
+    // equivalent of the GUI's Start button: guide output is disabled so the
+    // star drifts freely; restored by polardrift_stop / polardrift_close
+    if (pMount)
+    {
+        tool->m_savePrimaryMountEnabled = pMount->GetGuidingEnabled();
+        pMount->SetGuidingEnabled(false);
+    }
+    if (pSecondaryMount)
+    {
+        tool->m_saveSecondaryMountEnabled = pSecondaryMount->GetGuidingEnabled();
+        pSecondaryMount->SetGuidingEnabled(false);
+    }
+    tool->m_guideOutputDisabled = true;
+    tool->m_num = 0;
+    tool->m_drifting = true;
+
+    JObj rslt;
+    polardrift_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void polardrift_restore_guiding(PolarDriftToolWin *tool)
+{
+    tool->m_drifting = false;
+    if (pMount)
+        pMount->SetGuidingEnabled(tool->m_savePrimaryMountEnabled);
+    if (pSecondaryMount)
+        pSecondaryMount->SetGuidingEnabled(tool->m_saveSecondaryMountEnabled);
+}
+
+static void polardrift_stop(JObj& response, const json_value *params)
+{
+    PolarDriftToolWin *tool = polar_drift_tool();
+    if (!tool)
+    {
+        response << jrpc_error(1, "polar drift alignment is not active");
+        return;
+    }
+
+    if (tool->IsDrifting())
+    {
+        polardrift_restore_guiding(tool);
+        tool->FillPanel();
+    }
+
+    JObj rslt;
+    polardrift_status_obj(rslt);
+    response << jrpc_result(rslt);
+}
+
+static void polardrift_close(JObj& response, const json_value *params)
+{
+    PolarDriftToolWin *tool = polar_drift_tool();
+    if (!tool)
+    {
+        response << jrpc_error(1, "polar drift alignment is not active");
+        return;
+    }
+
+    if (tool->IsDrifting())
+        polardrift_restore_guiding(tool);
+    tool->Destroy(); // the destructor clears pFrame->pPolarDriftTool
 
     response << jrpc_result(0);
 }
@@ -5982,6 +6171,10 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "staticpa_get_status", &staticpa_get_status },
         { "staticpa_stop", &staticpa_stop },
         { "staticpa_close", &staticpa_close },
+        { "polardrift_start", &polardrift_start },
+        { "polardrift_get_status", &polardrift_get_status },
+        { "polardrift_stop", &polardrift_stop },
+        { "polardrift_close", &polardrift_close },
         { "get_pixel_scale", &get_pixel_scale },
         { "get_app_state", &get_app_state },
         { "flip_calibration", &flip_calibration },

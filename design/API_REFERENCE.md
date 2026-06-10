@@ -85,6 +85,20 @@ mix with a `set_pa_session` lease — that lease blocks `loop`, which this tool 
 | `staticpa_stop` | — | Stop collecting (auto: aborts the slew and clears the points; manual: keeps measured points). The computed result, if any, stays readable. |
 | `staticpa_close` | — | Tear the tool down (aborts any slew first). |
 
+## Polar Drift Alignment (in-guider tool over RPC)
+
+Drives the built-in **Polar Drift** tool headlessly (same hidden-window pattern as Static PA).
+Point near the pole, select a star, start, and let it accumulate — the longer it drifts, the
+better the estimate. Guide output is disabled while drifting (the star must drift freely) and
+restored on stop/close. Requires a known pixel scale, looping + a selected star.
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `polardrift_start` | `hemisphere`? (`"north"`/`"south"`), `mirrored`? (bool — image mirrored, e.g. OAG) | Start accumulating drift samples (one per frame). Errors: no camera, calibrating/guiding, pixel scale unknown, no star selected, already drifting. |
+| `polardrift_get_status` | — | `{active, drifting, hemisphere, mirrored, pixel_scale, num_samples, elapsed_s?, offset_px?, error_arcmin?, pole_direction_deg?, current_star?, target?}` — after ≥ 2 samples the least-squares drift fit yields the polar-alignment error and the on-sensor `target`; adjust alt/az to move the star to the target, then restart to re-measure. |
+| `polardrift_stop` | — | Stop drifting and restore guide output; the result stays readable. |
+| `polardrift_close` | — | Stop (restoring guide output) and tear the tool down. |
+
 ## Calibration
 
 | Method | Params | Description |
