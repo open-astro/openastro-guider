@@ -239,7 +239,7 @@ static unsigned char *buildGammaLookupTable(int blevel, int wlevel, double power
     if (blevel > 0xffff)
         blevel = 0xffff;
     if (wlevel > 0xffff)
-        blevel = 0xffff;
+        wlevel = 0xffff;
 
     for (int i = 0; i <= blevel; ++i)
         result[i] = 0;

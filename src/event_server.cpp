@@ -7131,6 +7131,25 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
 
     if (req.method == "POST" && req.path == "/api/rpc")
     {
+        // CSRF guard: browsers attach an Origin header to cross-origin POSTs.
+        // Reject when it doesn't match the Host this request was addressed to,
+        // so a malicious page in the user's browser can't drive the mount via
+        // http://<guider>:8080. Non-browser clients (ARA, curl — no Origin
+        // header) and the web app itself (same-origin) are unaffected.
+        auto oi = req.headers.find("origin");
+        if (oi != req.headers.end())
+        {
+            auto hi = req.headers.find("host");
+            const std::string& origin = oi->second;
+            std::string host = hi != req.headers.end() ? hi->second : std::string();
+            if (host.empty() || (origin != "http://" + host && origin != "https://" + host))
+            {
+                JObj out;
+                out << NV("ok", false) << NV("error", "cross-origin request rejected");
+                return http_json_response(403, out);
+            }
+        }
+
         JsonParser parser;
         if (!parser.Parse(req.body))
         {
