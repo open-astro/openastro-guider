@@ -18,5 +18,16 @@ ExecStart=/usr/bin/xvfb-run -a /usr/bin/openastro-phd2 --auto-connect
 Restart=on-failure
 RestartSec=3
 
+# Sandboxing. The daemon only needs network access (Alpaca + its own JSON-RPC
+# servers) and write access to its state dir; equipment is reached over HTTP,
+# not local devices. xvfb-run/Xvfb live in the unit's private /tmp, so
+# PrivateTmp is safe — the X socket and auth cookie are created and consumed
+# inside the same namespace.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/openastro-phd2
+
 [Install]
 WantedBy=multi-user.target

@@ -20,15 +20,14 @@ case "$1" in
         fi
         chown openastro-phd2:openastro-phd2 /var/lib/openastro-phd2
 
-        # Grant plugdev membership for USB camera/guide port access
-        if getent group plugdev > /dev/null 2>&1; then
-            usermod -aG plugdev openastro-phd2 || true
-        fi
-
-        # Grant dialout membership for serial guide port access
-        if getent group dialout > /dev/null 2>&1; then
-            usermod -aG dialout openastro-phd2 || true
-        fi
+        # Equipment is Alpaca-only (network); the service user needs no local
+        # USB/serial device access. Earlier versions granted plugdev/dialout —
+        # revoke them on upgrade.
+        for grp in plugdev dialout; do
+            if id -nG openastro-phd2 2> /dev/null | tr ' ' '\n' | grep -qx "$grp"; then
+                gpasswd -d openastro-phd2 "$grp" || true
+            fi
+        done
         ;;
 esac
 
