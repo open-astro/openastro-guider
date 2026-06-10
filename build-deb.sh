@@ -24,22 +24,16 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 step()  { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+# debian/changelog is a generated build artifact (gitignored), derived from
+# the root CHANGELOG.md so release history is maintained in exactly one place.
 sync_debian_changelog() {
-    local debian_changelog="${ROOT_DIR}/debian/changelog"
     local root_changelog="${ROOT_DIR}/CHANGELOG.md"
-    step "Syncing debian/changelog from version.md + CHANGELOG.md..."
+    step "Generating debian/changelog from version.md + CHANGELOG.md..."
     if [[ ! -f "$root_changelog" ]]; then
-        err "Cannot sync debian/changelog: missing $root_changelog"
+        err "Cannot generate debian/changelog: missing $root_changelog"
     fi
-
-    local version_regex="${FULL_VERSION//./\\.}"
-    local release_date
-    release_date=$(grep -E "^## \\[${version_regex}\\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" "$root_changelog" | head -1 | sed -E 's/^## \\[[^]]+\\] - ([0-9]{4}-[0-9]{2}-[0-9]{2})$/\1/')
-    local rfc2822_date
-    if [[ -n "$release_date" ]]; then
-        rfc2822_date=$(date -R -d "${release_date} 12:00:00" 2>/dev/null || date -R)
-    else
-        rfc2822_date=$(date -R)
+    if ! command -v python3 &>/dev/null; then
+        err "python3 not found; it is required to generate debian/changelog"
     fi
 
     local maint_name maint_email
@@ -49,38 +43,13 @@ sync_debian_changelog() {
     [[ -n "$maint_email" ]] || maint_email="maintainers@openastro.org"
 
     mkdir -p "${ROOT_DIR}/debian"
-    local tmp_new tmp_old
-    tmp_new="$(mktemp)"
-    tmp_old="$(mktemp)"
-    if [[ -f "$debian_changelog" ]]; then
-        cp "$debian_changelog" "$tmp_old"
-    else
-        : > "$tmp_old"
-    fi
-
-    cat > "$tmp_new" <<EOF
-openastro-phd2 (${FULL_VERSION}) stable; urgency=low
-
-  * Sync package changelog from root CHANGELOG.md for release ${FULL_VERSION}.
-  * See CHANGELOG.md for detailed release notes.
-
- -- ${maint_name} <${maint_email}>  ${rfc2822_date}
-EOF
-
-    # Preserve older entries, removing existing top stanza if it already matches FULL_VERSION.
-    # Match the legacy "phd2", interim "phd2-alpaca", and current "openastro-phd2" source
-    # names so existing changelogs synced by older versions of this script don't end up
-    # duplicated.
-    awk -v ver="$FULL_VERSION" '
-      NR == 1 && $0 ~ "^(phd2|phd2-alpaca|openastro-phd2) \\(" ver "\\) " { skip = 1; next }
-      skip && /^ -- / { skip = 0; next }
-      skip { next }
-      { print }
-    ' "$tmp_old" >> "$tmp_new"
-
-    mv "$tmp_new" "$debian_changelog"
-    rm -f "$tmp_old"
-    info "Synced debian/changelog for version ${FULL_VERSION}"
+    python3 "${ROOT_DIR}/scripts/changelog_to_deb.py" \
+        --changelog "$root_changelog" \
+        --out "${ROOT_DIR}/debian/changelog" \
+        --package openastro-phd2 \
+        --version "$FULL_VERSION" \
+        --maintainer "${maint_name} <${maint_email}>"
+    info "Generated debian/changelog for version ${FULL_VERSION}"
 }
 
 # Project root (directory containing this script)
