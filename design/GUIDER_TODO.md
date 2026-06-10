@@ -52,14 +52,14 @@ code during the strip, grouped by phase. Swept before the relevant phase closes.
 
 ## Phase 4 — headless run mode (deferred items)
 Headless-by-default + the systemd unit landed; these are the deliberate follow-ups:
-- **systemd sandboxing.** The unit runs as a dedicated `openastro-phd2` user but has no
-  sandboxing directives. Add `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`,
-  `PrivateTmp`, `ReadWritePaths=/var/lib/openastro-phd2` (and verify it still reaches the
-  network for Alpaca + can start Xvfb). Held out of the Phase-4 PR to keep it small/safe.
-- **Vestigial `plugdev`/`dialout` grants.** `debian/openastro-phd2.postinst` adds the service
-  user to `plugdev`/`dialout` "for USB camera/guide port access," but this fork is Alpaca-only
-  (network) and the local serial/USB guide backends were deleted in the dead-code cleanup, so
-  the grants now protect nothing. Drop them (likely alongside the hardening pass).
+- ~~**systemd sandboxing.**~~ **Resolved.** `debian/openastro-phd2.service` now sets
+  `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, and
+  `ReadWritePaths=/var/lib/openastro-phd2`. Verified under a transient unit with the same
+  directives: Xvfb starts (auth file in the private `/tmp`), both `:4400` and `/api/rpc`
+  answer `get_app_state`, and the daemon writes its profile/state into the RW path.
+- ~~**Vestigial `plugdev`/`dialout` grants.**~~ **Resolved.** The postinst no longer grants
+  `plugdev`/`dialout`; it now *revokes* them on upgrade if an earlier version granted them
+  (equipment is Alpaca-only/network; the local serial/USB backends are gone).
 - **Dead `*_indi_*` JSON-RPC methods.** `get_indi_server`/`set_indi_server` and the
   `get/set_selected_indi_*_driver` methods remain in `event_server.cpp` after the INDI drop
   (Phase 3) — they reference no live backend. Remove or stub once ARA's method usage is pinned.
