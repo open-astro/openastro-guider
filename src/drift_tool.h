@@ -39,6 +39,36 @@ class DriftTool
     DriftTool(); // not implemented
 public:
     static wxWindow *CreateDriftToolWindow();
+
+    // Headless/API access (event_server): drive the tool without showing it.
+    // DriftToolWin lives entirely in drift_tool.cpp, so the RPC layer goes
+    // through these accessors; JSON marshalling stays in event_server.
+    enum ApiPhase
+    {
+        API_PHASE_AZIMUTH = 0,
+        API_PHASE_ALTITUDE = 1,
+    };
+    enum ApiMode
+    {
+        API_MODE_IDLE = 0,
+        API_MODE_DRIFT = 1,
+        API_MODE_ADJUST = 2,
+    };
+    struct ApiStatus
+    {
+        bool active = false;
+        bool drifting = false;
+        int phase = API_PHASE_AZIMUTH;
+        int mode = API_MODE_IDLE;
+        bool canSlew = false;
+        bool slewing = false;
+        wxString statusMessage;
+    };
+    static bool ApiStart(wxString *error); // create the hidden tool (no-op if already active)
+    static bool ApiSetPhase(int phase, wxString *error);
+    static bool ApiSetMode(int mode, wxString *error);
+    static bool ApiGetStatus(ApiStatus *status); // returns false when the tool is not active
+    static bool ApiClose(wxString *error); // full restore + teardown (same as the GUI close)
 };
 
 #endif

@@ -182,3 +182,37 @@ for the simulated rotation rate (28.7 kpx ≈ r·ω·13751 s/rad) and with the h
 the simulated rotation sense the `target` direction pointed at the fake pole (97.9° vs 89.9°
 geometric; the 8° residual is the arc-curvature shift of the 20 s fit window). ARA call sites:
 the polar-alignment routine's drift mode.
+
+### Drift Alignment over RPC + Alpaca coordinate-units fix (2026-06-10)
+The classic drift-align tool (meridian/horizon dec-drift method) completes the set: all three
+in-guider polar-alignment tools are now drivable headlessly. The tool window lives entirely in
+`drift_tool.cpp`, so the RPC layer goes through new `DriftTool::Api*` accessors; the
+drift/adjust state machine runs from the existing `APPSTATE_NOTIFY` pump. The polar-error
+number comes from a new `GraphLogWindow::GetPolarAlignmentError()` — the same Frank-Barrett
+dec-trendline estimate the graph overlays, factored out of the paint code so the API can read
+it without painting.
+
+- `driftalign_start` → status. Requires camera, mount, known pixel scale.
+- `driftalign_set_phase` { `phase`: "azimuth"|"altitude" } → status.
+- `driftalign_drift` → status. Starts guiding if needed (mount must be calibrated), then
+  disables dec output and watches the dec trendline.
+- `driftalign_adjust` → status. Stops guiding (keeps looping), locks the lock position at the
+  drifted star for bolt adjustment.
+- `driftalign_get_status` → { `active`, `phase`, `mode`, `drifting`, `can_slew`, `slewing`,
+  `calibrated`, `guiding`, `status_message`?, `polar_alignment_error`? { `error_arcmin`,
+  `dec_drift_arcsec_per_min`, `samples` }, `current_star`?, `lock_position`?, `scope`?
+  { `ra_hours`, `dec_degrees`, `lst_hours` } }.
+- `driftalign_close` → 0. Full GUI-equivalent restore.
+
+**Bug fix surfaced by this work:** `ScopeAlpaca::GetCoordinates` returned RA/Dec in *radians*
+and `SlewToCoordinates`/`Async` expected radians, while the PHD2-wide convention (manual
+pointing scope, drift tool, static PA, calibration assistant — `hourAngle = lst − ra`) is
+**hours/degrees**. Since Alpaca is this fork's only mount backend, every hour-angle computation
+in those tools was wrong with a connected mount. Now hours/degrees pass through unchanged
+(Alpaca's native units). `GetDeclinationRadians` (explicitly radians) is unaffected.
+
+Verified live against the fake Alpaca rig (`scripts/fake_alpaca_camera.py` now serves a
+telescope at device 0 whose pulseguide requests shift the star field, plus an injected
+`--dec-drift-px-per-min`): the guider calibrated and guided against the fake mount end-to-end,
+and the drift fit reported −66.95′ vs the analytic 68.2′ (3.82 × 15.46″/min ÷ cos 30°) after
+only 9 samples. ARA call sites: the polar-alignment routine's drift-align mode.

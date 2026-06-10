@@ -785,12 +785,16 @@ bool ScopeAlpaca::GetCoordinates(double *ra, double *dec, double *siderealTime)
             throw ERROR_INFO("Alpaca Mount: get sidereal time failed, HTTP " + wxString::Format("%ld", errorCode));
         }
 
+        // PHD2's GetCoordinates convention is (hours, degrees, hours) — see
+        // ScopeManualPointing::GetCoordinates and the callers (drift tool,
+        // static PA, calibration assistant) which compute hour angles as
+        // lst - ra. Alpaca already reports hours/degrees, so pass through.
         if (ra)
-            *ra = raHours * 15.0 * M_PI / 180.0; // Convert hours to radians
+            *ra = raHours;
         if (dec)
-            *dec = radians(decDegrees);
+            *dec = decDegrees;
         if (siderealTime)
-            *siderealTime = stHours; // Sidereal time in hours
+            *siderealTime = stHours;
     }
     catch (const wxString& Msg)
     {
@@ -904,12 +908,11 @@ bool ScopeAlpaca::SlewToCoordinates(double ra, double dec)
             throw THROW_INFO("Alpaca Mount: not capable of slewing");
         }
 
-        // Convert radians to hours/degrees
-        double raHours = ra * 180.0 / M_PI / 15.0;
-        double decDegrees = dec * 180.0 / M_PI;
-
+        // ra is hours, dec is degrees (the PHD2-wide SlewToCoordinates
+        // convention; see the drift tool / static PA / calibration assistant
+        // callers) — the same units Alpaca expects, so pass through
         wxString endpoint = wxString::Format("telescope/%ld/slewtocoordinates", m_deviceNumber);
-        wxString params = wxString::Format("RightAscension=%.6f&Declination=%.6f", raHours, decDegrees);
+        wxString params = wxString::Format("RightAscension=%.6f&Declination=%.6f", ra, dec);
 
         long errorCode = 0;
         if (!m_client->PutAction(endpoint, "SlewToCoordinates", params, &errorCode))
@@ -942,12 +945,10 @@ bool ScopeAlpaca::SlewToCoordinatesAsync(double ra, double dec)
             throw THROW_INFO("Alpaca Mount: not capable of async slewing");
         }
 
-        // Convert radians to hours/degrees
-        double raHours = ra * 180.0 / M_PI / 15.0;
-        double decDegrees = dec * 180.0 / M_PI;
-
+        // ra is hours, dec is degrees (the PHD2-wide SlewToCoordinates
+        // convention) — the same units Alpaca expects, so pass through
         wxString endpoint = wxString::Format("telescope/%ld/slewtocoordinatesasync", m_deviceNumber);
-        wxString params = wxString::Format("RightAscension=%.6f&Declination=%.6f", raHours, decDegrees);
+        wxString params = wxString::Format("RightAscension=%.6f&Declination=%.6f", ra, dec);
 
         long errorCode = 0;
         if (!m_client->PutAction(endpoint, "SlewToCoordinatesAsync", params, &errorCode))
