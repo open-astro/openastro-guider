@@ -43,6 +43,7 @@
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 #include <wx/sstream.h>
+#include <wx/mstream.h>
 #include <wx/sckstrm.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -4702,6 +4703,58 @@ static void get_camera_frame_size(JObj& response, const json_value *params)
         response << jrpc_error(1, "camera not connected");
 }
 
+// Guide-step history + summary stats from the graph's data store — the web
+// UI's guide graph polls this (there is no event stream over HTTP).
+static void get_guide_history(JObj& response, const json_value *params)
+{
+    Params p("max_points", params);
+    long maxPoints = 200;
+    const json_value *jv = p.param("max_points");
+    if (jv && (!json_to_long(jv, &maxPoints) || maxPoints < 1 || maxPoints > 400))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "max_points must be in range 1..400");
+        return;
+    }
+
+    if (!pFrame->pGraphLog)
+    {
+        response << jrpc_error(1, "graph data not available");
+        return;
+    }
+
+    const circular_buffer<S_HISTORY>& hist = pFrame->pGraphLog->History();
+    const SummaryStats& stats = pFrame->pGraphLog->Stats();
+
+    double scale = pFrame->GetCameraPixelScale();
+
+    JAry pts;
+    unsigned int n = hist.size();
+    unsigned int start = n > (unsigned int) maxPoints ? n - (unsigned int) maxPoints : 0;
+    for (unsigned int i = start; i < n; i++)
+    {
+        const S_HISTORY& h = hist[i];
+        // dir chars are 0 when no correction was issued — emit "" not a
+        // control character (which would corrupt the JSON)
+        wxString raDir = h.raDir >= ' ' ? wxString(h.raDir) : wxString();
+        wxString decDir = h.decDir >= ' ' ? wxString(h.decDir) : wxString();
+        JObj pt;
+        pt << NV("t", (double) h.timestamp) << NV("dx", h.dx, 3) << NV("dy", h.dy, 3) << NV("ra", h.ra, 3)
+           << NV("dec", h.dec, 3) << NV("ra_dur", h.raDur) << NV("dec_dur", h.decDur) << NV("ra_dir", raDir)
+           << NV("dec_dir", decDir) << NV("mass", h.starMass, 1) << NV("snr", h.starSNR, 2);
+        pts << pt;
+    }
+
+    JObj st;
+    st << NV("n", (int) stats.nr) << NV("rms_ra", stats.rms_ra, 3) << NV("rms_dec", stats.rms_dec, 3)
+       << NV("rms_tot", stats.rms_tot, 3) << NV("osc_index", stats.osc_index, 2) << NV("ra_peak", stats.ra_peak, 2)
+       << NV("dec_peak", stats.dec_peak, 2) << NV("star_lost", (int) stats.star_lost_cnt)
+       << NV("ra_limited", (int) stats.ra_limit_cnt) << NV("dec_limited", (int) stats.dec_limit_cnt);
+
+    JObj rslt;
+    rslt << NV("pixel_scale", scale, 3) << NV("stats", st) << NV("points", pts);
+    response << jrpc_result(rslt);
+}
+
 static void get_guide_output_enabled(JObj& response, const json_value *params)
 {
     if (pMount)
@@ -6369,6 +6422,7 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_selected_ao", &set_selected_ao },
         { "get_selected_rotator", &get_selected_rotator },
         { "set_selected_rotator", &set_selected_rotator },
+        { "get_guide_history", &get_guide_history },
         { "get_guide_output_enabled", &get_guide_output_enabled },
         { "set_guide_output_enabled", &set_guide_output_enabled },
         { "get_algo_param_names", &get_algo_param_names },
@@ -6979,6 +7033,36 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
             wxString::Format("HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Type: %s\r\n"
                              "Content-Length: %u\r\n\r\n",
                              mime_type_for_path(fullPath), (unsigned int) data.size());
+        std::string resp(hdr.ToUTF8().data());
+        resp.append(data);
+        return resp;
+    }
+
+    if (req.method == "GET" && req.path == "/api/frame.jpg")
+    {
+        // current guide frame, stretched for display the same way the GUI
+        // stretches it (FiltMin/FiltMax + gamma); the web UI polls this for
+        // its live view
+        usImage *img = pFrame && pFrame->pGuider ? pFrame->pGuider->CurrentImage() : nullptr;
+        if (!img || !img->ImageData)
+            return http_response(404, "text/plain", "no image available");
+
+        wxImage *disp = nullptr;
+        img->CopyToImage(&disp, img->FiltMin, img->FiltMax, pFrame->Stretch_gamma);
+        wxMemoryOutputStream mos;
+        disp->SetOption(wxIMAGE_OPTION_QUALITY, 85);
+        bool ok = disp->SaveFile(mos, wxBITMAP_TYPE_JPEG);
+        delete disp;
+        if (!ok)
+            return http_response(500, "text/plain", "could not encode frame");
+
+        size_t len = mos.GetSize();
+        std::string data(len, '\0');
+        mos.CopyTo(&data[0], len);
+
+        wxString hdr = wxString::Format("HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\n"
+                                        "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
+                                        (unsigned int) len);
         std::string resp(hdr.ToUTF8().data());
         resp.append(data);
         return resp;

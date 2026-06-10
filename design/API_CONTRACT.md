@@ -216,3 +216,27 @@ telescope at device 0 whose pulseguide requests shift the star field, plus an in
 `--dec-drift-px-per-min`): the guider calibrated and guided against the fake mount end-to-end,
 and the drift fit reported −66.95′ vs the analytic 68.2′ (3.82 × 15.46″/min ÷ cos 30°) after
 only 9 samples. ARA call sites: the polar-alignment routine's drift-align mode.
+
+### Web app + guide-history/frame endpoints (2026-06-10)
+The `:8080` web UI was rebuilt from the setup wizard into a full PHD2-like single-page app
+(`scripts/webui/`: vanilla JS/CSS, no build step, no CDN — works offline on the Pi). Tabs:
+Guide (live frame + star/lock overlays, PHD2-style guide graph, loop/select/guide/dither/pause),
+Polar Align (all three tool flows), Equipment, Settings (the Batch A–C2 surface), Darks.
+
+Server-side additions backing it:
+- `get_guide_history` { `max_points`? (1..400, default 200) } → { `pixel_scale`,
+  `stats` { `n`, `rms_ra`, `rms_dec`, `rms_tot`, `osc_index`, `ra_peak`, `dec_peak`,
+  `star_lost`, `ra_limited`, `dec_limited` }, `points` [{ `t` (ms epoch), `dx`, `dy`, `ra`,
+  `dec` (px), `ra_dur`, `dec_dur` (ms), `ra_dir`, `dec_dir` ("E"/"W"/"N"/"S" or ""), `mass`,
+  `snr` }] } — the graph window's data store, for HTTP clients that have no event stream.
+  (Direction chars are "" when no correction was issued; emitting the raw 0 char corrupted
+  the JSON — caught by the contract test.)
+- `GET /api/frame.jpg` — the current guide frame stretched exactly as the GUI displays it
+  (FiltMin/FiltMax + gamma), JPEG q85; 404 when no frame. The web app polls it for the live
+  view (the GUI's own displayed image only refreshes on paint, so the endpoint stretches the
+  raw frame on demand).
+
+Verified by a 49-check contract test against the live daemon + fake Alpaca rig: every RPC the
+app issues (all five tabs), the static routes, frame.jpg JPEG validity, and guide history
+populating during a real calibrate→guide→dither→pause session (14 pts, 0.101 px RMS).
+ARA call sites: none (the web app is an alternative client; ARA supersedes it on mobile).
