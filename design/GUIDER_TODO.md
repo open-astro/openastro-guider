@@ -60,9 +60,11 @@ Headless-by-default + the systemd unit landed; these are the deliberate follow-u
 - ~~**Vestigial `plugdev`/`dialout` grants.**~~ **Resolved.** The postinst no longer grants
   `plugdev`/`dialout`; it now *revokes* them on upgrade if an earlier version granted them
   (equipment is Alpaca-only/network; the local serial/USB backends are gone).
-- **Dead `*_indi_*` JSON-RPC methods.** `get_indi_server`/`set_indi_server` and the
-  `get/set_selected_indi_*_driver` methods remain in `event_server.cpp` after the INDI drop
-  (Phase 3) — they reference no live backend. Remove or stub once ARA's method usage is pinned.
+- ~~**Dead `*_indi_*` JSON-RPC methods.**~~ **Resolved.** `get_indi_server`/`set_indi_server`,
+  the `get/set_selected_indi_*_driver` methods, the dead `Contains("INDI")` branches in the
+  mount/camera/rotator selection setters, and the orphaned `extract_bracketed_driver_name`
+  helper were all removed from `event_server.cpp` (no live backend since the Phase 3 INDI
+  drop; ARA never adopted them — `API_REFERENCE.md` had them marked "do not use").
 
 ## Phase 5 — API gap-fill (planned)
 - **Advanced/"Brain" settings over RPC.** The existing methods cover equipment, profiles,
