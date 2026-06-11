@@ -1022,6 +1022,8 @@ struct HttpClientData
     std::atomic<int> refcnt; // atomic for the same reason as ClientData::refcnt
     wxMutex wrlock;
     std::string recvbuf;
+    std::string sendbuf; // response bytes the non-blocking socket hasn't accepted yet
+    bool closeAfterSend = false; // one-shot connection: destroy once sendbuf drains
 
     HttpClientData(wxSocketClient *cli_) : cli(cli_), refcnt(1) { }
     void AddRef() { ++refcnt; }
@@ -1048,16 +1050,50 @@ inline static wxMutex *http_client_wrlock(wxSocketClient *cli)
     return &((HttpClientData *) cli->GetClientData())->wrlock;
 }
 
+// Write as much as the NOWAIT socket accepts and queue the rest in
+// sendbuf; OnHttpServerClientEvent drains the queue on wxSOCKET_OUTPUT
+// events. A single Write silently drops whatever exceeds the kernel send
+// buffer (~140 KB on a real NIC), which truncated every large response —
+// the web app's frame JPEGs — for any client not on loopback.
 static void send_buf_http(wxSocketClient *client, const std::string& buf)
 {
-    wxMutexLocker lock(*http_client_wrlock(client));
-    client->Write(buf.data(), buf.length());
-    if (client->LastWriteCount() != buf.length())
+    HttpClientData *cd = (HttpClientData *) client->GetClientData();
+    wxMutexLocker lock(cd->wrlock);
+
+    if (!cd->sendbuf.empty())
     {
-        Debug.Write(wxString::Format("httpsrv: cli %p short write %u/%u %s\n", client, client->LastWriteCount(),
-                                     (unsigned int) buf.length(),
+        // already draining an earlier response; keep byte order
+        cd->sendbuf.append(buf);
+        return;
+    }
+
+    client->Write(buf.data(), buf.length());
+    size_t n = client->LastWriteCount();
+    if (n != buf.length())
+    {
+        cd->sendbuf.assign(buf, n, std::string::npos);
+        Debug.Write(wxString::Format("httpsrv: cli %p short write %u/%u, queued %u %s\n", client, (unsigned int) n,
+                                     (unsigned int) buf.length(), (unsigned int) cd->sendbuf.length(),
                                      SockErrStr(client->Error() ? client->LastError() : wxSOCKET_NOERROR)));
     }
+}
+
+// Drain queued response bytes after a short write; returns true when the
+// queue is empty (caller may then close a one-shot connection).
+static bool flush_http_pending(wxSocketClient *client)
+{
+    HttpClientData *cd = (HttpClientData *) client->GetClientData();
+    wxMutexLocker lock(cd->wrlock);
+
+    while (!cd->sendbuf.empty())
+    {
+        client->Write(cd->sendbuf.data(), cd->sendbuf.length());
+        size_t n = client->LastWriteCount();
+        if (n == 0)
+            return false; // send buffer full again; wait for the next OUTPUT event
+        cd->sendbuf.erase(0, n);
+    }
+    return true;
 }
 
 static JObj& operator<<(JObj& j, const NVRaw& nv)
@@ -7491,7 +7527,7 @@ void EventServer::OnHttpServerEvent(wxSocketEvent& event)
     Debug.Write(wxString::Format("httpsrv: cli %p connect\n", client));
 
     client->SetEventHandler(*this, HTTP_SERVER_CLIENT_ID);
-    client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG);
+    client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG | wxSOCKET_OUTPUT_FLAG);
     client->SetFlags(wxSOCKET_NOWAIT);
     client->Notify(true);
     client->SetClientData(new HttpClientData(client));
@@ -7516,7 +7552,34 @@ void EventServer::OnHttpServerClientEvent(wxSocketEvent& event)
         bool closeConn = handle_http_cli_input(this, cli);
         if (closeConn)
         {
-            // one-shot HTTP connection
+            HttpClientData *cd = (HttpClientData *) cli->GetClientData();
+            bool drained;
+            {
+                wxMutexLocker lock(cd->wrlock);
+                drained = cd->sendbuf.empty();
+            }
+            if (drained)
+            {
+                // one-shot HTTP connection
+                m_httpServerClients.erase(cli);
+                destroy_http_client(cli);
+            }
+            else
+            {
+                // part of the response is still queued (the kernel send
+                // buffer filled); close once OUTPUT events drain it
+                cd->closeAfterSend = true;
+            }
+        }
+        return;
+    }
+
+    if (event.GetSocketEvent() == wxSOCKET_OUTPUT)
+    {
+        // socket became writable again: push out queued response bytes
+        HttpClientData *cd = (HttpClientData *) cli->GetClientData();
+        if (flush_http_pending(cli) && cd->closeAfterSend)
+        {
             m_httpServerClients.erase(cli);
             destroy_http_client(cli);
         }
