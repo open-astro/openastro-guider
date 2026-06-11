@@ -101,8 +101,12 @@ let frameBusy = false;
 async function refreshFrame() {
   if (shutDown || activeTab !== "guide" || frameBusy) return;
   frameBusy = true;
+  // Abort hung fetches (e.g. the daemon restarting under us mid-request):
+  // frameBusy must always release or frame polling wedges for good.
+  const ctl = new AbortController();
+  const abortTimer = setTimeout(() => ctl.abort(), 5000);
   try {
-    const res = await fetch("/api/frame.jpg", { headers: frameEtag ? { "If-None-Match": frameEtag } : {} });
+    const res = await fetch("/api/frame.jpg", { signal: ctl.signal, headers: frameEtag ? { "If-None-Match": frameEtag } : {} });
     if (res.status === 200) {
       frameEtag = res.headers.get("ETag");
       const url = URL.createObjectURL(await res.blob());
@@ -118,8 +122,9 @@ async function refreshFrame() {
       probe.src = url;
     }
   } catch (e) {
-    // daemon unreachable; keep the previous image
+    // daemon unreachable or fetch aborted; keep the previous image
   } finally {
+    clearTimeout(abortTimer);
     frameBusy = false;
   }
 }
