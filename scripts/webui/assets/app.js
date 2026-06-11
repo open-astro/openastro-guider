@@ -841,9 +841,31 @@ action("dk-delete", async () => {
   loadDarks();
 });
 
+/* ---------------- shutdown ---------------- */
+
+let shutDown = false;
+
+action("btn-shutdown", async () => {
+  if (!confirm("Shut down the guider daemon?\n\nGuiding and looping will stop, equipment stays as-is, and this page " +
+               "will be unreachable until the daemon is started again on the guider machine."))
+    return;
+  shutDown = true;
+  try {
+    await rpc("shutdown");
+  } catch (e) {
+    // The daemon can drop the connection while exiting — that's still success.
+  }
+  $("pill-state").textContent = "shut down";
+  $("pill-state").className = "pill";
+  document.querySelector("main").innerHTML =
+    '<div class="card"><div class="card-title"><span>Daemon shut down</span></div>' +
+    "<p>The guider daemon has exited. Start it again on the guider machine, then reload this page.</p></div>";
+});
+
 /* ---------------- main loop ---------------- */
 
 async function tick() {
+  if (shutDown) return;
   await pollHeader();
   if (activeTab === "guide") await pollGuide();
   if (activeTab === "polar") {
