@@ -3369,6 +3369,17 @@ static void get_app_state(JObj& response, const json_value *params)
     response << jrpc_result(state_name(st));
 }
 
+static void get_version(JObj& response, const json_value *params)
+{
+    // Same fields the :4400 stream's Version event carries, for HTTP
+    // clients (the web app's header version pill) that have no event
+    // stream. "version" is the user-facing FULLVER from version.md.
+    JObj rslt;
+    rslt << NV("version", wxString(FULLVER)) << NV("phd_version", wxString(PHDVERSION)) << NV("phd_subver", wxString(PHDSUBVER))
+         << NV("msg_version", MSG_PROTOCOL_VERSION);
+    response << jrpc_result(rslt);
+}
+
 static void get_lock_position(JObj& response, const json_value *params)
 {
     VERIFY_GUIDER(response);
@@ -6462,6 +6473,7 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "driftalign_close", &driftalign_close },
         { "get_pixel_scale", &get_pixel_scale },
         { "get_app_state", &get_app_state },
+        { "get_version", &get_version },
         { "flip_calibration", &flip_calibration },
         { "get_lock_shift_enabled", &get_lock_shift_enabled },
         { "set_lock_shift_enabled", &set_lock_shift_enabled },

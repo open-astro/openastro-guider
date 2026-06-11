@@ -254,3 +254,11 @@ ARA call sites: none (the web app is an alternative client; ARA supersedes it on
   rejected with "dark-frame capture in progress".
   ARA call sites: none yet (added for the web app's Darks tab; available to ARA's dark
   flows if useful).
+
+## 2026-06-10 — get_version (web app header pill)
+
+- `get_version` {} → { `version` (user-facing FULLVER from version.md), `phd_version`,
+  `phd_subver`, `msg_version` } — the `Version` event's fields as a pollable RPC for HTTP
+  clients that never see the :4400 event stream. Added so the web app can show the daemon
+  version in its header (matching AlpacaBridge's web face).
+  ARA call sites: none yet (useful for ARA's diagnostics/about surface).

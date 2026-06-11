@@ -36,6 +36,7 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | Method | Params | Description |
 |--------|--------|-------------|
 | `get_app_state` | — | Current state string (`Stopped`, `Selected`, `Calibrating`, `Guiding`, `LostLock`, `Paused`, `Looping`). |
+| `get_version` | — | `version` (user-facing, from `version.md`), `phd_version`, `phd_subver`, `msg_version` — the `Version` event's fields for HTTP clients with no event stream (the web app's header pill). |
 | `get_connected` | — | `true` if all selected equipment is connected. |
 | `set_connected` | `connected` (bool) | Connect/disconnect the profile's equipment. |
 | `loop` | — | Start looping exposures (no guiding). |

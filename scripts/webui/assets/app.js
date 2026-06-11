@@ -900,6 +900,8 @@ async function tick() {
 }
 
 (async function init() {
+  const v = await rpcQuiet("get_version");
+  if (v && v.version) $("header-version").textContent = "v" + v.version;
   await loadExposures();
   await tick();
   setInterval(tick, 1200);
