@@ -186,6 +186,9 @@ input[type="checkbox"] { accent-color: var(--accent); }
 
 .pa-msg { margin-top: 10px; min-height: 18px; color: var(--warn); font-size: 13px; white-space: pre-wrap; }
 
+/* ---- dark build progress bar ---- */
+progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--accent); }
+
 /* ---- polar align mode picker ---- */
 .polar-picker { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .polar-picker button {

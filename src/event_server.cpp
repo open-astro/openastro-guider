@@ -924,6 +924,33 @@ static bool pa_session_active()
     } while (0)
 // clang-format on
 
+// Dark-library / defect-map dark-capture progress. The build RPCs run
+// synchronously on the main thread but wxYield() between frames (the same
+// pattern the GUI dark dialog uses), so the servers stay responsive and
+// clients can poll get_dark_build_progress to drive a progress bar. The
+// active flag also guards capture-starting RPCs that could otherwise
+// re-enter mid-build through that same Yield.
+static struct DarkBuildProgress
+{
+    bool active = false;
+    int exposure_index = 0; // 1-based index of the exposure being captured
+    int exposure_count = 0;
+    int exposure_ms = 0;
+    int frame = 0; // 1-based frame within the current exposure
+    int frame_count = 0;
+} s_darkBuild;
+
+// clang-format off
+#define VERIFY_NO_DARK_BUILD(response) \
+    do { \
+        if (s_darkBuild.active) \
+        { \
+            response << jrpc_error(1, "dark-frame capture in progress"); \
+            return; \
+        } \
+    } while (0)
+// clang-format on
+
 static void apply_selection_to_control(int choiceControlId, const wxArrayString& choices, const wxString& selectedChoice)
 {
     wxWindow *wnd = pFrame->pGearDialog->FindWindow(choiceControlId);
@@ -2428,6 +2455,7 @@ static void get_connected(JObj& response, const json_value *params)
 static void set_connected(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     Params p("connected", params);
     const json_value *val = p.param("connected");
@@ -2543,6 +2571,7 @@ static void set_paused(JObj& response, const json_value *params)
 static void loop(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     bool error = pFrame->StartLooping();
 
@@ -3733,6 +3762,10 @@ static bool capture_master_dark_frame(usImage& darkFrame, int expTimeMs, int fra
 
     for (int j = 1; j <= frameCount; j++)
     {
+        s_darkBuild.exposure_ms = expTimeMs;
+        s_darkBuild.frame = j;
+        s_darkBuild.frame_count = frameCount;
+
         CaptureParams captureParams;
         captureParams.duration = expTimeMs;
         captureParams.hwBinning = pCamera->HwBinning;
@@ -3754,6 +3787,16 @@ static bool capture_master_dark_frame(usImage& darkFrame, int expTimeMs, int fra
             avgimg.resize(darkFrame.NPixels, 0);
         for (unsigned int i = 0; i < darkFrame.NPixels; i++)
             avgimg[i] += darkFrame.ImageData[i];
+
+        // Let the event loop run between frames (same as the GUI dark
+        // dialog) so the event/HTTP servers can answer progress polls.
+        // Capture-starting RPCs are rejected while s_darkBuild.active.
+        // Two rounds with a short gap: a poll that arrived mid-capture
+        // needs accept -> read -> respond socket events, and one Yield
+        // only advances the connection a step per frame.
+        wxYield();
+        wxMilliSleep(10);
+        wxYield();
     }
 
     for (unsigned int i = 0; i < darkFrame.NPixels; i++)
@@ -3858,9 +3901,19 @@ static void set_defect_map_enabled(JObj& response, const json_value *params)
     get_calibration_files_status(response, nullptr);
 }
 
+static void get_dark_build_progress(JObj& response, const json_value *params)
+{
+    JObj rslt;
+    rslt << NV("active", s_darkBuild.active) << NV("exposure_index", s_darkBuild.exposure_index)
+         << NV("exposure_count", s_darkBuild.exposure_count) << NV("exposure_ms", s_darkBuild.exposure_ms)
+         << NV("frame", s_darkBuild.frame) << NV("frame_count", s_darkBuild.frame_count);
+    response << jrpc_result(rslt);
+}
+
 static void build_dark_library(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     Params p("frame_count", "min_exposure_ms", "max_exposure_ms", "clear_existing", "notes", "load_after", params);
     long frameCount = 5;
@@ -3949,6 +4002,13 @@ static void build_dark_library(JObj& response, const json_value *params)
         return;
     }
 
+    struct DarkBuildScope
+    {
+        ~DarkBuildScope() { s_darkBuild = DarkBuildProgress(); }
+    } darkBuildScope;
+    s_darkBuild.active = true;
+    s_darkBuild.exposure_count = (int) selected.size();
+
     bool hadShutterClosed = pCamera->ShutterClosed;
     pCamera->ShutterClosed = true;
     if (clearExisting)
@@ -3958,6 +4018,7 @@ static void build_dark_library(JObj& response, const json_value *params)
     int builtCount = 0;
     for (int exp : selected)
     {
+        s_darkBuild.exposure_index = builtCount + 1;
         usImage *newDark = new usImage();
         if (capture_master_dark_frame(*newDark, exp, (int) frameCount, &errorMsg))
         {
@@ -3989,6 +4050,7 @@ static void build_dark_library(JObj& response, const json_value *params)
 static void build_defect_map_darks(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     Params p("exposure_ms", "frame_count", "notes", "load_after", params);
     long exposureMs = 3000;
@@ -4042,6 +4104,14 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
         return;
     }
 
+    struct DarkBuildScope
+    {
+        ~DarkBuildScope() { s_darkBuild = DarkBuildProgress(); }
+    } darkBuildScope;
+    s_darkBuild.active = true;
+    s_darkBuild.exposure_count = 1;
+    s_darkBuild.exposure_index = 1;
+
     bool hadShutterClosed = pCamera->ShutterClosed;
     pCamera->ShutterClosed = true;
 
@@ -4079,6 +4149,7 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
 
 static void rebuild_defect_map(JObj& response, const json_value *params)
 {
+    VERIFY_NO_DARK_BUILD(response);
     Params p("aggressiveness_hot", "aggressiveness_cold", "save", "load_after", params);
     // 75 is the GUI's default aggressiveness (DefDMSigmaX in Refine_DefMap.cpp)
     long aggrHot = pConfig->Profile.GetInt("/camera/dmap_hot_factor", 75);
@@ -4288,6 +4359,7 @@ static void delete_calibration_files(JObj& response, const json_value *params)
 
 static void capture_single_frame(JObj& response, const json_value *params)
 {
+    VERIFY_NO_DARK_BUILD(response);
     if (pFrame->CaptureActive)
     {
         response << jrpc_error(1, "cannot capture single frame when capture is currently active");
@@ -4541,6 +4613,7 @@ static bool parse_settle(SettleParams *settle, const json_value *j, wxString *er
 static void guide(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     // params:
     //   settle [object]:
@@ -4615,6 +4688,7 @@ static void guide(JObj& response, const json_value *params)
 static void dither(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     // params:
     //   amount [integer] - max pixels to move in each axis
@@ -6061,6 +6135,7 @@ static GUIDE_DIRECTION opposite(GUIDE_DIRECTION d)
 static void guide_pulse(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     Params p("amount", "direction", "which", params);
 
@@ -6469,6 +6544,7 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_dark_library_enabled", &set_dark_library_enabled },
         { "set_defect_map_enabled", &set_defect_map_enabled },
         { "build_dark_library", &build_dark_library },
+        { "get_dark_build_progress", &get_dark_build_progress },
         { "build_defect_map_darks", &build_defect_map_darks },
         { "rebuild_defect_map", &rebuild_defect_map },
         { "add_bad_pixel", &add_bad_pixel },

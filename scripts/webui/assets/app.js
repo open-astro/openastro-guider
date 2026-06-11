@@ -543,12 +543,23 @@ action("eq-save-alpaca", async () => {
 });
 
 action("eq-discover", async () => {
-  $("eq-discover-out").textContent = "discovering…";
+  const out = $("eq-discover-out");
+  out.textContent = "discovering…";
   const res = await fetch("/api/discover/alpaca").then((r) => r.json());
-  const servers = res.servers || [];
-  $("eq-discover-out").textContent = servers.length
-    ? servers.map((s) => `${s.host}:${s.port}`).join("   ")
-    : "no Alpaca servers found";
+  const servers = res.servers || []; // ["host:port", ...]
+  out.textContent = servers.length ? "found: " : "no Alpaca servers found";
+  servers.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "btn";
+    b.textContent = s;
+    b.title = "use this server";
+    b.addEventListener("click", () => {
+      const i = s.lastIndexOf(":");
+      $("eq-host").value = s.slice(0, i);
+      $("eq-port").value = s.slice(i + 1);
+    });
+    out.appendChild(b);
+  });
 });
 
 action("eq-connect", async () => {
@@ -675,7 +686,42 @@ action("st-save-camera", async () => {
 
 /* ---------------- darks tab ---------------- */
 
+const expLabel = (ms) => (ms < 1000 ? `${ms} ms` : `${+(ms / 1000).toFixed(2)} s`);
+let darkExposures = [];
+
+function darkBuildPlan() {
+  if (!darkExposures.length) return;
+  const lo = parseInt($("dk-min-exp").value, 10);
+  const hi = parseInt($("dk-max-exp").value, 10);
+  const frames = parseInt($("dk-frames").value, 10) || 0;
+  if (lo > hi) {
+    $("dk-build-plan").textContent = "min exposure is greater than max exposure";
+    return;
+  }
+  const sel = darkExposures.filter((ms) => ms >= lo && ms <= hi);
+  const totalS = sel.reduce((t, ms) => t + ms * frames, 0) / 1000;
+  $("dk-build-plan").textContent =
+    `will capture ${sel.length} master dark${sel.length === 1 ? "" : "s"} (${sel.map(expLabel).join(", ")}) ` +
+    `× ${frames} frames each ≈ ${totalS < 90 ? Math.round(totalS) + " s" : Math.round(totalS / 60) + " min"} of exposure`;
+}
+
+async function loadDarkExposures() {
+  if (darkExposures.length) return;
+  darkExposures = ((await rpcQuiet("get_exposure_durations")) || []).sort((a, b) => a - b);
+  const fill = (sel, def) => {
+    sel.innerHTML = darkExposures.map((ms) => `<option value="${ms}">${expLabel(ms)}</option>`).join("");
+    if (darkExposures.length)
+      sel.value = darkExposures.includes(def) ? def : darkExposures[darkExposures.length - 1];
+  };
+  fill($("dk-min-exp"), 1000); // same defaults as the GUI's Build Dark Library dialog
+  fill($("dk-max-exp"), 6000);
+  darkBuildPlan();
+}
+
+["dk-min-exp", "dk-max-exp", "dk-frames"].forEach((id) => $(id).addEventListener("input", darkBuildPlan));
+
 async function loadDarks() {
+  loadDarkExposures();
   const st = await rpcQuiet("get_calibration_files_status");
   if (!st) return;
   const yn = (v) => (v ? '<b class="good">yes</b>' : "<b>no</b>");
@@ -703,16 +749,53 @@ $("dk-auto-map").addEventListener("change", () =>
 $("dk-hot").addEventListener("input", () => { $("dk-hot-val").textContent = $("dk-hot").value; });
 $("dk-cold").addEventListener("input", () => { $("dk-cold-val").textContent = $("dk-cold").value; });
 
+// Poll get_dark_build_progress while a (synchronous) build RPC is in
+// flight and render it into a <progress> bar + message line. Returns a
+// stop function that hides the bar and ends the polling.
+function trackDarkBuild(barId, msgEl) {
+  const bar = $(barId);
+  bar.hidden = false;
+  bar.removeAttribute("value"); // indeterminate until the first poll lands
+  let stopped = false;
+  const timer = setInterval(async () => {
+    const p = await rpcQuiet("get_dark_build_progress");
+    if (stopped || !p || !p.active) return;
+    const total = p.exposure_count * p.frame_count;
+    const done = (p.exposure_index - 1) * p.frame_count + (p.frame - 1);
+    bar.max = total;
+    bar.value = done;
+    msgEl.textContent =
+      `capturing dark ${Math.min(done + 1, total)}/${total} — ` +
+      `exposure ${p.exposure_index}/${p.exposure_count} (${expLabel(p.exposure_ms)}), frame ${p.frame}/${p.frame_count}`;
+  }, 700);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+    bar.hidden = true;
+  };
+}
+
 action("dk-build", async () => {
-  $("dk-build-msg").textContent = "building dark library — this takes a while…";
+  const lo = parseInt($("dk-min-exp").value, 10);
+  const hi = parseInt($("dk-max-exp").value, 10);
+  if (lo > hi) {
+    toast("min exposure is greater than max exposure");
+    return;
+  }
+  $("dk-build-msg").textContent = "building dark library…";
+  const stop = trackDarkBuild("dk-build-bar", $("dk-build-msg"));
   try {
     const r = await rpc("build_dark_library", {
+      min_exposure_ms: lo,
+      max_exposure_ms: hi,
       frame_count: parseInt($("dk-frames").value, 10),
       clear_existing: $("dk-clear").checked,
     });
-    $("dk-build-msg").textContent = `built ${r.exposure_count} exposures × ${r.frame_count} frames`;
+    stop();
+    $("dk-build-msg").textContent = `built ${r.exposure_count} exposures × ${r.frame_count} frames (${(r.exposures_ms || []).map(expLabel).join(", ")})`;
     loadDarks();
   } catch (e) {
+    stop();
     $("dk-build-msg").textContent = "";
     throw e;
   }
@@ -720,14 +803,17 @@ action("dk-build", async () => {
 
 action("dk-bpm-build", async () => {
   $("dk-bpm-msg").textContent = "capturing defect-map darks…";
+  const stop = trackDarkBuild("dk-bpm-bar", $("dk-bpm-msg"));
   try {
     const r = await rpc("build_defect_map_darks", {
       exposure_ms: parseInt($("dk-bpm-exp").value, 10),
       frame_count: parseInt($("dk-bpm-frames").value, 10),
     });
+    stop();
     $("dk-bpm-msg").textContent = `map built: ${r.defect_count} bad pixels`;
     loadDarks();
   } catch (e) {
+    stop();
     $("dk-bpm-msg").textContent = "";
     throw e;
   }
