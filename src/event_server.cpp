@@ -7123,6 +7123,13 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
         if (!img || !img->ImageData)
             return http_response(404, "text/plain", "no image available");
 
+        // ETag from the frame counter so the web UI can poll fast: an
+        // unchanged frame answers 304 without paying the JPEG encode.
+        std::string etag(wxString::Format("\"f%u\"", img->FrameNum).ToUTF8().data());
+        auto inm = req.headers.find("if-none-match");
+        if (inm != req.headers.end() && inm->second == etag)
+            return "HTTP/1.1 304 Not Modified\r\nConnection: close\r\nETag: " + etag + "\r\n\r\n";
+
         wxImage *disp = nullptr;
         img->CopyToImage(&disp, img->FiltMin, img->FiltMax, pFrame->Stretch_gamma);
         wxMemoryOutputStream mos;
@@ -7137,8 +7144,8 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
         mos.CopyTo(&data[0], len);
 
         wxString hdr = wxString::Format("HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\n"
-                                        "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
-                                        (unsigned int) len);
+                                        "ETag: %s\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
+                                        etag.c_str(), (unsigned int) len);
         std::string resp(hdr.ToUTF8().data());
         resp.append(data);
         return resp;

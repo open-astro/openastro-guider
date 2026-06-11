@@ -17,8 +17,9 @@ The same method table is served over **two** sockets (both bind `0.0.0.0`, insta
   PHD2-like UI: guide graph + live frame + controls, all three polar-alignment tools,
   equipment, settings, darks — `scripts/webui/`), (b) bridges `POST /api/rpc` to the *same*
   dispatch, and (c) serves `GET /api/frame.jpg` — the current guide frame stretched for
-  display, polled by the web app's live view. This is what **ARA** / browsers use. Port =
-  `8080 + (instance − 1)`.
+  display, polled by the web app's live view. The response carries an `ETag` derived from
+  the frame counter; poll with `If-None-Match` to get a cheap `304` until a new frame
+  arrives. This is what **ARA** / browsers use. Port = `8080 + (instance − 1)`.
 
 **Request** (JSON-RPC 2.0): `{"method": "<name>", "params": {...}|[...], "id": <n>}`.
 Params may be an object (named) or array (positional). Over HTTP, POST that body to `/api/rpc`;

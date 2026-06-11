@@ -92,17 +92,41 @@ let frameSize = null; // [w, h]
 let lockPos = null;
 let starsOverlay = [];
 
-async function pollGuide() {
-  // live frame (cache-busted); errors just leave the previous image
-  const img = $("frame");
-  const probe = new Image();
-  probe.onload = () => {
-    img.src = probe.src;
-    $("frame-msg").style.display = "none";
-    drawOverlay(probe.naturalWidth, probe.naturalHeight);
-  };
-  probe.src = "/api/frame.jpg?t=" + Date.now();
+// Live frame: polled on its own fast timer (not the 1.2 s main tick) so the
+// view tracks looping closely. The server answers 304 via the frame-counter
+// ETag when nothing new arrived, so most polls cost almost nothing.
+let frameEtag = null;
+let frameBusy = false;
 
+async function refreshFrame() {
+  if (shutDown || activeTab !== "guide" || frameBusy) return;
+  frameBusy = true;
+  try {
+    const res = await fetch("/api/frame.jpg", { headers: frameEtag ? { "If-None-Match": frameEtag } : {} });
+    if (res.status === 200) {
+      frameEtag = res.headers.get("ETag");
+      const url = URL.createObjectURL(await res.blob());
+      const img = $("frame");
+      const probe = new Image();
+      probe.onload = () => {
+        const prev = img.src;
+        img.src = url;
+        $("frame-msg").style.display = "none";
+        drawOverlay(probe.naturalWidth, probe.naturalHeight);
+        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+      };
+      probe.src = url;
+    }
+  } catch (e) {
+    // daemon unreachable; keep the previous image
+  } finally {
+    frameBusy = false;
+  }
+}
+
+setInterval(refreshFrame, 400);
+
+async function pollGuide() {
   lockPos = await rpcQuiet("get_lock_position");
 
   if ($("show-stars").checked) {
