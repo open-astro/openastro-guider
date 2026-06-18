@@ -119,6 +119,7 @@ async function refreshFrame() {
         drawOverlay(probe.naturalWidth, probe.naturalHeight);
         if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
       };
+      probe.onerror = () => URL.revokeObjectURL(url);
       probe.src = url;
     }
   } catch (e) {
