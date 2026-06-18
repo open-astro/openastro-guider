@@ -111,16 +111,25 @@ async function refreshFrame() {
       frameEtag = res.headers.get("ETag");
       const url = URL.createObjectURL(await res.blob());
       const img = $("frame");
-      const probe = new Image();
-      probe.onload = () => {
-        const prev = img.src;
-        img.src = url;
-        $("frame-msg").style.display = "none";
-        drawOverlay(probe.naturalWidth, probe.naturalHeight);
-        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
-      };
-      probe.onerror = () => URL.revokeObjectURL(url);
-      probe.src = url;
+      // Hold frameBusy until the probe finishes decoding: clearing it in the
+      // finally (before onload fires) would let the next tick overlap, racing
+      // two probes so a stale frame wins and its blob URL leaks.
+      await new Promise((done) => {
+        const probe = new Image();
+        probe.onload = () => {
+          const prev = img.src;
+          img.src = url;
+          $("frame-msg").style.display = "none";
+          drawOverlay(probe.naturalWidth, probe.naturalHeight);
+          if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+          done();
+        };
+        probe.onerror = () => {
+          URL.revokeObjectURL(url);
+          done();
+        };
+        probe.src = url;
+      });
     }
   } catch (e) {
     // daemon unreachable or fetch aborted; keep the previous image
