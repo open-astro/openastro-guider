@@ -13,11 +13,13 @@
   <div class="brand">
     <img src="assets/oa512.png" alt="" width="28" height="28">
     <h1>OpenAstro <span>Guider</span></h1>
+    <span id="header-version" class="version mono"></span>
   </div>
   <div class="header-status">
     <span id="pill-state" class="pill">—</span>
     <span id="pill-rms" class="pill mono" title="RMS error (RA / Dec / total)">RMS —</span>
     <span id="pill-conn" class="pill" title="Equipment connection">●</span>
+    <button id="btn-shutdown" class="btn danger" title="Shut down the guider daemon">Shut down</button>
   </div>
 </header>
 
@@ -279,10 +281,14 @@
     <div class="card">
       <div class="card-title"><span>Build dark library</span></div>
       <div class="form">
+        <label>Min exposure <select id="dk-min-exp"></select></label>
+        <label>Max exposure <select id="dk-max-exp"></select></label>
         <label>Frames per exposure <input id="dk-frames" type="number" min="1" max="50" value="5"></label>
         <label class="toggle"><input type="checkbox" id="dk-clear"> clear existing first</label>
       </div>
+      <div id="dk-build-plan" class="pa-msg"></div>
       <div class="controls"><button id="dk-build" class="btn accent">Build (cover lens!)</button></div>
+      <progress id="dk-build-bar" max="1" value="0" hidden></progress>
       <div id="dk-build-msg" class="pa-msg"></div>
     </div>
     <div class="card">
@@ -292,6 +298,7 @@
         <label>Frames <input id="dk-bpm-frames" type="number" min="1" max="50" value="10"></label>
       </div>
       <div class="controls"><button id="dk-bpm-build" class="btn accent">Capture + build (cover lens!)</button></div>
+      <progress id="dk-bpm-bar" max="1" value="0" hidden></progress>
       <div class="form">
         <label>Hot aggressiveness <input id="dk-hot" type="range" min="0" max="100" value="75"> <output id="dk-hot-val" class="mono">75</output></label>
         <label>Cold aggressiveness <input id="dk-cold" type="range" min="0" max="100" value="75"> <output id="dk-cold-val" class="mono">75</output></label>

@@ -3,14 +3,38 @@
 # output every command that modifies files on the build system.
 #DH_VERBOSE = 1
 
+# NOTE: debian/changelog is a generated artifact (gitignored), derived from
+# version.md + CHANGELOG.md by scripts/changelog_to_deb.py. Use ./build-deb.sh
+# (the supported entry point) — it generates the file before packaging. A bare
+# dpkg-buildpackage fails up front with "fatal error ... debian/changelog: No
+# such file" because dpkg reads it before any rule here runs; run build-deb.sh
+# once (or call changelog_to_deb.py yourself) to create it first.
+
 # see EXAMPLES in dpkg-buildflags(1) and read /usr/share/dpkg/*
 DPKG_EXPORT_BUILDFLAGS = 1
 include /usr/share/dpkg/default.mk
 
+# Build accelerators (same setup as AlpacaBridge): the Ninja generator and
+# the ccache compiler launcher, each used only when installed so a bare
+# dpkg-buildpackage still works without them. Neither is a hard
+# Build-Depends; build-deb.sh auto-installs both.
+ifneq (,$(shell command -v ninja 2>/dev/null))
+BUILDSYSTEM = cmake+ninja
+else
+BUILDSYSTEM = cmake
+endif
+ifneq (,$(shell command -v ccache 2>/dev/null))
+CCACHE_ARGS = -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+# debhelper compat 13 runs the build with HOME pointed at a scratch dir under
+# debian/.debhelper/ that dh clean wipes, so ccache's HOME-derived default
+# cache would be discarded between runs. Pin the real cache dir instead
+# (still overridable via the environment).
+export CCACHE_DIR ?= $(HOME)/.cache/ccache
+endif
 
 # main packaging script based on dh7 syntax
 %:
-	dh $@
+	dh $@ --buildsystem=$(BUILDSYSTEM)
 
 override_dh_auto_configure:
 	@set -e; \
@@ -24,7 +48,7 @@ override_dh_auto_configure:
 		echo "Syncing debian/changelog version $$CHANGELOG_VERSION -> $$VERSION"; \
 		sed -i -E "1 s/^openastro-phd2 \\([^)]*\\) /openastro-phd2 ($$VERSION) /" $(CURDIR)/debian/changelog; \
 	fi
-	dh_auto_configure -- -DUSE_SYSTEM_GTEST=1 -DOPENSOURCE_ONLY=1
+	dh_auto_configure --buildsystem=$(BUILDSYSTEM) -- -DUSE_SYSTEM_GTEST=1 -DOPENSOURCE_ONLY=1 $(CCACHE_ARGS)
 
 # Force ctest to run even when DEB_BUILD_OPTIONS=nocheck is set. The fork
 # does not ship through Debian autobuilders, so honouring the standard

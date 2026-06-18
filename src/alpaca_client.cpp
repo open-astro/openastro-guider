@@ -322,18 +322,19 @@ bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *error
 
     // responseStr was already extracted above
 
-    // Get additional curl info for debugging
-    double contentLength = 0;
-    curl_easy_getinfo(m_curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &contentLength);
-    double downloadSize = 0;
-    curl_easy_getinfo(m_curl, CURLINFO_SIZE_DOWNLOAD, &downloadSize);
+    // Get additional curl info for debugging (the non-_T variants are
+    // deprecated since curl 7.55)
+    curl_off_t contentLength = 0;
+    curl_easy_getinfo(m_curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &contentLength);
+    curl_off_t downloadSize = 0;
+    curl_easy_getinfo(m_curl, CURLINFO_SIZE_DOWNLOAD_T, &downloadSize);
 
     // Log the actual response for debugging (truncate if too long)
     wxString responsePreview = responseStr.length() > 500 ? wxString(responseStr.substr(0, 500).c_str(), wxConvUTF8) + "..."
                                                           : wxString(responseStr.c_str(), wxConvUTF8);
     Debug.Write(wxString::Format(
-        "AlpacaClient GET response (HTTP %ld, received %ld bytes, expected %.0f bytes, downloaded %.0f bytes): %s\n", httpCode,
-        (long) responseStr.length(), contentLength, downloadSize, responsePreview));
+        "AlpacaClient GET response (HTTP %ld, received %ld bytes, expected %lld bytes, downloaded %lld bytes): %s\n", httpCode,
+        (long) responseStr.length(), (long long) contentLength, (long long) downloadSize, responsePreview));
 
     // If we got HTTP 200 but 0 bytes, this is suspicious
     if (httpCode == 200 && responseStr.length() == 0 && contentLength > 0)

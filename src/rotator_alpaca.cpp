@@ -97,18 +97,21 @@ bool RotatorAlpaca::Connect()
         return false;
     }
 
+    // If not configured, reload the profile settings in case they were set
+    // over the API since this rotator object was created. Never open the
+    // setup dialog from Connect(): connects arrive over JSON-RPC on the
+    // headless daemon, where a modal dialog would hang the main loop.
     if (m_port == 0)
     {
-        SetupDialog();
         m_host = pConfig->Profile.GetString("/alpaca/host", _T("localhost"));
         m_port = pConfig->Profile.GetLong("/alpaca/port", 0);
         m_deviceNumber = pConfig->Profile.GetLong("/alpaca/rotator_device", 0);
         if (m_port == 0)
         {
-            Debug.Write("Alpaca Rotator: Setup cancelled or not configured, skipping connection\n");
+            Debug.Write("Alpaca Rotator: not configured, skipping connection\n");
             if (pFrame)
             {
-                pFrame->Alert(_("Alpaca Rotator: Setup cancelled or not configured"));
+                pFrame->Alert(_("Alpaca Rotator is not configured - set the Alpaca server host and port first"));
             }
             return true;
         }

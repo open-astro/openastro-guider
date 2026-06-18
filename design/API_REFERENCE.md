@@ -17,8 +17,9 @@ The same method table is served over **two** sockets (both bind `0.0.0.0`, insta
   PHD2-like UI: guide graph + live frame + controls, all three polar-alignment tools,
   equipment, settings, darks — `scripts/webui/`), (b) bridges `POST /api/rpc` to the *same*
   dispatch, and (c) serves `GET /api/frame.jpg` — the current guide frame stretched for
-  display, polled by the web app's live view. This is what **ARA** / browsers use. Port =
-  `8080 + (instance − 1)`.
+  display, polled by the web app's live view. The response carries an `ETag` derived from
+  the frame counter; poll with `If-None-Match` to get a cheap `304` until a new frame
+  arrives. This is what **ARA** / browsers use. Port = `8080 + (instance − 1)`.
 
 **Request** (JSON-RPC 2.0): `{"method": "<name>", "params": {...}|[...], "id": <n>}`.
 Params may be an object (named) or array (positional). Over HTTP, POST that body to `/api/rpc`;
@@ -35,6 +36,7 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | Method | Params | Description |
 |--------|--------|-------------|
 | `get_app_state` | — | Current state string (`Stopped`, `Selected`, `Calibrating`, `Guiding`, `LostLock`, `Paused`, `Looping`). |
+| `get_version` | — | `version` (user-facing, from `version.md`), `phd_version`, `phd_subver`, `msg_version` — the `Version` event's fields for HTTP clients with no event stream (the web app's header pill). |
 | `get_connected` | — | `true` if all selected equipment is connected. |
 | `set_connected` | `connected` (bool) | Connect/disconnect the profile's equipment. |
 | `loop` | — | Start looping exposures (no guiding). |
@@ -268,6 +270,7 @@ drift/adjust until the error is small; switch phase and do the other axis.
 |--------|--------|-------------|
 | `build_dark_library` | `frame_count`, `min_exposure_ms`, `max_exposure_ms`, `clear_existing`, `notes`, `load_after` | Build the dark-frame library. |
 | `build_defect_map_darks` | `exposure_ms`, `frame_count`, `notes`, `load_after` | Capture the darks used to build a bad-pixel (defect) map. |
+| `get_dark_build_progress` | — | Progress of an in-flight `build_dark_library` / `build_defect_map_darks`: `active`, `exposure_index`/`exposure_count`, `exposure_ms`, `frame`/`frame_count` (all zero/false when idle). The build yields between frames so this stays pollable; while a build is active, capture-starting RPCs (`guide`, `loop`, `dither`, `guide_pulse`, `capture_single_frame`, `set_connected`, the two build methods, `rebuild_defect_map`) are rejected with *"dark-frame capture in progress"*. |
 | `rebuild_defect_map` | `aggressiveness_hot` (0–100), `aggressiveness_cold` (0–100), `save` (default true), `load_after` (default true) | Rebuild the bad-pixel map from the existing master dark with custom hot/cold aggressiveness (no recapture); `save:false` is a dry run returning predicted counts. Requires a connected camera. |
 | `add_bad_pixel` | `x`, `y` | Add one pixel to the currently loaded defect map (in-memory + disk); `added:false` if already present. Discarded on the next rebuild, like the GUI's manual pixels. |
 | `set_dark_auto_load` | `auto_load_darks` (bool), `auto_load_defect_map` (bool) | Set whether the dark library / defect map auto-load on camera connect. Returns the status object. |

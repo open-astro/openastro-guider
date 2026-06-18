@@ -77,23 +77,25 @@ bool ScopeAlpaca::Connect()
 
         if (IsConnected())
         {
-            wxMessageBox("Scope already connected", _("Error"));
+            // no message box: Connect() runs from JSON-RPC on the headless
+            // daemon, where a modal dialog would hang the main loop; the
+            // thrown error reaches the caller
             throw ERROR_INFO("Alpaca Mount: Connected - Already Connected");
         }
 
-        // If not configured open the setup dialog
+        // If not configured, reload the profile settings in case they were
+        // set over the API since this scope object was created. Never open
+        // the setup dialog from Connect(): connects arrive over JSON-RPC on
+        // the headless daemon, where a modal dialog would hang the main loop.
         if (m_port == 0)
         {
-            SetupDialog();
-            // Reload values after dialog
             m_host = pConfig->Profile.GetString("/alpaca/host", _T("localhost"));
             m_port = pConfig->Profile.GetLong("/alpaca/port", 0);
             m_deviceNumber = pConfig->Profile.GetLong("/alpaca/telescope_device", 0);
-            // If still unconfigured after setup, user probably cancelled - don't try to connect
             if (m_port == 0)
             {
-                Debug.Write("Alpaca Mount: Setup cancelled or not configured, skipping connection\n");
-                throw ERROR_INFO("Alpaca Mount: Setup cancelled or not configured");
+                Debug.Write("Alpaca Mount: not configured, skipping connection\n");
+                throw ERROR_INFO("Alpaca Mount: not configured - set the Alpaca server host and port first");
             }
         }
 
@@ -108,7 +110,8 @@ bool ScopeAlpaca::Connect()
         long errorCode = 0;
         if (!m_client->GetBool(endpoint, &connected, &errorCode))
         {
-            wxMessageBox(_T("Alpaca driver problem -- cannot check connection status"), _("Error"), wxOK | wxICON_ERROR);
+            // no message box (headless: a modal would hang the daemon when the
+            // mount is simply unreachable); the thrown error reaches the caller
             throw ERROR_INFO("Alpaca Mount: Could not check connection status, HTTP " + wxString::Format("%ld", errorCode));
         }
 
@@ -120,7 +123,7 @@ bool ScopeAlpaca::Connect()
             JsonParser parser;
             if (!m_client->Put(connectEndpoint, params, parser, &errorCode))
             {
-                wxMessageBox(_T("Alpaca driver problem -- cannot connect device"), _("Error"), wxOK | wxICON_ERROR);
+                // no message box (see above)
                 throw ERROR_INFO("Alpaca Mount: Could not connect device, HTTP " + wxString::Format("%ld", errorCode));
             }
         }

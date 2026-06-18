@@ -240,3 +240,25 @@ Verified by a 49-check contract test against the live daemon + fake Alpaca rig: 
 app issues (all five tabs), the static routes, frame.jpg JPEG validity, and guide history
 populating during a real calibrate→guide→dither→pause session (14 pts, 0.101 px RMS).
 ARA call sites: none (the web app is an alternative client; ARA supersedes it on mobile).
+
+## 2026-06-10 — dark-build progress (web app progress bar)
+
+- `get_dark_build_progress` {} → { `active` (bool), `exposure_index`, `exposure_count`,
+  `exposure_ms`, `frame`, `frame_count` (all zero/false when idle; indices 1-based) } —
+  progress of an in-flight `build_dark_library` / `build_defect_map_darks`. The build RPCs
+  run synchronously on the main thread but now `wxYield()` between dark frames (the same
+  pattern the GUI dark dialog uses), so both servers keep answering while a build runs and
+  clients can poll this method to drive a progress bar. To keep that yield safe, while a
+  build is active the capture-starting RPCs (`guide`, `loop`, `dither`, `guide_pulse`,
+  `capture_single_frame`, `set_connected`, both build methods, `rebuild_defect_map`) are
+  rejected with "dark-frame capture in progress".
+  ARA call sites: none yet (added for the web app's Darks tab; available to ARA's dark
+  flows if useful).
+
+## 2026-06-10 — get_version (web app header pill)
+
+- `get_version` {} → { `version` (user-facing FULLVER from version.md), `phd_version`,
+  `phd_subver`, `msg_version` } — the `Version` event's fields as a pollable RPC for HTTP
+  clients that never see the :4400 event stream. Added so the web app can show the daemon
+  version in its header (matching AlpacaBridge's web face).
+  ARA call sites: none yet (useful for ARA's diagnostics/about surface).

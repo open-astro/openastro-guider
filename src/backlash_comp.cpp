@@ -911,8 +911,8 @@ void BacklashTool::DecMeasurementStep(const PHD_Point& currentCamLoc)
                 m_lastDecGuideRate = GetLastDecGuideRate(); // try it again, maybe the user has since calibrated
             if (m_lastDecGuideRate > 0)
             {
-                m_pulseWidth =
-                    BACKLASH_EXPECTED_DISTANCE * 1.25 / m_lastDecGuideRate; // px/px_per_ms, bump it to sidestep near misses
+                m_pulseWidth = (double) BACKLASH_EXPECTED_DISTANCE * 1.25 /
+                    m_lastDecGuideRate; // px/px_per_ms, bump it to sidestep near misses
                 m_acceptedMoves = 0;
                 m_lastClearRslt = 0;
                 m_cumClearingDistance = 0;
@@ -946,7 +946,7 @@ void BacklashTool::DecMeasurementStep(const PHD_Point& currentCamLoc)
                 m_lastStatusDebug = wxString::Format("Clearing North backlash, step %d", m_stepCount);
                 break;
             }
-            if (fabs(decDelta) >= BACKLASH_EXPECTED_DISTANCE)
+            if (fabs(decDelta) >= (double) BACKLASH_EXPECTED_DISTANCE)
             {
                 if (m_acceptedMoves == 0 || (m_lastClearRslt * decDelta) > 0) // Just starting or still moving in same direction
                 {
@@ -965,7 +965,7 @@ void BacklashTool::DecMeasurementStep(const PHD_Point& currentCamLoc)
             {
                 if (m_stepCount < MAX_CLEARING_STEPS)
                 {
-                    if (fabs(m_cumClearingDistance) > BACKLASH_EXEMPTION_DISTANCE)
+                    if (fabs(m_cumClearingDistance) > (double) BACKLASH_EXEMPTION_DISTANCE)
                     {
                         // We moved the mount a substantial distance north but the individual moves were too small - probably a
                         // bad calibration, so let the user proceed with backlash measurement before we push the star too far
@@ -1172,7 +1172,7 @@ void BacklashTool::DecMeasurementStep(const PHD_Point& currentCamLoc)
                     wxString::Format("BLT: Trial backlash pulse resulted in net DecDelta = %0.2f px, Dec Location %0.2f\n",
                                      decDelta, currMountLocation.Y));
                 auto pixelScale = pFrame->GetCameraPixelScale();
-                tol = TRIAL_TOLERANCE_AS / pixelScale; // tolerance in units of px
+                tol = (double) TRIAL_TOLERANCE_AS / pixelScale; // tolerance in units of px
                 if (fabs(decDelta) > tol) // decDelta = (current - markerPoint)
                 {
                     double pulse_delta = fabs(currMountLocation.Y - m_endSouth.Y); // How far we moved with the test pulse

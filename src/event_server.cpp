@@ -924,6 +924,33 @@ static bool pa_session_active()
     } while (0)
 // clang-format on
 
+// Dark-library / defect-map dark-capture progress. The build RPCs run
+// synchronously on the main thread but wxYield() between frames (the same
+// pattern the GUI dark dialog uses), so the servers stay responsive and
+// clients can poll get_dark_build_progress to drive a progress bar. The
+// active flag also guards capture-starting RPCs that could otherwise
+// re-enter mid-build through that same Yield.
+static struct DarkBuildProgress
+{
+    bool active = false;
+    int exposure_index = 0; // 1-based index of the exposure being captured
+    int exposure_count = 0;
+    int exposure_ms = 0;
+    int frame = 0; // 1-based frame within the current exposure
+    int frame_count = 0;
+} s_darkBuild;
+
+// clang-format off
+#define VERIFY_NO_DARK_BUILD(response) \
+    do { \
+        if (s_darkBuild.active) \
+        { \
+            response << jrpc_error(1, "dark-frame capture in progress"); \
+            return; \
+        } \
+    } while (0)
+// clang-format on
+
 static void apply_selection_to_control(int choiceControlId, const wxArrayString& choices, const wxString& selectedChoice)
 {
     wxWindow *wnd = pFrame->pGearDialog->FindWindow(choiceControlId);
@@ -995,6 +1022,8 @@ struct HttpClientData
     std::atomic<int> refcnt; // atomic for the same reason as ClientData::refcnt
     wxMutex wrlock;
     std::string recvbuf;
+    std::string sendbuf; // response bytes the non-blocking socket hasn't accepted yet
+    bool closeAfterSend = false; // one-shot connection: destroy once sendbuf drains
 
     HttpClientData(wxSocketClient *cli_) : cli(cli_), refcnt(1) { }
     void AddRef() { ++refcnt; }
@@ -1021,16 +1050,50 @@ inline static wxMutex *http_client_wrlock(wxSocketClient *cli)
     return &((HttpClientData *) cli->GetClientData())->wrlock;
 }
 
+// Write as much as the NOWAIT socket accepts and queue the rest in
+// sendbuf; OnHttpServerClientEvent drains the queue on wxSOCKET_OUTPUT
+// events. A single Write silently drops whatever exceeds the kernel send
+// buffer (~140 KB on a real NIC), which truncated every large response —
+// the web app's frame JPEGs — for any client not on loopback.
 static void send_buf_http(wxSocketClient *client, const std::string& buf)
 {
-    wxMutexLocker lock(*http_client_wrlock(client));
-    client->Write(buf.data(), buf.length());
-    if (client->LastWriteCount() != buf.length())
+    HttpClientData *cd = (HttpClientData *) client->GetClientData();
+    wxMutexLocker lock(cd->wrlock);
+
+    if (!cd->sendbuf.empty())
     {
-        Debug.Write(wxString::Format("httpsrv: cli %p short write %u/%u %s\n", client, client->LastWriteCount(),
-                                     (unsigned int) buf.length(),
+        // already draining an earlier response; keep byte order
+        cd->sendbuf.append(buf);
+        return;
+    }
+
+    client->Write(buf.data(), buf.length());
+    size_t n = client->LastWriteCount();
+    if (n != buf.length())
+    {
+        cd->sendbuf.assign(buf, n, std::string::npos);
+        Debug.Write(wxString::Format("httpsrv: cli %p short write %u/%u, queued %u %s\n", client, (unsigned int) n,
+                                     (unsigned int) buf.length(), (unsigned int) cd->sendbuf.length(),
                                      SockErrStr(client->Error() ? client->LastError() : wxSOCKET_NOERROR)));
     }
+}
+
+// Drain queued response bytes after a short write; returns true when the
+// queue is empty (caller may then close a one-shot connection).
+static bool flush_http_pending(wxSocketClient *client)
+{
+    HttpClientData *cd = (HttpClientData *) client->GetClientData();
+    wxMutexLocker lock(cd->wrlock);
+
+    while (!cd->sendbuf.empty())
+    {
+        client->Write(cd->sendbuf.data(), cd->sendbuf.length());
+        size_t n = client->LastWriteCount();
+        if (n == 0)
+            return false; // send buffer full again; wait for the next OUTPUT event
+        cd->sendbuf.erase(0, n);
+    }
+    return true;
 }
 
 static JObj& operator<<(JObj& j, const NVRaw& nv)
@@ -2428,6 +2491,7 @@ static void get_connected(JObj& response, const json_value *params)
 static void set_connected(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     Params p("connected", params);
     const json_value *val = p.param("connected");
@@ -2543,6 +2607,7 @@ static void set_paused(JObj& response, const json_value *params)
 static void loop(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     bool error = pFrame->StartLooping();
 
@@ -3340,6 +3405,17 @@ static void get_app_state(JObj& response, const json_value *params)
     response << jrpc_result(state_name(st));
 }
 
+static void get_version(JObj& response, const json_value *params)
+{
+    // Same fields the :4400 stream's Version event carries, for HTTP
+    // clients (the web app's header version pill) that have no event
+    // stream. "version" is the user-facing FULLVER from version.md.
+    JObj rslt;
+    rslt << NV("version", wxString(FULLVER)) << NV("phd_version", wxString(PHDVERSION)) << NV("phd_subver", wxString(PHDSUBVER))
+         << NV("msg_version", MSG_PROTOCOL_VERSION);
+    response << jrpc_result(rslt);
+}
+
 static void get_lock_position(JObj& response, const json_value *params)
 {
     VERIFY_GUIDER(response);
@@ -3733,6 +3809,10 @@ static bool capture_master_dark_frame(usImage& darkFrame, int expTimeMs, int fra
 
     for (int j = 1; j <= frameCount; j++)
     {
+        s_darkBuild.exposure_ms = expTimeMs;
+        s_darkBuild.frame = j;
+        s_darkBuild.frame_count = frameCount;
+
         CaptureParams captureParams;
         captureParams.duration = expTimeMs;
         captureParams.hwBinning = pCamera->HwBinning;
@@ -3754,6 +3834,16 @@ static bool capture_master_dark_frame(usImage& darkFrame, int expTimeMs, int fra
             avgimg.resize(darkFrame.NPixels, 0);
         for (unsigned int i = 0; i < darkFrame.NPixels; i++)
             avgimg[i] += darkFrame.ImageData[i];
+
+        // Let the event loop run between frames (same as the GUI dark
+        // dialog) so the event/HTTP servers can answer progress polls.
+        // Capture-starting RPCs are rejected while s_darkBuild.active.
+        // Two rounds with a short gap: a poll that arrived mid-capture
+        // needs accept -> read -> respond socket events, and one Yield
+        // only advances the connection a step per frame.
+        wxYield();
+        wxMilliSleep(10);
+        wxYield();
     }
 
     for (unsigned int i = 0; i < darkFrame.NPixels; i++)
@@ -3858,9 +3948,19 @@ static void set_defect_map_enabled(JObj& response, const json_value *params)
     get_calibration_files_status(response, nullptr);
 }
 
+static void get_dark_build_progress(JObj& response, const json_value *params)
+{
+    JObj rslt;
+    rslt << NV("active", s_darkBuild.active) << NV("exposure_index", s_darkBuild.exposure_index)
+         << NV("exposure_count", s_darkBuild.exposure_count) << NV("exposure_ms", s_darkBuild.exposure_ms)
+         << NV("frame", s_darkBuild.frame) << NV("frame_count", s_darkBuild.frame_count);
+    response << jrpc_result(rslt);
+}
+
 static void build_dark_library(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     Params p("frame_count", "min_exposure_ms", "max_exposure_ms", "clear_existing", "notes", "load_after", params);
     long frameCount = 5;
@@ -3949,6 +4049,13 @@ static void build_dark_library(JObj& response, const json_value *params)
         return;
     }
 
+    struct DarkBuildScope
+    {
+        ~DarkBuildScope() { s_darkBuild = DarkBuildProgress(); }
+    } darkBuildScope;
+    s_darkBuild.active = true;
+    s_darkBuild.exposure_count = (int) selected.size();
+
     bool hadShutterClosed = pCamera->ShutterClosed;
     pCamera->ShutterClosed = true;
     if (clearExisting)
@@ -3958,6 +4065,7 @@ static void build_dark_library(JObj& response, const json_value *params)
     int builtCount = 0;
     for (int exp : selected)
     {
+        s_darkBuild.exposure_index = builtCount + 1;
         usImage *newDark = new usImage();
         if (capture_master_dark_frame(*newDark, exp, (int) frameCount, &errorMsg))
         {
@@ -3989,6 +4097,7 @@ static void build_dark_library(JObj& response, const json_value *params)
 static void build_defect_map_darks(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     Params p("exposure_ms", "frame_count", "notes", "load_after", params);
     long exposureMs = 3000;
@@ -4042,6 +4151,14 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
         return;
     }
 
+    struct DarkBuildScope
+    {
+        ~DarkBuildScope() { s_darkBuild = DarkBuildProgress(); }
+    } darkBuildScope;
+    s_darkBuild.active = true;
+    s_darkBuild.exposure_count = 1;
+    s_darkBuild.exposure_index = 1;
+
     bool hadShutterClosed = pCamera->ShutterClosed;
     pCamera->ShutterClosed = true;
 
@@ -4079,6 +4196,7 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
 
 static void rebuild_defect_map(JObj& response, const json_value *params)
 {
+    VERIFY_NO_DARK_BUILD(response);
     Params p("aggressiveness_hot", "aggressiveness_cold", "save", "load_after", params);
     // 75 is the GUI's default aggressiveness (DefDMSigmaX in Refine_DefMap.cpp)
     long aggrHot = pConfig->Profile.GetInt("/camera/dmap_hot_factor", 75);
@@ -4288,6 +4406,7 @@ static void delete_calibration_files(JObj& response, const json_value *params)
 
 static void capture_single_frame(JObj& response, const json_value *params)
 {
+    VERIFY_NO_DARK_BUILD(response);
     if (pFrame->CaptureActive)
     {
         response << jrpc_error(1, "cannot capture single frame when capture is currently active");
@@ -4541,6 +4660,7 @@ static bool parse_settle(SettleParams *settle, const json_value *j, wxString *er
 static void guide(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     // params:
     //   settle [object]:
@@ -4615,6 +4735,7 @@ static void guide(JObj& response, const json_value *params)
 static void dither(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     // params:
     //   amount [integer] - max pixels to move in each axis
@@ -6061,6 +6182,7 @@ static GUIDE_DIRECTION opposite(GUIDE_DIRECTION d)
 static void guide_pulse(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
 
     Params p("amount", "direction", "which", params);
 
@@ -6387,6 +6509,7 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "driftalign_close", &driftalign_close },
         { "get_pixel_scale", &get_pixel_scale },
         { "get_app_state", &get_app_state },
+        { "get_version", &get_version },
         { "flip_calibration", &flip_calibration },
         { "get_lock_shift_enabled", &get_lock_shift_enabled },
         { "set_lock_shift_enabled", &set_lock_shift_enabled },
@@ -6469,6 +6592,7 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "set_dark_library_enabled", &set_dark_library_enabled },
         { "set_defect_map_enabled", &set_defect_map_enabled },
         { "build_dark_library", &build_dark_library },
+        { "get_dark_build_progress", &get_dark_build_progress },
         { "build_defect_map_darks", &build_defect_map_darks },
         { "rebuild_defect_map", &rebuild_defect_map },
         { "add_bad_pixel", &add_bad_pixel },
@@ -7047,6 +7171,13 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
         if (!img || !img->ImageData)
             return http_response(404, "text/plain", "no image available");
 
+        // ETag from the frame counter so the web UI can poll fast: an
+        // unchanged frame answers 304 without paying the JPEG encode.
+        std::string etag(wxString::Format("\"f%u\"", img->FrameNum).ToUTF8().data());
+        auto inm = req.headers.find("if-none-match");
+        if (inm != req.headers.end() && inm->second == etag)
+            return "HTTP/1.1 304 Not Modified\r\nConnection: close\r\nETag: " + etag + "\r\n\r\n";
+
         wxImage *disp = nullptr;
         img->CopyToImage(&disp, img->FiltMin, img->FiltMax, pFrame->Stretch_gamma);
         wxMemoryOutputStream mos;
@@ -7061,8 +7192,8 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
         mos.CopyTo(&data[0], len);
 
         wxString hdr = wxString::Format("HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\n"
-                                        "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
-                                        (unsigned int) len);
+                                        "ETag: %s\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
+                                        etag.c_str(), (unsigned int) len);
         std::string resp(hdr.ToUTF8().data());
         resp.append(data);
         return resp;
@@ -7396,7 +7527,7 @@ void EventServer::OnHttpServerEvent(wxSocketEvent& event)
     Debug.Write(wxString::Format("httpsrv: cli %p connect\n", client));
 
     client->SetEventHandler(*this, HTTP_SERVER_CLIENT_ID);
-    client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG);
+    client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG | wxSOCKET_OUTPUT_FLAG);
     client->SetFlags(wxSOCKET_NOWAIT);
     client->Notify(true);
     client->SetClientData(new HttpClientData(client));
@@ -7421,7 +7552,34 @@ void EventServer::OnHttpServerClientEvent(wxSocketEvent& event)
         bool closeConn = handle_http_cli_input(this, cli);
         if (closeConn)
         {
-            // one-shot HTTP connection
+            HttpClientData *cd = (HttpClientData *) cli->GetClientData();
+            bool drained;
+            {
+                wxMutexLocker lock(cd->wrlock);
+                drained = cd->sendbuf.empty();
+            }
+            if (drained)
+            {
+                // one-shot HTTP connection
+                m_httpServerClients.erase(cli);
+                destroy_http_client(cli);
+            }
+            else
+            {
+                // part of the response is still queued (the kernel send
+                // buffer filled); close once OUTPUT events drain it
+                cd->closeAfterSend = true;
+            }
+        }
+        return;
+    }
+
+    if (event.GetSocketEvent() == wxSOCKET_OUTPUT)
+    {
+        // socket became writable again: push out queued response bytes
+        HttpClientData *cd = (HttpClientData *) cli->GetClientData();
+        if (flush_http_pending(cli) && cd->closeAfterSend)
+        {
             m_httpServerClients.erase(cli);
             destroy_http_client(cli);
         }
