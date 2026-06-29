@@ -1,0 +1,23 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    purge)
+        # Remove the package state directory created in postinst (calibration,
+        # profiles, logs). Debian policy: purge must delete all package state,
+        # otherwise `apt purge openastro-guider` leaves orphaned data behind.
+        if [ -d /var/lib/openastro-guider ]; then
+            rm -rf /var/lib/openastro-guider
+        fi
+
+        # Remove the system user/group created during install
+        if getent passwd openastro-guider > /dev/null 2>&1; then
+            deluser --system openastro-guider || true
+        fi
+        if getent group openastro-guider > /dev/null 2>&1; then
+            delgroup --system openastro-guider || true
+        fi
+        ;;
+esac
+
+#DEBHELPER#

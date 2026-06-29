@@ -1,4 +1,4 @@
-Source: openastro-phd2
+Source: openastro-guider
 Section: science
 Priority: optional
 Maintainer: OpenAstro <support@openastro.net>
@@ -14,36 +14,56 @@ Build-Depends: debhelper-compat (= 13),
 Standards-Version: 4.6.2
 Homepage: https://github.com/open-astro/openastro-guider
 
-Package: openastro-phd2
+Package: openastro-guider
 Architecture: arm64
-Conflicts: phd2-alpaca
-Replaces: phd2-alpaca
+# Versioned against the old file-shipping packages only, so the empty
+# openastro-phd2/phd2-alpaca transitionals (built at this same version, which
+# Depend on openastro-guider) can coexist and do the migration. An unversioned
+# Conflicts would make those transitionals uninstallable.
+Breaks: openastro-phd2 (<< 2.0.0), phd2-alpaca (<< 2.0.0)
+Replaces: openastro-phd2 (<< 2.0.0), phd2-alpaca (<< 2.0.0)
 Depends: ${shlibs:Depends}, ${misc:Depends},
          adduser,
          xvfb
-Description: OpenAstro PHD2 auto-guiding with ASCOM Alpaca support
- PHD2 is a telescope auto-guiding application designed to be easy to use
- while providing powerful, intelligent guiding. Connect your mount, your
- camera, select a star, and start guiding.
+Description: OpenAstro headless Alpaca-only auto-guiding engine
+ OpenAstro Guider is a Linux-only, headless guiding engine derived from PHD2.
+ Connect your mount, your camera, select a star, and start guiding — driven
+ remotely over PHD2's JSON-RPC event-server API.
  .
  This build reaches the guide camera, mount, and rotator over ASCOM Alpaca
  on the local network.
  .
- Runs headlessly as the openastro-phd2 system user via systemd, exposing the
- PHD2 JSON-RPC API for remote control by planetarium and capture software.
+ Runs headlessly as the openastro-guider system user via systemd, exposing the
+ PHD2 JSON-RPC API for remote control by planetarium and capture software
+ (primarily OpenAstro Ara).
+
+Package: openastro-phd2
+Architecture: all
+Section: oldlibs
+Priority: optional
+Depends: openastro-guider (= ${binary:Version}), ${misc:Depends}
+Description: transitional package - renamed to openastro-guider
+ The headless guiding engine was renamed from openastro-phd2 to
+ openastro-guider to match the open-astro/openastro-guider repository and to
+ distinguish it from the openastro-phd2 GUI/INDI reference build.
+ .
+ This is an empty transitional metadata package that depends on
+ openastro-guider so apt-managed upgrades from a host that had openastro-phd2
+ installed pull in openastro-guider automatically. Once the upgrade completes
+ you can safely remove this package with `sudo apt remove openastro-phd2` -
+ no service or files are owned by it.
 
 Package: phd2-alpaca
 Architecture: all
 Section: oldlibs
 Priority: optional
-Depends: openastro-phd2 (= ${binary:Version}), ${misc:Depends}
-Description: transitional package - renamed to openastro-phd2
- OpenAstro PHD2 2.0.0 renamed the binary Debian package from phd2-alpaca
- to openastro-phd2 so it matches the macOS bundle identifier
- (net.openastro.phd2) and the Windows installer's OpenAstro branding.
+Depends: openastro-guider (= ${binary:Version}), ${misc:Depends}
+Description: transitional package - renamed to openastro-guider
+ The guiding engine package was previously named phd2-alpaca, then
+ openastro-phd2, and is now openastro-guider.
  .
  This is an empty transitional metadata package that depends on
- openastro-phd2. It exists so that apt-managed upgrades from a host
- that had phd2-alpaca installed pull in openastro-phd2 automatically.
- Once the upgrade completes you can safely remove this package with
+ openastro-guider. It exists so that apt-managed upgrades from a host that
+ had phd2-alpaca installed pull in openastro-guider automatically. Once the
+ upgrade completes you can safely remove this package with
  `sudo apt remove phd2-alpaca` - no service or files are owned by it.

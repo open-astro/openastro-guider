@@ -11,6 +11,7 @@ debian/files
 debian/*.debhelper
 debian/*.debhelper.log
 debian/*.substvars
+debian/openastro-guider/
 debian/openastro-phd2/
 debian/phd2-alpaca/
 

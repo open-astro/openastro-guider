@@ -46,17 +46,17 @@ if(UNIX AND NOT APPLE)
   install(FILES ${PHD_INSTALL_LIBS}
           DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/phd2/)
   # Icon, .desktop launcher, and AppStream metainfo are installed under the
-  # openastro-phd2 name so the desktop file's Icon=openastro-phd2 resolves
+  # openastro-guider name so the desktop file's Icon=openastro-guider resolves
   # via XDG icon theme lookup, GNOME Software / KDE Discover index us under
   # the new app id, and `update-desktop-database` registers the right
-  # Exec=openastro-phd2 mapping. Pre-2.0.0 these were installed as phd2.*
-  # which would fail at runtime in 2.0.0 since the binary is now
-  # openastro-phd2.
+  # Exec=openastro-guider mapping. These must match the renamed binary
+  # (/usr/bin/openastro-guider), otherwise the desktop entry would fail at
+  # runtime.
   install(FILES ${PHD_PROJECT_ROOT_DIR}/icons/phd2_48.png
           DESTINATION ${CMAKE_INSTALL_PREFIX}/share/pixmaps/
-          RENAME "openastro-phd2.png")
-  install(FILES ${PHD_PROJECT_ROOT_DIR}/openastro-phd2.desktop
+          RENAME "openastro-guider.png")
+  install(FILES ${PHD_PROJECT_ROOT_DIR}/openastro-guider.desktop
           DESTINATION ${CMAKE_INSTALL_PREFIX}/share/applications/ )
-  install(FILES ${PHD_PROJECT_ROOT_DIR}/openastro-phd2.appdata.xml
+  install(FILES ${PHD_PROJECT_ROOT_DIR}/openastro-guider.appdata.xml
           DESTINATION ${CMAKE_INSTALL_PREFIX}/share/metainfo/ )
 endif()
