@@ -85,16 +85,15 @@ override_dh_auto_test:
 # the destdir keeps the existing layout.
 override_dh_auto_install:
 	dh_auto_install --destdir=$(CURDIR)/debian/openastro-guider
-	# Rename the wrapper and binary from 'phd2' to 'openastro-guider'
+	# Rename the wrapper and binary from 'phd2' to 'openastro-guider'.
 	# The wrapper script (phd2) uses exec "$0.bin" so both must match.
-	if [ -f $(CURDIR)/debian/openastro-guider/usr/bin/phd2 ]; then \
-		mv $(CURDIR)/debian/openastro-guider/usr/bin/phd2 \
-		   $(CURDIR)/debian/openastro-guider/usr/bin/openastro-guider; \
-	fi
-	if [ -f $(CURDIR)/debian/openastro-guider/usr/bin/phd2.bin ]; then \
-		mv $(CURDIR)/debian/openastro-guider/usr/bin/phd2.bin \
-		   $(CURDIR)/debian/openastro-guider/usr/bin/openastro-guider.bin; \
-	fi
+	# These mv's are unconditional on purpose: if CMake ever stops installing
+	# these (renamed target, build-config change), the package build fails here
+	# rather than silently shipping a package whose systemd service can't start.
+	mv $(CURDIR)/debian/openastro-guider/usr/bin/phd2 \
+	   $(CURDIR)/debian/openastro-guider/usr/bin/openastro-guider
+	mv $(CURDIR)/debian/openastro-guider/usr/bin/phd2.bin \
+	   $(CURDIR)/debian/openastro-guider/usr/bin/openastro-guider.bin
 
 # dwz can fail on large C++ binaries — skip it
 override_dh_dwz:

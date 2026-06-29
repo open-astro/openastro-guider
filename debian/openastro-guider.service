@@ -9,7 +9,10 @@ Type=simple
 User=openastro-guider
 Group=openastro-guider
 WorkingDirectory=/var/lib/openastro-guider
-Environment=LD_LIBRARY_PATH=/usr/lib/openastro-guider
+# No LD_LIBRARY_PATH here: ExecStart calls the wrapper (/usr/bin/openastro-guider),
+# which sets it to the real lib locations (/usr/lib/openastro-guider:/usr/lib/phd2)
+# at runtime — see phd2.sh.in. Setting it to a single guessed dir here would be
+# both wrong (CMake installs the bundled libs under /usr/lib/phd2) and redundant.
 # Headless is the default run mode; --auto-connect brings up the selected
 # equipment on boot. wxGTK still needs a display to initialize even with the
 # window hidden, so the daemon runs under a headless X server (Xvfb) — see

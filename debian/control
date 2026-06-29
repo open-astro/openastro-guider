@@ -16,8 +16,12 @@ Homepage: https://github.com/open-astro/openastro-guider
 
 Package: openastro-guider
 Architecture: arm64
-Conflicts: phd2-alpaca
-Replaces: phd2-alpaca, openastro-phd2
+# Versioned against the old file-shipping packages only, so the empty
+# openastro-phd2/phd2-alpaca transitionals (built at this same version, which
+# Depend on openastro-guider) can coexist and do the migration. An unversioned
+# Conflicts would make those transitionals uninstallable.
+Breaks: openastro-phd2 (<< 2.0.0), phd2-alpaca (<< 2.0.0)
+Replaces: openastro-phd2 (<< 2.0.0), phd2-alpaca (<< 2.0.0)
 Depends: ${shlibs:Depends}, ${misc:Depends},
          adduser,
          xvfb
