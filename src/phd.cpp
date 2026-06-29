@@ -299,7 +299,7 @@ bool PhdApp::OnInit()
     // "PHD2 instance 1 is already running".
     SetVendorName(_T("OpenAstro"));
     // use SetAppName() to ensure the local data directory is found even if the name of the executable is changed
-    SetAppName(_T("openastro-phd2"));
+    SetAppName(_T("openastro-guider"));
 
     m_instanceChecker = new wxSingleInstanceChecker(wxString::Format("%s.%ld", GetAppName(), m_instanceNumber));
     if (m_instanceChecker->IsAnotherRunning())

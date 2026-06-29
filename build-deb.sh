@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# PHD2 .deb Build Script for Debian 13 Trixie / Raspberry Pi OS Trixie
+# OpenAstro Guider .deb Build Script for Debian 13 Trixie / Raspberry Pi OS Trixie
 #
 # Supported host architecture: arm64 only (Raspberry Pi 4/5, or Pi 3 on a
 # 64-bit OS). amd64, 32-bit ARM (armhf), and i386 are not supported.
 #
-# Builds PHD2 and creates a .deb for arm64:
-# - arm64: produces openastro-phd2-<ver>-arm64.deb
+# Builds the headless guider and creates a .deb for arm64:
+# - arm64: produces openastro-guider-<ver>-arm64.deb
 #
 # Equipment is reached over ASCOM Alpaca only; there is no INDI/libindi build
 # dependency (dropped in Phase 3).
@@ -39,14 +39,14 @@ sync_debian_changelog() {
     local maint_name maint_email
     maint_name=$(git config --get user.name || true)
     maint_email=$(git config --get user.email || true)
-    [[ -n "$maint_name" ]] || maint_name="OpenAstro PHD2 Team"
+    [[ -n "$maint_name" ]] || maint_name="OpenAstro Guider Team"
     [[ -n "$maint_email" ]] || maint_email="maintainers@openastro.org"
 
     mkdir -p "${ROOT_DIR}/debian"
     python3 "${ROOT_DIR}/scripts/changelog_to_deb.py" \
         --changelog "$root_changelog" \
         --out "${ROOT_DIR}/debian/changelog" \
-        --package openastro-phd2 \
+        --package openastro-guider \
         --version "$FULL_VERSION" \
         --maintainer "${maint_name} <${maint_email}>"
     info "Generated debian/changelog for version ${FULL_VERSION}"
@@ -151,7 +151,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Build PHD2 and create a .deb package for the current architecture."
-            echo "Result: phd2_<version>_<arch>.deb in the project root parent directory."
+            echo "Result: openastro-guider_<version>_<arch>.deb in the project root parent directory."
             echo ""
             echo "Options:"
             echo "  --install-deps   Install build dependencies (sudo apt-get) then exit."
@@ -218,7 +218,7 @@ fi
 # ---------------------------------------------------------------------------
 if "$CLEAN"; then
     step "Cleaning previous build artifacts..."
-    rm -rf debian/phd2 debian/.debhelper debian/files debian/phd2.substvars
+    rm -rf debian/openastro-guider debian/.debhelper debian/files debian/*.substvars
     dpkg-buildpackage -T clean 2>/dev/null || true
     info "Clean done."
 fi
@@ -239,48 +239,36 @@ fi
 # ---------------------------------------------------------------------------
 PARENT_DIR="$(dirname "$ROOT_DIR")"
 # Filenames mirror the Package: names in debian/control:
-#   openastro-phd2  - the real binary package (architecture-specific)
-#   phd2-alpaca     - an Architecture: all transitional metadata package that
-#                     depends on openastro-phd2, included so apt-managed
-#                     upgrades from the old phd2-alpaca name pull in the new
-#                     package automatically.
-# dpkg emits `<package>_<version>_<arch>.deb` (underscores); we rename to the
-# user-facing `<package>-<version>-<arch>.deb` (hyphens) convention shared
-# with the macOS .dmg and Windows .exe. Pin to FULL_VERSION + HOST_ARCH for
-# the main package so a stale .deb from a previous version (or a different
-# arch) sitting in PARENT_DIR doesn't get reported as this run's output;
-# the transitional is Architecture: all so it's pinned on FULL_VERSION
-# only. Exclude the dbgsym sibling either way.
-DEB=$(find "$PARENT_DIR" -maxdepth 1 -name "openastro-phd2_${FULL_VERSION}_${HOST_ARCH}.deb" ! -name "*-dbgsym_*" -type f 2>/dev/null | head -1)
-TRANSITIONAL=$(find "$PARENT_DIR" -maxdepth 1 -name "phd2-alpaca_${FULL_VERSION}_all.deb" ! -name "*-dbgsym_*" -type f 2>/dev/null | head -1)
+#   openastro-guider - the real binary package (architecture-specific)
+#   openastro-phd2   - Architecture: all transitional metadata package
+#   phd2-alpaca      - Architecture: all transitional metadata package
+# Both transitionals depend on openastro-guider so apt-managed upgrades from
+# either old name pull in the renamed package automatically.
+# dpkg emits `<package>_<version>_<arch>.deb` (underscores); we rename the main
+# package to the user-facing `<package>-<version>-<arch>.deb` (hyphens)
+# convention. Pin to FULL_VERSION + HOST_ARCH so a stale .deb from a previous
+# version or a different arch sitting in PARENT_DIR doesn't get reported as
+# this run's output. Exclude the dbgsym sibling. The transitionals are left
+# with dpkg's underscore names; they're reported but not renamed.
+DEB=$(find "$PARENT_DIR" -maxdepth 1 -name "openastro-guider_${FULL_VERSION}_${HOST_ARCH}.deb" ! -name "*-dbgsym_*" -type f 2>/dev/null | head -1)
 if [[ -n "$DEB" && -f "$DEB" ]]; then
-    RENAMED="${PARENT_DIR}/openastro-phd2-${FULL_VERSION}-${HOST_ARCH}.deb"
+    RENAMED="${PARENT_DIR}/openastro-guider-${FULL_VERSION}-${HOST_ARCH}.deb"
     mv -f "$DEB" "$RENAMED"
     DEB="$RENAMED"
-    if [[ -n "$TRANSITIONAL" && -f "$TRANSITIONAL" ]]; then
-        RENAMED_T="${PARENT_DIR}/phd2-alpaca-${FULL_VERSION}-all.deb"
-        mv -f "$TRANSITIONAL" "$RENAMED_T"
-        TRANSITIONAL="$RENAMED_T"
-    fi
     echo ""
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}.deb built successfully${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo -e "  ${CYAN}$DEB${NC}"
     ls -la "$DEB"
-    if [[ -n "$TRANSITIONAL" && -f "$TRANSITIONAL" ]]; then
-        echo -e "  ${CYAN}$TRANSITIONAL${NC} (transitional metadata package; optional)"
-        ls -la "$TRANSITIONAL"
-    fi
+    # Report any transitional metadata packages produced alongside the main one.
+    while IFS= read -r -d '' t; do
+        echo -e "  ${CYAN}$t${NC} (transitional metadata package; optional)"
+        ls -la "$t"
+    done < <(find "$PARENT_DIR" -maxdepth 1 \( -name "openastro-phd2_${FULL_VERSION}_all.deb" -o -name "phd2-alpaca_${FULL_VERSION}_all.deb" \) ! -name "*-dbgsym_*" -type f -print0 2>/dev/null)
     echo ""
     echo "Install with: sudo dpkg -i $DEB"
     echo "  (resolve deps if needed: sudo apt-get install -f)"
-    if [[ -n "$TRANSITIONAL" && -f "$TRANSITIONAL" ]]; then
-        echo ""
-        echo "Optional: also install the transitional package so existing"
-        echo "phd2-alpaca users get auto-migrated through apt:"
-        echo "  sudo apt install ./$DEB ./$TRANSITIONAL"
-    fi
 else
-    err ".deb not found in $PARENT_DIR (looked for openastro-phd2_${FULL_VERSION}_${HOST_ARCH}.deb)"
+    err ".deb not found in $PARENT_DIR (looked for openastro-guider_${FULL_VERSION}_${HOST_ARCH}.deb)"
 fi

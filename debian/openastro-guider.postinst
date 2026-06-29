@@ -1,0 +1,34 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    configure)
+        # Create the openastro-guider system user if it does not exist.
+        # (Package was previously named phd2-alpaca, then openastro-phd2; the
+        # transitional packages depend on openastro-guider so apt migrates.)
+        if ! getent passwd openastro-guider > /dev/null 2>&1; then
+            adduser --system --group \
+                --no-create-home \
+                --home /var/lib/openastro-guider \
+                --gecos "OpenAstro Guider Server" \
+                openastro-guider
+        fi
+
+        # Create working directory for guider state (logs, calibration data, profiles)
+        if [ ! -d /var/lib/openastro-guider ]; then
+            mkdir -p /var/lib/openastro-guider
+        fi
+        chown openastro-guider:openastro-guider /var/lib/openastro-guider
+
+        # Equipment is Alpaca-only (network); the service user needs no local
+        # USB/serial device access. Earlier versions granted plugdev/dialout —
+        # revoke them on upgrade.
+        for grp in plugdev dialout; do
+            if id -nG openastro-guider 2> /dev/null | tr ' ' '\n' | grep -qx "$grp"; then
+                gpasswd -d openastro-guider "$grp" || true
+            fi
+        done
+        ;;
+esac
+
+#DEBHELPER#

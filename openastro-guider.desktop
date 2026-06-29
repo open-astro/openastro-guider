@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Encoding=UTF-8
+Name=OpenAstro Guider
+Comment=Headless Alpaca-only auto-guiding of your telescope
+Exec=openastro-guider
+StartupWMClass=openastro-guider.bin
+Icon=openastro-guider
+Terminal=false
+Type=Application
+Categories=Education;Science;Astronomy;
+GenericName=PHD Guiding

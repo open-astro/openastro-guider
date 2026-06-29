@@ -46,7 +46,7 @@ override_dh_auto_configure:
 	CHANGELOG_VERSION="$$(dpkg-parsechangelog -S Version | sed -E 's/-[^-]+$$//')"; \
 	if [ "$$CHANGELOG_VERSION" != "$$VERSION" ]; then \
 		echo "Syncing debian/changelog version $$CHANGELOG_VERSION -> $$VERSION"; \
-		sed -i -E "1 s/^openastro-phd2 \\([^)]*\\) /openastro-phd2 ($$VERSION) /" $(CURDIR)/debian/changelog; \
+		sed -i -E "1 s/^openastro-guider \\([^)]*\\) /openastro-guider ($$VERSION) /" $(CURDIR)/debian/changelog; \
 	fi
 	dh_auto_configure --buildsystem=$(BUILDSYSTEM) -- -DUSE_SYSTEM_GTEST=1 -DOPENSOURCE_ONLY=1 $(CCACHE_ARGS)
 
@@ -76,24 +76,24 @@ override_dh_auto_test:
 	echo "Running ctest in $$build_dir"; \
 	cd "$$build_dir" && ctest --output-on-failure
 
-# Force the install destdir to debian/openastro-phd2/. With a single binary
+# Force the install destdir to debian/openastro-guider/. With a single binary
 # package in debian/control, dh_auto_install would do this automatically;
-# the transitional phd2-alpaca stanza (Architecture: all, no files) makes
-# debhelper switch to the multi-package default of debian/tmp/ and then
-# distribute via .install files, which would break the path-specific
-# overrides below. The transitional package owns no files anyway, so
-# pinning the destdir keeps the existing layout.
+# the transitional stanzas (openastro-phd2 + phd2-alpaca, Architecture: all,
+# no files) make debhelper switch to the multi-package default of debian/tmp/
+# and then distribute via .install files, which would break the path-specific
+# overrides below. The transitional packages own no files anyway, so pinning
+# the destdir keeps the existing layout.
 override_dh_auto_install:
-	dh_auto_install --destdir=$(CURDIR)/debian/openastro-phd2
-	# Rename the wrapper and binary from 'phd2' to 'openastro-phd2'
+	dh_auto_install --destdir=$(CURDIR)/debian/openastro-guider
+	# Rename the wrapper and binary from 'phd2' to 'openastro-guider'
 	# The wrapper script (phd2) uses exec "$0.bin" so both must match.
-	if [ -f $(CURDIR)/debian/openastro-phd2/usr/bin/phd2 ]; then \
-		mv $(CURDIR)/debian/openastro-phd2/usr/bin/phd2 \
-		   $(CURDIR)/debian/openastro-phd2/usr/bin/openastro-phd2; \
+	if [ -f $(CURDIR)/debian/openastro-guider/usr/bin/phd2 ]; then \
+		mv $(CURDIR)/debian/openastro-guider/usr/bin/phd2 \
+		   $(CURDIR)/debian/openastro-guider/usr/bin/openastro-guider; \
 	fi
-	if [ -f $(CURDIR)/debian/openastro-phd2/usr/bin/phd2.bin ]; then \
-		mv $(CURDIR)/debian/openastro-phd2/usr/bin/phd2.bin \
-		   $(CURDIR)/debian/openastro-phd2/usr/bin/openastro-phd2.bin; \
+	if [ -f $(CURDIR)/debian/openastro-guider/usr/bin/phd2.bin ]; then \
+		mv $(CURDIR)/debian/openastro-guider/usr/bin/phd2.bin \
+		   $(CURDIR)/debian/openastro-guider/usr/bin/openastro-guider.bin; \
 	fi
 
 # dwz can fail on large C++ binaries — skip it

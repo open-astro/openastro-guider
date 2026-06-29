@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2017 Mattia Verga <mattia.verga@tiscali.it> -->
+<component type="desktop-application">
+    <id>openastro-guider.desktop</id>
+    <metadata_license>CC0-1.0</metadata_license>
+    <project_license>BSD-3-Clause</project_license>
+    <name>OpenAstro Guider</name>
+    <summary>Headless Alpaca-only telescope guiding engine (PHD2 fork)</summary>
+
+    <description>
+        <p>
+        OpenAstro Guider is a Linux-only, headless guiding engine derived from
+        the PHD2 telescope guiding software, reaching the guide camera, mount,
+        and rotator exclusively over ASCOM Alpaca on the local network. It is
+        driven remotely over PHD2's JSON-RPC event-server API — primarily by
+        OpenAstro Ara — and pairs naturally with AlpacaBridge for network-based
+        equipment access.
+        </p>
+        <ul>
+            <li>Easy-to-use, “push here dummy” guiding for beginners</li>
+            <li>Sophisticated guiding and analysis tools for experienced users</li>
+            <li>ASCOM Alpaca camera/mount/rotator support</li>
+            <li>Embedded web portal and headless mode</li>
+        </ul>
+    </description>
+
+    <launchable type="desktop-id">openastro-guider.desktop</launchable>
+
+    <url type="homepage">https://openastro.net/</url>
+    <url type="help">https://github.com/open-astro/openastro-guider</url>
+    <url type="bugtracker">https://github.com/open-astro/openastro-guider/issues</url>
+</component>
