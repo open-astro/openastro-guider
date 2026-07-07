@@ -1030,6 +1030,11 @@ void GuideCamera::DisconnectWithAlert(const wxString& msg, ReconnectType reconne
 {
     Disconnect();
 
+    // ARA integration (PHD2-GAP gap 2): structured fault event alongside the
+    // human-readable Alert, so clients route "camera disconnected" without
+    // string-parsing. Socket writes are thread-safe here (same as Alert's path).
+    EvtServer.NotifyEquipmentDisconnected("camera", msg, reconnect == RECONNECT);
+
     // CAUTION: this function can be called from the worker thread, so
     // care must be taken not to make any direct UI updates
 

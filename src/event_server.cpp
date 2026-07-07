@@ -315,7 +315,11 @@ static Ev ev_message_version()
 {
     Ev ev("Version");
     ev << NV("PHDVersion", PHDVERSION) << NV("PHDSubver", PHDSUBVER) << NV("OverlapSupport", true)
-       << NV("MsgVersion", MSG_PROTOCOL_VERSION);
+       << NV("MsgVersion", MSG_PROTOCOL_VERSION)
+       // ARA integration (PHD2-GAP doc clarification 3): identify the fork so
+       // clients can tell openastro-guider from stock PHD2 (additive field —
+       // upstream-compatible parsers ignore unknown keys).
+       << NV("Fork", "openastro-guider");
     return ev;
 }
 
@@ -938,6 +942,10 @@ static struct DarkBuildProgress
     int exposure_ms = 0;
     int frame = 0; // 1-based frame within the current exposure
     int frame_count = 0;
+    // Event-name prefix for the ARA-integration build events ("DarkLibrary" or
+    // "DefectMap"); set by the owning RPC handler so the shared capture helper
+    // emits <artifact>FrameComplete without knowing which build it serves.
+    wxString artifact;
 } s_darkBuild;
 
 // clang-format off
@@ -3410,9 +3418,12 @@ static void get_version(JObj& response, const json_value *params)
     // Same fields the :4400 stream's Version event carries, for HTTP
     // clients (the web app's header version pill) that have no event
     // stream. "version" is the user-facing FULLVER from version.md.
+    // ARA integration (PHD2-GAP gap 3): overlap_support mirrors the Version
+    // event and fork identifies this daemon vs stock PHD2 for a synchronous
+    // "connect, check version, decide" handshake.
     JObj rslt;
     rslt << NV("version", wxString(FULLVER)) << NV("phd_version", wxString(PHDVERSION)) << NV("phd_subver", wxString(PHDSUBVER))
-         << NV("msg_version", MSG_PROTOCOL_VERSION);
+         << NV("msg_version", MSG_PROTOCOL_VERSION) << NV("overlap_support", true) << NV("fork", "openastro-guider");
     response << jrpc_result(rslt);
 }
 
@@ -3835,6 +3846,13 @@ static bool capture_master_dark_frame(usImage& darkFrame, int expTimeMs, int fra
         for (unsigned int i = 0; i < darkFrame.NPixels; i++)
             avgimg[i] += darkFrame.ImageData[i];
 
+        // ARA integration (PHD2-GAP gap 1): push per-frame progress so event
+        // subscribers see the build advance instead of a minutes-long silence.
+        // The Yield below flushes the socket write along with poll traffic.
+        if (!s_darkBuild.artifact.empty())
+            EvtServer.NotifyCalibrationBuildFrame(s_darkBuild.artifact, s_darkBuild.exposure_index, s_darkBuild.exposure_count,
+                                                  j, frameCount, expTimeMs);
+
         // Let the event loop run between frames (same as the GUI dark
         // dialog) so the event/HTTP servers can answer progress polls.
         // Capture-starting RPCs are rejected while s_darkBuild.active.
@@ -4055,6 +4073,9 @@ static void build_dark_library(JObj& response, const json_value *params)
     } darkBuildScope;
     s_darkBuild.active = true;
     s_darkBuild.exposure_count = (int) selected.size();
+    s_darkBuild.artifact = "DarkLibrary";
+
+    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, (int) selected.size(), (int) frameCount, selected);
 
     bool hadShutterClosed = pCamera->ShutterClosed;
     pCamera->ShutterClosed = true;
@@ -4071,6 +4092,7 @@ static void build_dark_library(JObj& response, const json_value *params)
         {
             delete newDark;
             pCamera->ShutterClosed = hadShutterClosed;
+            EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, errorMsg, builtCount);
             response << jrpc_error(1, errorMsg);
             return;
         }
@@ -4083,6 +4105,8 @@ static void build_dark_library(JObj& response, const json_value *params)
     if (loadAfter)
         pFrame->LoadDarkHandler(true);
     pFrame->SetDarkMenuState();
+
+    EvtServer.NotifyCalibrationBuildComplete(s_darkBuild.artifact, builtCount);
 
     JAry exps;
     for (int exp : selected)
@@ -4158,6 +4182,9 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
     s_darkBuild.active = true;
     s_darkBuild.exposure_count = 1;
     s_darkBuild.exposure_index = 1;
+    s_darkBuild.artifact = "DefectMap";
+
+    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, 1, (int) frameCount, std::vector<int> { (int) exposureMs });
 
     bool hadShutterClosed = pCamera->ShutterClosed;
     pCamera->ShutterClosed = true;
@@ -4167,6 +4194,9 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
     if (capture_master_dark_frame(darks.masterDark, (int) exposureMs, (int) frameCount, &errorMsg))
     {
         pCamera->ShutterClosed = hadShutterClosed;
+        // Frames captured before the failing one (s_darkBuild.frame is the
+        // 1-based frame that was in flight when the capture failed).
+        EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, errorMsg, wxMax(0, s_darkBuild.frame - 1));
         response << jrpc_error(1, errorMsg);
         return;
     }
@@ -4185,6 +4215,8 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
     pFrame->SetDarkMenuState();
 
     pCamera->ShutterClosed = hadShutterClosed;
+
+    EvtServer.NotifyCalibrationBuildComplete(s_darkBuild.artifact, (int) frameCount);
 
     JObj rslt;
     rslt << NV("profile_id", pConfig->GetCurrentProfileId())
@@ -7935,4 +7967,89 @@ void EventServer::NotifyConfigurationChange()
     Ev ev("ConfigurationChange");
     do_notify(m_eventServerClients, ev);
     m_configEventDebouncer->StartOnce(0);
+}
+
+// ── ARA integration events (PHD2-GAP gaps 1-2) ─────────────────────────────
+// Calibration-build progress: the build RPCs run synchronously in the RPC
+// handler, so subscribers other than the caller (and the caller itself, which
+// reads events on a separate connection) get live per-frame progress instead
+// of a 2-3 minute silent gap. Event names follow the artifact prefix:
+// DarkLibraryBuildStarted / DarkLibraryFrameComplete / DarkLibraryBuildComplete /
+// DarkLibraryBuildFailed, and the DefectMap* twins.
+
+void EventServer::NotifyCalibrationBuildStarted(const wxString& artifact, int exposureCount, int framesPerExposure,
+                                                const std::vector<int>& exposuresMs)
+{
+    if (m_eventServerClients.empty())
+        return;
+
+    Ev ev(artifact + "BuildStarted");
+    ev << NV("profile_id", pConfig->GetCurrentProfileId()) << NV("exposure_count", exposureCount)
+       << NV("frames_per_exposure", framesPerExposure);
+    JAry ary;
+    for (int ms : exposuresMs)
+        ary << ms;
+    ev << NV("planned_exposures_ms", ary);
+    do_notify(m_eventServerClients, ev);
+}
+
+void EventServer::NotifyCalibrationBuildFrame(const wxString& artifact, int exposureIndex, int exposureCount, int frame,
+                                              int frameCount, int exposureMs)
+{
+    if (m_eventServerClients.empty())
+        return;
+
+    Ev ev(artifact + "FrameComplete");
+    ev << NV("exposure_index", exposureIndex) << NV("exposure_count", exposureCount) << NV("frame", frame)
+       << NV("frame_count", frameCount) << NV("exposure_ms", exposureMs);
+    do_notify(m_eventServerClients, ev);
+}
+
+void EventServer::NotifyCalibrationBuildComplete(const wxString& artifact, int builtCount)
+{
+    if (m_eventServerClients.empty())
+        return;
+
+    Ev ev(artifact + "BuildComplete");
+    ev << NV("profile_id", pConfig->GetCurrentProfileId()) << NV("built_count", builtCount);
+    do_notify(m_eventServerClients, ev);
+}
+
+void EventServer::NotifyCalibrationBuildFailed(const wxString& artifact, const wxString& error, int partialCompleted)
+{
+    if (m_eventServerClients.empty())
+        return;
+
+    Ev ev(artifact + "BuildFailed");
+    // Per-artifact field name so the same name never carries two units (#57
+    // round-2 review): the dark-library build fails between exposure GROUPS,
+    // the defect-map build fails between FRAMES of its single group.
+    ev << NV("error", error)
+       << NV(artifact == "DarkLibrary" ? "partial_groups_completed" : "partial_frames_completed", partialCompleted);
+    do_notify(m_eventServerClients, ev);
+}
+
+// Structured equipment fault events: clients route these directly instead of
+// string-parsing Alert. Emitted IN ADDITION to the existing Alert (which stays
+// for human-readable surfaces). device_type is "camera" today — the mount has
+// no auto-disconnect path in PHD2 (a mount fault surfaces as RPC errors).
+
+void EventServer::NotifyEquipmentDisconnected(const wxString& deviceType, const wxString& reason, bool reconnecting)
+{
+    if (m_eventServerClients.empty())
+        return;
+
+    Ev ev("EquipmentDisconnected");
+    ev << NV("device_type", deviceType) << NV("reason", reason) << NV("reconnecting", reconnecting);
+    do_notify(m_eventServerClients, ev);
+}
+
+void EventServer::NotifyEquipmentReconnected(const wxString& deviceType)
+{
+    if (m_eventServerClients.empty())
+        return;
+
+    Ev ev("EquipmentReconnected");
+    ev << NV("device_type", deviceType);
+    do_notify(m_eventServerClients, ev);
 }
