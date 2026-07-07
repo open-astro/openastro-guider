@@ -43,7 +43,7 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `stop_capture` | — | Stop looping/guiding. |
 | `get_paused` | — | `true` if guiding is paused. |
 | `set_paused` | `paused` (bool), `type` (`"full"` to also stop looping) | Pause/resume guiding. |
-| `capture_single_frame` | `exposure`, `binning`, `gain`, `subframe`, `path`, `save` | Take one frame (optionally saved); emits `SingleFrameComplete`. |
+| `capture_single_frame` | `exposure`, `binning`, `gain`, `subframe`, `path`, `save` | Take one frame (optionally saved); emits `SingleFrameComplete`. `path` must be inside the data directory (or the `/server/capture_frame_dir` config override) — the transports are unauthenticated. |
 | `get_settling` | — | `true` while a dither/guide settle is in progress. |
 | `get_pixel_scale` | — | Image scale in arcsec/pixel. |
 | `get_star_image` | `size` | Cropped star image around the lock position (base64). |

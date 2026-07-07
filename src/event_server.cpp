@@ -102,19 +102,45 @@ static wxString state_name(EXPOSED_STATE st)
 
 static wxString json_escape(const wxString& s)
 {
-    wxString t(s);
-    static const wxString BACKSLASH("\\");
-    static const wxString BACKSLASHBACKSLASH("\\\\");
-    static const wxString DQUOT("\"");
-    static const wxString BACKSLASHDQUOT("\\\"");
-    static const wxString CR("\r");
-    static const wxString BACKSLASHCR("\\r");
-    static const wxString LF("\n");
-    static const wxString BACKSLASHLF("\\n");
-    t.Replace(BACKSLASH, BACKSLASHBACKSLASH);
-    t.Replace(DQUOT, BACKSLASHDQUOT);
-    t.Replace(CR, BACKSLASHCR);
-    t.Replace(LF, BACKSLASHLF);
+    // RFC 8259 requires escaping every control character U+0000..U+001F,
+    // not just CR/LF: a raw tab in a device name or file path would
+    // otherwise produce JSON that strict parsers reject
+    wxString t;
+    t.reserve(s.length());
+    for (wxString::const_iterator it = s.begin(); it != s.end(); ++it)
+    {
+        wxUniChar c = *it;
+        switch (c.GetValue())
+        {
+        case '\\':
+            t += "\\\\";
+            break;
+        case '"':
+            t += "\\\"";
+            break;
+        case '\b':
+            t += "\\b";
+            break;
+        case '\t':
+            t += "\\t";
+            break;
+        case '\n':
+            t += "\\n";
+            break;
+        case '\f':
+            t += "\\f";
+            break;
+        case '\r':
+            t += "\\r";
+            break;
+        default:
+            if (c.GetValue() < 0x20)
+                t += wxString::Format("\\u%04x", (unsigned int) c.GetValue());
+            else
+                t += c;
+            break;
+        }
+    }
     return t;
 }
 
@@ -4447,6 +4473,7 @@ static void capture_single_frame(JObj& response, const json_value *params)
     if (!pCamera || !pCamera->Connected)
     {
         response << jrpc_error(1, "cannot capture single frame when camera is not connected");
+        return;
     }
 
     Params p("exposure", "binning", "gain", "subframe", "path", "save", params);
@@ -4514,12 +4541,28 @@ static void capture_single_frame(JObj& response, const json_value *params)
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "path param must be an absolute path");
             return;
         }
+        // neither server transport is authenticated, so an unrestricted path
+        // would let any client on the network write files anywhere the daemon
+        // can reach; confine writes to the data directory (or an
+        // admin-configured override)
+        fn.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
+        wxString allowedDir = pConfig->Global.GetString("/server/capture_frame_dir", MyFrame::GetDefaultFileDir());
+        wxFileName allowed(allowedDir, wxEmptyString);
+        allowed.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
+        if (!fn.GetFullPath().StartsWith(allowed.GetPathWithSep()))
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS,
+                                   wxString::Format("path must be inside %s (override with the /server/capture_frame_dir "
+                                                    "config entry)",
+                                                    allowed.GetPathWithSep()));
+            return;
+        }
         if (fn.Exists())
         {
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "destination file already exists");
             return;
         }
-        path = j->string_value;
+        path = fn.GetFullPath();
     }
 
     bool save = !path.empty();
@@ -7074,6 +7117,11 @@ static bool parse_http_request(const std::string& buf, HttpRequest *req, size_t 
         long v = 0;
         if (!wxString(it->second).ToLong(&v) || v < 0)
             return false;
+        // the receive buffer is capped at 1 MB upstream, so a larger body can
+        // never complete; rejecting here also keeps the total-size addition
+        // below from overflowing size_t on a hostile Content-Length
+        if (v > 1024 * 1024)
+            return false;
         contentLen = (size_t) v;
     }
 
@@ -7278,8 +7326,12 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
             ts->second.ToLong(&timeoutSeconds);
         if (numQueries < 1)
             numQueries = 1;
+        else if (numQueries > 20)
+            numQueries = 20;
         if (timeoutSeconds < 1)
             timeoutSeconds = 1;
+        else if (timeoutSeconds > 30)
+            timeoutSeconds = 30;
 
         wxString params = wxString::Format("{\"num_queries\":%ld,\"timeout_seconds\":%ld}", numQueries, timeoutSeconds);
         wxString resultRaw;
