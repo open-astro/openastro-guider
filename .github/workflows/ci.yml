@@ -240,7 +240,10 @@ jobs:
         # not flagged — only a total flip of an existing style is. A PR that
         # flips endings *on purpose* (like the PR #62 restore) is expected to
         # fail here; that is a maintainer-acknowledge-and-merge situation, not
-        # a reason to weaken the check.
+        # a reason to weaken the check. Newly added files are intentionally out
+        # of scope: with no merge-base version there is no established style to
+        # flip from, and this repo legitimately mixes CRLF (inherited PHD2
+        # sources) and LF (our own files).
         run: |
           set -euo pipefail
           git fetch --no-tags origin "$GITHUB_BASE_REF"
@@ -251,15 +254,17 @@ jobs:
             if git diff --numstat --no-renames "$merge_base" HEAD -- "$f" | grep -q '^-'; then
               continue
             fi
+            # verify both blobs are readable up front so a git failure aborts
+            # loudly instead of being masked by the grep no-match `|| true`
+            git cat-file -e "$merge_base:$f"
+            git cat-file -e "HEAD:$f"
             old_crlf="$(git show "$merge_base:$f" | grep -c $'\r$' || true)"
             new_crlf="$(git show "HEAD:$f" | grep -c $'\r$' || true)"
-            old_crlf="${old_crlf:-0}"
-            new_crlf="${new_crlf:-0}"
             if [ "$old_crlf" -gt 0 ] && [ "$new_crlf" -eq 0 ]; then
-              echo "::error file=$f::line endings flipped CRLF -> LF ($old_crlf CRLF lines at merge-base, 0 now). Restore with: sed -i 's/\$/\r/' '$f'"
+              echo "::error file=$f::line endings flipped CRLF -> LF ($old_crlf CRLF lines at merge-base, 0 now). Restore with: unix2dos '$f'"
               fail=1
             elif [ "$old_crlf" -eq 0 ] && [ "$new_crlf" -gt 0 ]; then
-              echo "::error file=$f::line endings flipped LF -> CRLF (0 CRLF lines at merge-base, $new_crlf now). Restore with: sed -i 's/\r\$//' '$f'"
+              echo "::error file=$f::line endings flipped LF -> CRLF (0 CRLF lines at merge-base, $new_crlf now). Restore with: dos2unix '$f'"
               fail=1
             fi
           done < <(git diff --name-only --no-renames --diff-filter=M "$merge_base" HEAD)
