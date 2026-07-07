@@ -3418,9 +3418,12 @@ static void get_version(JObj& response, const json_value *params)
     // Same fields the :4400 stream's Version event carries, for HTTP
     // clients (the web app's header version pill) that have no event
     // stream. "version" is the user-facing FULLVER from version.md.
+    // ARA integration (PHD2-GAP gap 3): overlap_support mirrors the Version
+    // event and fork identifies this daemon vs stock PHD2 for a synchronous
+    // "connect, check version, decide" handshake.
     JObj rslt;
     rslt << NV("version", wxString(FULLVER)) << NV("phd_version", wxString(PHDVERSION)) << NV("phd_subver", wxString(PHDSUBVER))
-         << NV("msg_version", MSG_PROTOCOL_VERSION);
+         << NV("msg_version", MSG_PROTOCOL_VERSION) << NV("overlap_support", true) << NV("fork", "openastro-guider");
     response << jrpc_result(rslt);
 }
 
@@ -3972,18 +3975,6 @@ static void get_dark_build_progress(JObj& response, const json_value *params)
     response << jrpc_result(rslt);
 }
 
-// ARA integration (PHD2-GAP gap 3): synchronous version query — the Version
-// catch-up event carries the same numbers, but a "connect, check version,
-// decide" handshake wants an RPC it can await. `fork` identifies this daemon
-// vs stock PHD2 for downstream fork-detection.
-static void get_version(JObj& response, const json_value *params)
-{
-    JObj rslt;
-    rslt << NV("phd_version", PHDVERSION) << NV("phd_subver", PHDSUBVER) << NV("msg_version", MSG_PROTOCOL_VERSION)
-         << NV("overlap_support", true) << NV("fork", "openastro-guider");
-    response << jrpc_result(rslt);
-}
-
 static void build_dark_library(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
@@ -4203,7 +4194,9 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
     if (capture_master_dark_frame(darks.masterDark, (int) exposureMs, (int) frameCount, &errorMsg))
     {
         pCamera->ShutterClosed = hadShutterClosed;
-        EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, errorMsg, 0);
+        // Frames captured before the failing one (s_darkBuild.frame is the
+        // 1-based frame that was in flight when the capture failed).
+        EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, errorMsg, wxMax(0, s_darkBuild.frame - 1));
         response << jrpc_error(1, errorMsg);
         return;
     }
@@ -6630,7 +6623,6 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "get_calibration_files_status", &get_calibration_files_status },
         { "set_dark_library_enabled", &set_dark_library_enabled },
         { "set_defect_map_enabled", &set_defect_map_enabled },
-        { "get_version", &get_version },
         { "build_dark_library", &build_dark_library },
         { "get_dark_build_progress", &get_dark_build_progress },
         { "build_defect_map_darks", &build_defect_map_darks },

@@ -597,7 +597,9 @@ Payload notes for downstream clients:
   - `*FrameComplete` — `{ exposure_index, exposure_count, frame, frame_count, exposure_ms }` (1-based indices;
     one event per captured frame, emitted while the synchronous build RPC is still running)
   - `*BuildComplete` — `{ profile_id, built_count }` (the RPC response carries the full result payload)
-  - `*BuildFailed` — `{ error, partial_frames_completed }`
+  - `*BuildFailed` — `{ error, partial_frames_completed }`. Unit differs by artifact: completed exposure GROUPS
+    for `DarkLibraryBuildFailed` (each group is `frame_count` frames), completed FRAMES of the single group for
+    `DefectMapBuildFailed`.
 - `EquipmentDisconnected` — `{ device_type: "camera", reason: string, reconnecting: bool }`. Emitted (in addition
   to `Alert`) whenever the daemon force-disconnects a device on a fault (capture timeout, USB unplug, memory
   error). `reconnecting: true` means the daemon is about to attempt automatic reconnection (up to 3 tries/minute).
@@ -675,7 +677,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_connected` | none | none | `bool` | none expected | none |
 | `set_connected` | `connected:bool` | guider context must exist | `0` | `-32602` invalid boolean; `1` connect/disconnect failure | device connection state changes; corresponding events may follow |
 | `shutdown` | none | none | `0` | none in normal path | app termination requested. Semantics: the daemon exits CLEANLY (exit code 0) — under systemd `Restart=on-failure` this is a deliberate stop and the unit is NOT restarted; use `Restart=always` if a supervisor should bring it back |
-| `get_version` | none | none | `{phd_version,phd_subver,msg_version,overlap_support,fork}` | none expected | none. Synchronous twin of the `Version` catch-up event; `fork` is `"openastro-guider"` for daemon-vs-stock-PHD2 detection |
+| `get_version` | none | none | `{version,phd_version,phd_subver,msg_version,overlap_support,fork}` | none expected | none. Synchronous twin of the `Version` catch-up event (previously implemented but undocumented); `version` is the user-facing FULLVER string and `fork` is `"openastro-guider"` for daemon-vs-stock-PHD2 detection. Note the casing convention: the RPC uses snake_case (`fork`), the `Version` EVENT uses PascalCase (`Fork`) |
 
 ### B) Guiding Lifecycle, Star Selection, Dither
 
