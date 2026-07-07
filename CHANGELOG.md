@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Security** (#59): `capture_single_frame` no longer writes to arbitrary caller-supplied absolute paths — the server transports are unauthenticated, so any client on the network could write FITS bytes anywhere the daemon could reach. Saves are now confined to the daemon's data directory, overridable with the `/server/capture_frame_dir` config entry; the destination directory must exist, and symlinks are resolved (`realpath`) so a link planted inside the data directory can't redirect the write outside it.
+- `json_escape` now escapes all control characters U+0000–U+001F per RFC 8259 (`\b \t \f` shortcuts + `\u00XX` fallback), not just CR/LF — a raw tab in a device name or path previously produced JSON that strict parsers reject (#58).
+- `GET /api/discover/alpaca` clamps `num_queries` to 20 and `timeout_seconds` to 30 (matching the JSON-RPC method's validated range) — previously unbounded values could wedge the discovery loop for hours (#60).
+- The HTTP request parser rejects `Content-Length` over the 1 MB receive cap up front, eliminating a latent `size_t` overflow on hostile values; `AlpacaClient` now logs the redirect target when a server answers a raw GET with 3xx (redirects are deliberately not followed), so misconfigured redirecting servers are diagnosable (#61).
 - Restored the inherited CRLF line endings on `src/camera.cpp`, `src/event_server.cpp`, `src/event_server.h`, and `src/myframe.cpp` — PR #57 accidentally converted them to LF wholesale, destroying diffability against upstream PHD2. Content is byte-identical apart from the line terminators.
 
 ### Added

@@ -514,7 +514,21 @@ bool AlpacaClient::GetRaw(const wxString& endpoint, const wxString& acceptHeader
 
     if (httpCode != 200)
     {
-        Debug.Write(wxString::Format("AlpacaClient GET raw returned HTTP %ld\n", httpCode));
+        if (httpCode >= 300 && httpCode < 400)
+        {
+            // redirects are deliberately not followed (CURLOPT_FOLLOWLOCATION=0,
+            // they might go to auth pages); make the dead end diagnosable
+            const char *redirectUrl = nullptr;
+            curl_easy_getinfo(m_curl, CURLINFO_REDIRECT_URL, &redirectUrl);
+            Debug.Write(wxString::Format("AlpacaClient GET raw returned HTTP %ld redirecting to %s; redirects are not "
+                                         "followed - configure the client with the server's final URL\n",
+                                         httpCode,
+                                         redirectUrl ? wxString(redirectUrl, wxConvUTF8) : wxString("(no Location)")));
+        }
+        else
+        {
+            Debug.Write(wxString::Format("AlpacaClient GET raw returned HTTP %ld\n", httpCode));
+        }
         return false;
     }
 

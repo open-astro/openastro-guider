@@ -645,7 +645,7 @@ When a client connects, server sends catch-up context including:
 
 ### Single Frame Capture With Save
 
-1. `capture_single_frame` with `save=true` and absolute `path`
+1. `capture_single_frame` with `save=true` and absolute `path` (must be inside the daemon's data directory — or the directory configured via the `/server/capture_frame_dir` config entry — because the server transports are unauthenticated)
 2. watch `SingleFrameComplete`
 3. inspect `Success` and `Path` in the event payload
 
@@ -706,7 +706,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_exposure` | none | none | exposure ms (int) | none expected | none |
 | `set_exposure` | `exposure:int` | none | `0` | `-32602` invalid/missing exposure; `1` set failure | requested exposure changes |
 | `get_exposure_durations` | none | none | int[] (ms) | none expected | none |
-| `capture_single_frame` | optional `exposure`,`binning`,`gain`,`subframe`,`path`,`save` | no active capture; connected camera required | `0` (capture queued) | `-32602` invalid params/path rules; `1` camera/capture state failure; `2` exposure start failure | completion via `SingleFrameComplete` event |
+| `capture_single_frame` | optional `exposure`,`binning`,`gain`,`subframe`,`path`,`save` | no active capture; connected camera required; `path` must be absolute, in an existing directory inside the data directory (or the `/server/capture_frame_dir` config override); symlinks are resolved before the check | `0` (capture queued) | `-32602` invalid params/path rules; `1` camera/capture state failure; `2` exposure start failure | completion via `SingleFrameComplete` event |
 | `save_image` | none | guider context; current image must exist | `{filename}` | `2` no image; `3` save failure | writes temporary image file |
 | `get_star_image` | optional `size:int>=15` | guider context; selected star and valid image | `{frame,width,height,star_pos,pixels}` | `-32602` invalid size; `2` no star selected | none |
 | `get_use_subframes` | none | none | `bool` | none expected | none |
