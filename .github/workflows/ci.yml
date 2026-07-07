@@ -256,10 +256,10 @@ jobs:
             old_crlf="${old_crlf:-0}"
             new_crlf="${new_crlf:-0}"
             if [ "$old_crlf" -gt 0 ] && [ "$new_crlf" -eq 0 ]; then
-              echo "::error file=$f::line endings flipped CRLF -> LF ($old_crlf CRLF lines at merge-base, 0 now). Restore with: sed -i 's/\$/\r/' $f"
+              echo "::error file=$f::line endings flipped CRLF -> LF ($old_crlf CRLF lines at merge-base, 0 now). Restore with: sed -i 's/\$/\r/' '$f'"
               fail=1
             elif [ "$old_crlf" -eq 0 ] && [ "$new_crlf" -gt 0 ]; then
-              echo "::error file=$f::line endings flipped LF -> CRLF (0 CRLF lines at merge-base, $new_crlf now). Restore with: sed -i 's/\r\$//' $f"
+              echo "::error file=$f::line endings flipped LF -> CRLF (0 CRLF lines at merge-base, $new_crlf now). Restore with: sed -i 's/\r\$//' '$f'"
               fail=1
             fi
           done < <(git diff --name-only --no-renames --diff-filter=M "$merge_base" HEAD)
