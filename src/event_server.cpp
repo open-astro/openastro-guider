@@ -46,7 +46,9 @@
 #include <wx/mstream.h>
 #include <wx/sckstrm.h>
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <algorithm>
 #include <atomic>
 #include <sstream>
@@ -4549,11 +4551,19 @@ static void capture_single_frame(JObj& response, const json_value *params)
         wxString allowedDir = pConfig->Global.GetString("/server/capture_frame_dir", MyFrame::GetDefaultFileDir());
         wxFileName allowed(allowedDir, wxEmptyString);
         allowed.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
-        if (!fn.GetFullPath().StartsWith(allowed.GetPathWithSep()))
+        // realpath() rather than a lexical comparison: a symlink planted
+        // inside the data directory must not redirect the write outside it.
+        // This also requires the destination directory to exist, which the
+        // save would need anyway.
+        char realParent[PATH_MAX];
+        char realAllowed[PATH_MAX];
+        if (!realpath(fn.GetPath().mb_str(wxConvUTF8), realParent) ||
+            !realpath(allowed.GetPath().mb_str(wxConvUTF8), realAllowed) ||
+            !(wxString(realParent, wxConvUTF8) + _T("/")).StartsWith(wxString(realAllowed, wxConvUTF8) + _T("/")))
         {
             response << jrpc_error(JSONRPC_INVALID_PARAMS,
-                                   wxString::Format("path must be inside %s (override with the /server/capture_frame_dir "
-                                                    "config entry)",
+                                   wxString::Format("path must be in an existing directory inside %s (override with the "
+                                                    "/server/capture_frame_dir config entry)",
                                                     allowed.GetPathWithSep()));
             return;
         }
@@ -4562,7 +4572,7 @@ static void capture_single_frame(JObj& response, const json_value *params)
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "destination file already exists");
             return;
         }
-        path = fn.GetFullPath();
+        path = wxString(realParent, wxConvUTF8) + _T("/") + fn.GetFullName();
     }
 
     bool save = !path.empty();
