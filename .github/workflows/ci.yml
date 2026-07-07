@@ -16,6 +16,7 @@
 #   format      clang-format, PR changed lines only
 #   cppcheck    C/C++ static analysis, PR changed files only
 #   unicode     scan sources for Trojan-Source / invisible Unicode
+#   line-endings PR-modified files must not flip CRLF/LF style (PR #57 incident)
 #   shellcheck  lint the Debian/headless shell scripts we maintain
 #   zizmor      security audit of these GitHub Actions workflows
 #
@@ -213,6 +214,59 @@ jobs:
         # Guards against CVE-2021-42574: bidi controls / zero-width characters
         # (incl. BOMs) that make source render differently than it compiles.
         run: python3 .github/scripts/check-unicode.py
+
+  line-endings:
+    name: Line endings (CRLF flip guard)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check changed files for line-ending flips
+        # The sources inherited from upstream PHD2 are CRLF, and keeping them
+        # that way is what keeps this fork diffable against upstream. PR #57
+        # wholesale-flipped four of them to LF — a ~140-line feature merged as
+        # a ~25k-line diff — and nothing caught it (fixed in PR #62). This job
+        # compares each modified file's ending style at the merge-base against
+        # the PR head and fails on a flip in either direction: CRLF -> LF is
+        # the PR #57 incident, LF -> CRLF is Windows-tooling contamination of
+        # our own LF files. Files whose endings git already forces via
+        # .gitattributes (*.bat, *.sh) pass trivially since both sides compare
+        # equal. Mixed-ending edits (a CRLF file gaining some LF lines) are
+        # not flagged — only a total flip of an existing style is. A PR that
+        # flips endings *on purpose* (like the PR #62 restore) is expected to
+        # fail here; that is a maintainer-acknowledge-and-merge situation, not
+        # a reason to weaken the check.
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$GITHUB_BASE_REF"
+          merge_base="$(git merge-base "origin/$GITHUB_BASE_REF" HEAD)"
+          fail=0
+          while IFS= read -r f; do
+            # skip files git considers binary (numstat shows "-" for them)
+            if git diff --numstat --no-renames "$merge_base" HEAD -- "$f" | grep -q '^-'; then
+              continue
+            fi
+            old_crlf="$(git show "$merge_base:$f" | grep -c $'\r$' || true)"
+            new_crlf="$(git show "HEAD:$f" | grep -c $'\r$' || true)"
+            old_crlf="${old_crlf:-0}"
+            new_crlf="${new_crlf:-0}"
+            if [ "$old_crlf" -gt 0 ] && [ "$new_crlf" -eq 0 ]; then
+              echo "::error file=$f::line endings flipped CRLF -> LF ($old_crlf CRLF lines at merge-base, 0 now). Restore with: sed -i 's/\$/\r/' $f"
+              fail=1
+            elif [ "$old_crlf" -eq 0 ] && [ "$new_crlf" -gt 0 ]; then
+              echo "::error file=$f::line endings flipped LF -> CRLF (0 CRLF lines at merge-base, $new_crlf now). Restore with: sed -i 's/\r\$//' $f"
+              fail=1
+            fi
+          done < <(git diff --name-only --no-renames --diff-filter=M "$merge_base" HEAD)
+          if [ "$fail" -eq 0 ]; then
+            echo "no line-ending flips in modified files"
+          fi
+          exit "$fail"
 
   shellcheck:
     name: ShellCheck
