@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Restored the inherited CRLF line endings on `src/camera.cpp`, `src/event_server.cpp`, `src/event_server.h`, and `src/myframe.cpp` — PR #57 accidentally converted them to LF wholesale, destroying diffability against upstream PHD2. Content is byte-identical apart from the line terminators.
+
 ### Added
 - Web app: the daemon **version** is shown as a pill next to the brand in the header (matching AlpacaBridge's web face), fed by a new `get_version` RPC that exposes the `Version` event's fields (`version` from `version.md`, `phd_version`, `phd_subver`, `msg_version`) to HTTP clients that have no event stream.
 - Web app: a **Shut down** button in the header — calls the existing `shutdown` RPC after an explicit confirmation spelling out the consequences (guiding/looping stop, the page becomes unreachable until the daemon is restarted), then replaces the UI with a "daemon shut down" notice and stops polling. Verified live: the RPC answers `ok` before the process exits cleanly.
