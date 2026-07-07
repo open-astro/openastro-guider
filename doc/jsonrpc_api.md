@@ -597,12 +597,15 @@ Payload notes for downstream clients:
   - `*FrameComplete` — `{ exposure_index, exposure_count, frame, frame_count, exposure_ms }` (1-based indices;
     one event per captured frame, emitted while the synchronous build RPC is still running)
   - `*BuildComplete` — `{ profile_id, built_count }` (the RPC response carries the full result payload)
-  - `*BuildFailed` — `{ error, partial_frames_completed }`. Unit differs by artifact: completed exposure GROUPS
-    for `DarkLibraryBuildFailed` (each group is `frame_count` frames), completed FRAMES of the single group for
-    `DefectMapBuildFailed`.
+  - `DarkLibraryBuildFailed` — `{ error, partial_groups_completed }` (completed exposure GROUPS; each group is
+    `frame_count` frames). `DefectMapBuildFailed` — `{ error, partial_frames_completed }` (completed FRAMES of
+    the single group). Distinct field names on purpose — one name never carries two units.
 - `EquipmentDisconnected` — `{ device_type: "camera", reason: string, reconnecting: bool }`. Emitted (in addition
   to `Alert`) whenever the daemon force-disconnects a device on a fault (capture timeout, USB unplug, memory
-  error). `reconnecting: true` means the daemon is about to attempt automatic reconnection (up to 3 tries/minute).
+  error). `reconnecting: true` means the daemon WILL ATTEMPT automatic reconnection — best-effort, throttled to
+  3 attempts per minute; when the throttle is exhausted the attempt is silently abandoned (no
+  `EquipmentReconnected`, and no follow-up event cancels the pending state), so clients should pair
+  `reconnecting: true` with their own timeout rather than waiting indefinitely.
   `device_type` is `"camera"` today — a mount fault surfaces as RPC errors, not an auto-disconnect.
 - `EquipmentReconnected` — `{ device_type: "camera" }`. The recovered twin: automatic reconnection succeeded and
   exposures resume. A client that raised a fault on `EquipmentDisconnected` clears it here.

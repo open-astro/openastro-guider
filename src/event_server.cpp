@@ -8021,7 +8021,11 @@ void EventServer::NotifyCalibrationBuildFailed(const wxString& artifact, const w
         return;
 
     Ev ev(artifact + "BuildFailed");
-    ev << NV("error", error) << NV("partial_frames_completed", partialCompleted);
+    // Per-artifact field name so the same name never carries two units (#57
+    // round-2 review): the dark-library build fails between exposure GROUPS,
+    // the defect-map build fails between FRAMES of its single group.
+    ev << NV("error", error)
+       << NV(artifact == "DarkLibrary" ? "partial_groups_completed" : "partial_frames_completed", partialCompleted);
     do_notify(m_eventServerClients, ev);
 }
 
