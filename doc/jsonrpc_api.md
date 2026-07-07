@@ -581,8 +581,35 @@ Event names emitted:
 - `Alert`
 - `GuideParamChange`
 - `ConfigurationChange`
+- `DarkLibraryBuildStarted` / `DarkLibraryFrameComplete` / `DarkLibraryBuildComplete` / `DarkLibraryBuildFailed`
+- `DefectMapBuildStarted` / `DefectMapFrameComplete` / `DefectMapBuildComplete` / `DefectMapBuildFailed`
+- `EquipmentDisconnected` / `EquipmentReconnected`
+
+Payload notes for downstream clients:
+
+- `Alert` — `{ Msg: string, Type: "info"|"question"|"warning"|"error" }`. `Alert` is a human-readable surface;
+  clients that need to REACT to a fault should route the structured events below instead of parsing `Msg`.
+- `Version` — `{ PHDVersion, PHDSubver, OverlapSupport, MsgVersion, Fork }`. `Fork` is `"openastro-guider"` on this
+  daemon (absent on stock PHD2), so a client can detect which server it reached. The synchronous `get_version` RPC
+  returns the same information without waiting for the catch-up event.
+- Calibration-build events (`DarkLibraryBuild*` / `DefectMapBuild*`):
+  - `*BuildStarted` — `{ profile_id, exposure_count, frames_per_exposure, planned_exposures_ms: [int] }`
+  - `*FrameComplete` — `{ exposure_index, exposure_count, frame, frame_count, exposure_ms }` (1-based indices;
+    one event per captured frame, emitted while the synchronous build RPC is still running)
+  - `*BuildComplete` — `{ profile_id, built_count }` (the RPC response carries the full result payload)
+  - `*BuildFailed` — `{ error, partial_frames_completed }`
+- `EquipmentDisconnected` — `{ device_type: "camera", reason: string, reconnecting: bool }`. Emitted (in addition
+  to `Alert`) whenever the daemon force-disconnects a device on a fault (capture timeout, USB unplug, memory
+  error). `reconnecting: true` means the daemon is about to attempt automatic reconnection (up to 3 tries/minute).
+  `device_type` is `"camera"` today — a mount fault surfaces as RPC errors, not an auto-disconnect.
+- `EquipmentReconnected` — `{ device_type: "camera" }`. The recovered twin: automatic reconnection succeeded and
+  exposures resume. A client that raised a fault on `EquipmentDisconnected` clears it here.
 
 ### Startup Catch-Up Events
+
+Catch-up events are sent on EVERY new socket connection (not just the first client of a server's lifetime) —
+a reconnecting client always receives a fresh `Version` first, so reconnect handling can re-validate the
+server identity unconditionally.
 
 When a client connects, server sends catch-up context including:
 
@@ -619,7 +646,7 @@ When a client connects, server sends catch-up context including:
 
 ## Complete Method Name List
 
-`clear_calibration`, `deselect_star`, `get_exposure`, `set_exposure`, `get_exposure_durations`, `get_profiles`, `get_profile`, `set_profile`, `set_profile_by_name`, `create_profile`, `clone_profile`, `rename_profile`, `delete_profile`, `get_profile_setup`, `set_profile_setup`, `get_connected`, `set_connected`, `get_calibrated`, `get_paused`, `set_paused`, `get_lock_position`, `set_lock_position`, `loop`, `stop_capture`, `guide`, `dither`, `find_star`, `get_pixel_scale`, `get_app_state`, `flip_calibration`, `get_lock_shift_enabled`, `set_lock_shift_enabled`, `get_lock_shift_params`, `set_lock_shift_params`, `save_image`, `get_star_image`, `get_use_subframes`, `get_search_region`, `shutdown`, `get_camera_binning`, `get_camera_frame_size`, `get_current_equipment`, `get_indi_server`, `set_indi_server`, `get_alpaca_server`, `set_alpaca_server`, `discover_alpaca_servers`, `query_alpaca_devices`, `get_alpaca_camera_pixelsize`, `get_selected_camera_pixelsize`, `set_selected_alpaca_device`, `get_equipment_choices`, `get_selected_mount`, `get_selected_indi_mount_driver`, `set_selected_mount`, `set_selected_indi_mount_driver`, `get_selected_camera`, `get_selected_camera_id`, `get_selected_indi_camera_driver`, `set_selected_camera`, `set_selected_camera_id`, `set_selected_indi_camera_driver`, `get_camera_bitdepth`, `set_camera_bitdepth`, `get_selected_aux_mount`, `set_selected_aux_mount`, `get_selected_ao`, `set_selected_ao`, `get_selected_rotator`, `set_selected_rotator`, `get_guide_output_enabled`, `set_guide_output_enabled`, `get_algo_param_names`, `get_algo_param`, `set_algo_param`, `get_dec_guide_mode`, `set_dec_guide_mode`, `get_settling`, `guide_pulse`, `get_calibration_data`, `capture_single_frame`, `get_calibration_files_status`, `set_dark_library_enabled`, `set_defect_map_enabled`, `build_dark_library`, `build_defect_map_darks`, `delete_calibration_files`, `get_cooler_status`, `set_cooler_state`, `get_ccd_temperature`, `export_config_settings`, `get_variable_delay_settings`, `set_variable_delay_settings`, `get_limit_frame`, `set_limit_frame`.
+`clear_calibration`, `deselect_star`, `get_exposure`, `set_exposure`, `get_exposure_durations`, `get_profiles`, `get_profile`, `set_profile`, `set_profile_by_name`, `create_profile`, `clone_profile`, `rename_profile`, `delete_profile`, `get_profile_setup`, `set_profile_setup`, `get_connected`, `set_connected`, `get_calibrated`, `get_paused`, `set_paused`, `get_lock_position`, `set_lock_position`, `loop`, `stop_capture`, `guide`, `dither`, `find_star`, `get_pixel_scale`, `get_app_state`, `flip_calibration`, `get_lock_shift_enabled`, `set_lock_shift_enabled`, `get_lock_shift_params`, `set_lock_shift_params`, `save_image`, `get_star_image`, `get_use_subframes`, `get_search_region`, `shutdown`, `get_camera_binning`, `get_camera_frame_size`, `get_current_equipment`, `get_indi_server`, `set_indi_server`, `get_alpaca_server`, `set_alpaca_server`, `discover_alpaca_servers`, `query_alpaca_devices`, `get_alpaca_camera_pixelsize`, `get_selected_camera_pixelsize`, `set_selected_alpaca_device`, `get_equipment_choices`, `get_selected_mount`, `get_selected_indi_mount_driver`, `set_selected_mount`, `set_selected_indi_mount_driver`, `get_selected_camera`, `get_selected_camera_id`, `get_selected_indi_camera_driver`, `set_selected_camera`, `set_selected_camera_id`, `set_selected_indi_camera_driver`, `get_camera_bitdepth`, `set_camera_bitdepth`, `get_selected_aux_mount`, `set_selected_aux_mount`, `get_selected_ao`, `set_selected_ao`, `get_selected_rotator`, `set_selected_rotator`, `get_guide_output_enabled`, `set_guide_output_enabled`, `get_algo_param_names`, `get_algo_param`, `set_algo_param`, `get_dec_guide_mode`, `set_dec_guide_mode`, `get_settling`, `guide_pulse`, `get_calibration_data`, `get_version`, `capture_single_frame`, `get_calibration_files_status`, `set_dark_library_enabled`, `set_defect_map_enabled`, `build_dark_library`, `build_defect_map_darks`, `delete_calibration_files`, `get_cooler_status`, `set_cooler_state`, `get_ccd_temperature`, `export_config_settings`, `get_variable_delay_settings`, `set_variable_delay_settings`, `get_limit_frame`, `set_limit_frame`.
 
 ## Method Spec Sheets
 
@@ -647,7 +674,8 @@ This section is normative for integrator behavior. Each method entry describes:
 | `set_profile_setup` | object with any subset of setup fields | no equipment connected | full setup object (post-apply) | `-32602` type/range violations; `1` blocked while connected | profile settings flushed; runtime setup reloaded |
 | `get_connected` | none | none | `bool` | none expected | none |
 | `set_connected` | `connected:bool` | guider context must exist | `0` | `-32602` invalid boolean; `1` connect/disconnect failure | device connection state changes; corresponding events may follow |
-| `shutdown` | none | none | `0` | none in normal path | app termination requested |
+| `shutdown` | none | none | `0` | none in normal path | app termination requested. Semantics: the daemon exits CLEANLY (exit code 0) — under systemd `Restart=on-failure` this is a deliberate stop and the unit is NOT restarted; use `Restart=always` if a supervisor should bring it back |
+| `get_version` | none | none | `{phd_version,phd_subver,msg_version,overlap_support,fork}` | none expected | none. Synchronous twin of the `Version` catch-up event; `fork` is `"openastro-guider"` for daemon-vs-stock-PHD2 detection |
 
 ### B) Guiding Lifecycle, Star Selection, Dither
 
@@ -726,7 +754,7 @@ This section is normative for integrator behavior. Each method entry describes:
 |---|---|---|---|---|---|
 | `get_guide_output_enabled` | none | mount object should exist | `bool` | `1` mount not defined | none |
 | `set_guide_output_enabled` | `enabled:bool` | mount object should exist | `0` | `-32602` invalid boolean; `1` mount not defined | guide output enable state changes |
-| `get_algo_param_names` | `axis:string` (`ra|dec|x|y`) | none | string[] incl. `algorithmName` | `1` invalid axis | none |
+| `get_algo_param_names` | `axis:string` (`ra|dec|x|y`) | none | string[] incl. `algorithmName` | `1` invalid axis | none. `get_algo_param_names` stays the authoritative per-profile list (names depend on the selected algorithm); as a static reference, the common writable names are — Hysteresis: `hysteresis`,`aggression`,`minMove`; ResistSwitch: `aggression`,`minMove`,`fastSwitch`; LowPass: `minMove`,`slopeWeight`; LowPass2: `aggressiveness`,`minMove`; ZFilter: `expFactor`,`minMove`; GaussianProcess: `minMove` + the GP hyperparameters. Verify against the live list before writing |
 | `get_algo_param` | `axis:string`, `name:string` | none | number or string (`algorithmName`) | `1` invalid args or unknown param | none |
 | `set_algo_param` | `axis:string`, `name:string`, `value:number` | none | `0` | `1` invalid args or set failure | algorithm parameter updated; graph controls refreshed |
 | `get_dec_guide_mode` | none | none | mode string (`Scope::DecGuideModeStr`) | none expected | none |
@@ -757,8 +785,8 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_calibration_files_status` | none | none | status object (paths, exists/loaded/compatible/autoload flags, optional loaded dark stats) | none expected | none |
 | `set_dark_library_enabled` | `enabled:bool` | enabling requires connected camera | status object | `-32602` invalid bool; `1` camera not connected/load/unload failure | dark library load state toggled |
 | `set_defect_map_enabled` | `enabled:bool` | enabling requires connected camera | status object | `-32602` invalid bool; `1` camera not connected/load/unload failure | defect map load state toggled |
-| `build_dark_library` | optional `frame_count`,`min_exposure_ms`,`max_exposure_ms`,`clear_existing`,`notes`,`load_after` | connected camera; capture inactive | `{profile_id,dark_library_path,frame_count,exposure_count,exposures_ms}` | `-32602` invalid ranges/types; `1` no camera/capture active/no matched exposure/capture save failure | captures dark stacks for selected exposures, writes dark library, optional load |
-| `build_defect_map_darks` | optional `exposure_ms`,`frame_count`,`notes`,`load_after` | connected camera; capture inactive | `{profile_id,defect_map_path,defect_count,exposure_ms,frame_count}` | `-32602` invalid ranges/types; `1` no camera/capture active/capture failure | captures master dark, builds defect map, saves files, optional load |
+| `build_dark_library` | optional `frame_count`,`min_exposure_ms`,`max_exposure_ms`,`clear_existing`,`notes`,`load_after` | connected camera; capture inactive | `{profile_id,dark_library_path,frame_count,exposure_count,exposures_ms}` | `-32602` invalid ranges/types; `1` no camera/capture active/no matched exposure/capture save failure | captures dark stacks for selected exposures, writes dark library, optional load. SYNCHRONOUS: blocks for roughly `frame_count x sum(matched exposures)`; subscribe to `DarkLibraryBuildStarted`/`DarkLibraryFrameComplete`/`DarkLibraryBuildComplete`/`DarkLibraryBuildFailed` for live progress (poll `get_calibration_files_status.build` as the fallback) |
+| `build_defect_map_darks` | optional `exposure_ms`,`frame_count`,`notes`,`load_after` | connected camera; capture inactive | `{profile_id,defect_map_path,defect_count,exposure_ms,frame_count}` | `-32602` invalid ranges/types; `1` no camera/capture active/capture failure | captures master dark, builds defect map, saves files, optional load. SYNCHRONOUS like `build_dark_library`; emits the `DefectMapBuildStarted`/`DefectMapFrameComplete`/`DefectMapBuildComplete`/`DefectMapBuildFailed` twins |
 | `delete_calibration_files` | optional `delete_dark_library:bool`,`delete_defect_map:bool` | none | status object | `-32602` invalid bools | deletes selected files for current profile, clears loaded artifacts where applicable |
 
 ### I) Cooler, Temperature, Config Export

@@ -1348,6 +1348,9 @@ void MyFrame::DoTryReconnect()
     else
     {
         Debug.Write("Camera Re-connect succeeded, resume exposures\n");
+        // ARA integration (PHD2-GAP gap 2): the recovered twin of
+        // EquipmentDisconnected, so clients can clear their fault state.
+        EvtServer.NotifyEquipmentReconnected("camera");
         UpdateStatusBarStateLabels();
         m_exposurePending = false; // exposure no longer pending
         ScheduleExposure();

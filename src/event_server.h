@@ -36,6 +36,7 @@
 #define EVENT_SERVER_INCLUDED
 
 #include <set>
+#include <vector>
 #include "json_parser.h"
 
 class EventServer : public wxEvtHandler
@@ -92,6 +93,18 @@ public:
     void NotifyGuidingParam(const wxString& name, bool val);
     void NotifyGuidingParam(const wxString& name, const wxString& val);
     void NotifyConfigurationChange();
+
+    // ARA integration (PHD2-GAP gaps 1-2): calibration-build progress + structured equipment events.
+    // `artifact` is "DarkLibrary" or "DefectMap" — event names are <artifact>BuildStarted /
+    // <artifact>FrameComplete / <artifact>BuildComplete / <artifact>BuildFailed.
+    void NotifyCalibrationBuildStarted(const wxString& artifact, int exposureCount, int framesPerExposure,
+                                       const std::vector<int>& exposuresMs);
+    void NotifyCalibrationBuildFrame(const wxString& artifact, int exposureIndex, int exposureCount, int frame, int frameCount,
+                                     int exposureMs);
+    void NotifyCalibrationBuildComplete(const wxString& artifact, int builtCount);
+    void NotifyCalibrationBuildFailed(const wxString& artifact, const wxString& error, int partialCompleted);
+    void NotifyEquipmentDisconnected(const wxString& deviceType, const wxString& reason, bool reconnecting);
+    void NotifyEquipmentReconnected(const wxString& deviceType);
 
 private:
     void OnEventServerEvent(wxSocketEvent& evt);
