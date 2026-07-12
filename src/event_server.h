@@ -105,6 +105,7 @@ public:
     void NotifyCalibrationBuildFailed(const wxString& artifact, const wxString& error, int partialCompleted);
     void NotifyEquipmentDisconnected(const wxString& deviceType, const wxString& reason, bool reconnecting);
     void NotifyEquipmentReconnected(const wxString& deviceType);
+    void NotifyEquipmentReconnectFailed(const wxString& deviceType, int attempts, const wxString& reason);
 
 private:
     void OnEventServerEvent(wxSocketEvent& evt);

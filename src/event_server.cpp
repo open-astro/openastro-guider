@@ -4038,17 +4038,91 @@ static void get_dark_build_progress(JObj& response, const json_value *params)
     response << jrpc_result(rslt);
 }
 
+// Shared body for the dark-library build. Runs on the main thread (directly for
+// the synchronous RPC, or deferred via CallAfter for async: true). Owns the
+// s_darkBuild lifecycle and emits the DarkLibrary* build events. When response
+// is non-null the RPC result/error is written to it (sync); when null the build
+// was kicked off async and the terminal DarkLibraryBuildComplete/BuildFailed
+// event is the only completion signal (paths are derivable from profile_id).
+static void run_dark_library_build(long frameCount, const std::vector<int>& selected, bool clearExisting, bool loadAfter,
+                                   const wxString& notes, JObj *response)
+{
+    struct DarkBuildScope
+    {
+        ~DarkBuildScope() { s_darkBuild = DarkBuildProgress(); }
+    } darkBuildScope;
+    s_darkBuild.active = true;
+    s_darkBuild.exposure_count = (int) selected.size();
+    s_darkBuild.artifact = "DarkLibrary";
+
+    if (!pCamera || !pCamera->Connected)
+    {
+        // The camera can go away between an async kick-off and this deferred run.
+        EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, "camera is not connected", 0);
+        if (response)
+            *response << jrpc_error(1, "camera is not connected");
+        return;
+    }
+
+    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, (int) selected.size(), (int) frameCount, selected);
+
+    bool hadShutterClosed = pCamera->ShutterClosed;
+    pCamera->ShutterClosed = true;
+    if (clearExisting)
+        pCamera->ClearDarks();
+
+    wxString errorMsg;
+    int builtCount = 0;
+    for (int exp : selected)
+    {
+        s_darkBuild.exposure_index = builtCount + 1;
+        usImage *newDark = new usImage();
+        if (capture_master_dark_frame(*newDark, exp, (int) frameCount, &errorMsg))
+        {
+            delete newDark;
+            pCamera->ShutterClosed = hadShutterClosed;
+            EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, errorMsg, builtCount);
+            if (response)
+                *response << jrpc_error(1, errorMsg);
+            return;
+        }
+        pCamera->AddDark(newDark);
+        builtCount++;
+    }
+    pCamera->ShutterClosed = hadShutterClosed;
+
+    pFrame->SaveDarkLibrary(notes);
+    if (loadAfter)
+        pFrame->LoadDarkHandler(true);
+    pFrame->SetDarkMenuState();
+
+    EvtServer.NotifyCalibrationBuildComplete(s_darkBuild.artifact, builtCount);
+
+    if (response)
+    {
+        JAry exps;
+        for (int exp : selected)
+            exps << exp;
+        JObj rslt;
+        rslt << NV("profile_id", pConfig->GetCurrentProfileId())
+             << NV("dark_library_path", MyFrame::DarkLibFileName(pConfig->GetCurrentProfileId()))
+             << NV("frame_count", (int) frameCount) << NV("exposure_count", builtCount) << NV("exposures_ms", exps);
+        *response << jrpc_result(rslt);
+    }
+}
+
 static void build_dark_library(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
     VERIFY_NO_DARK_BUILD(response);
 
-    Params p("frame_count", "min_exposure_ms", "max_exposure_ms", "clear_existing", "notes", "load_after", params);
+    Params p("frame_count", "min_exposure_ms", "max_exposure_ms", "clear_existing", "notes", "load_after", "async", params);
     long frameCount = 5;
     long minExposure = 0;
     long maxExposure = 0;
     bool clearExisting = false;
     bool loadAfter = true;
+    bool async = false;
     wxString notes;
 
     const json_value *jv = nullptr;
@@ -4092,6 +4166,14 @@ static void build_dark_library(JObj& response, const json_value *params)
             return;
         }
     }
+    if ((jv = p.param("async")) != nullptr)
+    {
+        if (!json_to_bool(jv, &async))
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected async boolean");
+            return;
+        }
+    }
     if ((jv = p.param("notes")) != nullptr)
     {
         if (jv->type != JSON_STRING)
@@ -4130,55 +4212,88 @@ static void build_dark_library(JObj& response, const json_value *params)
         return;
     }
 
+    if (async)
+    {
+        // Reserve the build slot now (so a second request is rejected by
+        // VERIFY_NO_DARK_BUILD) and return immediately; the build then runs on
+        // the main thread via CallAfter and reports via the DarkLibrary* events.
+        s_darkBuild = DarkBuildProgress();
+        s_darkBuild.active = true;
+        s_darkBuild.artifact = "DarkLibrary";
+        s_darkBuild.exposure_count = (int) selected.size();
+        pFrame->CallAfter([frameCount, selected, clearExisting, loadAfter, notes]()
+                          { run_dark_library_build(frameCount, selected, clearExisting, loadAfter, notes, nullptr); });
+        response << jrpc_result(0);
+        return;
+    }
+
+    run_dark_library_build(frameCount, selected, clearExisting, loadAfter, notes, &response);
+}
+
+// Shared body for the defect-map dark build; see run_dark_library_build for the
+// sync/async contract (response non-null => sync RPC result; null => async, the
+// terminal DefectMap* event is the completion signal).
+static void run_defect_map_build(long exposureMs, long frameCount, bool loadAfter, const wxString& notes, JObj *response)
+{
     struct DarkBuildScope
     {
         ~DarkBuildScope() { s_darkBuild = DarkBuildProgress(); }
     } darkBuildScope;
     s_darkBuild.active = true;
-    s_darkBuild.exposure_count = (int) selected.size();
-    s_darkBuild.artifact = "DarkLibrary";
+    s_darkBuild.exposure_count = 1;
+    s_darkBuild.exposure_index = 1;
+    s_darkBuild.artifact = "DefectMap";
 
-    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, (int) selected.size(), (int) frameCount, selected);
+    if (!pCamera || !pCamera->Connected)
+    {
+        EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, "camera is not connected", 0);
+        if (response)
+            *response << jrpc_error(1, "camera is not connected");
+        return;
+    }
+
+    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, 1, (int) frameCount, std::vector<int> { (int) exposureMs });
 
     bool hadShutterClosed = pCamera->ShutterClosed;
     pCamera->ShutterClosed = true;
-    if (clearExisting)
-        pCamera->ClearDarks();
 
+    DefectMapDarks darks;
     wxString errorMsg;
-    int builtCount = 0;
-    for (int exp : selected)
+    if (capture_master_dark_frame(darks.masterDark, (int) exposureMs, (int) frameCount, &errorMsg))
     {
-        s_darkBuild.exposure_index = builtCount + 1;
-        usImage *newDark = new usImage();
-        if (capture_master_dark_frame(*newDark, exp, (int) frameCount, &errorMsg))
-        {
-            delete newDark;
-            pCamera->ShutterClosed = hadShutterClosed;
-            EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, errorMsg, builtCount);
-            response << jrpc_error(1, errorMsg);
-            return;
-        }
-        pCamera->AddDark(newDark);
-        builtCount++;
+        pCamera->ShutterClosed = hadShutterClosed;
+        EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, errorMsg, wxMax(0, s_darkBuild.frame - 1));
+        if (response)
+            *response << jrpc_error(1, errorMsg);
+        return;
     }
-    pCamera->ShutterClosed = hadShutterClosed;
+    darks.BuildFilteredDark();
+    darks.SaveDarks(notes);
 
-    pFrame->SaveDarkLibrary(notes);
+    DefectMapBuilder builder;
+    builder.Init(darks);
+    builder.SetAggressiveness(100, 100);
+    DefectMap defectMap;
+    builder.BuildDefectMap(defectMap, false);
+    defectMap.Save(builder.GetMapInfo());
+
     if (loadAfter)
-        pFrame->LoadDarkHandler(true);
+        pFrame->LoadDefectMapHandler(true);
     pFrame->SetDarkMenuState();
 
-    EvtServer.NotifyCalibrationBuildComplete(s_darkBuild.artifact, builtCount);
+    pCamera->ShutterClosed = hadShutterClosed;
 
-    JAry exps;
-    for (int exp : selected)
-        exps << exp;
-    JObj rslt;
-    rslt << NV("profile_id", pConfig->GetCurrentProfileId())
-         << NV("dark_library_path", MyFrame::DarkLibFileName(pConfig->GetCurrentProfileId()))
-         << NV("frame_count", (int) frameCount) << NV("exposure_count", builtCount) << NV("exposures_ms", exps);
-    response << jrpc_result(rslt);
+    EvtServer.NotifyCalibrationBuildComplete(s_darkBuild.artifact, (int) frameCount);
+
+    if (response)
+    {
+        JObj rslt;
+        rslt << NV("profile_id", pConfig->GetCurrentProfileId())
+             << NV("defect_map_path", DefectMap::DefectMapFileName(pConfig->GetCurrentProfileId()))
+             << NV("defect_count", (int) defectMap.size()) << NV("exposure_ms", (int) exposureMs)
+             << NV("frame_count", (int) frameCount);
+        *response << jrpc_result(rslt);
+    }
 }
 
 static void build_defect_map_darks(JObj& response, const json_value *params)
@@ -4186,10 +4301,11 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
     VERIFY_NO_PA_SESSION(response);
     VERIFY_NO_DARK_BUILD(response);
 
-    Params p("exposure_ms", "frame_count", "notes", "load_after", params);
+    Params p("exposure_ms", "frame_count", "notes", "load_after", "async", params);
     long exposureMs = 3000;
     long frameCount = 10;
     bool loadAfter = true;
+    bool async = false;
     wxString notes;
 
     const json_value *jv = nullptr;
@@ -4217,6 +4333,14 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
             return;
         }
     }
+    if ((jv = p.param("async")) != nullptr)
+    {
+        if (!json_to_bool(jv, &async))
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected async boolean");
+            return;
+        }
+    }
     if ((jv = p.param("notes")) != nullptr)
     {
         if (jv->type != JSON_STRING)
@@ -4238,55 +4362,20 @@ static void build_defect_map_darks(JObj& response, const json_value *params)
         return;
     }
 
-    struct DarkBuildScope
+    if (async)
     {
-        ~DarkBuildScope() { s_darkBuild = DarkBuildProgress(); }
-    } darkBuildScope;
-    s_darkBuild.active = true;
-    s_darkBuild.exposure_count = 1;
-    s_darkBuild.exposure_index = 1;
-    s_darkBuild.artifact = "DefectMap";
-
-    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, 1, (int) frameCount, std::vector<int> { (int) exposureMs });
-
-    bool hadShutterClosed = pCamera->ShutterClosed;
-    pCamera->ShutterClosed = true;
-
-    DefectMapDarks darks;
-    wxString errorMsg;
-    if (capture_master_dark_frame(darks.masterDark, (int) exposureMs, (int) frameCount, &errorMsg))
-    {
-        pCamera->ShutterClosed = hadShutterClosed;
-        // Frames captured before the failing one (s_darkBuild.frame is the
-        // 1-based frame that was in flight when the capture failed).
-        EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, errorMsg, wxMax(0, s_darkBuild.frame - 1));
-        response << jrpc_error(1, errorMsg);
+        s_darkBuild = DarkBuildProgress();
+        s_darkBuild.active = true;
+        s_darkBuild.artifact = "DefectMap";
+        s_darkBuild.exposure_count = 1;
+        s_darkBuild.exposure_index = 1;
+        pFrame->CallAfter([exposureMs, frameCount, loadAfter, notes]()
+                          { run_defect_map_build(exposureMs, frameCount, loadAfter, notes, nullptr); });
+        response << jrpc_result(0);
         return;
     }
-    darks.BuildFilteredDark();
-    darks.SaveDarks(notes);
 
-    DefectMapBuilder builder;
-    builder.Init(darks);
-    builder.SetAggressiveness(100, 100);
-    DefectMap defectMap;
-    builder.BuildDefectMap(defectMap, false);
-    defectMap.Save(builder.GetMapInfo());
-
-    if (loadAfter)
-        pFrame->LoadDefectMapHandler(true);
-    pFrame->SetDarkMenuState();
-
-    pCamera->ShutterClosed = hadShutterClosed;
-
-    EvtServer.NotifyCalibrationBuildComplete(s_darkBuild.artifact, (int) frameCount);
-
-    JObj rslt;
-    rslt << NV("profile_id", pConfig->GetCurrentProfileId())
-         << NV("defect_map_path", DefectMap::DefectMapFileName(pConfig->GetCurrentProfileId()))
-         << NV("defect_count", (int) defectMap.size()) << NV("exposure_ms", (int) exposureMs)
-         << NV("frame_count", (int) frameCount);
-    response << jrpc_result(rslt);
+    run_defect_map_build(exposureMs, frameCount, loadAfter, notes, &response);
 }
 
 static void rebuild_defect_map(JObj& response, const json_value *params)
@@ -8138,6 +8227,11 @@ void EventServer::NotifyCalibrationBuildFailed(const wxString& artifact, const w
 // string-parsing Alert. Emitted IN ADDITION to the existing Alert (which stays
 // for human-readable surfaces). device_type is "camera" today — the mount has
 // no auto-disconnect path in PHD2 (a mount fault surfaces as RPC errors).
+//
+// The disconnect state machine is fully observable from the stream:
+//   EquipmentDisconnected{reconnecting:true}
+//     -> EquipmentReconnected               (auto-reconnect succeeded), or
+//     -> EquipmentReconnectFailed           (throttle gave up — terminal).
 
 void EventServer::NotifyEquipmentDisconnected(const wxString& deviceType, const wxString& reason, bool reconnecting)
 {
@@ -8156,5 +8250,18 @@ void EventServer::NotifyEquipmentReconnected(const wxString& deviceType)
 
     Ev ev("EquipmentReconnected");
     ev << NV("device_type", deviceType);
+    do_notify(m_eventServerClients, ev);
+}
+
+// Terminal event when the auto-reconnect throttle gives up: a client that keyed
+// off EquipmentDisconnected{reconnecting:true} can stop waiting instead of
+// hanging forever on a permanent unplug.
+void EventServer::NotifyEquipmentReconnectFailed(const wxString& deviceType, int attempts, const wxString& reason)
+{
+    if (m_eventServerClients.empty())
+        return;
+
+    Ev ev("EquipmentReconnectFailed");
+    ev << NV("device_type", deviceType) << NV("attempts", attempts) << NV("reason", reason);
     do_notify(m_eventServerClients, ev);
 }

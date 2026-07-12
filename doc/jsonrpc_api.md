@@ -596,19 +596,27 @@ Payload notes for downstream clients:
   - `*BuildStarted` — `{ profile_id, exposure_count, frames_per_exposure, planned_exposures_ms: [int] }`
   - `*FrameComplete` — `{ exposure_index, exposure_count, frame, frame_count, exposure_ms }` (1-based indices;
     one event per captured frame, emitted while the synchronous build RPC is still running)
-  - `*BuildComplete` — `{ profile_id, built_count }` (the RPC response carries the full result payload)
+  - `*BuildComplete` — `{ profile_id, built_count }`. For a **synchronous** build the RPC response carries the full
+    result payload (paths, counts); for an **async** build (`async: true`, where the RPC returns `0` immediately)
+    this event is the completion signal — the artifact paths are `DarkLibFileName(profile_id)` /
+    `DefectMapFileName(profile_id)`, or read them from `get_calibration_files_status`.
   - `DarkLibraryBuildFailed` — `{ error, partial_groups_completed }` (completed exposure GROUPS; each group is
     `frame_count` frames). `DefectMapBuildFailed` — `{ error, partial_frames_completed }` (completed FRAMES of
-    the single group). Distinct field names on purpose — one name never carries two units.
+    the single group). The field names differ **on purpose**: the dark-library build fails between exposure
+    *groups*, the defect-map build between *frames* of its single group, so one field name never carries two
+    units. Clients keying off "partial progress" should read whichever key matches the event (`DarkLibrary*` →
+    `partial_groups_completed`; `DefectMap*` → `partial_frames_completed`).
 - `EquipmentDisconnected` — `{ device_type: "camera", reason: string, reconnecting: bool }`. Emitted (in addition
   to `Alert`) whenever the daemon force-disconnects a device on a fault (capture timeout, USB unplug, memory
   error). `reconnecting: true` means the daemon WILL ATTEMPT automatic reconnection — best-effort, throttled to
-  3 attempts per minute; when the throttle is exhausted the attempt is silently abandoned (no
-  `EquipmentReconnected`, and no follow-up event cancels the pending state), so clients should pair
-  `reconnecting: true` with their own timeout rather than waiting indefinitely.
+  3 attempts per minute. The disconnect state machine is now fully observable: `reconnecting: true` is followed
+  by either `EquipmentReconnected` (recovered) or `EquipmentReconnectFailed` (throttle gave up — terminal).
   `device_type` is `"camera"` today — a mount fault surfaces as RPC errors, not an auto-disconnect.
 - `EquipmentReconnected` — `{ device_type: "camera" }`. The recovered twin: automatic reconnection succeeded and
   exposures resume. A client that raised a fault on `EquipmentDisconnected` clears it here.
+- `EquipmentReconnectFailed` — `{ device_type: "camera", attempts: int, reason: string }`. Terminal event when the
+  auto-reconnect throttle is exhausted: a client that keyed off `reconnecting: true` clears the pending state here
+  instead of waiting indefinitely.
 
 ### Startup Catch-Up Events
 
@@ -680,7 +688,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_connected` | none | none | `bool` | none expected | none |
 | `set_connected` | `connected:bool` | guider context must exist | `0` | `-32602` invalid boolean; `1` connect/disconnect failure | device connection state changes; corresponding events may follow |
 | `shutdown` | none | none | `0` | none in normal path | app termination requested. Semantics: the daemon exits CLEANLY (exit code 0) — under systemd `Restart=on-failure` this is a deliberate stop and the unit is NOT restarted; use `Restart=always` if a supervisor should bring it back |
-| `get_version` | none | none | `{version,phd_version,phd_subver,msg_version,overlap_support,fork}` | none expected | none. Synchronous twin of the `Version` catch-up event (previously implemented but undocumented); `version` is the user-facing FULLVER string and `fork` is `"openastro-guider"` for daemon-vs-stock-PHD2 detection. Note the casing convention: the RPC uses snake_case (`fork`), the `Version` EVENT uses PascalCase (`Fork`) |
+| `get_version` | none | none | `{version,phd_version,phd_subver,msg_version,overlap_support,fork}` | none expected | none. Synchronous twin of the `Version` catch-up event (previously implemented but undocumented); `version` is the user-facing FULLVER string and `fork` is `"openastro-guider"` for daemon-vs-stock-PHD2 detection. **Casing:** this RPC *result* is snake_case while the `Version` *event* is PascalCase for the same data — `phd_version`↔`PHDVersion`, `phd_subver`↔`PHDSubver`, `overlap_support`↔`OverlapSupport`, `msg_version`↔`MsgVersion`, `fork`↔`Fork` (the split is deliberate: RPC results follow the snake_case method convention, events follow PHD2's PascalCase event convention — a client reading both must map the keys). **Back-compat:** `fork` is `"openastro-guider"` post-rename; older builds/docs used `"openastro-phd2"`, so clients matching on it should accept both |
 
 ### B) Guiding Lifecycle, Star Selection, Dither
 
@@ -790,8 +798,8 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_calibration_files_status` | none | none | status object (paths, exists/loaded/compatible/autoload flags, optional loaded dark stats) | none expected | none |
 | `set_dark_library_enabled` | `enabled:bool` | enabling requires connected camera | status object | `-32602` invalid bool; `1` camera not connected/load/unload failure | dark library load state toggled |
 | `set_defect_map_enabled` | `enabled:bool` | enabling requires connected camera | status object | `-32602` invalid bool; `1` camera not connected/load/unload failure | defect map load state toggled |
-| `build_dark_library` | optional `frame_count`,`min_exposure_ms`,`max_exposure_ms`,`clear_existing`,`notes`,`load_after` | connected camera; capture inactive | `{profile_id,dark_library_path,frame_count,exposure_count,exposures_ms}` | `-32602` invalid ranges/types; `1` no camera/capture active/no matched exposure/capture save failure | captures dark stacks for selected exposures, writes dark library, optional load. SYNCHRONOUS: blocks for roughly `frame_count x sum(matched exposures)`; subscribe to `DarkLibraryBuildStarted`/`DarkLibraryFrameComplete`/`DarkLibraryBuildComplete`/`DarkLibraryBuildFailed` for live progress (poll `get_calibration_files_status.build` as the fallback) |
-| `build_defect_map_darks` | optional `exposure_ms`,`frame_count`,`notes`,`load_after` | connected camera; capture inactive | `{profile_id,defect_map_path,defect_count,exposure_ms,frame_count}` | `-32602` invalid ranges/types; `1` no camera/capture active/capture failure | captures master dark, builds defect map, saves files, optional load. SYNCHRONOUS like `build_dark_library`; emits the `DefectMapBuildStarted`/`DefectMapFrameComplete`/`DefectMapBuildComplete`/`DefectMapBuildFailed` twins |
+| `build_dark_library` | optional `frame_count`,`min_exposure_ms`,`max_exposure_ms`,`clear_existing`,`notes`,`load_after`,`async` | connected camera; capture inactive | sync: `{profile_id,dark_library_path,frame_count,exposure_count,exposures_ms}`; async: `0` | `-32602` invalid ranges/types; `1` no camera/capture active/no matched exposure/capture save failure | captures dark stacks for selected exposures, writes dark library, optional load. Default is SYNCHRONOUS: blocks for roughly `frame_count x sum(matched exposures)` (2–3 min), which can trip a client's per-call receive timeout. Pass `async:true` to return `0` immediately and get the result via the `DarkLibraryBuildComplete`/`DarkLibraryBuildFailed` event instead. Either way, subscribe to `DarkLibraryBuildStarted`/`DarkLibraryFrameComplete`/`DarkLibraryBuildComplete`/`DarkLibraryBuildFailed` for live progress (poll `get_calibration_files_status.build` as the fallback) |
+| `build_defect_map_darks` | optional `exposure_ms`,`frame_count`,`notes`,`load_after`,`async` | connected camera; capture inactive | sync: `{profile_id,defect_map_path,defect_count,exposure_ms,frame_count}`; async: `0` | `-32602` invalid ranges/types; `1` no camera/capture active/capture failure | captures master dark, builds defect map, saves files, optional load. Default SYNCHRONOUS like `build_dark_library`; `async:true` returns `0` immediately with the result riding `DefectMapBuildComplete`/`DefectMapBuildFailed`. Emits the `DefectMapBuildStarted`/`DefectMapFrameComplete`/`DefectMapBuildComplete`/`DefectMapBuildFailed` twins |
 | `delete_calibration_files` | optional `delete_dark_library:bool`,`delete_defect_map:bool` | none | status object | `-32602` invalid bools | deletes selected files for current profile, clears loaded artifacts where applicable |
 
 ### I) Cooler, Temperature, Config Export
