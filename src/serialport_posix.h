@@ -41,6 +41,8 @@ class SerialPortPosix : public SerialPort
 {
     int m_fd;
 
+    bool SetModemLine(int bit, bool asserted);
+
 public:
     wxArrayString GetSerialPortList() override;
 

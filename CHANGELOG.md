@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Serial port (Linux): `SetRTS`/`SetDTR` were no-op stubs that always reported failure; they now assert/clear the modem control line via `TIOCMGET`/`TIOCMSET`, so devices that use RTS/DTR handshaking work.
+- Alpaca client: libcurl TLS certificate verification (`CURLOPT_SSL_VERIFYPEER`/`VERIFYHOST`) is now asserted explicitly, so `https://` Alpaca connections can't silently lose validation to a future option change.
 - Alpaca camera: the JSON `ImageArray` decode path corrupted frames from spec-compliant (`Value[x][y]`, column-major) servers — the axis-swap heuristic swapped the width/height variables but the copy loop still bounded rows by the height and wrote transposed, leaving ~40% of the frame uninitialized and the rest transposed. Pixels are now mapped to their absolute sensor position (matching the ImageBytes decoder). Verified exact against a real ASI290MM Mini frame (was 67% of pixels wrong).
 - Alpaca client: `Put`/`PutAction` no longer auto-retry on a server-closed connection. These carry non-idempotent actions (`pulseguide`, `startexposure`); a connection dropped *after* the server executed the request could double-fire a guide pulse. GETs still retry.
 - JSON parser: the number-token scanner now stops at the NUL terminator — a bare number flush against end-of-buffer (e.g. `[1`) previously walked past the buffer end (unauthenticated heap/stack over-read on the RPC paths).

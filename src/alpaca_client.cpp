@@ -99,6 +99,12 @@ AlpacaClient::AlpacaClient(const wxString& host, long port, long deviceNumber)
         curl_easy_setopt(m_curl, CURLOPT_CONNECTTIMEOUT, 10L);
         curl_easy_setopt(m_curl, CURLOPT_FOLLOWLOCATION, 0L); // Don't follow redirects - they might go to auth pages
         curl_easy_setopt(m_curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+        // Alpaca is normally plain HTTP on a trusted LAN, but a server may be
+        // reached over https:// (BuildRequestUrl passes those through). Assert
+        // libcurl's secure defaults explicitly so certificate validation can
+        // never be silently lost to a future option change.
+        curl_easy_setopt(m_curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(m_curl, CURLOPT_SSL_VERIFYHOST, 2L);
         // Disable connection reuse - always use fresh connections
         // This server closes connections intermittently, so reuse causes curl error 52
         curl_easy_setopt(m_curl, CURLOPT_FRESH_CONNECT, 1L);
