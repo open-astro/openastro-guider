@@ -42,3 +42,10 @@ endif()
 
 # C++ standard is configured via CMAKE_CXX_STANDARD in the top-level
 # CMakeLists.txt; no need to inject -std=c++NN manually here.
+
+# Enable common compiler warnings on GCC/Clang. -Werror is deliberately NOT
+# used: the inherited PHD2 tree still produces many warnings and would break
+# the build. This just surfaces them.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  add_compile_options(-Wall -Wextra)
+endif()

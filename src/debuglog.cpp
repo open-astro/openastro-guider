@@ -117,7 +117,13 @@ void DebugLog::InitDebugLog(bool enable, bool forceOpen)
 
         if (!wxFFile::Open(m_path, "a"))
         {
-            wxMessageBox(wxString::Format(_("unable to open file %s"), m_path));
+            // Never pop a modal here in headless mode: it would open on the Xvfb
+            // display that nobody can dismiss and hang the daemon (e.g. an
+            // unwritable/full log dir at startup or daily rollover).
+            if (wxGetApp().IsHeadless())
+                fprintf(stderr, "unable to open debug log file %s\n", static_cast<const char *>(m_path.utf8_str()));
+            else
+                wxMessageBox(wxString::Format(_("unable to open file %s"), m_path));
         }
     }
 
@@ -132,7 +138,12 @@ bool DebugLog::ChangeDirLog(const wxString& newdir)
     if (!SetLogDir(newdir))
     {
         Debug.Write(wxString::Format("Error: unable to set new log dir %s\n", newdir));
-        wxMessageBox(wxString::Format("invalid folder name %s, debug log folder unchanged", newdir));
+        // Headless: log instead of a modal that would hang the daemon (see above).
+        if (wxGetApp().IsHeadless())
+            fprintf(stderr, "invalid folder name %s, debug log folder unchanged\n",
+                    static_cast<const char *>(newdir.utf8_str()));
+        else
+            wxMessageBox(wxString::Format("invalid folder name %s, debug log folder unchanged", newdir));
         ok = false;
     }
 

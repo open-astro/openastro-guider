@@ -1192,24 +1192,37 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
             // return either the ROI (StartX/StartY/NumX/NumY) or the full frame;
             // detect which from the returned dimensions and map each pixel to its
             // absolute position in the full-frame buffer.
+            //
+            // imageWidth/imageHeight are the sensor-oriented dimensions (already
+            // swapped above if m_swapAxes). The JSON array is indexed
+            // [outer][inner]: for row-major servers (m_swapAxes == false) outer
+            // is sensor Y and inner is sensor X; for spec-compliant Value[x][y]
+            // servers (m_swapAxes == true) outer is sensor X and inner is
+            // sensor Y. We resolve each element to sensor-relative (sx, sy) and
+            // write to the absolute frame position, matching the ImageBytes
+            // decoder's convention.
             const bool roiSized = (imageWidth == roi.width && imageHeight == roi.height);
             Debug.Write(wxString::Format("Alpaca Camera: subframe %dx%d, server returned %dx%d (%s)\n", roi.width, roi.height,
                                          imageWidth, imageHeight, roiSized ? "ROI" : "full-frame"));
-            const json_value *row = valueArray->first_child;
-            int y = 0;
-            while (row && y < imageHeight)
+            const int outerCount = m_swapAxes ? imageWidth : imageHeight;
+            const int innerCount = m_swapAxes ? imageHeight : imageWidth;
+            const json_value *outerNode = valueArray->first_child;
+            int outerIdx = 0;
+            while (outerNode && outerIdx < outerCount)
             {
-                int destRow = roiSized ? roi.y + y : y;
-                if (destRow >= roi.y && destRow < roi.y + roi.height && row->type == JSON_ARRAY)
+                if (outerNode->type == JSON_ARRAY)
                 {
-                    const json_value *elem = row->first_child;
-                    int x = 0;
-                    while (elem && x < imageWidth)
+                    const json_value *elem = outerNode->first_child;
+                    int innerIdx = 0;
+                    while (elem && innerIdx < innerCount)
                     {
-                        int destCol = roiSized ? roi.x + x : x;
-                        if (destCol >= roi.x && destCol < roi.x + roi.width)
+                        int sx = m_swapAxes ? outerIdx : innerIdx;
+                        int sy = m_swapAxes ? innerIdx : outerIdx;
+                        int destX = roiSized ? roi.x + sx : sx;
+                        int destY = roiSized ? roi.y + sy : sy;
+                        if (destX >= roi.x && destX < roi.x + roi.width && destY >= roi.y && destY < roi.y + roi.height)
                         {
-                            unsigned short *dataptr = img.ImageData + destRow * img.Size.GetWidth() + destCol;
+                            unsigned short *dataptr = img.ImageData + destY * img.Size.GetWidth() + destX;
                             if (elem->type == JSON_INT)
                             {
                                 *dataptr = static_cast<unsigned short>(elem->int_value);
@@ -1220,11 +1233,11 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
                             }
                         }
                         elem = elem->next_sibling;
-                        x++;
+                        innerIdx++;
                     }
                 }
-                row = row->next_sibling;
-                y++;
+                outerNode = outerNode->next_sibling;
+                outerIdx++;
             }
         }
         else
@@ -1237,17 +1250,29 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
                 return true;
             }
 
-            // Copy image data from JSON array
-            const json_value *row = valueArray->first_child;
-            int y = 0;
-            while (row && y < imageHeight)
+            // Copy image data from JSON array. The array is indexed
+            // [outer][inner]: for row-major servers (m_swapAxes == false) outer
+            // is sensor Y and inner is sensor X; for spec-compliant Value[x][y]
+            // servers (m_swapAxes == true) outer is sensor X and inner is
+            // sensor Y. imageWidth/imageHeight are the sensor-oriented
+            // dimensions (already swapped above if m_swapAxes). We resolve each
+            // element to its absolute sensor (x, y) and write to
+            // img.ImageData + y * imageWidth + x, matching the ImageBytes
+            // decoder's convention.
+            const int outerCount = m_swapAxes ? imageWidth : imageHeight;
+            const int innerCount = m_swapAxes ? imageHeight : imageWidth;
+            const json_value *outerNode = valueArray->first_child;
+            int outerIdx = 0;
+            while (outerNode && outerIdx < outerCount)
             {
-                if (row->type == JSON_ARRAY)
+                if (outerNode->type == JSON_ARRAY)
                 {
-                    const json_value *elem = row->first_child;
-                    int x = 0;
-                    while (elem && x < imageWidth)
+                    const json_value *elem = outerNode->first_child;
+                    int innerIdx = 0;
+                    while (elem && innerIdx < innerCount)
                     {
+                        int x = m_swapAxes ? outerIdx : innerIdx;
+                        int y = m_swapAxes ? innerIdx : outerIdx;
                         unsigned short *dataptr = img.ImageData + y * imageWidth + x;
                         if (elem->type == JSON_INT)
                         {
@@ -1258,11 +1283,11 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
                             *dataptr = static_cast<unsigned short>(elem->float_value);
                         }
                         elem = elem->next_sibling;
-                        x++;
+                        innerIdx++;
                     }
                 }
-                row = row->next_sibling;
-                y++;
+                outerNode = outerNode->next_sibling;
+                outerIdx++;
             }
         }
     }

@@ -203,7 +203,7 @@ bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *error
     // Reset curl options for GET request (clear any POSTFIELDS from previous PUT requests)
     // This ensures clean state between requests, similar to how ASCOM library handles it
     curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, nullptr);
-    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, 0);
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, 0L);
     curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, nullptr);
     curl_easy_setopt(m_curl, CURLOPT_HTTPGET, 1L);
     // Clear any headers from previous requests
@@ -413,7 +413,7 @@ bool AlpacaClient::GetRaw(const wxString& endpoint, const wxString& acceptHeader
 
     // Reset curl options for GET request
     curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, nullptr);
-    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, 0);
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, 0L);
     curl_easy_setopt(m_curl, CURLOPT_CUSTOMREQUEST, nullptr);
     curl_easy_setopt(m_curl, CURLOPT_HTTPGET, 1L);
     curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, nullptr);
@@ -579,37 +579,13 @@ bool AlpacaClient::Put(const wxString& endpoint, const wxString& params, JsonPar
     headers = curl_slist_append(headers, "Connection: close");
     curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, headers);
 
-    // Retry logic for curl error 52 (server closes connection) - like NINA/ASCOM library does
-    CURLcode res;
-    int retries = 3;
-    for (int retry = 0; retry < retries; retry++)
-    {
-        res = curl_easy_perform(m_curl);
-
-        // If successful or not a connection error, break
-        if (res == CURLE_OK || (res != CURLE_GOT_NOTHING && res != CURLE_RECV_ERROR))
-        {
-            break;
-        }
-
-        // Connection was closed by server - retry with fresh connection
-        if (retry < retries - 1)
-        {
-            Debug.Write(wxString::Format("AlpacaClient PUT: Connection closed by server (curl error %d), retrying (%d/%d)...\n",
-                                         res, retry + 1, retries));
-            // Ensure fresh connection for retry
-            curl_easy_setopt(m_curl, CURLOPT_FRESH_CONNECT, 1L);
-            curl_easy_setopt(m_curl, CURLOPT_FORBID_REUSE, 1L);
-            // Exponential backoff delay before retry
-            // Using fixed delays similar to common HTTP retry patterns
-            // First retry: 50ms, Second: 100ms, Third: 200ms
-            int delayMs = (retry == 0) ? 50 : (retry == 1) ? 100 : 200;
-            wxMilliSleep(delayMs);
-            // Clear response buffer for retry
-            m_response.str("");
-            m_response.clear();
-        }
-    }
+    // PUT requests are non-idempotent (e.g. pulseguide, startexposure): a
+    // connection-closed error (CURLE_GOT_NOTHING / CURLE_RECV_ERROR) may occur
+    // *after* the server already executed the request, so automatically
+    // retrying could double-fire the action. Perform exactly one attempt and
+    // let the caller decide how to handle a failure. (GET retries remain safe
+    // and are kept in Get()/GetRaw().)
+    CURLcode res = curl_easy_perform(m_curl);
 
     // Clean up headers if we set them
     if (headers)
@@ -620,7 +596,7 @@ bool AlpacaClient::Put(const wxString& endpoint, const wxString& params, JsonPar
 
     if (res != CURLE_OK)
     {
-        Debug.Write(wxString::Format("AlpacaClient PUT failed after %d retries: %s\n", retries, curl_easy_strerror(res)));
+        Debug.Write(wxString::Format("AlpacaClient PUT failed: %s\n", curl_easy_strerror(res)));
         return false;
     }
 
@@ -1228,6 +1204,11 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
         return false;
     }
 
+    // The 'action' parameter is intentionally not sent: it is retained in the
+    // signature for call-site readability (documenting which logical action a
+    // caller is performing). Suppress the unused-parameter warning.
+    (void) action;
+
     wxMutexLocker lock(m_mutex);
 
     m_response.str("");
@@ -1251,38 +1232,12 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
     headers = curl_slist_append(headers, "Connection: close");
     curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, headers);
 
-    // Retry logic for curl error 52 (server closes connection) - like NINA/ASCOM library does
-    CURLcode res;
-    int retries = 3;
-    for (int retry = 0; retry < retries; retry++)
-    {
-        res = curl_easy_perform(m_curl);
-
-        // If successful or not a connection error, break
-        if (res == CURLE_OK || (res != CURLE_GOT_NOTHING && res != CURLE_RECV_ERROR))
-        {
-            break;
-        }
-
-        // Connection was closed by server - retry with fresh connection
-        if (retry < retries - 1)
-        {
-            Debug.Write(
-                wxString::Format("AlpacaClient PutAction: Connection closed by server (curl error %d), retrying (%d/%d)...\n",
-                                 res, retry + 1, retries));
-            // Ensure fresh connection for retry
-            curl_easy_setopt(m_curl, CURLOPT_FRESH_CONNECT, 1L);
-            curl_easy_setopt(m_curl, CURLOPT_FORBID_REUSE, 1L);
-            // Exponential backoff delay before retry
-            // Using fixed delays similar to common HTTP retry patterns
-            // First retry: 50ms, Second: 100ms, Third: 200ms
-            int delayMs = (retry == 0) ? 50 : (retry == 1) ? 100 : 200;
-            wxMilliSleep(delayMs);
-            // Clear response buffer for retry
-            m_response.str("");
-            m_response.clear();
-        }
-    }
+    // PUT requests are non-idempotent: a connection-closed error
+    // (CURLE_GOT_NOTHING / CURLE_RECV_ERROR) may occur *after* the server
+    // already executed the request, so automatically retrying could double-fire
+    // the action. Perform exactly one attempt and let the caller decide how to
+    // handle a failure. (GET retries remain safe and are kept in Get()/GetRaw().)
+    CURLcode res = curl_easy_perform(m_curl);
 
     // Clean up headers if we set them
     if (headers)
@@ -1293,7 +1248,7 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
 
     if (res != CURLE_OK)
     {
-        Debug.Write(wxString::Format("AlpacaClient PutAction failed after %d retries: %s\n", retries, curl_easy_strerror(res)));
+        Debug.Write(wxString::Format("AlpacaClient PutAction failed: %s\n", curl_easy_strerror(res)));
         return false;
     }
 

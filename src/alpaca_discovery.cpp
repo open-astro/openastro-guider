@@ -261,8 +261,8 @@ void AlpacaDiscovery::DiscoverServers(wxArrayString& serverList, int numQueries,
                     }
                 }
 
-                // If we got a valid port, add the server
-                if (port > 0 && !ipAddress.IsEmpty())
+                // If we got a valid port (a legal TCP port, 1..65535), add the server
+                if (port > 0 && port <= 65535 && !ipAddress.IsEmpty())
                 {
                     wxString serverStr = wxString::Format("%s:%ld", ipAddress, port);
 

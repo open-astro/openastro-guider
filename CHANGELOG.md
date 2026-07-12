@@ -8,13 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Alpaca camera: the JSON `ImageArray` decode path corrupted frames from spec-compliant (`Value[x][y]`, column-major) servers — the axis-swap heuristic swapped the width/height variables but the copy loop still bounded rows by the height and wrote transposed, leaving ~40% of the frame uninitialized and the rest transposed. Pixels are now mapped to their absolute sensor position (matching the ImageBytes decoder). Verified exact against a real ASI290MM Mini frame (was 67% of pixels wrong).
+- Alpaca client: `Put`/`PutAction` no longer auto-retry on a server-closed connection. These carry non-idempotent actions (`pulseguide`, `startexposure`); a connection dropped *after* the server executed the request could double-fire a guide pulse. GETs still retry.
+- JSON parser: the number-token scanner now stops at the NUL terminator — a bare number flush against end-of-buffer (e.g. `[1`) previously walked past the buffer end (unauthenticated heap/stack over-read on the RPC paths).
+- JSON parser: the float exponent is now clamped, so a client value like `1e999999999` can no longer overflow the exponent int (UB) and drive an O(exponent) expansion loop that stalled the shared event-loop thread for seconds.
+- Event server: notification writes to a slow `:4400` client are now queued and drained on socket-writable events instead of being silently truncated — a short write used to corrupt every subsequent message in the client's JSON stream (the HTTP path already had this fix).
+- Capture: image buffer allocation is now `nothrow`, so an out-of-memory capture surfaces `CAPT_FAIL_MEMORY` instead of throwing `std::bad_alloc` out of the worker thread and aborting the daemon.
+- Headless: the debug-log open-failure and log-dir-change error paths no longer pop a modal `wxMessageBox` (which would hang on the unattended daemon's Xvfb display); they log to stderr instead.
+- Alpaca mount: a transient error reading declination no longer permanently disables coordinate reporting for the rest of the session.
+- Alpaca discovery: the advertised `AlpacaPort` is validated to 1..65535 before a discovered server is accepted.
+- Alpaca config: the setup dialog no longer commits a new host paired with a stale port when the port field is unparsable.
 - **Security** (#59): `capture_single_frame` no longer writes to arbitrary caller-supplied absolute paths — the server transports are unauthenticated, so any client on the network could write FITS bytes anywhere the daemon could reach. Saves are now confined to the daemon's data directory, overridable with the `/server/capture_frame_dir` config entry; the destination directory must exist, and symlinks are resolved (`realpath`) so a link planted inside the data directory can't redirect the write outside it.
 - `json_escape` now escapes all control characters U+0000–U+001F per RFC 8259 (`\b \t \f` shortcuts + `\u00XX` fallback), not just CR/LF — a raw tab in a device name or path previously produced JSON that strict parsers reject (#58).
 - `GET /api/discover/alpaca` clamps `num_queries` to 20 and `timeout_seconds` to 30 (matching the JSON-RPC method's validated range) — previously unbounded values could wedge the discovery loop for hours (#60).
 - The HTTP request parser rejects `Content-Length` over the 1 MB receive cap up front, eliminating a latent `size_t` overflow on hostile values; `AlpacaClient` now logs the redirect target when a server answers a raw GET with 3xx (redirects are deliberately not followed), so misconfigured redirecting servers are diagnosable (#61).
 - Restored the inherited CRLF line endings on `src/camera.cpp`, `src/event_server.cpp`, `src/event_server.h`, and `src/myframe.cpp` — PR #57 accidentally converted them to LF wholesale, destroying diffability against upstream PHD2. Content is byte-identical apart from the line terminators.
 
+### Changed
+- Build: `-Wall -Wextra` are now enabled for GCC/Clang (no `-Werror`), surfacing warnings on new code without failing the inherited PHD2 tree.
+- Packaging: `debian/control` now requires `libwxgtk3.2-dev` (dropped the wx 3.0 alternatives that contradicted `find_package(wxWidgets 3.2 REQUIRED)`); the GTest FetchContent download is pinned with a verified `URL_HASH`; `run_deb.sh` dependency hints corrected.
+
+### Removed
+- Deleted the dead, Python-2-only `pre-commit.py` and the unused `-DOPENSOURCE_ONLY` configure flag.
+
 ### Added
+- Graceful shutdown on `SIGTERM`/`SIGINT` in headless mode (`systemctl stop`, Ctrl-C) — an async-signal-safe handler flips a flag that a timer turns into the normal shutdown path (camera/mount disconnect, guide-log summary, config flush). Previously only the JSON-RPC `shutdown` command shut down cleanly.
+- CI: a build + `ctest` job on an `ubuntu-24.04-arm` runner — the suite previously ran only on a developer's Pi, so a compile break or test regression could merge green.
+- Regression tests for the JSON parser's NUL-guard and exponent-clamp fixes (`test_json_parser`).
 - CI: a **line-endings flip guard** — PRs fail if a modified file's CRLF/LF style flips wholesale in either direction (verified against history: it flags all four files PR #57 flipped, and stays quiet on normal PRs). Protects the inherited CRLF PHD2 sources that keep this fork diffable against upstream.
 - Web app: the daemon **version** is shown as a pill next to the brand in the header (matching AlpacaBridge's web face), fed by a new `get_version` RPC that exposes the `Version` event's fields (`version` from `version.md`, `phd_version`, `phd_subver`, `msg_version`) to HTTP clients that have no event stream.
 - Web app: a **Shut down** button in the header — calls the existing `shutdown` RPC after an explicit confirmation spelling out the consequences (guiding/looping stop, the page becomes unreachable until the daemon is restarted), then replaces the UI with a "daemon shut down" notice and stops polling. Verified live: the RPC answers `ok` before the process exits cleanly.
