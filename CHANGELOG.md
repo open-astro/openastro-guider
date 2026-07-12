@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Event server: the `:4400` client socket now arms `wxSOCKET_OUTPUT` notifications only while a write backlog exists, instead of listening for every writable event for the connection's lifetime — avoids taking the per-client write mutex on spurious wake-ups during normal keep-up operation.
+
 ### Fixed
 - Serial port (Linux): `SetRTS`/`SetDTR` were no-op stubs that always reported failure; they now assert/clear the modem control line via `TIOCMGET`/`TIOCMSET`, so devices that use RTS/DTR handshaking work.
 - Alpaca client: libcurl TLS certificate verification (`CURLOPT_SSL_VERIFYPEER`/`VERIFYHOST`) is now asserted explicitly, so `https://` Alpaca connections can't silently lose validation to a future option change.

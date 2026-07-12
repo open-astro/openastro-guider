@@ -527,6 +527,10 @@ static void send_buf(wxSocketClient *client, const wxCharBuffer& buf)
     if (n != buf.length())
     {
         cd->sendbuf.assign(buf.data() + n, buf.length() - n);
+        // Arm OUTPUT notifications only now that there is a backlog to drain, so
+        // the writable-event handler isn't woken (and the mutex isn't taken) on
+        // every socket-writable event during normal keep-up operation.
+        client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG | wxSOCKET_OUTPUT_FLAG);
         Debug.Write(wxString::Format("evsrv: cli %p short write %u/%u, queued %u %s\n", client, (unsigned int) n,
                                      (unsigned int) buf.length(), (unsigned int) cd->sendbuf.length(),
                                      SockErrStr(client->Error() ? client->LastError() : wxSOCKET_NOERROR)));
@@ -547,6 +551,9 @@ static void flush_event_pending(wxSocketClient *client)
             return; // send buffer full again; wait for the next OUTPUT event
         cd->sendbuf.erase(0, n);
     }
+
+    // Fully drained: stop listening for writable events until we backlog again.
+    client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG);
 }
 
 static void do_notify1(wxSocketClient *client, const JAry& ary)
@@ -7602,7 +7609,10 @@ void EventServer::OnEventServerEvent(wxSocketEvent& event)
     Debug.Write(wxString::Format("evsrv: cli %p connect\n", client));
 
     client->SetEventHandler(*this, EVENT_SERVER_CLIENT_ID);
-    client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG | wxSOCKET_OUTPUT_FLAG);
+    // OUTPUT notifications are armed on demand by send_buf() only while a write
+    // backlog exists (see flush_event_pending); no need to listen for them while
+    // the client is keeping up.
+    client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG);
     client->SetFlags(wxSOCKET_NOWAIT);
     client->Notify(true);
     client->SetClientData(new ClientData(client));
