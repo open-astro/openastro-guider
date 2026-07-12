@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `build_dark_library` / `build_defect_map_darks` accept `async: true` (#65): the RPC returns `0` immediately instead of blocking for the full 2–3 min build, so a client with a normal per-call receive timeout no longer times out mid-build. The result rides the existing `*BuildComplete` / `*BuildFailed` event (progress events are unchanged). Default stays synchronous for back-compat.
+- `EquipmentReconnectFailed { device_type, attempts, reason }` event (#66): a terminal signal emitted when the camera auto-reconnect throttle (3 attempts/min) gives up, so a client waiting on `EquipmentDisconnected{reconnecting:true}` no longer hangs forever on a permanent unplug. The disconnect state machine is now fully observable: `reconnecting:true` → `EquipmentReconnected` | `EquipmentReconnectFailed`.
+
 ### Changed
 - Event server: the `:4400` client socket now arms `wxSOCKET_OUTPUT` notifications only while a write backlog exists, instead of listening for every writable event for the connection's lifetime — avoids taking the per-client write mutex on spurious wake-ups during normal keep-up operation.
+
+### Documentation
+- `doc/jsonrpc_api.md` (#67): documented the deliberate `get_version` (snake_case) vs `Version` event (PascalCase) key split with the explicit field mapping, the `*BuildFailed` `partial_groups_completed` vs `partial_frames_completed` unit difference, and the `fork` `"openastro-guider"`/`"openastro-phd2"` back-compat note.
 
 ### Fixed
 - Serial port (Linux): `SetRTS`/`SetDTR` were no-op stubs that always reported failure; they now assert/clear the modem control line via `TIOCMGET`/`TIOCMSET`, so devices that use RTS/DTR handshaking work.
