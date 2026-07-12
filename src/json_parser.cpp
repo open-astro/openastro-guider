@@ -274,7 +274,15 @@ static char *atof(char *first, char *last, float *out)
 
         for (; first != last && IS_DIGIT(*first); ++first)
         {
-            exponent = 10 * exponent + (*first - '0');
+            // Clamp the accumulated exponent. Without this a client value like
+            // 1e999999999 overflows the int (signed-overflow UB) and drives the
+            // O(exponent) expansion loop below for billions of iterations,
+            // stalling the shared event-loop thread. Anything past ~10^38 is
+            // already inf/0 for a float, so a small cap preserves the result.
+            if (exponent < 1000)
+            {
+                exponent = 10 * exponent + (*first - '0');
+            }
         }
     }
 
@@ -605,7 +613,8 @@ static json_value *json_parse(char *source, const char **error_pos, const char *
             object->type = JSON_INT;
 
             char *first = it;
-            while (*it != '\x20' && *it != '\x9' && *it != '\xD' && *it != '\xA' && *it != ',' && *it != ']' && *it != '}')
+            while (*it != '\0' && *it != '\x20' && *it != '\x9' && *it != '\xD' && *it != '\xA' && *it != ',' && *it != ']' &&
+                   *it != '}')
             {
                 if (*it == '.' || *it == 'e' || *it == 'E')
                 {

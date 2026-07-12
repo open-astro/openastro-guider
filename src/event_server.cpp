@@ -454,6 +454,7 @@ struct ClientData
     std::atomic<int> refcnt;
     ClientReadBuf rdbuf;
     wxMutex wrlock;
+    std::string sendbuf; // notification bytes the non-blocking socket hasn't accepted yet
 
     ClientData(wxSocketClient *cli_) : cli(cli_), refcnt(1) { }
     void AddRef() { ++refcnt; }
@@ -474,11 +475,6 @@ struct ClientDataGuard
     ~ClientDataGuard() { cd->RemoveRef(); }
     ClientData *operator->() const { return cd; }
 };
-
-inline static wxMutex *client_wrlock(wxSocketClient *cli)
-{
-    return &((ClientData *) cli->GetClientData())->wrlock;
-}
 
 static wxString SockErrStr(wxSocketError e)
 {
@@ -509,15 +505,47 @@ static wxString SockErrStr(wxSocketError e)
     }
 }
 
+// Write as much as the NOWAIT socket accepts and queue the rest in sendbuf;
+// OnEventServerClientEvent drains the queue on wxSOCKET_OUTPUT events. A single
+// Write silently drops whatever exceeds the kernel send buffer, and a truncated
+// line corrupts every subsequent message in the client's newline-framed JSON
+// stream — so a stalled reader must not cost us bytes.
 static void send_buf(wxSocketClient *client, const wxCharBuffer& buf)
 {
-    wxMutexLocker lock(*client_wrlock(client));
-    client->Write(buf.data(), buf.length());
-    if (client->LastWriteCount() != buf.length())
+    ClientData *cd = (ClientData *) client->GetClientData();
+    wxMutexLocker lock(cd->wrlock);
+
+    if (!cd->sendbuf.empty())
     {
-        Debug.Write(wxString::Format("evsrv: cli %p short write %u/%u %s\n", client, client->LastWriteCount(),
-                                     (unsigned int) buf.length(),
+        // already draining earlier bytes; keep byte order intact
+        cd->sendbuf.append(buf.data(), buf.length());
+        return;
+    }
+
+    client->Write(buf.data(), buf.length());
+    size_t n = client->LastWriteCount();
+    if (n != buf.length())
+    {
+        cd->sendbuf.assign(buf.data() + n, buf.length() - n);
+        Debug.Write(wxString::Format("evsrv: cli %p short write %u/%u, queued %u %s\n", client, (unsigned int) n,
+                                     (unsigned int) buf.length(), (unsigned int) cd->sendbuf.length(),
                                      SockErrStr(client->Error() ? client->LastError() : wxSOCKET_NOERROR)));
+    }
+}
+
+// Drain queued notification bytes after a short write; called on OUTPUT events.
+static void flush_event_pending(wxSocketClient *client)
+{
+    ClientData *cd = (ClientData *) client->GetClientData();
+    wxMutexLocker lock(cd->wrlock);
+
+    while (!cd->sendbuf.empty())
+    {
+        client->Write(cd->sendbuf.data(), cd->sendbuf.length());
+        size_t n = client->LastWriteCount();
+        if (n == 0)
+            return; // send buffer full again; wait for the next OUTPUT event
+        cd->sendbuf.erase(0, n);
     }
 }
 
@@ -7574,7 +7602,7 @@ void EventServer::OnEventServerEvent(wxSocketEvent& event)
     Debug.Write(wxString::Format("evsrv: cli %p connect\n", client));
 
     client->SetEventHandler(*this, EVENT_SERVER_CLIENT_ID);
-    client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG);
+    client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG | wxSOCKET_OUTPUT_FLAG);
     client->SetFlags(wxSOCKET_NOWAIT);
     client->Notify(true);
     client->SetClientData(new ClientData(client));
@@ -7601,6 +7629,11 @@ void EventServer::OnEventServerClientEvent(wxSocketEvent& event)
     else if (event.GetSocketEvent() == wxSOCKET_INPUT)
     {
         handle_cli_input(cli);
+    }
+    else if (event.GetSocketEvent() == wxSOCKET_OUTPUT)
+    {
+        // socket became writable again: push out any queued notification bytes
+        flush_event_pending(cli);
     }
     else
     {

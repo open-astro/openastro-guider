@@ -10,7 +10,6 @@
 # For producing an installable .deb, see build-deb.sh (the packaging script).
 #
 # Optional env vars:
-#   OPENSOURCE_ONLY=0       include proprietary camera SDKs (default: 1, none)
 #   JOBS=N                  parallelism (default: detected cores)
 #
 # Usage:
@@ -53,7 +52,7 @@ Missing build tool: $tool
 
 On Debian 13 Trixie / Raspberry Pi OS Trixie:
   sudo apt-get install build-essential git cmake pkg-config libwxgtk3.2-dev \\
-      wx-common wx3.2-i18n gettext zlib1g-dev libx11-dev \\
+      wx-common zlib1g-dev libx11-dev libcfitsio-dev \\
       libcurl4-gnutls-dev libopencv-dev libeigen3-dev libgtest-dev
 EOF
         exit 1
@@ -65,12 +64,9 @@ JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev
 export CMAKE_BUILD_PARALLEL_LEVEL=$JOBS
 
 # Defaults match debian/rules so a local build matches the .deb package.
-OPENSOURCE_ONLY=${OPENSOURCE_ONLY:-1}
-
 CMAKE_FLAGS=(
     -Wno-dev
     "-DUSE_SYSTEM_GTEST=1"
-    "-DOPENSOURCE_ONLY=$OPENSOURCE_ONLY"
 )
 
 rm -rf tmp
