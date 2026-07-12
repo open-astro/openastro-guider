@@ -616,7 +616,8 @@ Payload notes for downstream clients:
   exposures resume. A client that raised a fault on `EquipmentDisconnected` clears it here.
 - `EquipmentReconnectFailed` — `{ device_type: "camera", attempts: int, reason: string }`. Terminal event when the
   auto-reconnect throttle is exhausted: a client that keyed off `reconnecting: true` clears the pending state here
-  instead of waiting indefinitely.
+  instead of waiting indefinitely. `attempts` is the number of *completed* prior attempts in the window (i.e. the
+  throttle limit, 3); the current blocked attempt is not counted.
 
 ### Startup Catch-Up Events
 

@@ -820,6 +820,12 @@ struct Params
         const char *n[] = { n1, n2, n3, n4, n5, n6 };
         Init(n, 6, params);
     }
+    Params(const char *n1, const char *n2, const char *n3, const char *n4, const char *n5, const char *n6, const char *n7,
+           const json_value *params)
+    {
+        const char *n[] = { n1, n2, n3, n4, n5, n6, n7 };
+        Init(n, 7, params);
+    }
     const json_value *param(const std::string& name) const
     {
         auto it = dict.find(name);
@@ -4055,6 +4061,11 @@ static void run_dark_library_build(long frameCount, const std::vector<int>& sele
     s_darkBuild.exposure_count = (int) selected.size();
     s_darkBuild.artifact = "DarkLibrary";
 
+    // Emit BuildStarted before any early-exit so a BuildFailed always has a
+    // preceding BuildStarted (async clients already got jrpc_result(0) and key
+    // off the Started -> Complete|Failed state machine).
+    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, (int) selected.size(), (int) frameCount, selected);
+
     if (!pCamera || !pCamera->Connected)
     {
         // The camera can go away between an async kick-off and this deferred run.
@@ -4063,8 +4074,6 @@ static void run_dark_library_build(long frameCount, const std::vector<int>& sele
             *response << jrpc_error(1, "camera is not connected");
         return;
     }
-
-    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, (int) selected.size(), (int) frameCount, selected);
 
     bool hadShutterClosed = pCamera->ShutterClosed;
     pCamera->ShutterClosed = true;
@@ -4244,6 +4253,9 @@ static void run_defect_map_build(long exposureMs, long frameCount, bool loadAfte
     s_darkBuild.exposure_index = 1;
     s_darkBuild.artifact = "DefectMap";
 
+    // BuildStarted before any early-exit — see run_dark_library_build.
+    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, 1, (int) frameCount, std::vector<int> { (int) exposureMs });
+
     if (!pCamera || !pCamera->Connected)
     {
         EvtServer.NotifyCalibrationBuildFailed(s_darkBuild.artifact, "camera is not connected", 0);
@@ -4251,8 +4263,6 @@ static void run_defect_map_build(long exposureMs, long frameCount, bool loadAfte
             *response << jrpc_error(1, "camera is not connected");
         return;
     }
-
-    EvtServer.NotifyCalibrationBuildStarted(s_darkBuild.artifact, 1, (int) frameCount, std::vector<int> { (int) exposureMs });
 
     bool hadShutterClosed = pCamera->ShutterClosed;
     pCamera->ShutterClosed = true;
