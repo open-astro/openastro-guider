@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-16
+
 ### Added
 - `build_dark_library` / `build_defect_map_darks` accept `async: true` (#65): the RPC returns `0` immediately instead of blocking for the full 2–3 min build, so a client with a normal per-call receive timeout no longer times out mid-build. The result rides the existing `*BuildComplete` / `*BuildFailed` event (progress events are unchanged). Default stays synchronous for back-compat.
 - `EquipmentReconnectFailed { device_type, attempts, reason }` event (#66): a terminal signal emitted when the camera auto-reconnect throttle (3 attempts/min) gives up, so a client waiting on `EquipmentDisconnected{reconnecting:true}` no longer hangs forever on a permanent unplug. The disconnect state machine is now fully observable: `reconnecting:true` → `EquipmentReconnected` | `EquipmentReconnectFailed`.
@@ -147,7 +149,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Guarded a potential null dereference of `pFrame->pGuider` in `send_catchup_events` (`event_server.cpp`): the `EXPOSED_STATE_CALIBRATING` branch called `pGuider->GetState()` without the null check its sibling branches use, so a state-change/teardown race could crash a just-connected client's catch-up. Surfaced by the PR #38 review.
 - Made `ClientData::refcnt` / `HttpClientData::refcnt` (`event_server.cpp`) `std::atomic<int>`. They're only touched on the main socket-event thread today (so this is harmless now), but a plain `int` refcount would become a data race / use-after-free if the threading model ever changed. Surfaced by the PR #38 review.
 
-## [2.0.0] - 2026-05-15
+### Commit References
+- `dcff93ba` - Review: robust parent-dir derivation + debug log for phd2 share fallback
+- `3388f903` - Fix 404 web UI on .deb installs: resources dir fell back to app-name path
+- `006b8c5f` - Fix review: 7-arg Params overload + BuildStarted before async early-exit
+- `1a5f4b36` - Async dark builds, terminal reconnect event, API-consistency docs (#65/#66/#67)
+- `986ec3a5` - event server: arm :4400 OUTPUT notify only while a write backlog exists
+- `a30c1627` - docs: add the codebase audit under design/
+- `1fb8f139` - Address PR review: implement serial RTS/DTR, assert TLS verification
+- `453aaf4e` - Harden Alpaca layer, JSON parser, and daemon robustness from audit
+- `18d577da` - Address review round 2: dos2unix hints, loud git failures, scope note
+- `3e591ab8` - Address review: quote the filename in the suggested restore command
+- `260790c1` - ci: guard against CRLF/LF line-ending flips in PRs
+- `8708a721` - Address review: resolve symlinks in the capture_single_frame path check
+- `27706ba2` - fix: harden the servers — resolve issues #58–#61
+- `252c11c8` - fix: restore CRLF line endings flipped by PR #57
+- `c9f225e3` - fix: review round 2 — per-artifact BuildFailed field names; reconnect-throttle doc hedge
+- `7bae50ab` - fix: review round 1 — merge into the existing get_version; honest defect-map partial count
+- `75f4ce29` - feat: ARA integration events + get_version (PHD2-GAP gaps 1-3)
+- `7f8fa0fd` - Address review: packaging conflict, dead LD_LIBRARY_PATH, silent rename
+- `7216d89f` - Rename Debian package openastro-phd2 -> openastro-guider
+- `91d93e61` - fix(webui): hold frame poll guard until probe decodes; document debian/changelog
+- `fa88ffa5` - fix(webui): revoke frame blob URL when the probe image fails to decode
+- `33faba49` - fix(httpsrv): queue and drain large responses; never truncate on short write
+- `3ddddee3` - fix(webui): abort hung frame fetches so live-view polling can't wedge
+- `bba99dd6` - feat(webui): show daemon version in the header (get_version RPC)
+- `59984bdc` - fix(webui): live view tracks looping closely (ETag'd frame + fast poll)
+- `983240eb` - feat(webui): Shut down button in the header
+- `14a7df98` - feat(webui): dark-build progress bar + exposure range; clickable discover
+- `076276b2` - build: accelerate .deb builds with ccache + ninja (AlpacaBridge setup)
+- `ce7c5598` - build: generate debian/changelog from CHANGELOG.md, stop tracking it
+- `f30ed05a` - fix: compiler warnings from curl deprecations, int/double mixing, sizer flags
+- `38304ea1` - fix(headless): never open modal dialogs from RPC-driven connect paths
+- `fbc3d281` - feat(webui): profile New/Rename/Delete; fix create_profile select (#54)
+- `2f7b9a7d` - feat(webui): real PHD2-like web app + get_guide_history + /api/frame.jpg (#53)
+- `76b40fd1` - feat(api): drive the Drift Align tool over RPC; fix Alpaca coordinate units (#52)
+- `c3e5f984` - feat(api): drive the Static PA + Polar Drift alignment tools over RPC (#51)
+- `6c76c22f` - feat(api): polar-alignment guider-side enablers — centroid report + PA session lease (#50)
+- `99fbce3b` - feat(api): dark/bad-pixel-map tail — rebuild_defect_map, add_bad_pixel, set_dark_auto_load (#49)
+- `9e8ef9b4` - cleanup(api): remove dead *_indi_* JSON-RPC methods left from the Phase 3 INDI drop (#47)
+- `22fbae5a` - feat(headless): sandbox the systemd unit; drop vestigial plugdev/dialout grants (#48)
+- `4246c26f` - docs: polar-alignment design (plate-solve, FOV-adaptive, bolt-disambiguation) (#46)
+- `f7d59bd4` - feat(api): Phase 5 Batch C2 — camera extras, rotator, guider options (#45)
+- `7c107f73` - feat(api): Phase 5 Batch C1 — mount options, backlash, auto-exposure, noise reduction (#44)
+- `021d1ec4` - feat(api): Phase 5 Batch B — star-detection + camera settings (#43)
+- `9f873286` - feat(api): Phase 5 Batch A guiding-control methods + full API reference (#42)
+- `4f21db19` - docs: Phase 5 API gap audit (Advanced settings → JSON-RPC) (#41)
+- `8f93c091` - feat(headless): make headless the default run mode + finish systemd packaging (#38)
+- `aa2c2a79` - fix(alpaca): handle ROI-sized subframe responses; guard pGuider; atomic refcnt (#40)
+- `71e56ba8` - fix(alpaca): correct PUT body, drop per-PUT sleep, fix m_response race (#39)
+- `4a6be44d` - cleanup: scrub historical Windows/macOS comments + strip _WIN64 blocks (#37)
+- `769632c5` - cleanup: strip last _WINDOWS ifdef in phd.h; fix wizard ASCOM/Windows text (#36)
+- `40405acd` - cleanup: remove orphaned build/get_phd_version Perl script (#35)
+- `bd11899e` - cleanup: remove GUI help system and all translations (headless build) (#34)
+- `7195c8c7` - cleanup: strip remaining macOS #if blocks in serialport_posix (#33)
+- `52a3505e` - cleanup: strip dead Windows/macOS inline #ifdefs from src (#32)
+- `6d75c32a` - cleanup: remove dead vendor-SDK and Windows build scripts (#31)
+- `df8ac886` - fix: AlpacaClient::Get() logged its error as "PUT" (#30)
+- `5a99c7d9` - cleanup: remove macOS/Windows vendor cruft, focus repo on Debian/arm64 (#28)
+- `8e10f530` - fix: review guard used unsupported gh --jq --arg (false-red) (#29)
+- `685cc666` - ci: harden review workflow against false-greens (#27)
+- `6c27aff3` - build: target arm64 only, drop amd64 and 32-bit (#26)
+- `e7a2547a` - docs: track peak-mode saturation gap in star detection (PR #24 follow-up) (#25)
+- `98808c90` - test: extract star-detection pixel math and golden-test it on a fixture (#24)
+- `1bf4a7c0` - test: extract calibration camera<->mount transforms and unit test them (#23)
+- `f03b9aee` - test: extract Lowpass/Lowpass2 decision math and unit test it (#22)
+- `1554a00c` - cleanup: resolve PR #20 follow-ups (GetVariance semantics, exit(1)->throw) (#21)
+- `3f8bc22c` - test: guiding-stats, zfilter & polar-alignment unit tests; README pivot (#20)
+- `df4abbe2` - cleanup: remove dead CPack NSIS (Windows) + vestigial CPack DEB path
+- `3069a335` - cleanup: strip dead platform/backend ifdefs, drop FreeBSD + direct-ST4
+- `85b6db90` - strip(indi): drop INDI — Alpaca-only equipment (Phase 3)
+- `c6300fc3` - strip(macos): tighten Unix exe guard to UNIX AND NOT APPLE
+- `36521133` - strip(macos): drop macOS build system, mac backends, and CMake (Phase 2)
+- `807fb65e` - fix(phdconfig): serialize integer config values with %ld, not %lu
+- `7c724ccf` - fix(cppcheck): clear remaining perf/portability/style findings (#9, part 2)
+- `8e47dd88` - fix(cppcheck): correct wxString::Format arg/type mismatches (#9, part 1)
+- `0973b084` - fix(phdconfig): initialize config-copy locals before Read
+- `64887cc3` - fix(cppcheck): mark intentionally-ignored return values with (void) (#8)
+- `27668505` - fix(cppcheck): make 18 resource-owning classes non-copyable (#7)
+- `afa0d386` - fix(guiding_stats): reset maxDeltaInx in InitializeScalars()
+- `14352e23` - fix(cppcheck): initialize uninitialized member variables (#6)
+- `d9e99d57` - docs(backlash_comp): clarify the no-adjustment *correction write
+- `b85cfdac` - fix(cppcheck): real bugs from the static-analysis audit (#5)
+- `02405031` - ci(cppcheck): gate on PR-changed lines, add wxWidgets library
+- `499cb2ac` - strip(windows): drop Windows build system, ASCOM/win32 backends, CMake
+- `a3b04a6a` - ci: Debian-focused non-compiling check suite, drop build jobs for now (#3)
+- `bb635da6` - ci: add Claude Code automated PR review workflow (#2)
+- `a9d2e7f6` - docs: add headless-port playbook + tracking files (Phase 0) (#1)
+- `6dde3611` - Address CodeRabbit round 2 on PR #13
+- `4c8bf7ca` - Address CodeRabbit review on PR #13
+- `7d939d35` - Add Windows ASCOM camera support, make run_exe.bat always wipe tmp
+- `e1653340` - Bundle .app dylibs against the renamed binary path
+
+<details>
+<summary><strong>[2.0.0] - 2026-05-15</strong></summary>
 
 ### Added
 - Unit test suite covering the API contracts and pure math the fork ships, wired into `enable_testing()` so `ctest` runs alongside the existing GP tests. New `option(PHD_BUILD_TESTS ON)` defaults the suite ON so `build-deb.sh` (via `dh_auto_test`), `build-dmg.sh`, and `build-exe.ps1` all pick it up automatically — pass `-DPHD_BUILD_TESTS=OFF` to skip. Six new test executables under `tests/`: `test_json_parser` (the deserializer that backs every Alpaca response and event-server inbound RPC); `test_jsonrpc_schema` (contract test for the documented event-server message shapes — `Version`, `AppState`, `SettleDone`, `Settling`, `StarSelected`, JSON-RPC envelope, `get_profiles`, `get_profile`, `get_lock_shift_params` — so a downstream-visible field rename surfaces at PR time instead of via a Discord report); `test_alpaca_schema` (Alpaca standard envelope, `ErrorNumber`/`ErrorMessage` extraction including the float-coerced lenient path, camera/telescope `Value` shapes, the property-name fallback used when servers omit the standard wrapper, the management API `apiversions`/`configureddevices` shapes, the discovery UDP `{"AlpacaPort": N}` reply); `test_discovery_logic` (host:port parse contract and the `std::set<wxString>` dedupe model shared by `AlpacaDiscovery` and `INDIDiscovery`); `test_indi_discovery` (INDI-only subnet enumeration math — prefix clamping `16..30` with `/24` fallback, mask construction, loopback skip, scan-range network/broadcast skip, plus the "always probe `127.0.0.1`" contract from the 1.3.0 loopback fix that lets headless Pi setups discover a same-box INDI server); `test_guide_algorithm_math` (math-twin pinning of `identity`, `hysteresis`, and `resistswitch` `result()` curves, with the production line numbers referenced in test comments so any formula edit forces a deliberate update on both sides). Build infra uses a `tests/include/phd.h` shadow + `-include` force-include to neutralise `src/phd.h`'s wxWidgets transitive pull on test targets that don't need it. New `tests/README.md` documents the per-suite test style (real / fixture-contract / model / math-twin) and the deferred items: Lowpass/Lowpass2/ZFilter (need `WindowedAxisStats` / `ZFilterFactory`), star detection (needs `usImage`), calibration math (needs `Mount` / `Scope`), and end-to-end testing of `CameraAlpaca::Capture()`'s bounded-retry fix from e7a91ddc.
@@ -277,7 +372,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `8d83023e` - Extend libindi auto-detect to .deb build path
 - `36753c43` - Address CodeRabbit review on PR #5
 
-## [1.3.0] - 2026-05-12
+</details>
+
+<details>
+<summary><strong>[1.3.0] - 2026-05-12</strong></summary>
 
 ### Fixed
 - **Alpaca discovery misses loopback-bound servers**
@@ -334,7 +432,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `c9d57c8c` - Address CodeRabbit review: SHA pin, preserve CL flags, enforce CRLF
 - `e399535d` - Add favicon using OpenAstro logo
 
-## [1.2.0] - 2026-03-22
+</details>
+
+<details>
+<summary><strong>[1.2.0] - 2026-03-22</strong></summary>
 
 ### Removed
 - **Legacy camera drivers and SDKs**
@@ -356,7 +457,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Formatting**
   - Applied clang-format across affected files (`event_server.cpp`, `gear_dialog.cpp`, `gear_simulator.cpp`, `profile_wizard.cpp`, `stepguiders.h`, `camera.cpp`).
 
-## [1.1.0] - 2026-03-07
+</details>
+
+<details>
+<summary><strong>[1.1.0] - 2026-03-07</strong></summary>
 
 ### Added
 - **Headless Runtime + API Expansion**
@@ -418,7 +522,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bf0d0349` - Add headless runtime and JSON-RPC equipment selection API
 - `9789d2ec` - Expand headless JSON-RPC equipment/config API and docs
 
-## [1.0.0] - 2026-03-04
+</details>
+
+<details>
+<summary><strong>[1.0.0] - 2026-03-04</strong></summary>
 
 ### Added
 - **Initial OpenAstro PHD2 Release**
@@ -435,7 +542,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `e9125e1b` - OpenAstro branding: APPNAME, version 1.0.0, About dialog and status bar
 - `4b5ab276` - Linux .deb build, Alpaca on Linux, and packaging fixes
 
-## [2026-01-23]
+</details>
+
+<details>
+<summary><strong>[2026-01-23]</strong></summary>
 
 ### Changed
 - **OpenAstro Branding and UI**
@@ -446,7 +556,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `33475ebf` - OpenAstro Alpaca-only branding and UI changes
 - `8474f1be` - Use OpenAstro icon for main window and disclaimer
 
-## [2026-01-20]
+</details>
+
+<details>
+<summary><strong>[2026-01-20]</strong></summary>
 
 ### Changed
 - **Alpaca Camera + Profile Flow**
@@ -457,7 +570,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Commit References
 - `77d42cdc` - Enhance Alpaca camera handling and profile flows
 
-## [2026-01-13]
+</details>
+
+<details>
+<summary><strong>[2026-01-13]</strong></summary>
 
 ### Added
 - **Alpaca Rotator Support**
@@ -471,7 +587,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Commit References
 - `a3dee229` - Add Alpaca rotator support and improve Alpaca client reliability
 
-## [2025-11-18]
+</details>
+
+<details>
+<summary><strong>[2025-11-18]</strong></summary>
 
 ### Added
 - **ASCOM Local Alpaca Support**
@@ -481,7 +600,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Commit References
 - `254c95fa` - Add ALPACA (ASCOM Local Alpaca) support for cameras and mounts
 
-## [2025-11-16]
+</details>
+
+<details>
+<summary><strong>[2025-11-16]</strong></summary>
 
 ### Added
 - **Initial ASCOM Alpaca Driver Support**
@@ -490,3 +612,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Commit References
 - `a0900cd6` - Add Alpaca (ASCOM Alpaca) driver support for cameras and mounts
+
+</details>
