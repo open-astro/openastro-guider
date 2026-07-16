@@ -394,7 +394,18 @@ bool PhdApp::OnInit()
     // on Linux look in the build tree first, otherwise use the system location
     m_resourcesDir = wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath() + "/share/phd2";
     if (!wxDirExists(m_resourcesDir))
+    {
         m_resourcesDir = wxStandardPaths::Get().GetResourcesDir();
+        // GetResourcesDir() derives from the app name (<prefix>/share/openastro-guider),
+        // but the .deb installs resources under <prefix>/share/phd2; fall back
+        // to the sibling phd2 dir when the app-name dir does not exist
+        if (!wxDirExists(m_resourcesDir))
+        {
+            wxString sibling = wxFileName(m_resourcesDir).GetPath() + PATHSEPSTR + _T("phd2");
+            if (wxDirExists(sibling))
+                m_resourcesDir = sibling;
+        }
+    }
 
     wxString ldir = GetLocalesDir();
     Debug.Write(wxString::Format("locale: using dir %s exists=%d\n", ldir, wxDirExists(ldir)));
