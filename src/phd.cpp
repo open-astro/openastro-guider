@@ -401,9 +401,15 @@ bool PhdApp::OnInit()
         // to the sibling phd2 dir when the app-name dir does not exist
         if (!wxDirExists(m_resourcesDir))
         {
-            wxString sibling = wxFileName(m_resourcesDir).GetPath() + PATHSEPSTR + _T("phd2");
+            wxFileName parent = wxFileName::DirName(m_resourcesDir); // DirName tolerates a trailing separator
+            parent.RemoveLastDir();
+            wxString sibling = parent.GetPath() + PATHSEPSTR + _T("phd2");
             if (wxDirExists(sibling))
+            {
+                Debug.Write(
+                    wxString::Format("resources: app-name dir %s missing, using sibling %s\n", m_resourcesDir, sibling));
                 m_resourcesDir = sibling;
+            }
         }
     }
 
