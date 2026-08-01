@@ -224,7 +224,7 @@ if "$CLEAN"; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build .deb (uses debian/rules: cmake with USE_SYSTEM_GTEST=1, OPENSOURCE_ONLY=1)
+# Build .deb (uses debian/rules: cmake with USE_SYSTEM_GTEST=1)
 # ---------------------------------------------------------------------------
 step "Building PHD2 .deb package..."
 # -us -uc = do not sign source and changes; -d = allow unmet build deps when --force

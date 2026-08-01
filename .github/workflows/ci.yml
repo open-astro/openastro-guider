@@ -360,3 +360,43 @@ jobs:
         # files for security issues (injection, over-broad permissions,
         # unpinned actions, etc.).
         run: zizmor --offline .github/workflows/
+
+  build:
+    name: Build + GTest (arm64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        # Names mirror debian/control's Build-Depends (the arm64 package's
+        # source of truth): wxWidgets 3.2, cfitsio, OpenCV, v4l, curl, Eigen
+        # and system GTest. libx11-dev and libnova-dev cover the X11/libnova
+        # links the CMake targets pull in. g++ comes from build-essential.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            libwxgtk3.2-dev \
+            libcfitsio-dev \
+            libopencv-dev \
+            libv4l-dev \
+            libcurl4-openssl-dev \
+            libeigen3-dev \
+            libgtest-dev \
+            libx11-dev \
+            libnova-dev
+
+      - name: Configure
+        # -DUSE_SYSTEM_GTEST=1 matches debian/rules so CI uses the packaged
+        # libgtest-dev rather than fetching GTest over the network.
+        run: cmake -S . -B build -DUSE_SYSTEM_GTEST=1 -Wno-dev
+
+      - name: Build
+        run: cmake --build build --parallel "$(nproc)"
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure

@@ -1333,6 +1333,11 @@ void MyFrame::DoTryReconnect()
         Debug.Write(wxString::Format("More than %d camera reconnect attempts in less than %d seconds, "
                                      "return without reconnect.\n",
                                      MAX_ATTEMPTS, TIME_WINDOW));
+        // Terminal signal so clients waiting on EquipmentDisconnected{reconnecting:true}
+        // don't hang forever on a permanent unplug (they get no EquipmentReconnected).
+        EvtServer.NotifyEquipmentReconnectFailed(
+            "camera", (int) m_cameraReconnectAttempts.size(),
+            wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         OnExposeComplete(0, true);
         return;
     }

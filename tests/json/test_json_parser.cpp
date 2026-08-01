@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -196,4 +198,57 @@ TEST(JsonParser, ReusableAcrossParses)
     ASSERT_TRUE(p.Parse(std::string("{\"b\":2}")));
     EXPECT_EQ(child(p.Root(), "b")->int_value, 2);
     EXPECT_EQ(child(p.Root(), "a"), nullptr) << "previous parse leaked";
+}
+
+// --- Regression tests for the network-hardening fixes (audit findings #1, #2) ---
+
+// #1: the number-token scanner used to terminate only on whitespace/,/]/} and
+// never on the NUL terminator, so a bare number at end-of-buffer walked past the
+// buffer end (heap over-read on the malloc'd HTTP body, stack over-read on the
+// :4400 line path). An unauthenticated client can send these. The parse must now
+// terminate deterministically at the NUL and not crash / read out of bounds
+// (an ASan build turns the pre-fix over-read into a hard failure here).
+TEST(JsonParser, NumberAtEndOfBufferDoesNotOverread)
+{
+    JsonParser p;
+    // Unterminated container whose last token is a number sitting flush against
+    // the NUL terminator: the scanner must stop at '\0' rather than run past it.
+    EXPECT_FALSE(p.Parse(std::string("[1")));
+    EXPECT_FALSE(p.Parse(std::string("[123")));
+    EXPECT_FALSE(p.Parse(std::string("{\"a\":1")));
+    EXPECT_FALSE(p.Parse(std::string("[1.5e2")));
+    // A well-formed trailing number still parses.
+    ASSERT_TRUE(p.Parse(std::string("[1,2,3]")));
+    EXPECT_EQ(p.Root()->type, JSON_ARRAY);
+}
+
+// #2: exp() expansion was an O(exponent) loop over an unbounded client-supplied
+// exponent (and the accumulation overflowed the int, UB). [1e999999999] cost
+// ~seconds of pure CPU on the shared event-loop thread. The exponent is now
+// clamped, so the parse completes effectively instantly and yields the correct
+// IEEE result (inf for huge +exp, 0 for huge -exp).
+TEST(JsonParser, HugeExponentDoesNotStall)
+{
+    JsonParser p;
+
+    auto start = std::chrono::steady_clock::now();
+    ASSERT_TRUE(p.Parse(std::string("[1e999999999,1e-999999999,1e40,1e-40]")));
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    // Pre-fix this ran for seconds; the clamp makes it sub-millisecond. Use a
+    // generous ceiling so the guard is robust on slow CI yet still trips on the
+    // O(exponent) regression.
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count(), 250)
+        << "huge exponent expansion was not clamped";
+
+    const json_value *arr = p.Root();
+    ASSERT_NE(arr, nullptr);
+    ASSERT_EQ(arr->type, JSON_ARRAY);
+    const json_value *e0 = arr->first_child;
+    ASSERT_NE(e0, nullptr);
+    EXPECT_EQ(e0->type, JSON_FLOAT);
+    EXPECT_TRUE(std::isinf(e0->float_value)) << "1e999999999 should saturate to +inf";
+    const json_value *e1 = e0->next_sibling;
+    ASSERT_NE(e1, nullptr);
+    EXPECT_FLOAT_EQ(e1->float_value, 0.0f) << "1e-999999999 should underflow to 0";
 }

@@ -1064,9 +1064,10 @@ void GuideAlgorithmGaussianProcess::GuidingStarted()
         {
             need_reset = false;
         }
-        // TODO: the GP Guider cannot currently handle the case of the
-        // worm moving backwards. The expectation is that measurements
-        // proceed with gear time monotonically increasing.
+        // The GP model assumes gear time increases monotonically, so it cannot
+        // extrapolate through a backwards worm offset. That case is handled
+        // safely below by forcing a full model reset (rather than resuming with
+        // a stale/invalid model), at the cost of relearning the curve.
         if (!need_reset && worm_offset < 0.)
         {
             Debug.Write("PPEC: worm offset is negative, model reset required\n");

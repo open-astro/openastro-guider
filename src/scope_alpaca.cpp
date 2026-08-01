@@ -603,6 +603,12 @@ bool ScopeAlpaca::IsSlewing()
     {
         Debug.Write(wxString::Format("ScopeAlpaca::IsSlewing failed: HTTP %ld\n", errorCode));
         pFrame->Alert(_("Alpaca driver failed checking for slewing, see the debug log for more information."));
+        // Deliberate fail-open: on an HTTP/transport error we report "not
+        // slewing" so a transient glitch does not interrupt an in-progress
+        // guiding session. Failing closed (returning true) could stop guiding
+        // on every intermittent error, which is worse in practice than missing
+        // a rare real slew. Do not change this to fail-closed without a
+        // debounce/confirmation strategy.
         return false;
     }
 
@@ -675,7 +681,10 @@ double ScopeAlpaca::GetDeclinationRadians()
     catch (const wxString& Msg)
     {
         POSSIBLY_UNUSED(Msg);
-        m_canGetCoordinates = false;
+        // Do not clear m_canGetCoordinates here: a transient transport/HTTP
+        // error (e.g. timeout) would otherwise permanently disable coordinate
+        // reads. Just return UNKNOWN_DECLINATION for this call. The capability
+        // flag is managed by Connect()'s capability probe.
     }
 
     Debug.Write(wxString::Format("ScopeAlpaca::GetDeclinationRadians() returns %s\n", DeclinationStr(dReturn)));

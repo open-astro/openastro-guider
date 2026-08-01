@@ -268,11 +268,20 @@ bool AlpacaConfig::Show(bool show)
 
 void AlpacaConfig::SaveSettings()
 {
-    m_host = host->GetValue();
+    // Only commit host and port together when the port parses cleanly. If the
+    // port text is unparsable, leave BOTH m_host and m_port unchanged so we
+    // never accept a new host paired with a stale/mismatched port.
     long portVal = 0;
     if (port->GetValue().ToLong(&portVal))
     {
+        m_host = host->GetValue();
         m_port = portVal;
+    }
+    else
+    {
+        Debug.Write(
+            wxString::Format("AlpacaConfig::SaveSettings: Unparsable port '%s', keeping existing host '%s' and port %ld\n",
+                             port->GetValue(), m_host, m_port));
     }
     long devNum = 0;
     wxComboBox *camCombo = wxDynamicCast(deviceNumber, wxComboBox);

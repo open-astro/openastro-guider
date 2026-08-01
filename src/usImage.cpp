@@ -36,6 +36,7 @@
 #include "image_math.h"
 
 #include <algorithm>
+#include <new>
 
 class HistogramBuilder
 {
@@ -126,7 +127,12 @@ bool usImage::Init(const wxSize& size)
 
         if (NPixels)
         {
-            ImageData = new unsigned short[NPixels];
+            // nothrow so the null-check below actually runs: a plain new[] would
+            // throw std::bad_alloc, which propagates out of WorkerThread::Entry
+            // (that only catches const wxString&) and calls std::terminate,
+            // aborting the daemon under memory pressure instead of surfacing
+            // CAPT_FAIL_MEMORY.
+            ImageData = new (std::nothrow) unsigned short[NPixels];
             if (!ImageData)
             {
                 NPixels = 0;

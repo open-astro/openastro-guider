@@ -322,12 +322,44 @@ bool SerialPortPosix::Receive(unsigned char *pData, unsigned int count)
     return bError;
 }
 
+// Assert/clear a modem control line (RTS or DTR) via TIOCMGET/TIOCMSET, the
+// same ioctl pair Connect() already uses. Returns true on error (the PHD2
+// bError convention) so a failure is reported rather than silently pretended.
+bool SerialPortPosix::SetModemLine(int bit, bool asserted)
+{
+    if (m_fd < 0)
+    {
+        Debug.AddLine("SerialPortPosix::SetModemLine called with no open port");
+        return true;
+    }
+
+    int bits = 0;
+    if (ioctl(m_fd, TIOCMGET, &bits) < 0)
+    {
+        Debug.Write(wxString::Format("SerialPortPosix: TIOCMGET failed: %s\n", strerror(errno)));
+        return true;
+    }
+
+    if (asserted)
+        bits |= bit;
+    else
+        bits &= ~bit;
+
+    if (ioctl(m_fd, TIOCMSET, &bits) < 0)
+    {
+        Debug.Write(wxString::Format("SerialPortPosix: TIOCMSET failed: %s\n", strerror(errno)));
+        return true;
+    }
+
+    return false;
+}
+
 bool SerialPortPosix::SetRTS(bool asserted)
 {
-    return true; // TODO
+    return SetModemLine(TIOCM_RTS, asserted);
 }
 
 bool SerialPortPosix::SetDTR(bool asserted)
 {
-    return true; // TODO
+    return SetModemLine(TIOCM_DTR, asserted);
 }

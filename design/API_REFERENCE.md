@@ -268,8 +268,8 @@ drift/adjust until the error is small; switch phase and do the other axis.
 
 | Method | Params | Description |
 |--------|--------|-------------|
-| `build_dark_library` | `frame_count`, `min_exposure_ms`, `max_exposure_ms`, `clear_existing`, `notes`, `load_after` | Build the dark-frame library. |
-| `build_defect_map_darks` | `exposure_ms`, `frame_count`, `notes`, `load_after` | Capture the darks used to build a bad-pixel (defect) map. |
+| `build_dark_library` | `frame_count`, `min_exposure_ms`, `max_exposure_ms`, `clear_existing`, `notes`, `load_after`, `async` | Build the dark-frame library. Synchronous by default (blocks 2–3 min); `async:true` returns `0` immediately and reports completion via `DarkLibraryBuildComplete`/`BuildFailed`. |
+| `build_defect_map_darks` | `exposure_ms`, `frame_count`, `notes`, `load_after`, `async` | Capture the darks used to build a bad-pixel (defect) map. Same `async:true` option as `build_dark_library`. |
 | `get_dark_build_progress` | — | Progress of an in-flight `build_dark_library` / `build_defect_map_darks`: `active`, `exposure_index`/`exposure_count`, `exposure_ms`, `frame`/`frame_count` (all zero/false when idle). The build yields between frames so this stays pollable; while a build is active, capture-starting RPCs (`guide`, `loop`, `dither`, `guide_pulse`, `capture_single_frame`, `set_connected`, the two build methods, `rebuild_defect_map`) are rejected with *"dark-frame capture in progress"*. |
 | `rebuild_defect_map` | `aggressiveness_hot` (0–100), `aggressiveness_cold` (0–100), `save` (default true), `load_after` (default true) | Rebuild the bad-pixel map from the existing master dark with custom hot/cold aggressiveness (no recapture); `save:false` is a dry run returning predicted counts. Requires a connected camera. |
 | `add_bad_pixel` | `x`, `y` | Add one pixel to the currently loaded defect map (in-memory + disk); `added:false` if already present. Discarded on the next rebuild, like the GUI's manual pixels. |

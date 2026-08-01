@@ -48,7 +48,7 @@ override_dh_auto_configure:
 		echo "Syncing debian/changelog version $$CHANGELOG_VERSION -> $$VERSION"; \
 		sed -i -E "1 s/^openastro-guider \\([^)]*\\) /openastro-guider ($$VERSION) /" $(CURDIR)/debian/changelog; \
 	fi
-	dh_auto_configure --buildsystem=$(BUILDSYSTEM) -- -DUSE_SYSTEM_GTEST=1 -DOPENSOURCE_ONLY=1 $(CCACHE_ARGS)
+	dh_auto_configure --buildsystem=$(BUILDSYSTEM) -- -DUSE_SYSTEM_GTEST=1 $(CCACHE_ARGS)
 
 # Force ctest to run even when DEB_BUILD_OPTIONS=nocheck is set. The fork
 # does not ship through Debian autobuilders, so honouring the standard

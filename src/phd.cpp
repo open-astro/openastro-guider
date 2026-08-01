@@ -35,6 +35,8 @@
 #include "phd.h"
 
 #include <curl/curl.h>
+#include <csignal>
+#include <cstring>
 #include <memory>
 #include <wx/cmdline.h>
 #include <wx/evtloop.h>
@@ -153,6 +155,40 @@ void PhdApp::RestartApp()
     // gracefully exit this instance
     TerminateApp();
 }
+
+namespace
+{
+// Set by the async-signal handler; polled on the main thread by the timer
+// below. A signal handler must not touch wx/heap state, so it only flips this.
+volatile sig_atomic_t s_shutdownSignal = 0;
+
+extern "C" void HandleTermSignal(int sig)
+{
+    s_shutdownSignal = sig;
+}
+
+// Polls the signal flag and runs a graceful shutdown (the same path as the
+// JSON-RPC `shutdown` command: camera/mount disconnect, guide-log summary,
+// config flush) on the main thread. Without this, `systemctl stop` (SIGTERM)
+// kills the daemon with the default disposition and none of that runs.
+class SignalWatchTimer : public wxTimer
+{
+public:
+    void Notify() override
+    {
+        if (s_shutdownSignal)
+        {
+            int sig = s_shutdownSignal;
+            s_shutdownSignal = 0;
+            Stop();
+            Debug.Write(wxString::Format("received signal %d, shutting down gracefully\n", sig));
+            wxGetApp().TerminateApp();
+        }
+    }
+};
+
+SignalWatchTimer *s_signalWatchTimer = nullptr;
+} // namespace
 
 static void IdleClosing(wxIdleEvent& evt)
 {
@@ -358,7 +394,24 @@ bool PhdApp::OnInit()
     // on Linux look in the build tree first, otherwise use the system location
     m_resourcesDir = wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath() + "/share/phd2";
     if (!wxDirExists(m_resourcesDir))
+    {
         m_resourcesDir = wxStandardPaths::Get().GetResourcesDir();
+        // GetResourcesDir() derives from the app name (<prefix>/share/openastro-guider),
+        // but the .deb installs resources under <prefix>/share/phd2; fall back
+        // to the sibling phd2 dir when the app-name dir does not exist
+        if (!wxDirExists(m_resourcesDir))
+        {
+            wxFileName parent = wxFileName::DirName(m_resourcesDir); // DirName tolerates a trailing separator
+            parent.RemoveLastDir();
+            wxString sibling = parent.GetPath() + PATHSEPSTR + _T("phd2");
+            if (wxDirExists(sibling))
+            {
+                Debug.Write(
+                    wxString::Format("resources: app-name dir %s missing, using sibling %s\n", m_resourcesDir, sibling));
+                m_resourcesDir = sibling;
+            }
+        }
+    }
 
     wxString ldir = GetLocalesDir();
     Debug.Write(wxString::Format("locale: using dir %s exists=%d\n", ldir, wxDirExists(ldir)));
@@ -399,6 +452,16 @@ bool PhdApp::OnInit()
     if (m_headless)
     {
         pFrame->Show(false);
+
+        // Graceful shutdown on `systemctl stop` (SIGTERM) and Ctrl-C (SIGINT).
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = HandleTermSignal;
+        sigemptyset(&sa.sa_mask);
+        sigaction(SIGTERM, &sa, nullptr);
+        sigaction(SIGINT, &sa, nullptr);
+        s_signalWatchTimer = new SignalWatchTimer();
+        s_signalWatchTimer->Start(100);
 
         if (m_headlessAutoConnect)
         {

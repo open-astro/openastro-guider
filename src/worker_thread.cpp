@@ -419,7 +419,7 @@ wxThread::ExitCode WorkerThread::Entry()
             if (m_skipSendExposeComplete)
             {
                 Debug.Write("worker thread skipping SendWorkerThreadExposeComplete\n");
-                delete message.args.expose.pImage; // should be null though
+                delete message.args.expose.pImage; // free the frame we won't hand off (no-op if null)
                 message.args.expose.pImage = 0;
                 m_skipSendExposeComplete = false;
             }
