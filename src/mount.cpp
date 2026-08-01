@@ -1068,6 +1068,19 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
         info.starHFD = star.HFD;
         info.avgDist = pFrame->CurrentGuideError();
         info.starError = star.GetError();
+        info.multiStarCount = 0;
+        info.rejectedStarCount = 0;
+        wxString starCount = pFrame->pGuider->GetStarCount();
+        long starsUsed = 0;
+        long starsAvailable = 0;
+        if (!starCount.IsEmpty()
+            && starCount.BeforeFirst('/').ToLong(&starsUsed)
+            && starCount.AfterFirst('/').ToLong(&starsAvailable)
+            && starsUsed > 0 && starsAvailable >= starsUsed)
+        {
+            info.multiStarCount = (int) starsUsed;
+            info.rejectedStarCount = (int) (starsAvailable - starsUsed);
+        }
     }
     catch (const wxString& errMsg)
     {

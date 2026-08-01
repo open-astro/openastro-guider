@@ -56,3 +56,13 @@ validation** (driven from the ARA repo).
   the ARA polar-alignment spike (ASTAP solve of `capture_single_frame` output, 2-pt axis).
 - Guider housekeeping (low priority): web-UI UX rework or let ARA supersede it; NINA plugin
   (future).
+
+## 2026-07-31 — ARA auto-tune telemetry slice
+
+- **In flight:** `phase/63-autotune-guider-telemetry` adds optional multi-star counts to `GuideStep`
+  for ARA's mount-aware auto-tuner. The fields are omitted when unavailable, so old ARA clients and
+  single-star guider paths remain compatible.
+- **Verified locally:** full `phd2` target build; 12 non-performance CTest suites green. The existing
+  `GuidePerformanceTest` is a long-running benchmark and was not used as the bounded PR gate.
+- **Next:** merge the guider telemetry PR, then validate the ARA server auto-tune branch against the
+  headless guider and Alpaca simulators.
