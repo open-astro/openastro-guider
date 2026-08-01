@@ -375,6 +375,29 @@ TEST(JsonRpcSchema, StarSelectedEvent)
 }
 
 // ---------------------------------------------------------------------------
+// GuideStep event fields used by ARA auto-tune
+// ---------------------------------------------------------------------------
+TEST(JsonRpcSchema, GuideStepAutoTuneFieldsAreOptionalAndTyped)
+{
+    const char *legacy = "{\"Event\":\"GuideStep\",\"Timestamp\":1.0,\"Host\":\"h\",\"Inst\":1,"
+                         "\"Frame\":12,\"Time\":1.0,\"RADistanceRaw\":0.1,\"DECDistanceRaw\":-0.2,"
+                         "\"RADistanceGuide\":0.1,\"DECDistanceGuide\":-0.2,\"SNR\":20.0}";
+    JsonParser legacyParser;
+    ASSERT_TRUE(legacyParser.Parse(std::string(legacy)));
+    EXPECT_EQ(child(legacyParser.Root(), "MultiStarCount"), nullptr);
+    EXPECT_EQ(child(legacyParser.Root(), "RejectedStarCount"), nullptr);
+
+    const char *extended = "{\"Event\":\"GuideStep\",\"Timestamp\":1.0,\"Host\":\"h\",\"Inst\":1,"
+                           "\"Frame\":12,\"Time\":1.0,\"RADistanceRaw\":0.1,\"DECDistanceRaw\":-0.2,"
+                           "\"RADistanceGuide\":0.1,\"DECDistanceGuide\":-0.2,\"SNR\":20.0,"
+                           "\"MultiStarCount\":8,\"RejectedStarCount\":1}";
+    JsonParser extendedParser;
+    ASSERT_TRUE(extendedParser.Parse(std::string(extended)));
+    expect_numeric_field(extendedParser.Root(), "MultiStarCount");
+    expect_numeric_field(extendedParser.Root(), "RejectedStarCount");
+}
+
+// ---------------------------------------------------------------------------
 // Method-dispatch request shape (params can be array or object)
 // ---------------------------------------------------------------------------
 TEST(JsonRpcSchema, MethodRequestArrayParams)

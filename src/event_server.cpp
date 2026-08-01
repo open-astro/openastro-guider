@@ -8060,6 +8060,9 @@ void EventServer::NotifyGuideStep(const GuideStepInfo& step)
     ev << NV("StarMass", step.starMass, 0) << NV("SNR", step.starSNR, 2) << NV("HFD", step.starHFD, 2)
        << NV("AvgDist", step.avgDist, 2);
 
+    if (step.multiStarCount > 0)
+        ev << NV("MultiStarCount", step.multiStarCount) << NV("RejectedStarCount", step.rejectedStarCount);
+
     if (step.starError)
         ev << NV("ErrorCode", step.starError);
 

@@ -571,7 +571,9 @@ Event names emitted:
 - `GuidingStopped`
 - `Paused`
 - `Resumed`
-- `GuideStep`
+- `GuideStep` includes optional `MultiStarCount` and `RejectedStarCount` integer fields when the active guider
+  exposes a multi-star list. Fields are omitted for single-star or legacy guider paths; clients must tolerate
+  omission.
 - `GuidingDithered`
 - `LockPositionSet`
 - `LockPositionLost`
@@ -773,6 +775,10 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_algo_param_names` | `axis:string` (`ra|dec|x|y`) | none | string[] incl. `algorithmName` | `1` invalid axis | none. `get_algo_param_names` stays the authoritative per-profile list (names depend on the selected algorithm); as a static reference, the common writable names are — Hysteresis: `hysteresis`,`aggression`,`minMove`; ResistSwitch: `aggression`,`minMove`,`fastSwitch`; LowPass: `minMove`,`slopeWeight`; LowPass2: `aggressiveness`,`minMove`; ZFilter: `expFactor`,`minMove`; GaussianProcess: `minMove` + the GP hyperparameters. Verify against the live list before writing |
 | `get_algo_param` | `axis:string`, `name:string` | none | number or string (`algorithmName`) | `1` invalid args or unknown param | none |
 | `set_algo_param` | `axis:string`, `name:string`, `value:number` | none | `0` | `1` invalid args or set failure | algorithm parameter updated; graph controls refreshed |
+| `get_algo` | `axis:string` (`ra|dec|x|y`) | mount defined | algorithm name string | `1` invalid axis/mount missing | none |
+| `set_algo` | `axis:string`, `name:string` | mount defined; algorithm valid for axis | `0` | `-32602` invalid axis/name; `1` set failure | active axis algorithm changed |
+| `get_guide_limits` | none | scope defined | `{MaxRaDuration:number,MaxDecDuration:number}` milliseconds | `1` scope missing | none |
+| `set_guide_limits` | optional `MaxRaDuration:number`, `MaxDecDuration:number` | scope defined | `0` | `-32602` invalid range; `1` scope missing | maximum RA/DEC guide pulse limits changed |
 | `get_dec_guide_mode` | none | none | mode string (`Scope::DecGuideModeStr`) | none expected | none |
 | `set_dec_guide_mode` | `mode:string` | none | `0` | `1` invalid mode | DEC guide mode updated; graph controls refreshed |
 | `get_calibrated` | none | none | `bool` | none expected | none |

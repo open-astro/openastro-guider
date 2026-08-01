@@ -84,6 +84,10 @@ struct GuideStepInfo
     double starHFD;
     double avgDist;
     int starError;
+    // Optional multi-star telemetry. Zero means the guider did not expose a
+    // multi-star list for this step; legacy clients remain unchanged.
+    int multiStarCount = 0;
+    int rejectedStarCount = 0;
 };
 
 struct FrameDroppedInfo

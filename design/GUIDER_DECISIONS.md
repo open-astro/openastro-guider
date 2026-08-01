@@ -166,3 +166,16 @@ entries; add new ones at the bottom.**
 - **Verified:** full `phd2` target builds; all 9 new methods present in the dispatch table /
   binary. (Runtime RPC round-trip couldn't be exercised in the sandbox — wxGTK needs Xvfb,
   which the harness kills — but the handlers mirror the existing proven ones.)
+
+## 2026-07-31 — Optional multi-star GuideStep telemetry for ARA auto-tune
+
+- **What:** Added optional `MultiStarCount` and `RejectedStarCount` integer fields to `GuideStep`.
+  The event server emits them only when the active guider reports a valid `used/available` multi-star
+  count. Legacy and single-star payloads remain unchanged.
+- **Why:** ARA's deterministic auto-tuner needs guide-star quality evidence when selecting short
+  exposures. Optional fields preserve compatibility with older guider clients and profiles.
+- **Verified:** `cmake --build build -j2`; CTest unit suites excluding the existing long-running
+  `GuidePerformanceTest`, `GaussianProcessTest`, and `GPGuiderTest`; legacy and extended JSON schema
+  cases pass.
+- **Deferred:** ARA remains tolerant of omitted fields. No guide-loop behavior or pulse calculation
+  changes are made here.
