@@ -447,7 +447,16 @@ void SingleExposure::Complete(bool succeeded, const wxString& errorMsgArg)
         bool created = false;
         if (path.empty())
         {
-            path = wxFileName::CreateTempFileName(MyFrame::GetDefaultFileDir() + PATHSEPSTR + "save_image_");
+            // save into the same directory that capture_single_frame's path
+            // param is confined to, so the file is retrievable via
+            // GET /api/capture/<filename> and by local clients alike
+            wxString dir = pConfig->Global.GetString("/server/capture_frame_dir", MyFrame::GetDefaultFileDir());
+            // GetDefaultFileDir self-creates, but a configured override may
+            // not exist yet; without this, CreateTempFileName returns an
+            // empty path and the save fails with an unhelpful error
+            if (!wxDirExists(dir))
+                wxFileName::Mkdir(dir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
+            path = wxFileName::CreateTempFileName(dir + PATHSEPSTR + "save_image_");
             created = true;
         }
 

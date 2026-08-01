@@ -159,6 +159,37 @@ TEST(JsonRpcSchema, SettleDoneEvent)
 }
 
 // ---------------------------------------------------------------------------
+// SingleFrameComplete event
+// ---------------------------------------------------------------------------
+TEST(JsonRpcSchema, SingleFrameCompleteEvent)
+{
+    // event_server.cpp NotifySingleFrameComplete. When save=true the event
+    // carries Path (daemon-local absolute path) AND Filename (basename) —
+    // remote clients fetch the file via GET /api/capture/<Filename>, so
+    // dropping or renaming Filename breaks the remote capture-retrieval
+    // flow (issue #77 / OpenAstro Ara polar alignment).
+    {
+        const char *fixture = "{\"Event\":\"SingleFrameComplete\",\"Timestamp\":1.0,\"Host\":\"h\",\"Inst\":1,"
+                              "\"Success\":true,\"Path\":\"/var/lib/openastro-guider/.openastro-guider/save_image_abc\","
+                              "\"Filename\":\"save_image_abc\"}";
+        JsonParser p;
+        ASSERT_TRUE(p.Parse(std::string(fixture)));
+        expect_bool_field(p.Root(), "Success");
+        expect_string_field(p.Root(), "Path");
+        expect_string_field(p.Root(), "Filename");
+        EXPECT_EQ(child(p.Root(), "Error"), nullptr);
+    }
+    {
+        const char *fixture = "{\"Event\":\"SingleFrameComplete\",\"Timestamp\":1.0,\"Host\":\"h\",\"Inst\":1,"
+                              "\"Success\":false,\"Error\":\"exposure failed\"}";
+        JsonParser p;
+        ASSERT_TRUE(p.Parse(std::string(fixture)));
+        expect_bool_field(p.Root(), "Success");
+        expect_string_field(p.Root(), "Error");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Settling event
 // ---------------------------------------------------------------------------
 TEST(JsonRpcSchema, SettlingEvent)
