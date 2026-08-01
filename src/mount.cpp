@@ -1073,10 +1073,8 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
         wxString starCount = pFrame->pGuider->GetStarCount();
         long starsUsed = 0;
         long starsAvailable = 0;
-        if (!starCount.IsEmpty()
-            && starCount.BeforeFirst('/').ToLong(&starsUsed)
-            && starCount.AfterFirst('/').ToLong(&starsAvailable)
-            && starsUsed > 0 && starsAvailable >= starsUsed)
+        if (!starCount.IsEmpty() && starCount.BeforeFirst('/').ToLong(&starsUsed) &&
+            starCount.AfterFirst('/').ToLong(&starsAvailable) && starsUsed > 0 && starsAvailable >= starsUsed)
         {
             info.multiStarCount = (int) starsUsed;
             info.rejectedStarCount = (int) (starsAvailable - starsUsed);
