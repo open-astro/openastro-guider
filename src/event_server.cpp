@@ -7386,6 +7386,42 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
         return resp;
     }
 
+    if (req.method == "GET" && req.path.starts_with("/api/capture/"))
+    {
+        // retrieve a FITS file saved by capture_single_frame; this is how a
+        // remote client gets the frame back, since the JSON-RPC path param is
+        // confined to the daemon's data directory
+        wxString rel = url_decode(req.path.substr(strlen("/api/capture/")));
+        if (rel.IsEmpty() || rel.Contains("..") || rel.StartsWith("/") || rel.StartsWith("\\"))
+            return http_not_found();
+
+        wxString captureDir = pConfig->Global.GetString("/server/capture_frame_dir", MyFrame::GetDefaultFileDir());
+        wxString fullPath = captureDir + PATHSEPSTR + rel;
+        if (!path_is_under(fullPath, captureDir) || !wxFileExists(fullPath))
+            return http_not_found();
+
+        // realpath() in addition to the lexical check, mirroring the
+        // capture_single_frame write path: a symlink planted inside the
+        // capture dir must not let this unauthenticated endpoint serve
+        // files from outside it
+        char realFile[PATH_MAX];
+        char realDir[PATH_MAX];
+        if (!realpath(fullPath.mb_str(wxConvUTF8), realFile) || !realpath(captureDir.mb_str(wxConvUTF8), realDir) ||
+            !wxString(realFile, wxConvUTF8).StartsWith(wxString(realDir, wxConvUTF8) + _T("/")))
+            return http_not_found();
+
+        std::string data;
+        if (!read_file_utf8_or_binary(wxString(realFile, wxConvUTF8), &data))
+            return http_not_found();
+
+        wxString hdr = wxString::Format("HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\n"
+                                        "Content-Type: application/fits\r\nContent-Length: %u\r\n\r\n",
+                                        (unsigned int) data.size());
+        std::string resp(hdr.ToUTF8().data());
+        resp.append(data);
+        return resp;
+    }
+
     if (req.method == "GET" && req.path == "/api/frame.jpg")
     {
         // current guide frame, stretched for display the same way the GUI
@@ -7940,6 +7976,9 @@ void EventServer::NotifySingleFrameComplete(bool succeeded, const wxString& erro
     if (info.save)
     {
         ev << NV("Path", info.path);
+        // basename for remote clients that retrieve the file via
+        // GET /api/capture/<Filename> instead of reading the local path
+        ev << NV("Filename", wxFileName(info.path).GetFullName());
     }
 
     do_notify(m_eventServerClients, ev);

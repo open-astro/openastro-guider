@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `GET /api/capture/<filename>` HTTP endpoint (#77): serves the raw FITS bytes of a file saved by `capture_single_frame` from the capture directory, so a remote client can retrieve the frame the daemon saved (the JSON-RPC `path` param is confined to the daemon's data dir). Same traversal guards as `/assets/`; `404` on `..`/absolute paths.
+- `SingleFrameComplete` now includes a `Filename` field alongside `Path` when `save=true`, giving remote clients the token to fetch via `/api/capture/<Filename>`.
+
+### Fixed
+- `capture_single_frame {save:true}` without a `path` now saves into the configured `/server/capture_frame_dir` (when overridden) instead of always the default data dir, so the auto-named file is retrievable over HTTP.
+
 ## [2.1.0] - 2026-07-16
 
 ### Added

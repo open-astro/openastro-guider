@@ -215,7 +215,8 @@ Application/runtime errors:
     - requires connected camera
     - if `save=false`, `path` is not allowed
   - result: `0` when exposure has been started
-  - completion is signaled asynchronously by `SingleFrameComplete`
+  - completion is signaled asynchronously by `SingleFrameComplete` (payload includes `Path` and `Filename` when `save=true`)
+  - the saved file can be fetched remotely via `GET /api/capture/<Filename>` on the embedded HTTP server
 
 - `save_image`
   - saves current guider image to temp file
@@ -656,9 +657,10 @@ When a client connects, server sends catch-up context including:
 
 ### Single Frame Capture With Save
 
-1. `capture_single_frame` with `save=true` and absolute `path` (must be inside the daemon's data directory — or the directory configured via the `/server/capture_frame_dir` config entry — because the server transports are unauthenticated)
+1. `capture_single_frame` with `save=true` and absolute `path` (must be inside the daemon's data directory — or the directory configured via the `/server/capture_frame_dir` config entry — because the server transports are unauthenticated). Omitting `path` saves to an auto-generated filename inside that same directory.
 2. watch `SingleFrameComplete`
-3. inspect `Success` and `Path` in the event payload
+3. inspect `Success`, `Path`, and `Filename` in the event payload
+4. a remote client retrieves the FITS bytes with `GET http://<daemon>:<httpport>/api/capture/<Filename>` on the embedded HTTP server (files are served only from the capture directory; traversal attempts return `404`)
 
 ## Complete Method Name List
 
@@ -926,6 +928,8 @@ When PHD2 server mode is enabled, PHD2 also exposes a local HTTP API on `127.0.0
 
 - `GET /` or `GET /index.html`: web portal UI
 - `GET /assets/*`: static web assets
+- `GET /api/frame.jpg`: current guide frame as JPEG (display-stretched; supports `ETag`/`If-None-Match`)
+- `GET /api/capture/<filename>`: raw FITS bytes of a file saved by `capture_single_frame` (served only from the capture directory; `404` on traversal attempts)
 - `GET /api/setup`: consolidated setup payload used by the web wizard
 - `GET /api/discover/alpaca?num_queries=&timeout_seconds=`: Alpaca UDP discovery proxy
 - `POST /api/rpc`: JSON body with `{ "method": "...", "params": { ... }, "timeout_s": n }`
