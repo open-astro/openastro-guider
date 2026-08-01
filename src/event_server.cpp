@@ -7400,8 +7400,18 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
         if (!path_is_under(fullPath, captureDir) || !wxFileExists(fullPath))
             return http_not_found();
 
+        // realpath() in addition to the lexical check, mirroring the
+        // capture_single_frame write path: a symlink planted inside the
+        // capture dir must not let this unauthenticated endpoint serve
+        // files from outside it
+        char realFile[PATH_MAX];
+        char realDir[PATH_MAX];
+        if (!realpath(fullPath.mb_str(wxConvUTF8), realFile) || !realpath(captureDir.mb_str(wxConvUTF8), realDir) ||
+            !wxString(realFile, wxConvUTF8).StartsWith(wxString(realDir, wxConvUTF8) + _T("/")))
+            return http_not_found();
+
         std::string data;
-        if (!read_file_utf8_or_binary(fullPath, &data))
+        if (!read_file_utf8_or_binary(wxString(realFile, wxConvUTF8), &data))
             return http_not_found();
 
         wxString hdr = wxString::Format("HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\n"
