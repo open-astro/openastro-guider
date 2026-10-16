@@ -219,6 +219,18 @@ else()
 endif()
 
 ############################################################################
+# test_webui_rpc_guard  --  webui_rpc_guard.cpp: which /api/rpc methods the
+# web UI may call while calibrating or guiding (#81). std-only.
+############################################################################
+add_executable(test_webui_rpc_guard
+  ${PHD_TESTS_DIR}/event_server/test_webui_rpc_guard.cpp
+  ${phd_src_dir}/webui_rpc_guard.cpp
+)
+target_link_libraries(test_webui_rpc_guard PRIVATE phd_test_common)
+set_property(TARGET test_webui_rpc_guard PROPERTY FOLDER "Unit tests")
+add_test(NAME test_webui_rpc_guard COMMAND test_webui_rpc_guard)
+
+############################################################################
 # test_alpaca_gain  --  alpaca_gain.cpp: the GainMin/GainMax support
 # decision and the 0-100 % -> raw gain mapping CameraAlpaca uses. std-only.
 ############################################################################
