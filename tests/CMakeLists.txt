@@ -219,6 +219,23 @@ else()
 endif()
 
 ############################################################################
+# test_imaging_gear  --  imaging_gear.cpp / imaging_gear_poller.cpp: the
+# imaging-train guide log lines (design/IMAGING_GEAR_LOG.md), pixel scale,
+# unknown values, Alpaca device selection, and the background poller
+# (driven by a fake read-only Reader). std-only.
+############################################################################
+add_executable(test_imaging_gear
+  ${PHD_TESTS_DIR}/imaging_gear/test_imaging_gear.cpp
+  ${PHD_TESTS_DIR}/imaging_gear/test_imaging_gear_poller.cpp
+  ${phd_src_dir}/imaging_gear.cpp
+  ${phd_src_dir}/imaging_gear_poller.cpp
+)
+find_package(Threads REQUIRED)
+target_link_libraries(test_imaging_gear PRIVATE phd_test_common Threads::Threads)
+set_property(TARGET test_imaging_gear PROPERTY FOLDER "Unit tests")
+add_test(NAME test_imaging_gear COMMAND test_imaging_gear)
+
+############################################################################
 # test_webui_rpc_guard  --  webui_rpc_guard.cpp: which /api/rpc methods the
 # web UI may call while calibrating or guiding (#81). std-only.
 ############################################################################
