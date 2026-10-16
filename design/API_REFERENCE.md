@@ -124,6 +124,46 @@ drift/adjust until the error is small; switch phase and do the other axis.
 | `driftalign_get_status` | — | `{active, phase, mode, drifting, can_slew, slewing, calibrated, guiding, status_message?, polar_alignment_error? {error_arcmin, dec_drift_arcsec_per_min, samples}, current_star?, lock_position?, scope? {ra_hours, dec_degrees, lst_hours}}`. |
 | `driftalign_close` | — | Full restore (end dec drift, graph mode/scale, sticky lock, subframes, star-lost behavior) + teardown — same path as the GUI close. |
 
+## Guiding Assistant (headless)
+
+Runs PHD2's **Guiding Assistant** measurement without its dialog — the same statistics and
+recommendation code (`src/guiding_assistant_math.cpp`), the same backlash test. Guide output is
+disabled while the star drifts unguided for `duration_s`, then (optionally) the Dec backlash test
+runs, then the recommendations are computed; every setting the run changed (guide output,
+multi-star, variable delay, subframes) is restored when it ends — done, stopped or failed. Start it
+**while guiding**, or **while looping with a selected star and a calibrated mount**: in that case the
+run starts guiding itself (output already disabled, so nothing is corrected) and returns to looping
+at the end. Results are also written to the guide log and the profile's GA history, exactly as the
+dialog does. While a run is active, `guide` and `dither` are rejected.
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `guiding_assistant_start` | `measure_backlash` (bool, required — the test moves the star well north, so pick a star with room), `duration_s`? (10–3600, default 120 — the dialog's minimum; shorter runs give less reliable seeing/min-move estimates) | Start measuring; returns the status. Errors: no camera / mount, calibrating, paused, not guiding and not (looping + star selected), mount not calibrated (when starting from looping), backlash test impossible (no Dec calibration), already running, Guiding Assistant dialog open, a polar-alignment tool running, PA session lease, dark build in progress. |
+| `guiding_assistant_stop` | — | End the run now. During sampling: finish with the samples so far (backlash test skipped), or `failed` if fewer than 2 samples. During the backlash test: abort it and finish without a backlash result. Error if not running. |
+| `guiding_assistant_get_status` | — | `{state, duration_s, measure_backlash, elapsed_s, samples, pixel_scale, ...}` — see below. |
+| `guiding_assistant_apply` | `which` (non-empty array of `"exposure"`, `"min_move_ra"`, `"min_move_dec"`, `"dec_backlash"`, `"dec_guide_mode"`, `"dec_algorithm"`) | Write the accepted recommendations to the current profile (state must be `done`). All names are validated first; a name with no recommendation behind it is an error and nothing is changed. `exposure` picks the shortest available exposure in `[exposure_s, exposure_max_s]`. Returns `{applied: [...]}`. |
+
+`guiding_assistant_get_status` fields:
+
+- `state`: `idle` (never run — no other fields) · `measuring` · `measuring_backlash` · `done` · `failed`.
+- `duration_s`, `measure_backlash`, `elapsed_s` (sampling time, from the first sample), `samples`, `pixel_scale` ("/px).
+- After ≥ 2 samples: `ra_drift_px_min`, `dec_drift_px_min` (linear-fit Dec drift), `ra_rms_px`, `dec_rms_px`
+  (high-pass-filtered per-axis RMS — the seeing), `high_freq_rms_px` (their combined total), `ra_peak_px`,
+  `dec_peak_px` (largest sample-to-sample moves), `ra_peak_peak_px`, `ra_max_drift_px_s`, `snr`, `star_mass`,
+  `polar_align_error_arcmin` and `polar_align_error_is_lower_bound` (declination unknown → dec 0 assumed).
+- `backlash_status` (text, while `measuring_backlash`); `backlash_ms`, `backlash_sigma_ms`, `backlash_px` once the
+  backlash test produced a usable result.
+- `recommendations` (when `done`): `min_move_ra_px`, `min_move_dec_px`, `min_move_seeing_based` (false = the
+  measurement wasn't credible and the profile-wizard defaults were used), `exposure_s` / `exposure_max_s` (the
+  recommended exposure range), `drift_limiting_exposure_s`?, `dec_backlash_ms`? (only when compensation is worth
+  applying), `dec_guide_mode`? (`"North"`/`"South"` — only when the backlash is too large to compensate),
+  `dec_algorithm`? (`"Lowpass2"`), and `messages` — the dialog's recommendation texts `[{id, text}]` in display order
+  (`id` ∈ `Exp`, `Bin`, `Cal`, `Star`, `PA`, `StarHFD`, `RAMinMove`, `DecMinMove`, `BLT`, `DecAlgo`).
+- `error` (when `failed`): e.g. `guiding stopped`, `guiding did not start`, `stopped before enough samples were collected`.
+
+Events: `GuidingAssistantProgress` — one per unguided sample and per backlash-test step, the status fields
+without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `done` or `failed`), the full status.
+
 ## Calibration
 
 | Method | Params | Description |
@@ -293,6 +333,7 @@ On connect the server sends `Version` then `AppState`, then events as they occur
 `Version`, `AppState`, `LockPositionSet`, `StarSelected`, `StartCalibration`, `Calibrating`,
 `CalibrationComplete`, `CalibrationFailed`, `CalibrationDataFlipped`, `StartGuiding`,
 `GuideStep`, `GuidingDithered`, `Settling`, `SettleDone`, `StarLost`, `Paused`,
-`LoopingExposures`, `SingleFrameComplete`, `ConfigurationChange`, `GuideParamChange`, `Alert`.
+`LoopingExposures`, `SingleFrameComplete`, `ConfigurationChange`, `GuideParamChange`, `Alert`,
+`GuidingAssistantProgress`, `GuidingAssistantDone` (see *Guiding Assistant (headless)* for their fields).
 
 (See PHD2's *EventMonitoring* docs for the full per-event field shapes; the fork preserves them.)

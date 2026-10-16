@@ -286,6 +286,11 @@ void MyFrame::OnGuidingAssistant(wxCommandEvent& WXUNUSED(evt))
         wxMessageBox(_("Please connect a mount first."));
         return;
     }
+    if (GuidingAssistant::ApiIsRunning())
+    {
+        wxMessageBox(_("The Guiding Assistant is already running (started remotely)."));
+        return;
+    }
 
     if (!pGuidingAssistant)
     {

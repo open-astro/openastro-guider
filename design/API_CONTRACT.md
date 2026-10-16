@@ -262,3 +262,39 @@ ARA call sites: none (the web app is an alternative client; ARA supersedes it on
   clients that never see the :4400 event stream. Added so the web app can show the daemon
   version in its header (matching AlpacaBridge's web face).
   ARA call sites: none yet (useful for ARA's diagnostics/about surface).
+
+## 2026-10-16 — headless Guiding Assistant (#83)
+
+PHD2's Guiding Assistant was GUI-only (`GuidingAsstWin`), so a headless install couldn't measure
+unguided drift, seeing and Dec backlash or get the min-move / exposure / backlash suggestions. Its
+statistics and recommendation logic were extracted into the wx-free
+`src/guiding_assistant_math.{h,cpp}` (unit-tested by `test_guiding_assistant_math`); the dialog now
+delegates to it, and a headless controller in `guiding_assistant.cpp` drives the same measurement
+from the same guider hooks without the dialog.
+
+- `guiding_assistant_start` { `measure_backlash`: bool, `duration_s`? (10–3600, default 120) } →
+  status. Requires guiding, or looping + selected star + calibrated mount (the run then starts
+  guiding itself and returns to looping at the end). Disables guide output, multi-star and variable
+  delay for the run and restores them afterwards (and subframes after the backlash test).
+- `guiding_assistant_stop` → status. Finishes early with the samples so far (backlash test skipped),
+  or aborts the backlash test.
+- `guiding_assistant_get_status` → { `state`: idle|measuring|measuring_backlash|done|failed,
+  `duration_s`, `measure_backlash`, `elapsed_s`, `samples`, `pixel_scale`, after ≥2 samples
+  `ra_drift_px_min`, `dec_drift_px_min`, `ra_rms_px`, `dec_rms_px`, `high_freq_rms_px`,
+  `ra_peak_px`, `dec_peak_px`, `ra_peak_peak_px`, `ra_max_drift_px_s`, `snr`, `star_mass`,
+  `polar_align_error_arcmin`, `polar_align_error_is_lower_bound`; `backlash_status`?,
+  `backlash_ms`?, `backlash_sigma_ms`?, `backlash_px`?; when done `recommendations` {
+  `min_move_ra_px`, `min_move_dec_px`, `min_move_seeing_based`, `exposure_s`, `exposure_max_s`,
+  `drift_limiting_exposure_s`?, `dec_backlash_ms`?, `dec_guide_mode`?, `dec_algorithm`?,
+  `messages` [{`id`, `text`}] }; `error`? }.
+- `guiding_assistant_apply` { `which`: ["exposure", "min_move_ra", "min_move_dec", "dec_backlash",
+  "dec_guide_mode", "dec_algorithm"] } → { `applied`: [...] }. Validates all names first; writes
+  to the current profile.
+- Events: `GuidingAssistantProgress` (per sample / backlash step) and `GuidingAssistantDone`
+  (same shape as get_status, recommendations included).
+- `guide` and `dither` are rejected while a run is active.
+
+Deviations from the issue: `exposure_s` is the start of the recommended range (`exposure_max_s`
+is its end) because the GA recommends a range, not a single value; `dec_algorithm` was added
+because the GA also recommends Lowpass2 for Dec. Shapes pinned by fixtures in
+`test_jsonrpc_schema`. ARA call sites: the Setup flow's guiding-assistant step.

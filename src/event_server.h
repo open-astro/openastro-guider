@@ -107,6 +107,10 @@ public:
     void NotifyEquipmentReconnected(const wxString& deviceType);
     void NotifyEquipmentReconnectFailed(const wxString& deviceType, int attempts, const wxString& reason);
 
+    // Headless Guiding Assistant (guiding_assistant_* RPCs)
+    void NotifyGuidingAssistantProgress();
+    void NotifyGuidingAssistantDone();
+
 private:
     void OnEventServerEvent(wxSocketEvent& evt);
     void OnEventServerClientEvent(wxSocketEvent& evt);

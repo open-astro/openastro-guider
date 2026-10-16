@@ -1125,8 +1125,8 @@ void MyFrame::UpdateButtonsStatus()
     if (pCometTool)
         CometTool::UpdateCometToolControls(false);
 
-    if (pGuidingAssistant)
-        GuidingAssistant::UpdateUIControls();
+    // also drives a headless (JSON-RPC) Guiding Assistant run, which has no window
+    GuidingAssistant::UpdateUIControls();
 
     if (pierFlipToolWin)
         PierFlipTool::UpdateUIControls();

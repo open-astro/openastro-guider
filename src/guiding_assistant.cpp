@@ -36,10 +36,15 @@
 #include "guiding_assistant.h"
 #include "backlash_comp.h"
 #include "guiding_stats.h"
+#include "guiding_assistant_math.h"
 #include "optionsbutton.h"
 
 #include <wx/textwrapper.h>
 #include <wx/tokenzr.h>
+
+#include <algorithm>
+#include <memory>
+#include <set>
 
 struct GADetails
 {
@@ -83,6 +88,428 @@ static void MakeBold(wxControl *ctrl)
     wxFont font = ctrl->GetFont();
     font.SetWeight(wxFONTWEIGHT_BOLD);
     ctrl->SetFont(font);
+}
+
+// ---------------------------------------------------------------------------
+// Shared by the dialog and the headless (JSON-RPC) Guiding Assistant: the
+// statistics and recommendation math live in guiding_assistant_math.cpp;
+// these helpers gather the app-side inputs and format/log/apply the results.
+// ---------------------------------------------------------------------------
+
+static const int GA_MAX_HISTORY = 3;
+
+// A guide step as an unguided GA sample, in mount-axis coordinates
+static ga_math::Sample MakeGASample(const GuideStepInfo& info)
+{
+    double ra = info.mountOffset.X;
+    double dec = info.mountOffset.Y;
+    if (pMount->IsStepGuider())
+    {
+        PHD_Point mountLoc;
+        TheScope()->TransformCameraCoordinatesToMountCoordinates(info.cameraOffset, mountLoc);
+        ra = mountLoc.X;
+        dec = mountLoc.Y;
+    }
+    ga_math::Sample s;
+    s.ra = ra;
+    s.dec = dec;
+    s.time = info.time;
+    s.wallSecs = wxGetCurrentTime();
+    s.snr = info.starSNR;
+    s.mass = info.starMass;
+    return s;
+}
+
+// Running polar alignment error estimate from the linear-fit dec drift rate
+static double GAPolarAlignError(const ga_math::Accumulator& stats, bool *decKnown)
+{
+    double declination = pPointingSource ? pPointingSource->GetDeclinationRadians() : UNKNOWN_DECLINATION;
+    *decKnown = declination != UNKNOWN_DECLINATION;
+    return ga_math::PolarAlignErrorArcmin(stats.DecDriftPxPerMin(), pFrame->GetCameraPixelScale(), *decKnown, declination);
+}
+
+static wxString FormatResultCell(double pxVal, double asVal, const wxString& units1, const wxString& units2,
+                                 const wxString& extraInfo = wxEmptyString)
+{
+    return wxString::Format("%6.2f %s (%6.2f %s %s)", pxVal, units1, asVal, units2, extraInfo);
+}
+
+// The live measurement as the dialog displays it (and logs it / saves it in the GA history).
+// The star-motion fields are only filled once there are at least 2 samples.
+static void FormatGAResults(const ga_math::Accumulator& stats, const wxString& startStr, wxLongLong_t elapsedMs, GADetails *d)
+{
+    wxString SEC(_("s"));
+    wxString PX(_("px"));
+    wxString ARCSEC(_("arc-sec"));
+    wxString ARCMIN(_("arc-min"));
+    wxString PXPERMIN(_("px/min"));
+    wxString PXPERSEC(_("px/sec"));
+    wxString ARCSECPERMIN(_("arc-sec/min"));
+    wxString ARCSECPERSEC(_("arc-sec/sec"));
+
+    double n = (double) stats.Count();
+    long elapsedSecs = (long) (elapsedMs / 1000);
+
+    d->TimeStamp = startStr;
+    d->ExposureTime = wxString::Format("%g%s", (double) pFrame->RequestedExposureDuration() / 1000.0, SEC);
+    d->SNR = wxString::Format("%.1f", stats.AvgSnr());
+    d->StarMass = wxString::Format("%.1f", stats.AvgMass());
+    d->ElapsedTime = wxString::Format("%u%s", (unsigned int) elapsedSecs, SEC);
+    d->SampleCount = wxString::Format("%.0f", n);
+
+    if (n > 1)
+    {
+        double pxscale = pFrame->GetCameraPixelScale();
+        double rarms = stats.RaHighFreqRms();
+        double decrms = stats.DecHighFreqRms();
+        double combined = stats.TotalHighFreqRms();
+        double maxRateRA = stats.MaxRaRatePxPerSec();
+        double decDriftPerMin = stats.DecDriftPxPerMin();
+        bool decKnown;
+        double alignmentError = GAPolarAlignError(stats, &decKnown);
+
+        d->RA_HPF_RMS = FormatResultCell(rarms, rarms * pxscale, PX, ARCSEC);
+        d->Dec_HPF_RMS = FormatResultCell(decrms, decrms * pxscale, PX, ARCSEC);
+        d->Total_HPF_RMS = FormatResultCell(combined, combined * pxscale, PX, ARCSEC);
+        d->RAPeak = FormatResultCell(stats.RaPeak(), stats.RaPeak() * pxscale, PX, ARCSEC);
+        d->DecPeak = FormatResultCell(stats.DecPeak(), stats.DecPeak() * pxscale, PX, ARCSEC);
+        double raPkPk = stats.RaPeakToPeak();
+        d->RAPeak_Peak = FormatResultCell(raPkPk, raPkPk * pxscale, PX, ARCSEC);
+        double raDriftRate = stats.RaDriftPxPerMin(elapsedSecs);
+        d->RADriftRate = FormatResultCell(raDriftRate, raDriftRate * pxscale, PXPERMIN, ARCSECPERMIN);
+        d->RAMaxDriftRate = FormatResultCell(maxRateRA, maxRateRA * pxscale, PXPERSEC, ARCSECPERSEC);
+        d->DriftLimitingExposure = maxRateRA <= 0.0
+            ? _(" ")
+            : wxString::Format("%6.1f %s ", 1.3 * rarms / maxRateRA, SEC); // Will get revised when min-move is computed
+        d->DecDriftRate = FormatResultCell(decDriftPerMin, decDriftPerMin * pxscale, PXPERMIN, ARCSECPERMIN);
+        d->PAError = wxString::Format("%s %.1f %s", decKnown ? "" : "> ", alignmentError, ARCMIN);
+    }
+}
+
+static wxString FormatRefinedDriftLimitingExposure(const ga_math::Recommendations& recs)
+{
+    return recs.driftLimitingExposure <= 0.0 ? _(" ") : wxString::Format("%6.1f %s ", recs.driftLimitingExposure, _("s"));
+}
+
+// Dump the raw statistics to the debug and guide logs
+static void LogGAResults(const GADetails& d)
+{
+    wxString str;
+    Debug.Write("Guiding Assistant results follow:\n");
+    str = wxString::Format("SNR=%s, Samples=%s, Elapsed Time=%s, RA HPF-RMS=%s, Dec HPF-RMS=%s, Total HPF-RMS=%s\n", d.SNR,
+                           d.SampleCount, d.ElapsedTime, d.RA_HPF_RMS, d.Dec_HPF_RMS, d.Total_HPF_RMS);
+    GuideLog.NotifyGAResult(str);
+    Debug.Write(str);
+    str = wxString::Format("RA Peak=%s, RA Peak-Peak %s, RA Drift Rate=%s, Max RA Drift Rate=%s, Drift-Limiting Exp=%s\n",
+                           d.RAPeak, d.RAPeak_Peak, d.RADriftRate, d.RAMaxDriftRate, d.DriftLimitingExposure);
+    GuideLog.NotifyGAResult(str);
+    Debug.Write(str);
+    str = wxString::Format("Dec Drift Rate=%s, Dec Peak=%s, PA Error=%s\n", d.DecDriftRate, d.DecPeak, d.PAError);
+    GuideLog.NotifyGAResult(str);
+    Debug.Write(str);
+}
+
+// Backlash test result as shown in the "Declination Backlash" cell; *logStr gets the untranslated form
+static wxString FormatBacklashResult(BacklashTool::MeasurementResults qual, int backlashMs, double backlashSigmaMs,
+                                     double backlashPx, double backlashSigmaPx, wxString *logStr)
+{
+    auto pixelScale = pFrame->GetCameraPixelScale();
+    double bltGearAngle = (backlashPx * pixelScale);
+    double bltGearAngleSigma = (backlashSigmaPx * pixelScale);
+    wxString preamble = ((backlashMs >= 5000 || qual == BacklashTool::MEASUREMENT_TOO_FEW_NORTH) ? ">=" : "");
+    wxString outStrTr;
+    if (qual == BacklashTool::MEASUREMENT_VALID)
+    {
+        *logStr = wxString::Format("%s %d  +/-  %0.0f ms (%0.1f  +/-  %0.1f arc-sec)", preamble, wxMax(0, backlashMs),
+                                   backlashSigmaMs, wxMax(0, bltGearAngle), bltGearAngleSigma);
+        outStrTr = wxString::Format("%s %d  +/-  %0.0f %s (%0.1f  +/-  %0.1f %s)", preamble, wxMax(0, backlashMs),
+                                    backlashSigmaMs, _("ms"), wxMax(0, bltGearAngle), bltGearAngleSigma, _("arc-sec"));
+    }
+    else
+    {
+        *logStr = wxString::Format("%s %d  +/-  ms (test impaired)", preamble, wxMax(0, backlashMs));
+        outStrTr = wxString::Format("%s %d  +/-  %s", preamble, wxMax(0, backlashMs), _("ms (test impaired)"));
+    }
+    return outStrTr;
+}
+
+// Gather the mount / camera / profile inputs and compute the recommendations
+static ga_math::Recommendations ComputeGARecommendations(const ga_math::Accumulator& stats, bool origMultistarMode,
+                                                         bool bltCompleted, int backlashMs, bool backlashExempted,
+                                                         CalibrationDetails *calDetails)
+{
+    Scope *scope = TheScope();
+    scope->LoadCalibrationDetails(calDetails);
+
+    ga_math::RecommendationInputs in;
+    in.pxScale = pFrame->GetCameraPixelScale();
+    in.hpEncoders = pMount->HasHPEncoders();
+    in.multiStar = origMultistarMode;
+    in.smartDefaultDecMinMove =
+        GuideAlgorithm::SmartDefaultMinMove(pFrame->GetFocalLength(), pCamera->GetCameraPixelSize(), pCamera->GetBinning());
+    in.raHighFreqRms = stats.RaHighFreqRms();
+    in.maxRaRatePxPerSec = stats.MaxRaRatePxPerSec();
+    in.decDriftPxPerMin = stats.DecDriftPxPerMin();
+    bool decKnown;
+    in.polarAlignErrorArcmin = GAPolarAlignError(stats, &decKnown);
+    in.avgSnr = stats.AvgSnr();
+    in.starHfd = pFrame->pGuider->PrimaryStar().HFD;
+    in.currBinning = pCamera->GetBinning();
+    in.maxBinning = pCamera->MaxCombinedBinning();
+    for (auto choice : pCamera->GetBinningChoices())
+        in.binningChoices.push_back(choice.first);
+    in.suspectCalibration = calDetails->lastIssue != CI_None || backlashExempted;
+    GuideAlgorithm *raAlgo = pMount->GetXGuideAlgorithm();
+    GuideAlgorithm *decAlgo = pMount->GetYGuideAlgorithm();
+    in.raAlgoHasMinMove = raAlgo && raAlgo->GetMinMove() >= 0.0;
+    in.decAlgoHasMinMove = decAlgo && decAlgo->GetMinMove() >= 0.0;
+    in.decAlgoClass = decAlgo ? std::string(decAlgo->GetGuideAlgorithmClassName().ToStdString()) : std::string();
+    in.bltCompleted = bltCompleted;
+    in.backlashMs = backlashMs;
+
+    int pulseSize = 0;
+    int floor;
+    int ceiling;
+    scope->GetBacklashComp()->GetBacklashCompSettings(&pulseSize, &floor, &ceiling);
+    in.likely.compPulseMs = pulseSize;
+    DEC_GUIDE_MODE decMode = scope->GetDecGuideMode();
+    in.likely.decModeAutoOrNone = decMode == DEC_AUTO || decMode == DEC_NONE;
+    in.likely.calHasDecSteps = calDetails->decStepCount > 0 && !calDetails->decSteps.empty();
+    in.likely.calNorthDist = in.likely.calSouthDist = 0.;
+    if (in.likely.calHasDecSteps)
+    {
+        // How far the last calibration moved north, and how far back south
+        wxRealPoint northStart = calDetails->decSteps[0];
+        wxRealPoint northEnd = calDetails->decSteps[calDetails->decStepCount - 1];
+        wxRealPoint southEnd = calDetails->decSteps[calDetails->decSteps.size() - 1];
+        in.likely.calNorthDist = sqrt(pow(northStart.x - northEnd.x, 2) + pow(northStart.y - northEnd.y, 2));
+        in.likely.calSouthDist = sqrt(pow(northEnd.x - southEnd.x, 2) + pow(northEnd.y - southEnd.y, 2));
+    }
+
+    ga_math::Recommendations recs = ga_math::Recommend(stats.DecAxis(), in);
+    Debug.Write(wxString::Format("GA Min-Move recommendations (%s): Dec=%0.3f, RA=%0.3f, seeing estimate=%0.3fpx\n",
+                                 recs.minMove.seeingBased ? "seeing-based" : "smart defaults", recs.minMove.dec,
+                                 recs.minMove.ra, recs.minMove.seeingEstimatePx));
+    return recs;
+}
+
+struct GARecommendation
+{
+    wxString which; // key in the saved GA history, e.g. "RAMinMove"
+    wxString msg;
+};
+
+// The recommendation texts, in the order the dialog lists them
+static std::vector<GARecommendation> BuildGARecommendations(const ga_math::Recommendations& r,
+                                                            const CalibrationDetails& calDetails, int backlashMs)
+{
+    std::vector<GARecommendation> recs;
+
+    // Always make a recommendation on exposure times
+    if (!pMount->HasHPEncoders())
+        recs.push_back(
+            { "Exp",
+              wxString::Format(_("Use exposure times in the range of %.1fs to %.1fs"), r.exposure.min, r.exposure.max) });
+    else
+        recs.push_back(
+            { "Exp",
+              wxString::Format(_("Use exposure times from %.1fs to %0.1fs and variable delay feature to control guide cadence"),
+                               r.exposure.min, r.exposure.max) });
+
+    if (r.recommendBinning)
+        recs.push_back(
+            { "Bin",
+              wxString::Format(_("Make a new profile and set binning to %d. Use software binning if necessary"), r.binning) });
+
+    // Previous calibration alert
+    if (r.recalibrate)
+    {
+        wxString msg = _("Consider re-doing your calibration ");
+        if (calDetails.lastIssue != CI_None)
+            msg += _("(Prior alert)");
+        else
+            msg += _("(Backlash clearing)");
+        recs.push_back({ "Cal", msg });
+    }
+
+    if (r.brighterStar)
+        recs.push_back({ "Star", _("Consider using a brighter star for the test or increasing the exposure time") });
+
+    if (r.pa == ga_math::PaAdvice::Improve)
+        recs.push_back({ "PA", _("Polar alignment error > 5 arc-min; that could probably be improved.") });
+    else if (r.pa == ga_math::PaAdvice::UseDriftAlign)
+        recs.push_back({ "PA", _("Polar alignment error > 10 arc-min; try using the Drift Align tool to improve alignment.") });
+
+    if (r.improveFocus)
+        recs.push_back({ "StarHFD", _("Consider trying to improve focus on the guide camera") });
+
+    if (r.raMinMove)
+        recs.push_back({ "RAMinMove", wxString::Format(_("Try setting RA min-move to %0.2f"), r.minMove.ra) });
+
+    if (r.decMinMove)
+        recs.push_back({ "DecMinMove", wxString::Format(_("Try setting Dec min-move to %0.2f"), r.minMove.dec) });
+
+    if (r.hasBacklash)
+    {
+        wxString msg;
+        switch (r.backlash.advice)
+        {
+        case ga_math::BacklashAdvice::Encoders:
+            msg = _("Mount has absolute encoders, no compensation needed");
+            break;
+        case ga_math::BacklashAdvice::Small:
+            msg = _("Backlash is small, no compensation needed"); // assume it was a small measurement error
+            break;
+        case ga_math::BacklashAdvice::Compensate:
+            msg = wxString::Format(_("Try starting with a Dec backlash compensation of %d ms"), r.backlash.recommendedMs);
+            break;
+        case ga_math::BacklashAdvice::TooLarge:
+            msg = wxString::Format(_("Backlash is >= %d ms; you may need to guide in only one Dec direction (currently %s)"),
+                                   backlashMs, r.singleDirection == ga_math::DecDirection::South ? _("South") : _("North"));
+            break;
+        }
+        recs.push_back({ "BLT", msg });
+    }
+
+    if (r.decAlgoLowpass2)
+        recs.push_back({ "DecAlgo", _("Try using Lowpass2 for Dec guiding") });
+
+    return recs;
+}
+
+static void LogGARecommendations(const std::vector<GARecommendation>& recs)
+{
+    for (const GARecommendation& rec : recs)
+    {
+        wxString logStr = wxString::Format("Recommendation: %s\n", rec.msg);
+        Debug.Write(logStr);
+        if (rec.which != "Exp") // the exposure advice only goes to the debug log
+            GuideLog.NotifyGAResult(logStr);
+    }
+}
+
+static wxString JoinGARecommendations(const std::vector<GARecommendation>& recs)
+{
+    wxString all;
+    for (const GARecommendation& rec : recs)
+        all += rec.which + ":" + rec.msg + "\n";
+    return all;
+}
+
+static void TrimGAHistory(bool FreshBLT, int HistoryDepth);
+
+// Save the results from the most recent GA run in the profile
+static void SaveGAHistory(const wxString& startStr, const GADetails& d, double decCorrectedRMS, double decDriftPerMin,
+                          const ga_math::Recommendations& recs, int backlashMs, int backlashRecommendedMs,
+                          const wxString& allRecommendations, BacklashTool *backlashTool)
+{
+    wxString prefix = "/GA/" + startStr;
+
+    pConfig->Profile.SetString(prefix + "/timestamp", d.TimeStamp);
+    pConfig->Profile.SetString(prefix + "/snr", d.SNR);
+    pConfig->Profile.SetString(prefix + "/star_mass", d.StarMass);
+    pConfig->Profile.SetString(prefix + "/sample_count", d.SampleCount);
+    pConfig->Profile.SetString(prefix + "/elapsed_time", d.ElapsedTime);
+    pConfig->Profile.SetString(prefix + "/exposure_time", d.ExposureTime);
+    pConfig->Profile.SetString(prefix + "/ra_hpf_rms", d.RA_HPF_RMS);
+    pConfig->Profile.SetString(prefix + "/dec_hpf_rms", d.Dec_HPF_RMS);
+    pConfig->Profile.SetString(prefix + "/total_hpf_rms", d.Total_HPF_RMS);
+    pConfig->Profile.SetString(prefix + "/ra_peak", d.RAPeak);
+    pConfig->Profile.SetString(prefix + "/ra_peak_peak", d.RAPeak_Peak);
+    pConfig->Profile.SetString(prefix + "/ra_drift_rate", d.RADriftRate);
+    pConfig->Profile.SetString(prefix + "/ra_peak_drift_rate", d.RAMaxDriftRate);
+    pConfig->Profile.SetString(prefix + "/ra_drift_exposure", d.DriftLimitingExposure);
+    pConfig->Profile.SetString(prefix + "/dec_drift_rate", d.DecDriftRate);
+    pConfig->Profile.SetString(prefix + "/dec_peak", d.DecPeak);
+    pConfig->Profile.SetString(prefix + "/pa_error", d.PAError);
+    pConfig->Profile.SetString(prefix + "/dec_corrected_rms", std::to_string(decCorrectedRMS));
+    pConfig->Profile.SetString(prefix + "/backlash_info", d.BackLashInfo);
+    pConfig->Profile.SetString(prefix + "/dec_lf_drift_rate", std::to_string(decDriftPerMin));
+    pConfig->Profile.SetString(prefix + "/rec_ra_minmove", std::to_string(recs.minMove.ra));
+    pConfig->Profile.SetString(prefix + "/rec_dec_minmove", std::to_string(recs.minMove.dec));
+    if (backlashRecommendedMs > 0)
+        pConfig->Profile.SetString(prefix + "/BLT_pulse", std::to_string(backlashMs));
+    pConfig->Profile.SetString(prefix + "/recommendations", allRecommendations);
+    bool freshBLT = backlashTool && backlashTool->IsGraphable(); // Just did a BLT that is viewable
+    if (freshBLT)
+    {
+        pConfig->Profile.SetInt(prefix + "/BLT_MsmtPulse", backlashTool->GetBLTMsmtPulseSize());
+        std::vector<double> northSteps = backlashTool->GetNorthSteps();
+        std::vector<double> southSteps = backlashTool->GetSouthSteps();
+        wxString stepStr = "";
+
+        for (std::vector<double>::const_iterator it = northSteps.begin(); it != northSteps.end(); ++it)
+        {
+            stepStr += wxString::Format("%0.1f,", *it);
+        }
+        stepStr = stepStr.Left(stepStr.length() - 2);
+        pConfig->Profile.SetString(prefix + "/BLT_North", stepStr);
+
+        stepStr = "";
+
+        for (std::vector<double>::const_iterator it = southSteps.begin(); it != southSteps.end(); ++it)
+        {
+            stepStr += wxString::Format("%0.1f,", *it);
+        }
+        stepStr = stepStr.Left(stepStr.length() - 2);
+        pConfig->Profile.SetString(prefix + "/BLT_South", stepStr);
+    }
+    TrimGAHistory(freshBLT, GA_MAX_HISTORY);
+}
+
+// Applying recommendations. Each returns true if the setting was changed.
+
+static bool ApplyGAMinMove(GuideAlgorithm *algo, double minMove, const wxString& axisName, const char *debugName)
+{
+    if (!algo)
+        return false;
+
+    if (algo->GetMinMove() >= 0.0)
+    {
+        if (!algo->SetMinMove(minMove))
+        {
+            Debug.Write(wxString::Format("GuideAssistant changed %s to %0.2f\n", debugName, minMove));
+            pFrame->pGraphLog->UpdateControls();
+            pFrame->NotifyGuidingParam(axisName + " " + algo->GetGuideAlgorithmClassName() + " MinMove ", minMove);
+            return true;
+        }
+        else
+            Debug.Write(wxString::Format("GuideAssistant could not change %s\n", debugName));
+    }
+    else
+        Debug.Write(wxString::Format("GuideAssistant logic flaw, %s algorithm has no MinMove property\n", axisName));
+
+    return false;
+}
+
+// Called once the Dec algorithm has been switched to Lowpass2
+static bool ConfigureGADecLowpass2(double decMinMove)
+{
+    GuideAlgorithm *decAlgo = pMount->GetYGuideAlgorithm();
+    if (!decAlgo || decAlgo->GetGuideAlgorithmClassName() != "Lowpass2")
+    {
+        Debug.Write("GuideAssistant could not set Dec algo to Lowpass2\n");
+        return false;
+    }
+
+    double newAggr = 80.0;
+    decAlgo->SetParam("aggressiveness", newAggr);
+    decAlgo->SetParam("minMove", decMinMove);
+    Debug.Write(
+        wxString::Format("GuideAssistant set Lowpass2 aggressiveness = %0.2f, min-move = %0.2f\n", newAggr, decMinMove));
+    pFrame->pGraphLog->UpdateControls();
+    pFrame->NotifyGuidingParam("Declination algorithm", wxString("Lowpass2"));
+    pFrame->NotifyGuidingParam("Declination Lowpass2 aggressivness", newAggr);
+    pFrame->NotifyGuidingParam("Declination Lowpass2 MinMove", decMinMove);
+    return true;
+}
+
+static void ApplyGADecBacklash(int backlashMs)
+{
+    BacklashComp *pComp = TheScope()->GetBacklashComp();
+
+    pComp->SetBacklashPulseWidth(backlashMs, 0. /* floor */, 0. /* ceiling */);
+    pComp->EnableBacklashComp(!pMount->IsStepGuider());
 }
 
 // Dialog for making sure sampling period is adequate for decent measurements
@@ -230,21 +657,9 @@ struct GuidingAsstWin : public wxDialog
     bool m_measuring;
     wxLongLong_t m_startTime;
     long m_elapsedSecs;
-    PHD_Point m_startPos;
     wxString startStr;
-    DescriptiveStats m_hpfRAStats;
-    DescriptiveStats m_lpfRAStats;
-    DescriptiveStats m_hpfDecStats;
-    AxisStats m_decAxisStats;
-    AxisStats m_raAxisStats;
-    long m_axisTimebase;
-    HighPassFilter m_raHPF;
-    LowPassFilter m_raLPF;
-    HighPassFilter m_decHPF;
-    double sumSNR;
-    double sumMass;
-    double m_lastTime;
-    double maxRateRA; // arc-sec per second
+    ga_math::Accumulator m_stats;
+    ga_math::Recommendations m_recs;
     double decDriftPerMin; // px per minute
     double decCorrectedRMS; // RMS of drift-corrected Dec dataset
     double alignmentError; // arc-minutes
@@ -258,7 +673,6 @@ struct GuidingAsstWin : public wxDialog
     bool m_saveSecondaryMountEnabled;
     bool m_measurementsTaken;
     int m_origSubFrames;
-    bool m_suspectCalibration;
     bool inBLTWrapUp = false;
     bool origMultistarMode;
     VarDelayCfg origVarDelayConfig;
@@ -290,13 +704,13 @@ struct GuidingAsstWin : public wxDialog
     wxStaticText *AddRecommendationBtn(const wxString& msg, void (GuidingAsstWin::*handler)(wxCommandEvent&),
                                        wxButton **ppButton);
     wxStaticText *AddRecommendationMsg(const wxString& msg);
-    void FillResultCell(wxGrid *pGrid, const wxGridCellCoords& loc, double pxVal, double asVal, const wxString& units1,
-                        const wxString& units2, const wxString& extraInfo = wxEmptyString);
+    void AddRecommendationRow(const wxString& which, const wxString& what);
     void UpdateInfo(const GuideStepInfo& info);
     void DisplayStaticResults(const GADetails& details);
     void FillInstructions(DialogState eState);
     void MakeRecommendations();
     void DisplayStaticRecommendations(const GADetails& details);
+    void GetDisplayedResults(GADetails *details);
     void LogResults();
     void BacklashStep(const PHD_Point& camLoc);
     void EndBacklashTest(bool completed);
@@ -305,9 +719,6 @@ struct GuidingAsstWin : public wxDialog
     void LoadGAResults(const wxString& TimeStamp, GADetails *Details);
     void SaveGAResults(const wxString *AllRecommendations);
     int GetGAHistoryCount();
-    void GetMinMoveRecs(double& RecRA, double& RecDec);
-    bool LikelyBacklash(const CalibrationDetails& calDetails);
-    const int MAX_GA_HISTORY = 3;
 };
 
 static void HighlightCell(wxGrid *pGrid, wxGridCellCoords where)
@@ -347,6 +758,12 @@ GuidingAsstWin::GuidingAsstWin()
     : wxDialog(pFrame, wxID_ANY, wxGetTranslation(_("Guiding Assistant"))), m_measuring(false), m_guideOutputDisabled(false),
       m_measurementsTaken(false), m_origSubFrames(-1), m_backlashTool(nullptr), m_flushConfig(false)
 {
+    decDriftPerMin = 0.;
+    decCorrectedRMS = 0.;
+    alignmentError = 0.;
+    m_backlashMs = 0;
+    m_backlashRecommendedMs = 0;
+
     // Sizer hierarchy:
     // m_vSizer has {instructions, vResultsSizer, m_gaStatus, btnSizer}
     // vResultsSizer has {hTopSizer, hBottomSizer}
@@ -606,11 +1023,7 @@ GuidingAsstWin::~GuidingAsstWin(void)
 
 void GuidingAsstWin::StatsReset()
 {
-    m_hpfRAStats.ClearAll();
-    m_lpfRAStats.ClearAll();
-    m_hpfDecStats.ClearAll();
-    m_decAxisStats.ClearAll();
-    m_raAxisStats.ClearAll();
+    m_stats.Reset((double) pFrame->RequestedExposureDuration() / 1000.0);
 }
 
 static bool GetGridToolTip(int gridNum, const wxGridCellCoords& coords, wxString *s)
@@ -759,26 +1172,9 @@ void GuidingAsstWin::BacklashStep(const PHD_Point& camLoc)
                     m_backlashMs = m_backlashTool->GetBacklashResultMs();
                     double bltSigmaPx;
                     m_backlashTool->GetBacklashSigma(&bltSigmaPx, &m_backlashSigmaMs);
-                    auto pixelScale = pFrame->GetCameraPixelScale();
-                    double bltGearAngle = (m_backlashPx * pixelScale);
-                    double bltGearAngleSigma = (bltSigmaPx * pixelScale);
-                    wxString preamble = ((m_backlashMs >= 5000 || qual == BacklashTool::MEASUREMENT_TOO_FEW_NORTH) ? ">=" : "");
-                    wxString outStr, outStrTr; // untranslated and translated
-                    if (qual == BacklashTool::MEASUREMENT_VALID)
-                    {
-                        outStr = wxString::Format("%s %d  +/-  %0.0f ms (%0.1f  +/-  %0.1f arc-sec)", preamble,
-                                                  wxMax(0, m_backlashMs), m_backlashSigmaMs, wxMax(0, bltGearAngle),
-                                                  bltGearAngleSigma);
-                        outStrTr = wxString::Format("%s %d  +/-  %0.0f %s (%0.1f  +/-  %0.1f %s)", preamble,
-                                                    wxMax(0, m_backlashMs), m_backlashSigmaMs, _("ms"), wxMax(0, bltGearAngle),
-                                                    bltGearAngleSigma, _("arc-sec"));
-                    }
-                    else
-                    {
-                        outStr = wxString::Format("%s %d  +/-  ms (test impaired)", preamble, wxMax(0, m_backlashMs));
-                        outStrTr =
-                            wxString::Format("%s %d  +/-  %s", preamble, wxMax(0, m_backlashMs), _("ms (test impaired)"));
-                    }
+                    wxString outStr; // untranslated
+                    wxString outStrTr =
+                        FormatBacklashResult(qual, m_backlashMs, m_backlashSigmaMs, m_backlashPx, bltSigmaPx, &outStr);
                     m_othergrid->SetCellValue(m_backlash_loc, outStrTr);
                     HighlightCell(m_othergrid, m_backlash_loc);
                     outStr += "\n";
@@ -813,50 +1209,20 @@ void GuidingAsstWin::BacklashError()
 // Event handlers for applying recommendations
 void GuidingAsstWin::OnRAMinMove(wxCommandEvent& event)
 {
-    GuideAlgorithm *raAlgo = pMount->GetXGuideAlgorithm();
-
-    if (!raAlgo)
-        return;
-
-    if (raAlgo->GetMinMove() >= 0.0)
+    if (ApplyGAMinMove(pMount->GetXGuideAlgorithm(), m_ra_minmove_rec, "RA", "RA_MinMove"))
     {
-        if (!raAlgo->SetMinMove(m_ra_minmove_rec))
-        {
-            Debug.Write(wxString::Format("GuideAssistant changed RA_MinMove to %0.2f\n", m_ra_minmove_rec));
-            pFrame->pGraphLog->UpdateControls();
-            pFrame->NotifyGuidingParam("RA " + raAlgo->GetGuideAlgorithmClassName() + " MinMove ", m_ra_minmove_rec);
-            m_raMinMoveButton->Enable(false);
-            m_flushConfig = true;
-        }
-        else
-            Debug.Write("GuideAssistant could not change RA_MinMove\n");
+        m_raMinMoveButton->Enable(false);
+        m_flushConfig = true;
     }
-    else
-        Debug.Write("GuideAssistant logic flaw, RA algorithm has no MinMove property\n");
 }
 
 void GuidingAsstWin::OnDecMinMove(wxCommandEvent& event)
 {
-    GuideAlgorithm *decAlgo = pMount->GetYGuideAlgorithm();
-
-    if (!decAlgo)
-        return;
-
-    if (decAlgo->GetMinMove() >= 0.0)
+    if (ApplyGAMinMove(pMount->GetYGuideAlgorithm(), m_dec_minmove_rec, "Declination", "Dec_MinMove"))
     {
-        if (!decAlgo->SetMinMove(m_dec_minmove_rec))
-        {
-            Debug.Write(wxString::Format("GuideAssistant changed Dec_MinMove to %0.2f\n", m_dec_minmove_rec));
-            pFrame->pGraphLog->UpdateControls();
-            pFrame->NotifyGuidingParam("Declination " + decAlgo->GetGuideAlgorithmClassName() + " MinMove ", m_dec_minmove_rec);
-            m_decMinMoveButton->Enable(false);
-            m_flushConfig = true;
-        }
-        else
-            Debug.Write("GuideAssistant could not change Dec_MinMove\n");
+        m_decMinMoveButton->Enable(false);
+        m_flushConfig = true;
     }
-    else
-        Debug.Write("GuideAssistant logic flaw, Dec algorithm has no MinMove property\n");
 }
 
 void GuidingAsstWin::OnDecAlgoChange(wxCommandEvent& event)
@@ -868,23 +1234,9 @@ void GuidingAsstWin::OnDecAlgoChange(wxCommandEvent& event)
     Mount::MountConfigDialogPane *currMountPane = pFrame->pAdvancedDialog->GetCurrentMountPane();
     currMountPane->ChangeYAlgorithm("Lowpass2");
     Debug.Write("GuideAssistant changed Dec algo to Lowpass2\n");
-    GuideAlgorithm *decAlgo = pMount->GetYGuideAlgorithm();
-    if (!decAlgo || decAlgo->GetGuideAlgorithmClassName() != "Lowpass2")
-    {
-        Debug.Write("GuideAssistant could not set Dec algo to Lowpass2\n");
+    if (!ConfigureGADecLowpass2(m_dec_minmove_rec))
         return;
-    }
-
-    double newAggr = 80.0;
-    decAlgo->SetParam("aggressiveness", newAggr);
-    decAlgo->SetParam("minMove", m_dec_minmove_rec);
-    Debug.Write(
-        wxString::Format("GuideAssistant set Lowpass2 aggressiveness = %0.2f, min-move = %0.2f\n", newAggr, m_dec_minmove_rec));
-    pFrame->pGraphLog->UpdateControls();
     pMount->SetGuidingEnabled(true);
-    pFrame->NotifyGuidingParam("Declination algorithm", wxString("Lowpass2"));
-    pFrame->NotifyGuidingParam("Declination Lowpass2 aggressivness", newAggr);
-    pFrame->NotifyGuidingParam("Declination Lowpass2 MinMove", m_dec_minmove_rec);
 
     m_decAlgoButton->Enable(false);
 
@@ -893,10 +1245,7 @@ void GuidingAsstWin::OnDecAlgoChange(wxCommandEvent& event)
 
 void GuidingAsstWin::OnDecBacklash(wxCommandEvent& event)
 {
-    BacklashComp *pComp = TheScope()->GetBacklashComp();
-
-    pComp->SetBacklashPulseWidth(m_backlashRecommendedMs, 0. /* floor */, 0. /* ceiling */);
-    pComp->EnableBacklashComp(!pMount->IsStepGuider());
+    ApplyGADecBacklash(m_backlashRecommendedMs);
     m_decBacklashButton->Enable(false);
     m_flushConfig = true;
 }
@@ -956,27 +1305,34 @@ wxStaticText *GuidingAsstWin::AddRecommendationMsg(const wxString& msg)
     return AddRecommendationBtn(msg, nullptr, nullptr);
 }
 
+// The results currently shown in the grids
+void GuidingAsstWin::GetDisplayedResults(GADetails *d)
+{
+    d->TimeStamp = m_statusgrid->GetCellValue(m_timestamp_loc);
+    d->SNR = m_statusgrid->GetCellValue(m_snr_loc);
+    d->StarMass = m_statusgrid->GetCellValue(m_starmass_loc);
+    d->SampleCount = m_statusgrid->GetCellValue(m_samplecount_loc);
+    d->ElapsedTime = m_statusgrid->GetCellValue(m_elapsedtime_loc);
+    d->ExposureTime = m_statusgrid->GetCellValue(m_exposuretime_loc);
+    d->RA_HPF_RMS = m_displacementgrid->GetCellValue(m_ra_rms_loc);
+    d->Dec_HPF_RMS = m_displacementgrid->GetCellValue(m_dec_rms_loc);
+    d->Total_HPF_RMS = m_displacementgrid->GetCellValue(m_total_rms_loc);
+    d->RAPeak = m_othergrid->GetCellValue(m_ra_peak_loc);
+    d->RAPeak_Peak = m_othergrid->GetCellValue(m_ra_peakpeak_loc);
+    d->RADriftRate = m_othergrid->GetCellValue(m_ra_drift_loc);
+    d->RAMaxDriftRate = m_othergrid->GetCellValue(m_ra_peak_drift_loc);
+    d->DriftLimitingExposure = m_othergrid->GetCellValue(m_ra_drift_exp_loc);
+    d->DecDriftRate = m_othergrid->GetCellValue(m_dec_drift_loc);
+    d->DecPeak = m_othergrid->GetCellValue(m_dec_peak_loc);
+    d->PAError = m_othergrid->GetCellValue(m_pae_loc);
+    d->BackLashInfo = m_othergrid->GetCellValue(m_backlash_loc);
+}
+
 void GuidingAsstWin::LogResults()
 {
-    wxString str;
-    Debug.Write("Guiding Assistant results follow:\n");
-    str = wxString::Format("SNR=%s, Samples=%s, Elapsed Time=%s, RA HPF-RMS=%s, Dec HPF-RMS=%s, Total HPF-RMS=%s\n",
-                           m_statusgrid->GetCellValue(m_snr_loc), m_statusgrid->GetCellValue(m_samplecount_loc),
-                           m_statusgrid->GetCellValue(m_elapsedtime_loc), m_displacementgrid->GetCellValue(m_ra_rms_loc),
-                           m_displacementgrid->GetCellValue(m_dec_rms_loc), m_displacementgrid->GetCellValue(m_total_rms_loc));
-
-    GuideLog.NotifyGAResult(str);
-    Debug.Write(str);
-    str = wxString::Format("RA Peak=%s, RA Peak-Peak %s, RA Drift Rate=%s, Max RA Drift Rate=%s, Drift-Limiting Exp=%s\n",
-                           m_othergrid->GetCellValue(m_ra_peak_loc), m_othergrid->GetCellValue(m_ra_peakpeak_loc),
-                           m_othergrid->GetCellValue(m_ra_drift_loc), m_othergrid->GetCellValue(m_ra_peak_drift_loc),
-                           m_othergrid->GetCellValue(m_ra_drift_exp_loc));
-    GuideLog.NotifyGAResult(str);
-    Debug.Write(str);
-    str = wxString::Format("Dec Drift Rate=%s, Dec Peak=%s, PA Error=%s\n", m_othergrid->GetCellValue(m_dec_drift_loc),
-                           m_othergrid->GetCellValue(m_dec_peak_loc), m_othergrid->GetCellValue(m_pae_loc));
-    GuideLog.NotifyGAResult(str);
-    Debug.Write(str);
+    GADetails d;
+    GetDisplayedResults(&d);
+    LogGAResults(d);
 }
 
 // Get info regarding any saved GA sessions that include a BLT
@@ -1030,58 +1386,10 @@ static void TrimGAHistory(bool FreshBLT, int HistoryDepth)
 // Save the results from the most recent GA run in the profile
 void GuidingAsstWin::SaveGAResults(const wxString *AllRecommendations)
 {
-    wxString prefix = "/GA/" + startStr;
-
-    pConfig->Profile.SetString(prefix + "/timestamp", m_statusgrid->GetCellValue(m_timestamp_loc));
-    pConfig->Profile.SetString(prefix + "/snr", m_statusgrid->GetCellValue(m_snr_loc));
-    pConfig->Profile.SetString(prefix + "/star_mass", m_statusgrid->GetCellValue(m_starmass_loc));
-    pConfig->Profile.SetString(prefix + "/sample_count", m_statusgrid->GetCellValue(m_samplecount_loc));
-    pConfig->Profile.SetString(prefix + "/elapsed_time", m_statusgrid->GetCellValue(m_elapsedtime_loc));
-    pConfig->Profile.SetString(prefix + "/exposure_time", m_statusgrid->GetCellValue(m_exposuretime_loc));
-    pConfig->Profile.SetString(prefix + "/ra_hpf_rms", m_displacementgrid->GetCellValue(m_ra_rms_loc));
-    pConfig->Profile.SetString(prefix + "/dec_hpf_rms", m_displacementgrid->GetCellValue(m_dec_rms_loc));
-    pConfig->Profile.SetString(prefix + "/total_hpf_rms", m_displacementgrid->GetCellValue(m_total_rms_loc));
-    pConfig->Profile.SetString(prefix + "/ra_peak", m_othergrid->GetCellValue(m_ra_peak_loc));
-    pConfig->Profile.SetString(prefix + "/ra_peak_peak", m_othergrid->GetCellValue(m_ra_peakpeak_loc));
-    pConfig->Profile.SetString(prefix + "/ra_drift_rate", m_othergrid->GetCellValue(m_ra_drift_loc));
-    pConfig->Profile.SetString(prefix + "/ra_peak_drift_rate", m_othergrid->GetCellValue(m_ra_peak_drift_loc));
-    pConfig->Profile.SetString(prefix + "/ra_drift_exposure", m_othergrid->GetCellValue(m_ra_drift_exp_loc));
-    pConfig->Profile.SetString(prefix + "/dec_drift_rate", m_othergrid->GetCellValue(m_dec_drift_loc));
-    pConfig->Profile.SetString(prefix + "/dec_peak", m_othergrid->GetCellValue(m_dec_peak_loc));
-    pConfig->Profile.SetString(prefix + "/pa_error", m_othergrid->GetCellValue(m_pae_loc));
-    pConfig->Profile.SetString(prefix + "/dec_corrected_rms", std::to_string(decCorrectedRMS));
-    pConfig->Profile.SetString(prefix + "/backlash_info", m_othergrid->GetCellValue(m_backlash_loc));
-    pConfig->Profile.SetString(prefix + "/dec_lf_drift_rate", std::to_string(decDriftPerMin));
-    pConfig->Profile.SetString(prefix + "/rec_ra_minmove", std::to_string(m_ra_minmove_rec));
-    pConfig->Profile.SetString(prefix + "/rec_dec_minmove", std::to_string(m_dec_minmove_rec));
-    if (m_backlashRecommendedMs > 0)
-        pConfig->Profile.SetString(prefix + "/BLT_pulse", std::to_string(m_backlashMs));
-    pConfig->Profile.SetString(prefix + "/recommendations", *AllRecommendations);
-    bool freshBLT = m_backlashTool && m_backlashTool->IsGraphable(); // Just did a BLT that is viewable
-    if (freshBLT)
-    {
-        pConfig->Profile.SetInt(prefix + "/BLT_MsmtPulse", m_backlashTool->GetBLTMsmtPulseSize());
-        std::vector<double> northSteps = m_backlashTool->GetNorthSteps();
-        std::vector<double> southSteps = m_backlashTool->GetSouthSteps();
-        wxString stepStr = "";
-
-        for (std::vector<double>::const_iterator it = northSteps.begin(); it != northSteps.end(); ++it)
-        {
-            stepStr += wxString::Format("%0.1f,", *it);
-        }
-        stepStr = stepStr.Left(stepStr.length() - 2);
-        pConfig->Profile.SetString(prefix + "/BLT_North", stepStr);
-
-        stepStr = "";
-
-        for (std::vector<double>::const_iterator it = southSteps.begin(); it != southSteps.end(); ++it)
-        {
-            stepStr += wxString::Format("%0.1f,", *it);
-        }
-        stepStr = stepStr.Left(stepStr.length() - 2);
-        pConfig->Profile.SetString(prefix + "/BLT_South", stepStr);
-    }
-    TrimGAHistory(freshBLT, MAX_GA_HISTORY);
+    GADetails d;
+    GetDisplayedResults(&d);
+    SaveGAHistory(startStr, d, decCorrectedRMS, decDriftPerMin, m_recs, m_backlashMs, m_backlashRecommendedMs,
+                  *AllRecommendations, m_backlashTool);
 }
 
 // Reload GA results for the passed timestamp
@@ -1139,423 +1447,90 @@ void GuidingAsstWin::LoadGAResults(const wxString& TimeStamp, GADetails *Details
     }
 }
 
-// Compute a drift-corrected value for Dec RMS and use that as a seeing estimate.  For long GA runs, compute values for
-// overlapping 2-minute intervals and use the smallest result Perform suitable sanity checks, revert to default "smart"
-// recommendations if things look wonky
-void GuidingAsstWin::GetMinMoveRecs(double& RecRA, double& RecDec)
-{
-    AxisStats decVals;
-    double bestEstimate = 1000;
-    double slope = 0;
-    double intcpt = 0;
-    double rSquared = 0;
-    double selRSquared = 0;
-    double selSlope = 0;
-    double correctedRMS;
-    const int MEASUREMENT_WINDOW_SIZE = 120; // seconds
-    const int WINDOW_ADJUSTMENT = MEASUREMENT_WINDOW_SIZE / 2;
-
-    int lastInx = m_decAxisStats.GetCount() - 1;
-    auto pxscale = pFrame->GetCameraPixelScale();
-    auto binning = pCamera->GetBinning();
-    auto focalLength = pFrame->GetFocalLength();
-    auto pixelSize = pCamera->GetCameraPixelSize();
-    StarDisplacement val = m_decAxisStats.GetEntry(0);
-    double tStart = val.DeltaTime;
-    double multiplier_ra; // 65% of Dec recommendation, but 100% for encoder mounts
-    double multiplier_dec = (pxscale < 1.5) ? 1.28 : 1.65; // 20% or 10% activity target based on normal distribution
-    double minMoveFloor = 0.1;
-
-    try
-    {
-        if (m_decAxisStats.GetLastEntry().DeltaTime - tStart >
-            1.2 * MEASUREMENT_WINDOW_SIZE) // Long GA run, more than 2.4 minutes
-        {
-            bool done = false;
-            int inx = 0;
-            while (!done)
-            {
-                val = m_decAxisStats.GetEntry(inx);
-                decVals.AddGuideInfo(val.DeltaTime, val.StarPos, 0);
-                // Compute the minimum sigma for sliding, overlapping 2-min elapsed time intervals. Include the final interval
-                // if it's >= 1.6 minutes
-                if (val.DeltaTime - tStart >= MEASUREMENT_WINDOW_SIZE ||
-                    (inx == lastInx && val.DeltaTime - tStart >= 0.8 * MEASUREMENT_WINDOW_SIZE))
-                {
-                    if (decVals.GetCount() > 1)
-                    {
-                        double simpleSigma = decVals.GetSigma();
-                        rSquared = decVals.GetLinearFitResults(&slope, &intcpt, &correctedRMS);
-                        // If there is little drift relative to the random movements, the drift-correction is irrelevant and can
-                        // actually degrade the result.  So don't use the drift-corrected RMS unless it's smaller than the
-                        // simple sigma
-                        if (correctedRMS < simpleSigma)
-                        {
-                            if (correctedRMS < bestEstimate) // Keep track of the smallest value seen
-                            {
-                                bestEstimate = correctedRMS;
-                                selRSquared = rSquared;
-                                selSlope = slope;
-                            }
-                        }
-                        else
-                            bestEstimate = wxMin(bestEstimate, simpleSigma);
-                        Debug.Write(wxString::Format("GA long series, window start=%0.0f, window end=%0.0f, Uncorrected "
-                                                     "RMS=%0.3f, Drift=%0.3f, Corrected RMS=%0.3f, R-sq=%0.3f\n",
-                                                     tStart, val.DeltaTime, simpleSigma, slope * 60, correctedRMS, rSquared));
-                    }
-                    // Move the start of the next window earlier by 1 minute
-                    double targetTime = val.DeltaTime - WINDOW_ADJUSTMENT;
-                    while (m_decAxisStats.GetEntry(inx).DeltaTime > targetTime)
-                        inx--;
-                    tStart = m_decAxisStats.GetEntry(inx).DeltaTime;
-
-                    decVals.ClearAll();
-                }
-                else
-                {
-                    inx++;
-                }
-                done = (inx > lastInx);
-            }
-            Debug.Write(wxString::Format(
-                "Full uncorrected RMS=%0.3fpx, Selected Dec drift=%0.3f px/min, Best seeing estimate=%0.3fpx, R-sq=%0.3f\n",
-                m_decAxisStats.GetSigma(), selSlope * 60, bestEstimate, selRSquared));
-        }
-        else // Normal GA run of <= 2.4 minutes, just use the entire interval for stats
-        {
-            if (m_decAxisStats.GetCount() > 1)
-            {
-                double simpleSigma = m_decAxisStats.GetSigma();
-                rSquared = m_decAxisStats.GetLinearFitResults(&slope, &intcpt, &correctedRMS);
-                // If there is little drift relative to the random movements, the drift-correction is irrelevant and can
-                // actually degrade the result.  So don't use the drift-corrected RMS unless it's smaller than the simple sigma
-                if (correctedRMS < simpleSigma)
-                    bestEstimate = correctedRMS;
-                else
-                    bestEstimate = simpleSigma;
-                Debug.Write(wxString::Format(
-                    "Uncorrected Dec RMS=%0.3fpx, Dec drift=%0.3f px/min, Best seeing estimate=%0.3fpx, R-sq=%0.3f\n",
-                    simpleSigma, slope * 60, bestEstimate, rSquared));
-            }
-        }
-        if (origMultistarMode)
-        {
-            bestEstimate *= 0.9;
-            minMoveFloor = 0.05;
-        }
-        if (pMount->HasHPEncoders())
-            multiplier_ra = 1.0;
-        else
-            multiplier_ra = 0.65;
-        // round up to next multiple of .05, but do not go below 0.05 pixel for multi-star, 0.1 for single-star
-        double const unit = 0.05;
-        double roundUpEst = std::max(round(bestEstimate * multiplier_dec / unit + 0.5) * unit, 0.05);
-        // Now apply a sanity check - there are still numerous things that could have gone wrong during the GA
-        if (pxscale * roundUpEst <= 1.25) // Min-move below 1.25 arc-sec is credible
-        {
-            RecDec = roundUpEst;
-            RecRA = wxMax(minMoveFloor, RecDec * multiplier_ra);
-            Debug.Write(wxString::Format("GA Min-Move recommendations are seeing-based: Dec=%0.3f, RA=%0.3f\n", RecDec, RecRA));
-        }
-        else
-        {
-            // Just reiterate the estimates made in the new-profile-wiz
-            RecDec = GuideAlgorithm::SmartDefaultMinMove(focalLength, pixelSize, binning);
-            RecRA = wxMax(minMoveFloor, RecDec * multiplier_ra);
-            Debug.Write(wxString::Format("GA Min-Move calcs failed sanity-check, DecEst=%0.3f, Dec-HPF-Sigma=%0.3f\n",
-                                         roundUpEst, m_hpfDecStats.GetSigma()));
-            Debug.Write(wxString::Format("GA Min-Move recs reverting to smart defaults, RA=%0.3f, Dec=%0.3f\n", RecRA, RecDec));
-        }
-    }
-    catch (const wxString& msg)
-    {
-        Debug.Write("Exception thrown in GA min-move calcs: " + msg + "\n");
-        // Punt by reiterating estimates made by new-profile-wiz
-        RecDec = GuideAlgorithm::SmartDefaultMinMove(focalLength, pixelSize, binning);
-        RecRA = RecDec * multiplier_ra / multiplier_dec;
-        Debug.Write(wxString::Format("GA Min-Move recs reverting to smart defaults, RA=%0.3f, Dec=%0.3f\n", RecRA, RecDec));
-    }
-}
-
-// See if the mount probably has large Dec backlash, using either blt results or from inference. If so, we should relax the
-// recommendations regarding polar alignment error
-bool GuidingAsstWin::LikelyBacklash(const CalibrationDetails& calDetails)
-{
-    bool likely = false;
-    BacklashComp *blc = TheScope()->GetBacklashComp(); // Always valid
-
-    try
-    {
-        if (m_backlashTool->GetBltState() == BacklashTool::BLT_STATE_COMPLETED && m_backlashMs > MAX_BACKLASH_COMP)
-        {
-            // Just ran the BLT and the result is too big for BLC
-            likely = true;
-        }
-        if (!likely)
-        {
-            // May have tried BLC in the past with a too-large pulse size
-            int pulseSize;
-            int floor;
-            int ceiling;
-            blc->GetBacklashCompSettings(&pulseSize, &floor, &ceiling);
-            likely = (pulseSize > MAX_BACKLASH_COMP);
-        }
-        if (!likely)
-        {
-            // If guide mode isn't 'Auto' or 'None', user can benefit from larger polar alignment error
-            DEC_GUIDE_MODE decMode = TheScope()->GetDecGuideMode();
-            likely = (decMode != DEC_AUTO && decMode != DEC_NONE);
-        }
-        if (!likely && calDetails.decStepCount > 0)
-        {
-            // See if the last calibration showed little or no Dec movement to the south
-            wxRealPoint northStart = calDetails.decSteps[0];
-            wxRealPoint northEnd = calDetails.decSteps[calDetails.decStepCount - 1];
-            double northDist = sqrt(pow(northStart.x - northEnd.x, 2) + pow(northStart.y - northEnd.y, 2));
-            wxRealPoint southEnd = calDetails.decSteps[calDetails.decSteps.size() - 1];
-            double southDist = sqrt(pow(northEnd.x - southEnd.x, 2) + pow(northEnd.y - southEnd.y, 2));
-            likely = (southDist <= 0.1 * northDist);
-        }
-    }
-    catch (const wxString& msg)
-    {
-        Debug.Write(wxString::Format("GA-LikelyBacklash: exception at %d, %s\n", __LINE__, msg));
-    }
-
-    return likely;
-}
-// Compute binning level needed to meet or exceed the requested minimum image scale
-static int RecommendedBinning(double currScale, int currBinning, double targetScale)
-{
-    double bin1scale = currScale / currBinning;
-    for (auto choice : pCamera->GetBinningChoices())
-    {
-        auto binning = choice.first;
-        double scale = bin1scale * binning;
-        if (scale >= targetScale)
-            return binning;
-    }
-    return pCamera->MaxCombinedBinning();
-}
-
 // Produce recommendations for "live" GA run
 void GuidingAsstWin::MakeRecommendations()
 {
     CalibrationDetails calDetails;
-    TheScope()->LoadCalibrationDetails(&calDetails);
-    m_suspectCalibration = calDetails.lastIssue != CI_None || m_backlashTool->GetBacklashExempted();
-
-    GetMinMoveRecs(m_ra_minmove_rec, m_dec_minmove_rec);
+    bool bltCompleted = m_backlashTool->GetBltState() == BacklashTool::BLT_STATE_COMPLETED;
+    m_recs = ComputeGARecommendations(m_stats, origMultistarMode, bltCompleted, m_backlashMs,
+                                      m_backlashTool->GetBacklashExempted(), &calDetails);
+    m_ra_minmove_rec = m_recs.minMove.ra;
+    m_dec_minmove_rec = m_recs.minMove.dec;
+    decCorrectedRMS = m_recs.minMove.seeingEstimatePx;
+    m_min_exp_rec = m_recs.exposure.min;
+    m_max_exp_rec = m_recs.exposure.max;
+    m_backlashRecommendedMs = m_recs.hasBacklash ? m_recs.backlash.recommendedMs : 0;
 
     // Refine the drift-limiting exposure value based on the ra_min_move recommendation
-    m_othergrid->SetCellValue(m_ra_drift_exp_loc,
-                              maxRateRA <= 0.0 ? _(" ") : wxString::Format("%6.1f %s ", m_ra_minmove_rec / maxRateRA, _("s")));
+    m_othergrid->SetCellValue(m_ra_drift_exp_loc, FormatRefinedDriftLimitingExposure(m_recs));
 
     LogResults(); // Dump the raw statistics
 
-    // REMINDER: Any new recommendations must also be done in 'DisplayStaticRecommendations'
-    // Clump the no-button messages at the top
-    // ideal exposure ranges in general
-    double rarms = m_hpfRAStats.GetSigma();
-    double multiplier_ra = 1.0; // 66% prediction interval
-    bool hasEncoders = pMount->HasHPEncoders();
-    double ideal_min_exposure = hasEncoders ? 4.0 : 2.0;
-    double ideal_max_exposure = hasEncoders ? 8.0 : 4.0;
-    // adjust the min-exposure downward if drift limiting exposure is lower; then adjust range accordingly
-    double drift_exp;
-    if (maxRateRA > 0)
-        drift_exp = ceil((multiplier_ra * rarms / maxRateRA) / 0.5) * 0.5; // Rounded up to nearest 0.5 sec
-    else
-        drift_exp = ideal_min_exposure;
-
-    double min_rec_range = 2.0;
-    double pxscale = pFrame->GetCameraPixelScale();
-    m_min_exp_rec = std::max(1.0, std::min(drift_exp, ideal_min_exposure)); // smaller of drift and ideal, never less than 1.0
-
-    if (drift_exp > m_min_exp_rec)
-    {
-        if (drift_exp < ideal_max_exposure)
-            m_max_exp_rec = std::max(drift_exp, m_min_exp_rec + min_rec_range);
-        else
-            m_max_exp_rec = ideal_max_exposure;
-    }
-    else
-        m_max_exp_rec = m_min_exp_rec + min_rec_range;
-
+    // REMINDER: Any new recommendations must also be handled in 'AddRecommendationRow'
     m_recommendgrid->Clear(true);
 
-    wxString logStr;
-    wxString allRecommendations;
+    std::vector<GARecommendation> recs = BuildGARecommendations(m_recs, calDetails, m_backlashMs);
+    for (const GARecommendation& rec : recs)
+        AddRecommendationRow(rec.which, rec.msg);
+    LogGARecommendations(recs);
 
-    // Always make a recommendation on exposure times
-    wxString msg;
-    if (!hasEncoders)
-        msg = wxString::Format(_("Use exposure times in the range of %.1fs to %.1fs"), m_min_exp_rec, m_max_exp_rec);
-    else
-        msg = wxString::Format(_("Use exposure times from %.1fs to %0.1fs and variable delay feature to control guide cadence"),
-                               ideal_min_exposure, ideal_max_exposure);
-    allRecommendations += "Exp:" + msg + "\n";
-    m_exposure_msg = AddRecommendationMsg(msg);
-    Debug.Write(wxString::Format("Recommendation: %s\n", msg));
-    // Binning opportunity if image scale is < 0.5
-    double currBinning = pCamera->GetBinning();
-    if (pxscale < 0.5 && currBinning < pCamera->MaxCombinedBinning())
-    {
-        wxString msg;
-        int recBinning = RecommendedBinning(pxscale, currBinning, 0.5);
-        msg = wxString::Format(_("Make a new profile and set binning to %d. Use software binning if necessary"), recBinning);
-        allRecommendations += "Bin:" + msg + "\n";
-        m_binning_msg = AddRecommendationMsg(msg);
-        logStr = wxString::Format("Recommendation: %s\n", msg);
-        Debug.Write(logStr);
-        GuideLog.NotifyGAResult(logStr);
-    }
-    // Previous calibration alert
-    if (m_suspectCalibration)
-    {
-        wxString msg = _("Consider re-doing your calibration ");
-        if (calDetails.lastIssue != CI_None)
-            msg += _("(Prior alert)");
-        else
-            msg += _("(Backlash clearing)");
-        allRecommendations += "Cal:" + msg + "\n";
-        m_calibration_msg = AddRecommendationMsg(msg);
-        logStr = wxString::Format("Recommendation: %s\n", msg);
-        Debug.Write(logStr);
-        GuideLog.NotifyGAResult(logStr);
-    }
-    // SNR
-    if ((sumSNR / (double) m_lpfRAStats.GetCount()) < 10.0)
-    {
-        wxString msg(_("Consider using a brighter star for the test or increasing the exposure time"));
-        allRecommendations += "Star:" + msg + "\n";
-        m_snr_msg = AddRecommendationMsg(msg);
-        logStr = wxString::Format("Recommendation: %s\n", msg);
-        Debug.Write(logStr);
-        GuideLog.NotifyGAResult(logStr);
-    }
-
-    // Alignment error
-    if (alignmentError > 5.0)
-    {
-        wxString msg = "";
-        // If the mount looks like it has large Dec backlash, ignore alignment error below 10 arc-min
-        if (LikelyBacklash(calDetails))
-        {
-            if (alignmentError > 10.0)
-                msg = _("Polar alignment error > 10 arc-min; try using the Drift Align tool to improve alignment.");
-        }
-        else
-        {
-            msg = alignmentError < 10.0
-                ? _("Polar alignment error > 5 arc-min; that could probably be improved.")
-                : _("Polar alignment error > 10 arc-min; try using the Drift Align tool to improve alignment.");
-        }
-        if (msg != "")
-        {
-            allRecommendations += "PA:" + msg + "\n";
-            m_pae_msg = AddRecommendationMsg(msg);
-            logStr = wxString::Format("Recommendation: %s\n", msg);
-            Debug.Write(logStr);
-            GuideLog.NotifyGAResult(logStr);
-        }
-    }
-
-    // Star HFD
-    const Star& star = pFrame->pGuider->PrimaryStar();
-    if (pxscale > 1.0 && star.HFD > 4.5)
-    {
-        wxString msg(_("Consider trying to improve focus on the guide camera"));
-        allRecommendations += "StarHFD:" + msg + "\n";
-        m_hfd_msg = AddRecommendationMsg(msg);
-        logStr = wxString::Format("Recommendation: %s\n", msg);
-        Debug.Write(logStr);
-        GuideLog.NotifyGAResult(logStr);
-    }
-
-    // RA min-move
-    if (pMount->GetXGuideAlgorithm() && pMount->GetXGuideAlgorithm()->GetMinMove() >= 0.0)
-    {
-        wxString msgText = wxString::Format(_("Try setting RA min-move to %0.2f"), m_ra_minmove_rec);
-        allRecommendations += "RAMinMove:" + msgText + "\n";
-        m_ra_msg = AddRecommendationBtn(msgText, &GuidingAsstWin::OnRAMinMove, &m_raMinMoveButton);
-        logStr = wxString::Format("Recommendation: %s\n", msgText);
-        Debug.Write(logStr);
-        GuideLog.NotifyGAResult(logStr);
-    }
-
-    // Dec min-move
-    if (pMount->GetYGuideAlgorithm() && pMount->GetYGuideAlgorithm()->GetMinMove() >= 0.0)
-    {
-        wxString msgText = wxString::Format(_("Try setting Dec min-move to %0.2f"), m_dec_minmove_rec);
-        allRecommendations += "DecMinMove:" + msgText + "\n";
-        m_dec_msg = AddRecommendationBtn(msgText, &GuidingAsstWin::OnDecMinMove, &m_decMinMoveButton);
-        logStr = wxString::Format("Recommendation: %s\n", msgText);
-        Debug.Write(logStr);
-        GuideLog.NotifyGAResult(logStr);
-    }
-
-    // Backlash comp
-    bool smallBacklash = false;
-    if (m_backlashTool->GetBltState() == BacklashTool::BLT_STATE_COMPLETED)
-    {
-        wxString msg;
-
-        if (m_backlashMs > 0)
-        {
-            m_backlashRecommendedMs = (int) (floor(m_backlashMs / 10) * 10); // round down to nearest 10ms
-            m_backlashRecommendedMs = wxMax(m_backlashRecommendedMs, 10);
-        }
-        else
-            m_backlashRecommendedMs = 0;
-        bool largeBL = m_backlashMs > MAX_BACKLASH_COMP;
-        if (m_backlashMs < 100 || pMount->HasHPEncoders())
-        {
-            if (pMount->HasHPEncoders())
-                msg = _("Mount has absolute encoders, no compensation needed");
-            else
-                msg = _("Backlash is small, no compensation needed"); // assume it was a small measurement error
-            smallBacklash = true;
-        }
-        else if (m_backlashMs <= MAX_BACKLASH_COMP)
-            msg = wxString::Format(_("Try starting with a Dec backlash compensation of %d ms"), m_backlashRecommendedMs);
-        else
-        {
-            msg = wxString::Format(_("Backlash is >= %d ms; you may need to guide in only one Dec direction (currently %s)"),
-                                   m_backlashMs, decDriftPerMin >= 0 ? _("South") : _("North"));
-        }
-        allRecommendations += "BLT:" + msg + "\n";
-        m_backlash_msg = AddRecommendationBtn(msg, &GuidingAsstWin::OnDecBacklash, &m_decBacklashButton);
-        m_decBacklashButton->Enable(!largeBL && m_backlashRecommendedMs > 100);
-        logStr = wxString::Format("Recommendation: %s\n", msg);
-        Debug.Write(logStr);
-        GuideLog.NotifyGAResult(logStr);
-    }
-
-    if (hasEncoders || smallBacklash) // Uses encoders or has zero backlash
-    {
-        GuideAlgorithm *decAlgo = pMount->GetYGuideAlgorithm();
-        wxString algoChoice = decAlgo->GetGuideAlgorithmClassName();
-        if (algoChoice == "ResistSwitch") // automatically rules out AO's
-        {
-            wxString msgText = _("Try using Lowpass2 for Dec guiding");
-            allRecommendations += "DecAlgo:" + msgText + "\n";
-            m_decAlgo_msg = AddRecommendationBtn(msgText, &GuidingAsstWin::OnDecAlgoChange, &m_decAlgoButton);
-            logStr = wxString::Format("Recommendation: %s\n", msgText);
-            Debug.Write(logStr);
-            GuideLog.NotifyGAResult(logStr);
-        }
-    }
-
+    wxString allRecommendations = JoinGARecommendations(recs);
     GuideLog.NotifyGACompleted();
     SaveGAResults(&allRecommendations);
     m_recommend_group->Show(true);
 
+    // cppcheck-suppress ignoredReturnValue
     m_statusgrid->Layout();
     Layout();
     GetSizer()->Fit(this);
     Debug.Write("End of Guiding Assistant output....\n");
+}
+
+// Adds the recommendation row for a GA-history key ("Exp", "RAMinMove", ...), with an Apply button where applicable
+void GuidingAsstWin::AddRecommendationRow(const wxString& which, const wxString& what)
+{
+    if (which == "Exp")
+    {
+        m_exposure_msg = AddRecommendationMsg(what);
+    }
+    else if (which == "Bin")
+    {
+        m_binning_msg = AddRecommendationMsg(what);
+    }
+    else if (which == "Cal")
+    {
+        m_calibration_msg = AddRecommendationMsg(what);
+    }
+    else if (which == "Star")
+    {
+        m_snr_msg = AddRecommendationMsg(what);
+    }
+    else if (which == "PA")
+    {
+        m_pae_msg = AddRecommendationMsg(what);
+    }
+    else if (which == "StarHFD")
+    {
+        m_hfd_msg = AddRecommendationMsg(what);
+    }
+    else if (which == "RAMinMove")
+    {
+        m_ra_msg = AddRecommendationBtn(what, &GuidingAsstWin::OnRAMinMove, &m_raMinMoveButton);
+    }
+    else if (which == "DecMinMove")
+    {
+        m_dec_msg = AddRecommendationBtn(what, &GuidingAsstWin::OnDecMinMove, &m_decMinMoveButton);
+    }
+    else if (which == "DecAlgo")
+    {
+        m_decAlgo_msg = AddRecommendationBtn(what, &GuidingAsstWin::OnDecAlgoChange, &m_decAlgoButton);
+    }
+    else if (which == "BLT")
+    {
+        bool largeBL = m_backlashMs > MAX_BACKLASH_COMP;
+        m_backlash_msg = AddRecommendationBtn(what, &GuidingAsstWin::OnDecBacklash, &m_decBacklashButton);
+        m_decBacklashButton->Enable(!largeBL && m_backlashRecommendedMs > 100);
+    }
 }
 
 // Show recommendations from a previous GA that is being reviewed
@@ -1576,51 +1551,13 @@ void GuidingAsstWin::DisplayStaticRecommendations(const GADetails& details)
             size_t colPos = rec.find_first_of(":");
             wxString which = rec.SubString(0, colPos - 1);
             wxString what = rec.SubString(colPos + 1, end);
-            if (which == "Exp")
-            {
-                m_exposure_msg = AddRecommendationMsg(what);
-            }
-            else if (which == "Bin")
-            {
-                m_binning_msg = AddRecommendationMsg(what);
-            }
-            else if (which == "Cal")
-            {
-                m_calibration_msg = AddRecommendationMsg(what);
-            }
-            else if (which == "Star")
-            {
-                m_snr_msg = AddRecommendationMsg(what);
-            }
-            else if (which == "PA")
-            {
-                m_pae_msg = AddRecommendationMsg(what);
-            }
-            else if (which == "StarHFD")
-            {
-                m_hfd_msg = AddRecommendationMsg(what);
-            }
-            else if (which == "RAMinMove")
-            {
+            if (which == "RAMinMove")
                 details.RecRAMinMove.ToDouble(&m_ra_minmove_rec);
-                m_ra_msg = AddRecommendationBtn(what, &GuidingAsstWin::OnRAMinMove, &m_raMinMoveButton);
-            }
             else if (which == "DecMinMove")
-            {
                 details.RecDecMinMove.ToDouble(&m_dec_minmove_rec);
-                m_dec_msg = AddRecommendationBtn(what, &GuidingAsstWin::OnDecMinMove, &m_decMinMoveButton);
-            }
-            else if (which == "DecAlgo")
-            {
-                m_decAlgo_msg = AddRecommendationBtn(what, &GuidingAsstWin::OnDecAlgoChange, &m_decAlgoButton);
-            }
             else if (which == "BLT")
-            {
                 m_backlashMs = wxAtoi(details.BLTAmount);
-                bool largeBL = m_backlashMs > MAX_BACKLASH_COMP;
-                m_backlash_msg = AddRecommendationBtn(what, &GuidingAsstWin::OnDecBacklash, &m_decBacklashButton);
-                m_decBacklashButton->Enable(!largeBL && m_backlashRecommendedMs > 100);
-            }
+            AddRecommendationRow(which, what);
             allRecs = allRecs.Mid(end + 1);
             done = allRecs.size() == 0;
         }
@@ -1637,17 +1574,8 @@ void GuidingAsstWin::OnStart(wxCommandEvent& event)
     if (!pFrame->pGuider->IsGuiding())
         return;
 
-    double exposure = (double) pFrame->RequestedExposureDuration() / 1000.0;
-    double lp_cutoff = wxMax(6.0, 3.0 * exposure);
-    double hp_cutoff = 1.0;
-
     pFrame->pGuider->SetMultiStarMode(false);
     StatsReset();
-    m_raHPF = HighPassFilter(hp_cutoff, exposure);
-    m_raLPF = LowPassFilter(lp_cutoff, exposure);
-    m_decHPF = HighPassFilter(hp_cutoff, exposure);
-
-    sumSNR = sumMass = 0.0;
 
     m_start->Enable(false);
     m_stop->Enable(true);
@@ -1858,12 +1786,6 @@ void GuidingAsstWin::OnClose(wxCloseEvent& evt)
     Destroy();
 }
 
-void GuidingAsstWin::FillResultCell(wxGrid *pGrid, const wxGridCellCoords& loc, double pxVal, double asVal,
-                                    const wxString& units1, const wxString& units2, const wxString& extraInfo)
-{
-    pGrid->SetCellValue(loc, wxString::Format("%6.2f %s (%6.2f %s %s)", pxVal, units1, asVal, units2, extraInfo));
-}
-
 void GuidingAsstWin::DisplayStaticResults(const GADetails& details)
 {
     wxString SEC(_("s"));
@@ -1904,114 +1826,688 @@ void GuidingAsstWin::DisplayStaticResults(const GADetails& details)
 
 void GuidingAsstWin::UpdateInfo(const GuideStepInfo& info)
 {
-    double ra = info.mountOffset.X;
-    double dec = info.mountOffset.Y;
-    if (pMount->IsStepGuider())
-    {
-        PHD_Point mountLoc;
-        TheScope()->TransformCameraCoordinatesToMountCoordinates(info.cameraOffset, mountLoc);
-        ra = mountLoc.X;
-        dec = mountLoc.Y;
-    }
     // Update the time measures
     wxLongLong_t elapsedms = ::wxGetUTCTimeMillis().GetValue() - m_startTime;
     m_elapsedSecs = (double) elapsedms / 1000.0;
     // add offset info to various stats accumulations
-    m_hpfRAStats.AddValue(m_raHPF.AddValue(ra));
-    double prevRAlpf = m_raLPF.GetCurrentLPF();
-    double newRAlpf = m_raLPF.AddValue(ra);
-    if (m_lpfRAStats.GetCount() == 0)
-        prevRAlpf = newRAlpf;
-    m_lpfRAStats.AddValue(newRAlpf);
-    m_hpfDecStats.AddValue(m_decHPF.AddValue(dec));
-    if (m_decAxisStats.GetCount() == 0)
-        m_axisTimebase = wxGetCurrentTime();
-    m_decAxisStats.AddGuideInfo(wxGetCurrentTime() - m_axisTimebase, dec, 0);
-    m_raAxisStats.AddGuideInfo(wxGetCurrentTime() - m_axisTimebase, ra, 0);
+    m_stats.AddSample(MakeGASample(info));
 
-    // Compute the maximum interval RA movement rate using low-passed-filtered data
-    if (m_lpfRAStats.GetCount() == 1)
+    GADetails d;
+    FormatGAResults(m_stats, startStr, elapsedms, &d);
+
+    m_statusgrid->SetCellValue(m_timestamp_loc, d.TimeStamp);
+    m_statusgrid->SetCellValue(m_exposuretime_loc, d.ExposureTime);
+    m_statusgrid->SetCellValue(m_snr_loc, d.SNR);
+    m_statusgrid->SetCellValue(m_starmass_loc, d.StarMass);
+    m_statusgrid->SetCellValue(m_elapsedtime_loc, d.ElapsedTime);
+    m_statusgrid->SetCellValue(m_samplecount_loc, d.SampleCount);
+
+    if (m_stats.Count() > 1)
     {
-        m_startPos = info.mountOffset;
-        maxRateRA = 0.0;
+        // Update the running estimates of dec drift and polar alignment error
+        decDriftPerMin = m_stats.DecDriftPxPerMin();
+        bool decKnown;
+        alignmentError = GAPolarAlignError(m_stats, &decKnown);
+
+        // update grid display w/ running stats
+        m_displacementgrid->SetCellValue(m_ra_rms_loc, d.RA_HPF_RMS);
+        m_displacementgrid->SetCellValue(m_dec_rms_loc, d.Dec_HPF_RMS);
+        m_displacementgrid->SetCellValue(m_total_rms_loc, d.Total_HPF_RMS);
+        m_othergrid->SetCellValue(m_ra_peak_loc, d.RAPeak);
+        m_othergrid->SetCellValue(m_dec_peak_loc, d.DecPeak);
+        m_othergrid->SetCellValue(m_ra_peakpeak_loc, d.RAPeak_Peak);
+        m_othergrid->SetCellValue(m_ra_drift_loc, d.RADriftRate);
+        m_othergrid->SetCellValue(m_ra_peak_drift_loc, d.RAMaxDriftRate);
+        m_othergrid->SetCellValue(m_ra_drift_exp_loc, d.DriftLimitingExposure);
+        m_othergrid->SetCellValue(m_dec_drift_loc, d.DecDriftRate);
+        m_othergrid->SetCellValue(m_pae_loc, d.PAError);
     }
-    else
+}
+
+// ---------------------------------------------------------------------------
+// Headless Guiding Assistant (guiding_assistant_* JSON-RPC methods)
+//
+// The same measurement as the dialog, without the dialog: guide output is
+// disabled while the star drifts (guiding keeps running, so samples arrive
+// through the same NotifyGuideStep hook in mount-axis coordinates), then the
+// optional Dec backlash test runs through the same BacklashTool, and the
+// shared helpers above compute, log and save the recommendations. Every
+// setting changed for the run is restored at the end, whether it completes,
+// is stopped, or fails. The run always ends from the event loop (never from
+// inside the guider's frame processing), so it can stop guiding it started.
+// ---------------------------------------------------------------------------
+
+struct HeadlessGA
+{
+    GuidingAssistant::ApiState state = GuidingAssistant::API_IDLE;
+    double durationS = 0.;
+    bool measureBacklash = false;
+    ga_math::Accumulator stats;
+    wxString startStr;
+    wxLongLong_t startTime = 0; // ms, at the first sample
+    double elapsedS = 0.;
+    bool waitingForGuiding = false; // guiding was started for the run and has not begun yet
+    bool startedGuiding = false; // return to looping at the end
+    bool endSamplingPending = false;
+    bool endBacklashPending = false;
+    bool appStateCheckPending = false;
+
+    // settings changed for the run
+    bool guideOutputDisabled = false;
+    bool savePrimaryMountEnabled = false;
+    bool saveSecondaryMountEnabled = false;
+    bool origMultistarMode = false;
+    VarDelayCfg origVarDelayConfig = {};
+    int origSubFrames = -1;
+
+    // backlash test
+    std::unique_ptr<BacklashTool> backlashTool;
+    bool backlashValid = false;
+    int backlashMs = 0;
+    double backlashSigmaMs = 0.;
+    double backlashPx = 0.;
+    wxString backlashInfo; // formatted result, as saved in the GA history
+    wxString backlashStatus;
+
+    // results
+    bool hasRecs = false;
+    ga_math::Recommendations recs = {};
+    std::vector<GARecommendation> recList;
+    wxString error;
+};
+
+static HeadlessGA s_ga;
+
+static bool HeadlessGARunning()
+{
+    return s_ga.state == GuidingAssistant::API_MEASURING || s_ga.state == GuidingAssistant::API_MEASURING_BACKLASH;
+}
+
+static double HeadlessGASamplingElapsed()
+{
+    if (s_ga.stats.Count() == 0)
+        return 0.;
+    return (double) (::wxGetUTCTimeMillis().GetValue() - s_ga.startTime) / 1000.0;
+}
+
+static void HeadlessGARestore()
+{
+    if (s_ga.startedGuiding)
     {
-        double dt = info.time - m_lastTime;
-        if (dt > 0.0001)
+        // The run started guiding from looping: go back to looping before guide output is re-enabled
+        s_ga.startedGuiding = false;
+        if (pFrame->pGuider->IsCalibratingOrGuiding())
         {
-            double raRate = fabs(newRAlpf - prevRAlpf) / dt;
-            if (raRate > maxRateRA)
-                maxRateRA = raRate;
+            Debug.Write("GuidingAssistant(api): returning to looping\n");
+            pFrame->StartLooping();
         }
     }
 
-    m_lastTime = info.time;
-    sumSNR += info.starSNR;
-    sumMass += info.starMass;
-    double n = (double) m_lpfRAStats.GetCount();
-
-    wxString SEC(_("s"));
-    wxString MSEC(_("ms"));
-    wxString PX(_("px"));
-    wxString ARCSEC(_("arc-sec"));
-    wxString ARCMIN(_("arc-min"));
-    wxString PXPERMIN(_("px/min"));
-    wxString PXPERSEC(_("px/sec"));
-    wxString ARCSECPERMIN(_("arc-sec/min"));
-    wxString ARCSECPERSEC(_("arc-sec/sec"));
-
-    m_statusgrid->SetCellValue(m_timestamp_loc, startStr);
-    m_statusgrid->SetCellValue(m_exposuretime_loc,
-                               wxString::Format("%g%s", (double) pFrame->RequestedExposureDuration() / 1000.0, SEC));
-    m_statusgrid->SetCellValue(m_snr_loc, wxString::Format("%.1f", sumSNR / n));
-    m_statusgrid->SetCellValue(m_starmass_loc, wxString::Format("%.1f", sumMass / n));
-    m_statusgrid->SetCellValue(m_elapsedtime_loc, wxString::Format("%u%s", (unsigned int) (elapsedms / 1000), SEC));
-    m_statusgrid->SetCellValue(m_samplecount_loc, wxString::Format("%.0f", n));
-
-    if (n > 1)
+    if (s_ga.guideOutputDisabled)
     {
-        // Update the realtime high-frequency stats
-        double rarms = m_hpfRAStats.GetSigma();
-        double decrms = m_hpfDecStats.GetSigma();
-        double combined = hypot(rarms, decrms);
+        Debug.Write(wxString::Format("GuidingAssistant(api): Re-enabling guide output (%d, %d)\n", s_ga.savePrimaryMountEnabled,
+                                     s_ga.saveSecondaryMountEnabled));
 
-        // Update the running estimate of polar alignment error using linear-fit dec drift rate
-        double pxscale = pFrame->GetCameraPixelScale();
-        double declination = pPointingSource->GetDeclinationRadians();
-        double cosdec;
-        if (declination == UNKNOWN_DECLINATION)
-            cosdec = 1.0; // assume declination 0
-        else
-            cosdec = cos(declination);
-        // polar alignment error from Barrett:
-        // http://celestialwonders.com/articles/polaralignment/PolarAlignmentAccuracy.pdf
-        double intcpt;
-        m_decAxisStats.GetLinearFitResults(&decDriftPerMin, &intcpt);
-        decDriftPerMin = 60.0 * decDriftPerMin;
-        alignmentError = 3.8197 * fabs(decDriftPerMin) * pxscale / cosdec;
+        if (pMount)
+            pMount->SetGuidingEnabled(s_ga.savePrimaryMountEnabled);
+        if (pSecondaryMount)
+            pSecondaryMount->SetGuidingEnabled(s_ga.saveSecondaryMountEnabled);
 
-        // update grid display w/ running stats
-        FillResultCell(m_displacementgrid, m_ra_rms_loc, rarms, rarms * pxscale, PX, ARCSEC);
-        FillResultCell(m_displacementgrid, m_dec_rms_loc, decrms, decrms * pxscale, PX, ARCSEC);
-        FillResultCell(m_displacementgrid, m_total_rms_loc, combined, combined * pxscale, PX, ARCSEC);
-        FillResultCell(m_othergrid, m_ra_peak_loc, m_raAxisStats.GetMaxDelta(), m_raAxisStats.GetMaxDelta() * pxscale, PX,
-                       ARCSEC);
-        FillResultCell(m_othergrid, m_dec_peak_loc, m_decAxisStats.GetMaxDelta(), m_decAxisStats.GetMaxDelta() * pxscale, PX,
-                       ARCSEC);
-        double raPkPk = m_lpfRAStats.GetMaximum() - m_lpfRAStats.GetMinimum();
-        FillResultCell(m_othergrid, m_ra_peakpeak_loc, raPkPk, raPkPk * pxscale, PX, ARCSEC);
-        double raDriftRate = (ra - m_startPos.X) / m_elapsedSecs * 60.0; // Raw max-min, can't smooth this one reliably
-        FillResultCell(m_othergrid, m_ra_drift_loc, raDriftRate, raDriftRate * pxscale, PXPERMIN, ARCSECPERMIN);
-        FillResultCell(m_othergrid, m_ra_peak_drift_loc, maxRateRA, maxRateRA * pxscale, PXPERSEC, ARCSECPERSEC);
-        m_othergrid->SetCellValue(m_ra_drift_exp_loc,
-                                  maxRateRA <= 0.0 ? _(" ")
-                                                   : wxString::Format("%6.1f %s ", 1.3 * rarms / maxRateRA,
-                                                                      SEC)); // Will get revised when min-move is computed
-        FillResultCell(m_othergrid, m_dec_drift_loc, decDriftPerMin, decDriftPerMin * pxscale, PXPERMIN, ARCSECPERMIN);
-        m_othergrid->SetCellValue(
-            m_pae_loc, wxString::Format("%s %.1f %s", declination == UNKNOWN_DECLINATION ? "> " : "", alignmentError, ARCMIN));
+        s_ga.guideOutputDisabled = false;
+        pFrame->pGuider->SetMultiStarMode(s_ga.origMultistarMode); // may force an auto-find to refresh secondary star data
+        pFrame->SetVariableDelayConfig(s_ga.origVarDelayConfig.enabled, s_ga.origVarDelayConfig.shortDelay,
+                                       s_ga.origVarDelayConfig.longDelay);
     }
+
+    if (s_ga.origSubFrames != -1)
+    {
+        if (pCamera)
+            pCamera->UseSubframes = s_ga.origSubFrames ? true : false;
+        s_ga.origSubFrames = -1;
+    }
+}
+
+static void HeadlessGAFail(const wxString& msg)
+{
+    Debug.Write("GuidingAssistant(api): failed: " + msg + "\n");
+    if (s_ga.state == GuidingAssistant::API_MEASURING)
+        s_ga.elapsedS = HeadlessGASamplingElapsed();
+    s_ga.state = GuidingAssistant::API_FAILED;
+    s_ga.error = msg;
+    HeadlessGARestore();
+    EvtServer.NotifyGuidingAssistantDone();
+}
+
+static void HeadlessGAComplete()
+{
+    if (!pCamera || !pMount || !TheScope())
+    {
+        HeadlessGAFail(_("equipment disconnected"));
+        return;
+    }
+
+    CalibrationDetails calDetails;
+    s_ga.recs = ComputeGARecommendations(s_ga.stats, s_ga.origMultistarMode, s_ga.backlashValid, s_ga.backlashMs,
+                                         s_ga.backlashTool && s_ga.backlashTool->GetBacklashExempted(), &calDetails);
+    s_ga.recList = BuildGARecommendations(s_ga.recs, calDetails, s_ga.backlashMs);
+    s_ga.hasRecs = true;
+
+    // Same guide-log output and GA history entry as the dialog, so headless runs show up in "Review previous"
+    GADetails d;
+    FormatGAResults(s_ga.stats, s_ga.startStr, (wxLongLong_t) (s_ga.elapsedS * 1000.0), &d);
+    d.DriftLimitingExposure = FormatRefinedDriftLimitingExposure(s_ga.recs);
+    d.BackLashInfo = s_ga.backlashInfo;
+    LogGAResults(d);
+    LogGARecommendations(s_ga.recList);
+    GuideLog.NotifyGACompleted();
+    int backlashRecommendedMs = s_ga.recs.hasBacklash ? s_ga.recs.backlash.recommendedMs : 0;
+    SaveGAHistory(s_ga.startStr, d, s_ga.recs.minMove.seeingEstimatePx, s_ga.stats.DecDriftPxPerMin(), s_ga.recs,
+                  s_ga.backlashMs, backlashRecommendedMs, JoinGARecommendations(s_ga.recList), s_ga.backlashTool.get());
+    Debug.Write("End of Guiding Assistant output....\n");
+
+    s_ga.state = GuidingAssistant::API_DONE;
+    HeadlessGARestore();
+    EvtServer.NotifyGuidingAssistantDone();
+}
+
+// The sampling period is over: run the backlash test, or finish
+static void HeadlessGAEndSampling()
+{
+    s_ga.endSamplingPending = false;
+    if (s_ga.state != GuidingAssistant::API_MEASURING)
+        return;
+
+    s_ga.elapsedS = HeadlessGASamplingElapsed();
+
+    if (s_ga.stats.Count() < 2)
+    {
+        HeadlessGAFail(_("not enough samples were collected"));
+        return;
+    }
+
+    if (s_ga.measureBacklash && s_ga.backlashTool)
+    {
+        Debug.Write("GuidingAssistant(api): starting backlash test\n");
+        s_ga.state = GuidingAssistant::API_MEASURING_BACKLASH;
+        if (s_ga.origSubFrames == -1)
+            s_ga.origSubFrames = pCamera->UseSubframes ? 1 : 0;
+        pCamera->UseSubframes = false;
+        s_ga.backlashTool->StartMeasurement(s_ga.stats.DecDriftPxPerMin());
+        s_ga.backlashStatus = s_ga.backlashTool->GetLastStatus();
+        EvtServer.NotifyGuidingAssistantProgress();
+    }
+    else
+        HeadlessGAComplete();
+}
+
+static void HeadlessGAEndBacklash(bool completed)
+{
+    s_ga.endBacklashPending = false;
+    if (s_ga.state != GuidingAssistant::API_MEASURING_BACKLASH)
+        return;
+    if (!completed && !s_ga.backlashValid)
+        s_ga.backlashTool->StopMeasurement();
+    HeadlessGAComplete();
+}
+
+// From the guider's frame processing: finish the backlash test from the event loop
+static void HeadlessGAScheduleEndBacklash(bool completed)
+{
+    if (s_ga.endBacklashPending)
+        return;
+    s_ga.endBacklashPending = true;
+    pFrame->CallAfter([completed]() { HeadlessGAEndBacklash(completed); });
+}
+
+static void HeadlessGAGuideStep(const GuideStepInfo& info)
+{
+    if (s_ga.state != GuidingAssistant::API_MEASURING || s_ga.endSamplingPending)
+        return;
+
+    s_ga.waitingForGuiding = false;
+    if (s_ga.stats.Count() == 0)
+        s_ga.startTime = ::wxGetUTCTimeMillis().GetValue();
+    s_ga.stats.AddSample(MakeGASample(info));
+    s_ga.elapsedS = HeadlessGASamplingElapsed();
+
+    EvtServer.NotifyGuidingAssistantProgress();
+
+    if (s_ga.elapsedS >= s_ga.durationS)
+    {
+        // like pressing Stop in the dialog; deferred out of the guide-step processing
+        s_ga.endSamplingPending = true;
+        pFrame->CallAfter([]() { HeadlessGAEndSampling(); });
+    }
+}
+
+static void HeadlessGABacklashStep(const PHD_Point& camLoc)
+{
+    if (s_ga.state != GuidingAssistant::API_MEASURING_BACKLASH || s_ga.endBacklashPending)
+        return;
+
+    BacklashTool *blt = s_ga.backlashTool.get();
+    blt->DecMeasurementStep(camLoc);
+    s_ga.backlashStatus = blt->GetLastStatus();
+
+    if (blt->GetBltState() == BacklashTool::BLT_STATE_COMPLETED)
+    {
+        try
+        {
+            BacklashTool::MeasurementResults qual = blt->GetMeasurementQuality();
+            bool usable = qual == BacklashTool::MEASUREMENT_VALID || qual == BacklashTool::MEASUREMENT_TOO_FEW_NORTH;
+            if (usable)
+            {
+                s_ga.backlashValid = true;
+                s_ga.backlashPx = blt->GetBacklashResultPx();
+                s_ga.backlashMs = blt->GetBacklashResultMs();
+                double bltSigmaPx;
+                blt->GetBacklashSigma(&bltSigmaPx, &s_ga.backlashSigmaMs);
+                wxString outStr;
+                s_ga.backlashInfo =
+                    FormatBacklashResult(qual, s_ga.backlashMs, s_ga.backlashSigmaMs, s_ga.backlashPx, bltSigmaPx, &outStr);
+                outStr += "\n";
+                GuideLog.NotifyGAResult("Backlash=" + outStr);
+                Debug.Write("BLT: Reported result = " + outStr);
+            }
+            HeadlessGAScheduleEndBacklash(usable);
+        }
+        catch (const wxString& msg)
+        {
+            Debug.Write(wxString::Format("GA-BLT(api): fault in completion-processing at %d, %s\n", __LINE__, msg));
+            HeadlessGAScheduleEndBacklash(false);
+        }
+    }
+    else if (blt->GetBltState() == BacklashTool::BLT_STATE_ABORTED)
+        HeadlessGAScheduleEndBacklash(false);
+    else
+        EvtServer.NotifyGuidingAssistantProgress();
+}
+
+// Posted on every app-state change while a run is active
+static void HeadlessGACheckAppState()
+{
+    s_ga.appStateCheckPending = false;
+
+    if (s_ga.state == GuidingAssistant::API_MEASURING)
+    {
+        Guider *guider = pFrame->pGuider;
+        if (guider->IsGuiding())
+            return;
+        if (s_ga.waitingForGuiding && guider->IsCalibratingOrGuiding())
+            return; // guiding is still starting
+        HeadlessGAFail(s_ga.waitingForGuiding ? _("guiding did not start") : _("guiding stopped"));
+    }
+    else if (s_ga.state == GuidingAssistant::API_MEASURING_BACKLASH)
+    {
+        // The measurement itself is complete; report it without the backlash result
+        if (!pFrame->pGuider->IsGuiding())
+            HeadlessGAEndBacklash(false);
+    }
+}
+
+const char *GuidingAssistant::ApiStateName(ApiState state)
+{
+    switch (state)
+    {
+    case API_MEASURING:
+        return "measuring";
+    case API_MEASURING_BACKLASH:
+        return "measuring_backlash";
+    case API_DONE:
+        return "done";
+    case API_FAILED:
+        return "failed";
+    case API_IDLE:
+    default:
+        return "idle";
+    }
+}
+
+bool GuidingAssistant::ApiIsRunning()
+{
+    return HeadlessGARunning();
+}
+
+bool GuidingAssistant::ApiStart(double durationS, bool measureBacklash, wxString *error)
+{
+    if (HeadlessGARunning())
+    {
+        *error = _("the Guiding Assistant is already running - call guiding_assistant_stop first");
+        return false;
+    }
+    if (pFrame->pGuidingAssistant)
+    {
+        *error = _("the Guiding Assistant dialog is open");
+        return false;
+    }
+    if (!pCamera || !pCamera->Connected)
+    {
+        *error = _("camera is not connected");
+        return false;
+    }
+    if (!pMount || !pMount->IsConnected() || !TheScope())
+    {
+        *error = _("mount is not connected");
+        return false;
+    }
+
+    Guider *guider = pFrame->pGuider;
+    if (guider->IsCalibrating())
+    {
+        *error = _("cannot start the Guiding Assistant while calibrating");
+        return false;
+    }
+    if (guider->IsPaused())
+    {
+        *error = _("guiding is paused");
+        return false;
+    }
+    bool guiding = guider->IsGuiding();
+    if (!guiding)
+    {
+        if (!pFrame->CaptureActive || guider->GetState() != STATE_SELECTED)
+        {
+            *error = _("no star selected - start looping and select a star first (loop + find_star), or start guiding");
+            return false;
+        }
+        if (!pMount->IsCalibrated() || (pSecondaryMount && !pSecondaryMount->IsCalibrated()))
+        {
+            *error = _("the mount is not calibrated - calibrate (start guiding once) before running the Guiding Assistant");
+            return false;
+        }
+    }
+
+    std::unique_ptr<BacklashTool> backlashTool;
+    if (measureBacklash)
+    {
+        backlashTool.reset(new BacklashTool());
+        if (backlashTool->GetBltState() == BacklashTool::BLT_STATE_ABORTED)
+        {
+            *error = backlashTool->GetLastStatus();
+            return false;
+        }
+    }
+
+    s_ga = HeadlessGA();
+    s_ga.durationS = durationS;
+    s_ga.measureBacklash = measureBacklash;
+    s_ga.backlashTool = std::move(backlashTool);
+    s_ga.stats.Reset((double) pFrame->RequestedExposureDuration() / 1000.0);
+    s_ga.startStr = wxDateTime::Now().FormatISOCombined(' ');
+
+    // What the dialog does on open (variable delay off) and on Start (single star, guide output off)
+    s_ga.origMultistarMode = guider->GetMultiStarMode();
+    guider->SetMultiStarMode(false);
+    s_ga.origVarDelayConfig = pFrame->GetVariableDelayConfig();
+    pFrame->SetVariableDelayConfig(false, s_ga.origVarDelayConfig.shortDelay, s_ga.origVarDelayConfig.longDelay);
+
+    Debug.AddLine(wxString::Format("GuidingAssistant(api): start duration=%.0fs backlash=%d; disabling guide output", durationS,
+                                   measureBacklash));
+    s_ga.savePrimaryMountEnabled = pMount->GetGuidingEnabled();
+    pMount->SetGuidingEnabled(false);
+    if (pSecondaryMount)
+    {
+        s_ga.saveSecondaryMountEnabled = pSecondaryMount->GetGuidingEnabled();
+        pSecondaryMount->SetGuidingEnabled(false);
+    }
+    s_ga.guideOutputDisabled = true;
+    s_ga.state = API_MEASURING;
+
+    if (!guiding)
+    {
+        // Looping with a calibrated mount: start guiding, with output already disabled, so the star drifts
+        s_ga.waitingForGuiding = true;
+        s_ga.startedGuiding = true;
+        pFrame->GuideButtonClick(false, _T("GuidingAssistant:start"));
+        if (!guider->IsCalibratingOrGuiding())
+        {
+            s_ga.startedGuiding = false;
+            HeadlessGAFail(_("could not start guiding"));
+            *error = s_ga.error;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool GuidingAssistant::ApiStop(wxString *error)
+{
+    switch (s_ga.state)
+    {
+    case API_MEASURING:
+        if (s_ga.stats.Count() < 2)
+        {
+            HeadlessGAFail(_("stopped before enough samples were collected"));
+            return true;
+        }
+        // finish now with the samples so far; the backlash test is skipped
+        Debug.Write("GuidingAssistant(api): stopped by client, finishing early\n");
+        s_ga.elapsedS = HeadlessGASamplingElapsed();
+        HeadlessGAComplete();
+        return true;
+
+    case API_MEASURING_BACKLASH:
+        // like the dialog's Stop during the backlash test: results without the backlash measurement
+        Debug.Write("GuidingAssistant(api): backlash test stopped by client\n");
+        HeadlessGAEndBacklash(false);
+        return true;
+
+    default:
+        *error = _("the Guiding Assistant is not running");
+        return false;
+    }
+}
+
+void GuidingAssistant::ApiGetStatus(ApiStatus *st)
+{
+    *st = ApiStatus();
+    st->state = s_ga.state;
+    if (s_ga.state == API_IDLE)
+        return;
+
+    st->durationS = s_ga.durationS;
+    st->measureBacklash = s_ga.measureBacklash;
+    st->elapsedS = s_ga.state == API_MEASURING ? HeadlessGASamplingElapsed() : s_ga.elapsedS;
+    st->samples = s_ga.stats.Count();
+    st->pixelScale = pFrame->GetCameraPixelScale();
+
+    if (st->samples > 1)
+    {
+        const ga_math::Accumulator& stats = s_ga.stats;
+        st->hasStats = true;
+        st->raDriftPxMin = stats.RaDriftPxPerMin(st->elapsedS);
+        st->decDriftPxMin = stats.DecDriftPxPerMin();
+        st->raRmsPx = stats.RaHighFreqRms();
+        st->decRmsPx = stats.DecHighFreqRms();
+        st->highFreqRmsPx = stats.TotalHighFreqRms();
+        st->raPeakPx = stats.RaPeak();
+        st->decPeakPx = stats.DecPeak();
+        st->raPeakPeakPx = stats.RaPeakToPeak();
+        st->raMaxDriftPxSec = stats.MaxRaRatePxPerSec();
+        st->snr = stats.AvgSnr();
+        st->starMass = stats.AvgMass();
+        bool decKnown;
+        st->polarAlignErrorArcmin = GAPolarAlignError(stats, &decKnown);
+        st->polarAlignErrorIsLowerBound = !decKnown;
+    }
+
+    if (s_ga.state == API_MEASURING_BACKLASH)
+        st->backlashStatus = s_ga.backlashStatus;
+
+    if (s_ga.backlashValid)
+    {
+        st->hasBacklash = true;
+        st->backlashMs = std::max(0, s_ga.backlashMs);
+        st->backlashSigmaMs = s_ga.backlashSigmaMs;
+        st->backlashPx = std::max(0., s_ga.backlashPx);
+    }
+
+    if (s_ga.hasRecs)
+    {
+        const ga_math::Recommendations& r = s_ga.recs;
+        ApiRecommendations& out = st->recommendations;
+        st->hasRecommendations = true;
+        out.minMoveRaPx = r.minMove.ra;
+        out.minMoveDecPx = r.minMove.dec;
+        out.minMoveSeeingBased = r.minMove.seeingBased;
+        out.exposureMinS = r.exposure.min;
+        out.exposureMaxS = r.exposure.max;
+        out.driftLimitingExposureS = r.driftLimitingExposure;
+        if (r.hasBacklash && r.backlash.applicable)
+        {
+            out.hasDecBacklashMs = true;
+            out.decBacklashMs = r.backlash.recommendedMs;
+        }
+        if (r.hasBacklash && r.backlash.advice == ga_math::BacklashAdvice::TooLarge)
+            out.decGuideMode =
+                Scope::DecGuideModeStr(r.singleDirection == ga_math::DecDirection::South ? DEC_SOUTH : DEC_NORTH);
+        if (r.decAlgoLowpass2)
+            out.decAlgorithm = "Lowpass2";
+        for (const GARecommendation& rec : s_ga.recList)
+            out.messages.push_back({ rec.which, rec.msg });
+    }
+
+    if (s_ga.state == API_FAILED)
+        st->error = s_ga.error;
+}
+
+// Shortest available exposure duration (ms) within the recommended range, or -1
+static int GAExposureChoice(const ga_math::ExposureRange& range)
+{
+    for (int ms : pFrame->GetExposureDurations())
+    {
+        if (ms >= range.min * 1000.0 - 0.5 && ms <= range.max * 1000.0 + 0.5)
+            return ms;
+    }
+    return -1;
+}
+
+bool GuidingAssistant::ApiApply(const std::vector<wxString>& which, std::vector<wxString> *applied, wxString *error)
+{
+    if (HeadlessGARunning())
+    {
+        *error = _("the Guiding Assistant is still running");
+        return false;
+    }
+    if (s_ga.state != API_DONE || !s_ga.hasRecs)
+    {
+        *error = _("no Guiding Assistant results to apply - run guiding_assistant_start first");
+        return false;
+    }
+    if (!pMount || !TheScope())
+    {
+        *error = _("mount is not connected");
+        return false;
+    }
+
+    // Validate everything before changing anything
+    static const char *const ORDER[] = { "exposure",     "min_move_ra",  "dec_algorithm",
+                                         "min_move_dec", "dec_backlash", "dec_guide_mode" };
+    const ga_math::Recommendations& r = s_ga.recs;
+    std::set<wxString> wanted;
+    int exposureMs = -1;
+    for (const wxString& w : which)
+    {
+        if (w == "exposure")
+        {
+            exposureMs = GAExposureChoice(r.exposure);
+            if (exposureMs < 0)
+            {
+                *error = wxString::Format(_("no exposure duration between %.1fs and %.1fs is available - use set_exposure"),
+                                          r.exposure.min, r.exposure.max);
+                return false;
+            }
+        }
+        else if (w == "min_move_ra")
+        {
+            if (!r.raMinMove)
+            {
+                *error = _("the RA guide algorithm has no min-move setting");
+                return false;
+            }
+        }
+        else if (w == "min_move_dec")
+        {
+            if (!r.decMinMove && !(r.decAlgoLowpass2 && std::find(which.begin(), which.end(), "dec_algorithm") != which.end()))
+            {
+                *error = _("the Dec guide algorithm has no min-move setting");
+                return false;
+            }
+        }
+        else if (w == "dec_backlash")
+        {
+            if (!r.hasBacklash || !r.backlash.applicable)
+            {
+                *error = _("no Dec backlash compensation is recommended");
+                return false;
+            }
+        }
+        else if (w == "dec_guide_mode")
+        {
+            if (!r.hasBacklash || r.backlash.advice != ga_math::BacklashAdvice::TooLarge)
+            {
+                *error = _("no Dec guide mode change is recommended");
+                return false;
+            }
+        }
+        else if (w == "dec_algorithm")
+        {
+            if (!r.decAlgoLowpass2)
+            {
+                *error = _("no Dec algorithm change is recommended");
+                return false;
+            }
+        }
+        else
+        {
+            *error = wxString::Format(_("unknown recommendation '%s' (expected exposure, min_move_ra, min_move_dec, "
+                                        "dec_backlash, dec_guide_mode or dec_algorithm)"),
+                                      w);
+            return false;
+        }
+        wanted.insert(w);
+    }
+
+    // Apply in dependency order: switching the Dec algorithm resets its min-move
+    for (const char *name : ORDER)
+    {
+        if (!wanted.count(name))
+            continue;
+        wxString w(name);
+        bool ok = true;
+        if (w == "exposure")
+            ok = pFrame->SetExposureDuration(exposureMs);
+        else if (w == "min_move_ra")
+            ok = ApplyGAMinMove(pMount->GetXGuideAlgorithm(), r.minMove.ra, "RA", "RA_MinMove");
+        else if (w == "dec_algorithm")
+        {
+            pMount->SetYGuideAlgorithm(Mount::GuideAlgorithmFromName("Lowpass2"));
+            Debug.Write("GuideAssistant(api) changed Dec algo to Lowpass2\n");
+            ok = ConfigureGADecLowpass2(r.minMove.dec);
+        }
+        else if (w == "min_move_dec")
+            ok = ApplyGAMinMove(pMount->GetYGuideAlgorithm(), r.minMove.dec, "Declination", "Dec_MinMove");
+        else if (w == "dec_backlash")
+            ApplyGADecBacklash(r.backlash.recommendedMs);
+        else if (w == "dec_guide_mode")
+        {
+            TheScope()->SetDecGuideMode(r.singleDirection == ga_math::DecDirection::South ? DEC_SOUTH : DEC_NORTH);
+            if (pFrame->pGraphLog)
+                pFrame->pGraphLog->UpdateControls();
+        }
+
+        if (!ok)
+        {
+            *error = wxString::Format(_("could not apply %s"), w);
+            pConfig->Flush();
+            return false;
+        }
+        applied->push_back(w);
+    }
+
+    pConfig->Flush();
+    return true;
 }
 
 wxWindow *GuidingAssistant::CreateDialogBox()
@@ -2027,6 +2523,8 @@ void GuidingAssistant::NotifyGuideStep(const GuideStepInfo& info)
         if (win->m_measuring)
             win->UpdateInfo(info);
     }
+    else
+        HeadlessGAGuideStep(info);
 }
 
 void GuidingAssistant::NotifyFrameDropped(const FrameDroppedInfo& info)
@@ -2034,6 +2532,15 @@ void GuidingAssistant::NotifyFrameDropped(const FrameDroppedInfo& info)
     if (pFrame && pFrame->pGuidingAssistant)
     {
         // anything needed?
+    }
+    else if (s_ga.state == API_MEASURING && !s_ga.endSamplingPending && s_ga.stats.Count() > 0)
+    {
+        // guiding carries on through dropped frames; don't let them extend the run
+        if (HeadlessGASamplingElapsed() >= s_ga.durationS)
+        {
+            s_ga.endSamplingPending = true;
+            pFrame->CallAfter([]() { HeadlessGAEndSampling(); });
+        }
     }
 }
 
@@ -2045,6 +2552,8 @@ void GuidingAssistant::NotifyBacklashStep(const PHD_Point& camLoc)
         if (win->m_measuringBacklash)
             win->BacklashStep(camLoc);
     }
+    else
+        HeadlessGABacklashStep(camLoc);
 }
 
 void GuidingAssistant::NotifyBacklashError()
@@ -2055,6 +2564,8 @@ void GuidingAssistant::NotifyBacklashError()
         if (win->m_measuringBacklash)
             win->BacklashError();
     }
+    else if (s_ga.state == API_MEASURING_BACKLASH)
+        HeadlessGAScheduleEndBacklash(false);
 }
 
 void GuidingAssistant::UpdateUIControls()
@@ -2065,5 +2576,12 @@ void GuidingAssistant::UpdateUIControls()
         wxCommandEvent event(APPSTATE_NOTIFY_EVENT, pFrame->GetId());
         event.SetEventObject(pFrame);
         wxPostEvent(pFrame->pGuidingAssistant, event);
+    }
+
+    // headless run: re-check the guider state from the event loop
+    if (pFrame && HeadlessGARunning() && !s_ga.appStateCheckPending)
+    {
+        s_ga.appStateCheckPending = true;
+        pFrame->CallAfter([]() { HeadlessGACheckAppState(); });
     }
 }

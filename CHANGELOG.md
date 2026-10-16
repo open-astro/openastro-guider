@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Headless Guiding Assistant over JSON-RPC (#83): `guiding_assistant_start` / `_stop` / `_get_status` / `_apply` and the `GuidingAssistantProgress` / `GuidingAssistantDone` events measure unguided drift, seeing (high-frequency RMS), polar-alignment error and (optionally) Dec backlash without the dialog, and return/apply the min-move, exposure, Dec backlash, Dec guide-mode and Dec algorithm recommendations. The measurement and recommendation code was extracted from the dialog into `guiding_assistant_math.{h,cpp}` (now unit-tested); the dialog delegates to it.
 - `GET /api/capture/<filename>` HTTP endpoint (#77): serves the raw FITS bytes of a file saved by `capture_single_frame` from the capture directory, so a remote client can retrieve the frame the daemon saved (the JSON-RPC `path` param is confined to the daemon's data dir). Same traversal guards as `/assets/`; `404` on `..`/absolute paths.
 - `SingleFrameComplete` now includes a `Filename` field alongside `Path` when `save=true`, giving remote clients the token to fetch via `/api/capture/<Filename>`.
 

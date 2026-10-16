@@ -179,6 +179,23 @@ set_property(TARGET test_calibration_transform PROPERTY FOLDER "Unit tests")
 add_test(NAME test_calibration_transform COMMAND test_calibration_transform)
 
 ############################################################################
+# test_guiding_assistant_math  --  links the REAL production
+# guiding_assistant_math.cpp (the Guiding Assistant's sample statistics,
+# polar-alignment estimate and recommendation logic, extracted from
+# GuidingAsstWin) against the REAL guiding_stats.cpp. No wx coupling; the
+# dialog and the headless guiding_assistant_* RPC controller both delegate
+# to it.
+############################################################################
+add_executable(test_guiding_assistant_math
+  ${PHD_TESTS_DIR}/guiding_assistant/test_guiding_assistant_math.cpp
+  ${phd_src_dir}/guiding_assistant_math.cpp
+  ${phd_src_dir}/guiding_stats.cpp
+)
+target_link_libraries(test_guiding_assistant_math PRIVATE phd_test_common)
+set_property(TARGET test_guiding_assistant_math PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guiding_assistant_math COMMAND test_guiding_assistant_math)
+
+############################################################################
 # test_star_find  --  links the REAL production star_find_core.cpp (the star
 # detection pixel math extracted from Star::Find) and feeds it a real FITS
 # fixture loaded directly with cfitsio. Unlike the other suites this needs
