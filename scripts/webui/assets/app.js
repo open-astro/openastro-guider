@@ -686,7 +686,11 @@ async function loadSettings() {
   const sd = await rpcQuiet("get_star_detection");
   if (sd) { $("st-minsnr").value = sd.MinStarSNR; $("st-minhfd").value = sd.MinStarHFD; $("st-maxhfd").value = sd.MaxStarHFD; }
   const gain = await rpcQuiet("get_camera_gain");
-  if (gain) $("st-gain").value = gain.Gain;
+  if (gain) {
+    $("st-gain").value = gain.Gain;
+    $("st-gain").disabled = !gain.HasGainControl;
+    $("st-gain").title = gain.HasGainControl ? "" : "this camera has no gain control";
+  }
   const to = await rpcQuiet("get_camera_timeout");
   if (to !== undefined) $("st-timeout").value = to;
   const nr = await rpcQuiet("get_noise_reduction");
@@ -717,7 +721,7 @@ action("st-save-star", async () => {
 });
 
 action("st-save-camera", async () => {
-  await rpc("set_camera_gain", { gain: parseInt($("st-gain").value, 10) });
+  if (!$("st-gain").disabled) await rpc("set_camera_gain", { gain: parseInt($("st-gain").value, 10) });
   await rpc("set_camera_timeout", { timeout_ms: parseInt($("st-timeout").value, 10) });
   await rpc("set_noise_reduction", { method: $("st-noise").value });
   toast("camera settings applied", true);
