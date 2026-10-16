@@ -2119,6 +2119,9 @@ void MyFrame::OnClose(wxCloseEvent& event)
 
     Debug.Write("MyFrame::OnClose proceeding\n");
 
+    // a headless Guiding Assistant run can't finish normally any more; put back the settings it changed
+    GuidingAssistant::ApiShutdown();
+
     StopCapturing();
 
     bool killed = StopWorkerThread(m_pPrimaryWorkerThread);

@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include "guiding_assistant_math.h"
@@ -594,4 +595,92 @@ TEST(GuidingAssistantApply, FailureMessageNamesFailedItemAndWhatWasAlreadySaved)
         "dec_algorithm: Lowpass2 not available; already applied and saved: exposure, min_move_ra");
     EXPECT_EQ(ApplyFailureMessage(ApplyItem::Exposure, "no exposure in range", {}),
               "exposure: no exposure in range; nothing was applied");
+}
+
+// ---------------------------------------------------------------------------
+// Non-finite guards: the drift fit runs against whole-second wall-clock
+// timestamps, so sub-second guide cadence gives several samples with the same
+// time and, until the clock ticks, a 0/0 fit. Nothing may come out as NaN/inf
+// (it would be written into the JSON status and events).
+// ---------------------------------------------------------------------------
+
+TEST(GuidingAssistantFinite, DecDriftIsZeroWhileAllSamplesShareOneSecond)
+{
+    Accumulator acc;
+    acc.Reset(0.5);
+    for (int i = 0; i < 3; i++)
+    {
+        Sample s = MakeSample(i, 0.25, 0.1 * i, 0.2 * i);
+        s.wallSecs = 1000; // all inside the same wall-clock second
+        acc.AddSample(s);
+    }
+    ASSERT_EQ(acc.Count(), 3u);
+    EXPECT_TRUE(std::isfinite(acc.DecDriftPxPerMin()));
+    EXPECT_DOUBLE_EQ(acc.DecDriftPxPerMin(), 0.0);
+    EXPECT_TRUE(std::isfinite(PolarAlignErrorArcmin(acc.DecDriftPxPerMin(), 1.5, false, 0.0)));
+}
+
+TEST(GuidingAssistantFinite, PolarAlignErrorIsZeroForNonFiniteInput)
+{
+    EXPECT_DOUBLE_EQ(PolarAlignErrorArcmin(std::nan(""), 1.5, false, 0.0), 0.0);
+    EXPECT_DOUBLE_EQ(PolarAlignErrorArcmin(1.0, std::numeric_limits<double>::infinity(), false, 0.0), 0.0);
+}
+
+TEST(GuidingAssistantFinite, MinMoveStaysFiniteWithZeroTimeSpread)
+{
+    AxisStats dec;
+    for (int i = 0; i < 4; i++)
+        dec.AddGuideInfo(0, Jitter(i, 0.2), 0);
+    MinMoveRecs r = ComputeMinMoveRecs(dec, Inputs());
+    EXPECT_TRUE(std::isfinite(r.dec));
+    EXPECT_TRUE(std::isfinite(r.ra));
+    EXPECT_TRUE(std::isfinite(r.seeingEstimatePx));
+}
+
+TEST(GuidingAssistantFinite, FiniteOrZero)
+{
+    EXPECT_DOUBLE_EQ(FiniteOrZero(1.25), 1.25);
+    EXPECT_DOUBLE_EQ(FiniteOrZero(-3.0), -3.0);
+    EXPECT_DOUBLE_EQ(FiniteOrZero(std::nan("")), 0.0);
+    EXPECT_DOUBLE_EQ(FiniteOrZero(std::numeric_limits<double>::infinity()), 0.0);
+    EXPECT_DOUBLE_EQ(FiniteOrZero(-std::numeric_limits<double>::infinity()), 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// guiding_assistant_apply only writes results into the session they were
+// measured in: same profile, same (never reconnected) camera and mount.
+// ---------------------------------------------------------------------------
+
+TEST(GuidingAssistantApply, SessionMustMatchTheRun)
+{
+    SessionStamp run;
+    run.profileId = 3;
+    run.gearConnects = 7;
+    run.mountId = 0x1000;
+    run.cameraId = 0x2000;
+    run.mountConnected = true;
+    run.cameraConnected = true;
+
+    SessionStamp now = run;
+    EXPECT_TRUE(SameSession(run, now, nullptr));
+
+    std::string why;
+    now = run;
+    now.profileId = 4;
+    EXPECT_FALSE(SameSession(run, now, &why));
+    EXPECT_NE(why.find("profile"), std::string::npos);
+
+    now = run;
+    now.gearConnects = 8; // camera or mount (re)connected since the run
+    EXPECT_FALSE(SameSession(run, now, &why));
+    EXPECT_NE(why.find("reconnected"), std::string::npos);
+
+    now = run;
+    now.mountId = 0x3000; // a different mount object (gear re-selected)
+    EXPECT_FALSE(SameSession(run, now, &why));
+
+    now = run;
+    now.cameraConnected = false;
+    EXPECT_FALSE(SameSession(run, now, &why));
+    EXPECT_NE(why.find("disconnected"), std::string::npos);
 }

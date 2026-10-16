@@ -40,6 +40,11 @@
 namespace ga_math
 {
 
+double FiniteOrZero(double v)
+{
+    return std::isfinite(v) ? v : 0.0;
+}
+
 Accumulator::Accumulator()
 {
     Reset(1.0);
@@ -156,9 +161,11 @@ double Accumulator::DecDriftPxPerMin() const
 {
     if (m_decAxisStats.GetCount() < 2)
         return 0.0;
+    // The fit runs against whole-second timestamps (as it always has in the dialog), so with sub-second guide
+    // cadence the first samples share one time value and the fit is 0/0 until the clock ticks over
     double slope, intcpt;
     m_decAxisStats.GetLinearFitResults(&slope, &intcpt);
-    return 60.0 * slope;
+    return FiniteOrZero(60.0 * slope);
 }
 
 double Accumulator::AvgSnr() const
@@ -176,7 +183,7 @@ double Accumulator::AvgMass() const
 double PolarAlignErrorArcmin(double decDriftPxPerMin, double pxScale, bool decKnown, double decRadians)
 {
     double cosdec = decKnown ? cos(decRadians) : 1.0; // assume declination 0
-    return 3.8197 * fabs(decDriftPxPerMin) * pxScale / cosdec;
+    return FiniteOrZero(3.8197 * fabs(decDriftPxPerMin) * pxScale / cosdec);
 }
 
 MinMoveRecs ComputeMinMoveRecs(const AxisStats& decAxis, const MinMoveInputs& in)
@@ -479,6 +486,20 @@ std::string ApplyFailureMessage(ApplyItem failed, const std::string& reason, con
     for (size_t i = 0; i < applied.size(); i++)
         msg += (i ? ", " : "") + std::string(ApplyItemName(applied[i]));
     return msg;
+}
+
+bool SameSession(const SessionStamp& run, const SessionStamp& now, std::string *why)
+{
+    const char *reason = nullptr;
+    if (now.profileId != run.profileId)
+        reason = "the profile has changed";
+    else if (!now.mountConnected || !now.cameraConnected)
+        reason = "the camera or mount is disconnected";
+    else if (now.mountId != run.mountId || now.cameraId != run.cameraId || now.gearConnects != run.gearConnects)
+        reason = "the camera or mount was reconnected";
+    if (reason && why)
+        *why = reason;
+    return reason == nullptr;
 }
 
 } // namespace ga_math

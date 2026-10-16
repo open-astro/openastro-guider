@@ -121,6 +121,10 @@ public:
     static bool ApiIsRunning();
     // which: "min_move_ra", "min_move_dec", "exposure", "dec_backlash", "dec_guide_mode", "dec_algorithm"
     static bool ApiApply(const std::vector<wxString>& which, std::vector<wxString> *applied, wxString *error);
+    // App closing: restore what a running headless run changed, without driving the guider or gear
+    static void ApiShutdown();
+    // A camera or mount connected (GearDialog); results from before can no longer be applied
+    static void NotifyGearConnected();
 };
 
 #endif

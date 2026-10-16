@@ -42,6 +42,7 @@
 #define GUIDING_ASSISTANT_MATH_H_INCLUDED
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -52,6 +53,9 @@ namespace ga_math
 
 // Backlash beyond this cannot reasonably be compensated (ms)
 constexpr int MAX_BACKLASH_COMP_MS = 3000;
+
+// v if it is finite, else 0 -- for values going into JSON
+double FiniteOrZero(double v);
 
 // One unguided guide-step sample
 struct Sample
@@ -84,7 +88,7 @@ public:
     double RaPeakToPeak() const; // of the low-pass-filtered RA
     double RaDriftPxPerMin(double elapsedSecs) const; // net RA displacement rate
     double MaxRaRatePxPerSec() const; // fastest low-pass-filtered RA rate
-    double DecDriftPxPerMin() const; // linear-fit Dec drift, 0 until 2 samples
+    double DecDriftPxPerMin() const; // linear-fit Dec drift, 0 until the samples span 2 wall-clock seconds
     double AvgSnr() const;
     double AvgMass() const;
     const AxisStats& DecAxis() const { return m_decAxisStats; }
@@ -110,7 +114,7 @@ private:
 
 // Polar alignment error (arc-min) from the Dec drift rate (Barrett,
 // http://celestialwonders.com/articles/polaralignment/PolarAlignmentAccuracy.pdf).
-// With an unknown declination, dec 0 is assumed and the result is a lower bound.
+// With an unknown declination, dec 0 is assumed and the result is a lower bound. Non-finite results are 0.
 double PolarAlignErrorArcmin(double decDriftPxPerMin, double pxScale, bool decKnown, double decRadians);
 
 struct MinMoveInputs
@@ -264,6 +268,21 @@ bool PlanApply(const std::vector<std::string>& which, std::vector<ApplyItem> *pl
 
 // "<item>: <reason>; already applied and saved: a, b" (or "; nothing was applied")
 std::string ApplyFailureMessage(ApplyItem failed, const std::string& reason, const std::vector<ApplyItem>& applied);
+
+// The session a GA run was measured in. Results are only applied to the same
+// profile with the same camera and mount, never reconnected in between.
+struct SessionStamp
+{
+    int profileId = 0;
+    unsigned int gearConnects = 0; // camera / mount connections since startup
+    std::uintptr_t mountId = 0; // identity of the mount object
+    std::uintptr_t cameraId = 0;
+    bool mountConnected = false;
+    bool cameraConnected = false;
+};
+
+// true if `now` is still the session of `run`; otherwise *why (if given) says what changed
+bool SameSession(const SessionStamp& run, const SessionStamp& now, std::string *why);
 
 } // namespace ga_math
 

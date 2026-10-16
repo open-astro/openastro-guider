@@ -1913,9 +1913,56 @@ struct HeadlessGA
     ga_math::Recommendations recs = {};
     std::vector<GARecommendation> recList;
     wxString error;
+
+    // snapshot when the run ends, so get_status keeps matching the recommendations / Done event
+    bool hasFinalSnapshot = false;
+    double finalPixelScale = 0.;
+    double finalPaErrorArcmin = 0.;
+    bool finalPaLowerBound = false;
+
+    ga_math::SessionStamp session; // profile and gear the run was measured with
 };
 
 static HeadlessGA s_ga;
+// Bumped by every run start (and app close): event-loop callbacks queued by an older run are ignored
+static unsigned int s_gaRunGeneration;
+// Camera / mount connections since startup (GearDialog reports them), for the apply session check
+static unsigned int s_gaGearConnects;
+
+static ga_math::SessionStamp CurrentGASession()
+{
+    ga_math::SessionStamp st;
+    st.profileId = pConfig->GetCurrentProfileId();
+    st.gearConnects = s_gaGearConnects;
+    st.mountId = reinterpret_cast<std::uintptr_t>(pMount);
+    st.cameraId = reinterpret_cast<std::uintptr_t>(pCamera);
+    st.mountConnected = pMount && pMount->IsConnected();
+    st.cameraConnected = pCamera && pCamera->Connected;
+    return st;
+}
+
+// Run fn from the event loop, unless a newer run has started (or the app is closing) by then
+template<typename F>
+static void HeadlessGACallAfter(F fn)
+{
+    unsigned int generation = s_gaRunGeneration;
+    pFrame->CallAfter(
+        [generation, fn]()
+        {
+            if (generation == s_gaRunGeneration)
+                fn();
+        });
+}
+
+// Freeze the values get_status derives from live gear
+static void HeadlessGASnapshot()
+{
+    s_ga.finalPixelScale = pFrame->GetCameraPixelScale();
+    bool decKnown = false;
+    s_ga.finalPaErrorArcmin = s_ga.stats.Count() > 1 ? GAPolarAlignError(s_ga.stats, &decKnown) : 0.;
+    s_ga.finalPaLowerBound = !decKnown;
+    s_ga.hasFinalSnapshot = true;
+}
 
 static bool HeadlessGARunning()
 {
@@ -1973,6 +2020,7 @@ static void HeadlessGAFail(const wxString& msg)
         s_ga.elapsedS = HeadlessGASamplingElapsed();
     s_ga.state = GuidingAssistant::API_FAILED;
     s_ga.error = msg;
+    HeadlessGASnapshot();
     HeadlessGARestore();
     EvtServer.NotifyGuidingAssistantDone();
 }
@@ -1990,6 +2038,7 @@ static void HeadlessGAComplete()
                                          s_ga.backlashTool && s_ga.backlashTool->GetBacklashExempted(), &calDetails);
     s_ga.recList = BuildGARecommendations(s_ga.recs, calDetails, s_ga.backlashMs);
     s_ga.hasRecs = true;
+    HeadlessGASnapshot();
 
     // Same guide-log output and GA history entry as the dialog, so headless runs show up in "Review previous"
     GADetails d;
@@ -2055,7 +2104,7 @@ static void HeadlessGAScheduleEndBacklash(bool completed)
     if (s_ga.endBacklashPending)
         return;
     s_ga.endBacklashPending = true;
-    pFrame->CallAfter([completed]() { HeadlessGAEndBacklash(completed); });
+    HeadlessGACallAfter([completed]() { HeadlessGAEndBacklash(completed); });
 }
 
 static void HeadlessGAGuideStep(const GuideStepInfo& info)
@@ -2075,7 +2124,7 @@ static void HeadlessGAGuideStep(const GuideStepInfo& info)
     {
         // like pressing Stop in the dialog; deferred out of the guide-step processing
         s_ga.endSamplingPending = true;
-        pFrame->CallAfter([]() { HeadlessGAEndSampling(); });
+        HeadlessGACallAfter([]() { HeadlessGAEndSampling(); });
     }
 }
 
@@ -2227,7 +2276,9 @@ bool GuidingAssistant::ApiStart(double durationS, bool measureBacklash, wxString
         }
     }
 
+    ++s_gaRunGeneration;
     s_ga = HeadlessGA();
+    s_ga.session = CurrentGASession();
     s_ga.durationS = durationS;
     s_ga.measureBacklash = measureBacklash;
     s_ga.backlashTool = std::move(backlashTool);
@@ -2298,8 +2349,11 @@ bool GuidingAssistant::ApiStop(wxString *error)
     }
 }
 
+// Every floating-point field is passed through FiniteOrZero: these go straight into JSON
 void GuidingAssistant::ApiGetStatus(ApiStatus *st)
 {
+    using ga_math::FiniteOrZero;
+
     *st = ApiStatus();
     st->state = s_ga.state;
     if (s_ga.state == API_IDLE)
@@ -2307,28 +2361,38 @@ void GuidingAssistant::ApiGetStatus(ApiStatus *st)
 
     st->durationS = s_ga.durationS;
     st->measureBacklash = s_ga.measureBacklash;
-    st->elapsedS = s_ga.state == API_MEASURING ? HeadlessGASamplingElapsed() : s_ga.elapsedS;
+    st->elapsedS = FiniteOrZero(s_ga.state == API_MEASURING ? HeadlessGASamplingElapsed() : s_ga.elapsedS);
     st->samples = s_ga.stats.Count();
-    st->pixelScale = pFrame->GetCameraPixelScale();
+    // once the run has ended, report the values its results were computed with, not the live gear's
+    bool ended = s_ga.hasFinalSnapshot && (s_ga.state == API_DONE || s_ga.state == API_FAILED);
+    st->pixelScale = FiniteOrZero(ended ? s_ga.finalPixelScale : pFrame->GetCameraPixelScale());
 
     if (st->samples > 1)
     {
         const ga_math::Accumulator& stats = s_ga.stats;
         st->hasStats = true;
-        st->raDriftPxMin = stats.RaDriftPxPerMin(st->elapsedS);
-        st->decDriftPxMin = stats.DecDriftPxPerMin();
-        st->raRmsPx = stats.RaHighFreqRms();
-        st->decRmsPx = stats.DecHighFreqRms();
-        st->highFreqRmsPx = stats.TotalHighFreqRms();
-        st->raPeakPx = stats.RaPeak();
-        st->decPeakPx = stats.DecPeak();
-        st->raPeakPeakPx = stats.RaPeakToPeak();
-        st->raMaxDriftPxSec = stats.MaxRaRatePxPerSec();
-        st->snr = stats.AvgSnr();
-        st->starMass = stats.AvgMass();
-        bool decKnown;
-        st->polarAlignErrorArcmin = GAPolarAlignError(stats, &decKnown);
-        st->polarAlignErrorIsLowerBound = !decKnown;
+        st->raDriftPxMin = FiniteOrZero(stats.RaDriftPxPerMin(st->elapsedS));
+        st->decDriftPxMin = FiniteOrZero(stats.DecDriftPxPerMin());
+        st->raRmsPx = FiniteOrZero(stats.RaHighFreqRms());
+        st->decRmsPx = FiniteOrZero(stats.DecHighFreqRms());
+        st->highFreqRmsPx = FiniteOrZero(stats.TotalHighFreqRms());
+        st->raPeakPx = FiniteOrZero(stats.RaPeak());
+        st->decPeakPx = FiniteOrZero(stats.DecPeak());
+        st->raPeakPeakPx = FiniteOrZero(stats.RaPeakToPeak());
+        st->raMaxDriftPxSec = FiniteOrZero(stats.MaxRaRatePxPerSec());
+        st->snr = FiniteOrZero(stats.AvgSnr());
+        st->starMass = FiniteOrZero(stats.AvgMass());
+        if (ended)
+        {
+            st->polarAlignErrorArcmin = FiniteOrZero(s_ga.finalPaErrorArcmin);
+            st->polarAlignErrorIsLowerBound = s_ga.finalPaLowerBound;
+        }
+        else
+        {
+            bool decKnown;
+            st->polarAlignErrorArcmin = FiniteOrZero(GAPolarAlignError(stats, &decKnown));
+            st->polarAlignErrorIsLowerBound = !decKnown;
+        }
     }
 
     if (s_ga.state == API_MEASURING_BACKLASH)
@@ -2338,8 +2402,8 @@ void GuidingAssistant::ApiGetStatus(ApiStatus *st)
     {
         st->hasBacklash = true;
         st->backlashMs = std::max(0, s_ga.backlashMs);
-        st->backlashSigmaMs = s_ga.backlashSigmaMs;
-        st->backlashPx = std::max(0., s_ga.backlashPx);
+        st->backlashSigmaMs = FiniteOrZero(s_ga.backlashSigmaMs);
+        st->backlashPx = std::max(0., FiniteOrZero(s_ga.backlashPx));
     }
 
     if (s_ga.hasRecs)
@@ -2347,12 +2411,12 @@ void GuidingAssistant::ApiGetStatus(ApiStatus *st)
         const ga_math::Recommendations& r = s_ga.recs;
         ApiRecommendations& out = st->recommendations;
         st->hasRecommendations = true;
-        out.minMoveRaPx = r.minMove.ra;
-        out.minMoveDecPx = r.minMove.dec;
+        out.minMoveRaPx = FiniteOrZero(r.minMove.ra);
+        out.minMoveDecPx = FiniteOrZero(r.minMove.dec);
         out.minMoveSeeingBased = r.minMove.seeingBased;
-        out.exposureMinS = r.exposure.min;
-        out.exposureMaxS = r.exposure.max;
-        out.driftLimitingExposureS = r.driftLimitingExposure;
+        out.exposureMinS = FiniteOrZero(r.exposure.min);
+        out.exposureMaxS = FiniteOrZero(r.exposure.max);
+        out.driftLimitingExposureS = FiniteOrZero(r.driftLimitingExposure);
         if (r.hasBacklash && r.backlash.applicable)
         {
             out.hasDecBacklashMs = true;
@@ -2460,9 +2524,11 @@ bool GuidingAssistant::ApiApply(const std::vector<wxString>& which, std::vector<
         *error = _("no Guiding Assistant results to apply - run guiding_assistant_start first");
         return false;
     }
-    if (!pMount || !TheScope())
+    std::string sessionWhy;
+    if (!ga_math::SameSession(s_ga.session, CurrentGASession(), &sessionWhy) || !TheScope())
     {
-        *error = _("mount is not connected");
+        *error = wxString::Format(_("cannot apply the Guiding Assistant results: %s - run it again"),
+                                  wxString::FromUTF8(sessionWhy.empty() ? "the mount is not connected" : sessionWhy.c_str()));
         return false;
     }
 
@@ -2537,6 +2603,44 @@ bool GuidingAssistant::ApiApply(const std::vector<wxString>& which, std::vector<
     return true;
 }
 
+void GuidingAssistant::NotifyGearConnected()
+{
+    ++s_gaGearConnects;
+}
+
+// The app is closing (window close, `shutdown` RPC, SIGTERM -- all end in MyFrame::OnClose) while a headless
+// run is active. The usual end-of-run path may never get to run, so restore the persisted settings the run
+// changed now, synchronously and without driving the guider or gear that is about to go away.
+void GuidingAssistant::ApiShutdown()
+{
+    ++s_gaRunGeneration; // drop any queued end-of-run callbacks
+    if (!HeadlessGARunning())
+        return;
+
+    Debug.Write("GuidingAssistant(api): app closing during a run, restoring settings\n");
+    if (s_ga.guideOutputDisabled)
+    {
+        if (pMount)
+            pMount->SetGuidingEnabled(s_ga.savePrimaryMountEnabled);
+        if (pSecondaryMount)
+            pSecondaryMount->SetGuidingEnabled(s_ga.saveSecondaryMountEnabled);
+        // Guider::SetMultiStarMode(true) may auto-select a star and restart guiding; just restore the saved setting
+        pConfig->Profile.SetBoolean("/guider/multistar/enabled", s_ga.origMultistarMode);
+        pFrame->SetVariableDelayConfig(s_ga.origVarDelayConfig.enabled, s_ga.origVarDelayConfig.shortDelay,
+                                       s_ga.origVarDelayConfig.longDelay);
+        s_ga.guideOutputDisabled = false;
+    }
+    if (s_ga.origSubFrames != -1)
+    {
+        if (pCamera)
+            pCamera->UseSubframes = s_ga.origSubFrames ? true : false;
+        s_ga.origSubFrames = -1;
+    }
+    s_ga.startedGuiding = false; // capture is about to stop anyway
+    s_ga.state = API_FAILED;
+    s_ga.error = _("the guider is shutting down");
+}
+
 wxWindow *GuidingAssistant::CreateDialogBox()
 {
     return new GuidingAsstWin();
@@ -2566,7 +2670,7 @@ void GuidingAssistant::NotifyFrameDropped(const FrameDroppedInfo& info)
         if (HeadlessGASamplingElapsed() >= s_ga.durationS)
         {
             s_ga.endSamplingPending = true;
-            pFrame->CallAfter([]() { HeadlessGAEndSampling(); });
+            HeadlessGACallAfter([]() { HeadlessGAEndSampling(); });
         }
     }
 }
@@ -2609,6 +2713,6 @@ void GuidingAssistant::UpdateUIControls()
     if (pFrame && HeadlessGARunning() && !s_ga.appStateCheckPending)
     {
         s_ga.appStateCheckPending = true;
-        pFrame->CallAfter([]() { HeadlessGACheckAppState(); });
+        HeadlessGACallAfter([]() { HeadlessGACheckAppState(); });
     }
 }

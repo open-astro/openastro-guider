@@ -291,7 +291,11 @@ from the same guider hooks without the dialog.
   "dec_guide_mode", "dec_algorithm"] } → { `applied`: [...] }. All-or-nothing: every item is
   checked against the live mount/camera before anything changes ("<item>: <reason>; nothing was
   applied"); applied in dependency order and saved to the current profile. If a setter still
-  refuses, the error names it and what was already applied and saved.
+  refuses, the error names it and what was already applied and saved. Refused if the profile
+  changed or the camera/mount was disconnected or reconnected since the run.
+- Status numbers are always finite (undefined → 0); after the run ends `pixel_scale` and the
+  polar-alignment fields are frozen at the values the results used. Closing the guider mid-run
+  restores the settings the run changed.
 - Events: `GuidingAssistantProgress` (per sample / backlash step) and `GuidingAssistantDone`
   (same shape as get_status, recommendations included).
 - `guide`, `dither`, `staticpa_start`, `polardrift_start`, `driftalign_start` and
