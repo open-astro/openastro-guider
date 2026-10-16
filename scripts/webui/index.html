@@ -66,6 +66,7 @@
         </span>
       </div>
       <canvas id="graph" height="260"></canvas>
+      <div id="cal-progress" class="stats mono" hidden></div>
       <div id="stats" class="stats mono"></div>
     </div>
   </div>
@@ -166,6 +167,7 @@
 
 <!-- ============================ EQUIPMENT ============================ -->
 <section id="tab-equipment" class="tab">
+  <p class="hint busy-note" hidden>Equipment and profiles are locked while calibrating or guiding. Stop guiding to change them.</p>
   <div class="grid-2">
     <div class="card">
       <div class="card-title"><span>Profile</span></div>
@@ -220,6 +222,7 @@
 
 <!-- ============================ SETTINGS ============================= -->
 <section id="tab-settings" class="tab">
+  <p class="hint busy-note" hidden>Settings are locked while calibrating or guiding. Stop guiding to change them.</p>
   <div class="grid-2">
     <div class="card">
       <div class="card-title"><span>Guide algorithms</span></div>
@@ -266,6 +269,7 @@
 
 <!-- ============================== DARKS ============================== -->
 <section id="tab-darks" class="tab">
+  <p class="hint busy-note" hidden>Darks and the bad-pixel map are locked while calibrating or guiding. Stop guiding to change them.</p>
   <div class="grid-2">
     <div class="card">
       <div class="card-title"><span>Status</span></div>
