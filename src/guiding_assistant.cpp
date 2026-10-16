@@ -44,7 +44,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <set>
 
 struct GADetails
 {
@@ -2383,8 +2382,74 @@ static int GAExposureChoice(const ga_math::ExposureRange& range)
     return -1;
 }
 
+// Why a recommendation can't be applied right now, checked against the live mount / camera (empty = it can)
+static wxString GAApplyBlocker(ga_math::ApplyItem item, const ga_math::Recommendations& r,
+                               const std::vector<ga_math::ApplyItem>& plan, int *exposureMs)
+{
+    using ga_math::ApplyItem;
+
+    switch (item)
+    {
+    case ApplyItem::Exposure:
+        *exposureMs = GAExposureChoice(r.exposure);
+        if (*exposureMs < 0)
+            return wxString::Format(_("no exposure duration between %.1fs and %.1fs is available - use set_exposure"),
+                                    r.exposure.min, r.exposure.max);
+        break;
+
+    case ApplyItem::MinMoveRa:
+    {
+        GuideAlgorithm *algo = pMount->GetXGuideAlgorithm();
+        if (!algo || algo->GetMinMove() < 0.0)
+            return _("the RA guide algorithm has no min-move setting");
+        break;
+    }
+
+    case ApplyItem::DecAlgorithm:
+    {
+        if (!r.decAlgoLowpass2)
+            return _("no Dec algorithm change is recommended");
+        std::vector<GUIDE_ALGORITHM> valid = Mount::AvailableAlgorithms(pMount->IsStepGuider(), GUIDE_Y);
+        if (std::find(valid.begin(), valid.end(), Mount::GuideAlgorithmFromName("Lowpass2")) == valid.end())
+            return _("Lowpass2 is not available for Dec on this mount");
+        break;
+    }
+
+    case ApplyItem::MinMoveDec:
+    {
+        // switching to Lowpass2 first gives Dec a min-move
+        bool switching = std::find(plan.begin(), plan.end(), ApplyItem::DecAlgorithm) != plan.end();
+        GuideAlgorithm *algo = pMount->GetYGuideAlgorithm();
+        if (!switching && (!algo || algo->GetMinMove() < 0.0))
+            return _("the Dec guide algorithm has no min-move setting");
+        break;
+    }
+
+    case ApplyItem::DecBacklash:
+        if (!r.hasBacklash || !r.backlash.applicable)
+            return _("no Dec backlash compensation is recommended");
+        if (!TheScope()->GetBacklashComp())
+            return _("backlash compensation is not available");
+        break;
+
+    case ApplyItem::DecGuideMode:
+        if (!r.hasBacklash || r.backlash.advice != ga_math::BacklashAdvice::TooLarge)
+            return _("no Dec guide mode change is recommended");
+        break;
+    }
+
+    return wxEmptyString;
+}
+
+static wxString GAApplyFailure(ga_math::ApplyItem item, const wxString& reason, const std::vector<ga_math::ApplyItem>& done)
+{
+    return wxString::FromUTF8(ga_math::ApplyFailureMessage(item, std::string(reason.utf8_str()), done).c_str());
+}
+
 bool GuidingAssistant::ApiApply(const std::vector<wxString>& which, std::vector<wxString> *applied, wxString *error)
 {
+    using ga_math::ApplyItem;
+
     if (HeadlessGARunning())
     {
         *error = _("the Guiding Assistant is still running");
@@ -2401,109 +2466,71 @@ bool GuidingAssistant::ApiApply(const std::vector<wxString>& which, std::vector<
         return false;
     }
 
-    // Validate everything before changing anything
-    static const char *const ORDER[] = { "exposure",     "min_move_ra",  "dec_algorithm",
-                                         "min_move_dec", "dec_backlash", "dec_guide_mode" };
-    const ga_math::Recommendations& r = s_ga.recs;
-    std::set<wxString> wanted;
-    int exposureMs = -1;
+    std::vector<std::string> names;
     for (const wxString& w : which)
+        names.push_back(std::string(w.utf8_str()));
+    std::vector<ApplyItem> plan;
+    std::string badName;
+    if (!ga_math::PlanApply(names, &plan, &badName))
     {
-        if (w == "exposure")
-        {
-            exposureMs = GAExposureChoice(r.exposure);
-            if (exposureMs < 0)
-            {
-                *error = wxString::Format(_("no exposure duration between %.1fs and %.1fs is available - use set_exposure"),
-                                          r.exposure.min, r.exposure.max);
-                return false;
-            }
-        }
-        else if (w == "min_move_ra")
-        {
-            if (!r.raMinMove)
-            {
-                *error = _("the RA guide algorithm has no min-move setting");
-                return false;
-            }
-        }
-        else if (w == "min_move_dec")
-        {
-            if (!r.decMinMove && !(r.decAlgoLowpass2 && std::find(which.begin(), which.end(), "dec_algorithm") != which.end()))
-            {
-                *error = _("the Dec guide algorithm has no min-move setting");
-                return false;
-            }
-        }
-        else if (w == "dec_backlash")
-        {
-            if (!r.hasBacklash || !r.backlash.applicable)
-            {
-                *error = _("no Dec backlash compensation is recommended");
-                return false;
-            }
-        }
-        else if (w == "dec_guide_mode")
-        {
-            if (!r.hasBacklash || r.backlash.advice != ga_math::BacklashAdvice::TooLarge)
-            {
-                *error = _("no Dec guide mode change is recommended");
-                return false;
-            }
-        }
-        else if (w == "dec_algorithm")
-        {
-            if (!r.decAlgoLowpass2)
-            {
-                *error = _("no Dec algorithm change is recommended");
-                return false;
-            }
-        }
-        else
-        {
-            *error = wxString::Format(_("unknown recommendation '%s' (expected exposure, min_move_ra, min_move_dec, "
-                                        "dec_backlash, dec_guide_mode or dec_algorithm)"),
-                                      w);
-            return false;
-        }
-        wanted.insert(w);
+        *error = wxString::Format(_("unknown recommendation '%s' (expected exposure, min_move_ra, min_move_dec, "
+                                    "dec_backlash, dec_guide_mode or dec_algorithm)"),
+                                  wxString::FromUTF8(badName.c_str()));
+        return false;
     }
 
-    // Apply in dependency order: switching the Dec algorithm resets its min-move
-    for (const char *name : ORDER)
+    // Check every item can be applied before changing anything, so a request is all-or-nothing
+    const ga_math::Recommendations& r = s_ga.recs;
+    int exposureMs = -1;
+    for (ApplyItem item : plan)
     {
-        if (!wanted.count(name))
-            continue;
-        wxString w(name);
-        bool ok = true;
-        if (w == "exposure")
-            ok = pFrame->SetExposureDuration(exposureMs);
-        else if (w == "min_move_ra")
-            ok = ApplyGAMinMove(pMount->GetXGuideAlgorithm(), r.minMove.ra, "RA", "RA_MinMove");
-        else if (w == "dec_algorithm")
+        wxString why = GAApplyBlocker(item, r, plan, &exposureMs);
+        if (!why.IsEmpty())
         {
+            *error = GAApplyFailure(item, why, {});
+            return false;
+        }
+    }
+
+    // Apply in dependency order. A setter can still refuse; then report what was already applied (and saved).
+    std::vector<ApplyItem> done;
+    for (ApplyItem item : plan)
+    {
+        bool ok = true;
+        switch (item)
+        {
+        case ApplyItem::Exposure:
+            ok = pFrame->SetExposureDuration(exposureMs);
+            break;
+        case ApplyItem::MinMoveRa:
+            ok = ApplyGAMinMove(pMount->GetXGuideAlgorithm(), r.minMove.ra, "RA", "RA_MinMove");
+            break;
+        case ApplyItem::DecAlgorithm:
             pMount->SetYGuideAlgorithm(Mount::GuideAlgorithmFromName("Lowpass2"));
             Debug.Write("GuideAssistant(api) changed Dec algo to Lowpass2\n");
             ok = ConfigureGADecLowpass2(r.minMove.dec);
-        }
-        else if (w == "min_move_dec")
+            break;
+        case ApplyItem::MinMoveDec:
             ok = ApplyGAMinMove(pMount->GetYGuideAlgorithm(), r.minMove.dec, "Declination", "Dec_MinMove");
-        else if (w == "dec_backlash")
+            break;
+        case ApplyItem::DecBacklash:
             ApplyGADecBacklash(r.backlash.recommendedMs);
-        else if (w == "dec_guide_mode")
-        {
+            break;
+        case ApplyItem::DecGuideMode:
             TheScope()->SetDecGuideMode(r.singleDirection == ga_math::DecDirection::South ? DEC_SOUTH : DEC_NORTH);
             if (pFrame->pGraphLog)
                 pFrame->pGraphLog->UpdateControls();
+            break;
         }
 
         if (!ok)
         {
-            *error = wxString::Format(_("could not apply %s"), w);
             pConfig->Flush();
+            *error = GAApplyFailure(item, _("the setting was rejected"), done);
             return false;
         }
-        applied->push_back(w);
+        done.push_back(item);
+        applied->push_back(ga_math::ApplyItemName(item));
     }
 
     pConfig->Flush();

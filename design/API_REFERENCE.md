@@ -142,14 +142,15 @@ multi-star, variable delay, subframes) is restored when it ends — done, stoppe
 **while guiding**, or **while looping with a selected star and a calibrated mount**: in that case the
 run starts guiding itself (output already disabled, so nothing is corrected) and returns to looping
 at the end. Results are also written to the guide log and the profile's GA history, exactly as the
-dialog does. While a run is active, `guide` and `dither` are rejected.
+dialog does. While a run is active, `guide`, `dither`, `staticpa_start`, `polardrift_start`,
+`driftalign_start` and `driftalign_drift` are rejected ("Guiding Assistant is running").
 
 | Method | Params | Description |
 |--------|--------|-------------|
 | `guiding_assistant_start` | `measure_backlash` (bool, required — the test moves the star well north, so pick a star with room), `duration_s`? (10–3600, default 120 — the dialog's minimum; shorter runs give less reliable seeing/min-move estimates) | Start measuring; returns the status. Errors: no camera / mount, calibrating, paused, not guiding and not (looping + star selected), mount not calibrated (when starting from looping), backlash test impossible (no Dec calibration), already running, Guiding Assistant dialog open, a polar-alignment tool running, PA session lease, dark build in progress. |
 | `guiding_assistant_stop` | — | End the run now. During sampling: finish with the samples so far (backlash test skipped), or `failed` if fewer than 2 samples. During the backlash test: abort it and finish without a backlash result. Error if not running. |
 | `guiding_assistant_get_status` | — | `{state, duration_s, measure_backlash, elapsed_s, samples, pixel_scale, ...}` — see below. |
-| `guiding_assistant_apply` | `which` (non-empty array of `"exposure"`, `"min_move_ra"`, `"min_move_dec"`, `"dec_backlash"`, `"dec_guide_mode"`, `"dec_algorithm"`) | Write the accepted recommendations to the current profile (state must be `done`). All names are validated first; a name with no recommendation behind it is an error and nothing is changed. `exposure` picks the shortest available exposure in `[exposure_s, exposure_max_s]`. Returns `{applied: [...]}`. |
+| `guiding_assistant_apply` | `which` (non-empty array of `"exposure"`, `"min_move_ra"`, `"min_move_dec"`, `"dec_backlash"`, `"dec_guide_mode"`, `"dec_algorithm"`) | Write the accepted recommendations to the current profile (state must be `done`) and save it. **All-or-nothing:** every requested item is first checked against the live mount/camera (recommendation present, algorithm has a min-move, Lowpass2 available for Dec, an exposure in range exists, …); if any can't be applied the call fails with `"<item>: <reason>; nothing was applied"` and nothing is changed. Items are applied in dependency order (`exposure`, `min_move_ra`, `dec_algorithm`, `min_move_dec`, `dec_backlash`, `dec_guide_mode`); duplicates are ignored. Should a setter still refuse after the checks, the error names it and what was already applied and saved: `"<item>: the setting was rejected; already applied and saved: a, b"`. `exposure` picks the shortest available exposure in `[exposure_s, exposure_max_s]`. Returns `{applied: [...]}`. |
 
 `guiding_assistant_get_status` fields:
 

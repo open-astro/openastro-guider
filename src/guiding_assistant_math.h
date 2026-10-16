@@ -244,6 +244,27 @@ struct Recommendations
 
 Recommendations Recommend(const AxisStats& decAxis, const RecommendationInputs& in);
 
+// Recommendations guiding_assistant_apply can write to the profile, in the
+// order they must be applied (switching the Dec algorithm resets its min-move)
+enum class ApplyItem
+{
+    Exposure,
+    MinMoveRa,
+    DecAlgorithm,
+    MinMoveDec,
+    DecBacklash,
+    DecGuideMode
+};
+
+const char *ApplyItemName(ApplyItem item); // "exposure", "min_move_ra", ...
+
+// Parse the requested names into a de-duplicated plan in application order.
+// Fails on an empty request, or on an unknown name (returned in *badName).
+bool PlanApply(const std::vector<std::string>& which, std::vector<ApplyItem> *plan, std::string *badName);
+
+// "<item>: <reason>; already applied and saved: a, b" (or "; nothing was applied")
+std::string ApplyFailureMessage(ApplyItem failed, const std::string& reason, const std::vector<ApplyItem>& applied);
+
 } // namespace ga_math
 
 #endif

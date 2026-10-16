@@ -288,11 +288,14 @@ from the same guider hooks without the dialog.
   `drift_limiting_exposure_s`?, `dec_backlash_ms`?, `dec_guide_mode`?, `dec_algorithm`?,
   `messages` [{`id`, `text`}] }; `error`? }.
 - `guiding_assistant_apply` { `which`: ["exposure", "min_move_ra", "min_move_dec", "dec_backlash",
-  "dec_guide_mode", "dec_algorithm"] } → { `applied`: [...] }. Validates all names first; writes
-  to the current profile.
+  "dec_guide_mode", "dec_algorithm"] } → { `applied`: [...] }. All-or-nothing: every item is
+  checked against the live mount/camera before anything changes ("<item>: <reason>; nothing was
+  applied"); applied in dependency order and saved to the current profile. If a setter still
+  refuses, the error names it and what was already applied and saved.
 - Events: `GuidingAssistantProgress` (per sample / backlash step) and `GuidingAssistantDone`
   (same shape as get_status, recommendations included).
-- `guide` and `dither` are rejected while a run is active.
+- `guide`, `dither`, `staticpa_start`, `polardrift_start`, `driftalign_start` and
+  `driftalign_drift` are rejected while a run is active.
 
 Deviations from the issue: `exposure_s` is the start of the recommended range (`exposure_max_s`
 is its end) because the GA recommends a range, not a single value; `dec_algorithm` was added

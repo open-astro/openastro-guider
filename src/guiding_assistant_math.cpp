@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace ga_math
 {
@@ -422,6 +423,62 @@ Recommendations Recommend(const AxisStats& decAxis, const RecommendationInputs& 
     r.decAlgoLowpass2 = RecommendLowpass2ForDec(in.hpEncoders, smallBacklash, in.decAlgoClass);
 
     return r;
+}
+
+static const ApplyItem APPLY_ORDER[] = { ApplyItem::Exposure,   ApplyItem::MinMoveRa,   ApplyItem::DecAlgorithm,
+                                         ApplyItem::MinMoveDec, ApplyItem::DecBacklash, ApplyItem::DecGuideMode };
+
+const char *ApplyItemName(ApplyItem item)
+{
+    switch (item)
+    {
+    case ApplyItem::Exposure:
+        return "exposure";
+    case ApplyItem::MinMoveRa:
+        return "min_move_ra";
+    case ApplyItem::DecAlgorithm:
+        return "dec_algorithm";
+    case ApplyItem::MinMoveDec:
+        return "min_move_dec";
+    case ApplyItem::DecBacklash:
+        return "dec_backlash";
+    case ApplyItem::DecGuideMode:
+        return "dec_guide_mode";
+    }
+    return "";
+}
+
+bool PlanApply(const std::vector<std::string>& which, std::vector<ApplyItem> *plan, std::string *badName)
+{
+    plan->clear();
+    std::vector<bool> wanted(std::size(APPLY_ORDER), false);
+    for (const std::string& name : which)
+    {
+        size_t i = 0;
+        while (i < std::size(APPLY_ORDER) && name != ApplyItemName(APPLY_ORDER[i]))
+            i++;
+        if (i == std::size(APPLY_ORDER))
+        {
+            *badName = name;
+            return false;
+        }
+        wanted[i] = true;
+    }
+    for (size_t i = 0; i < std::size(APPLY_ORDER); i++)
+        if (wanted[i])
+            plan->push_back(APPLY_ORDER[i]);
+    return !plan->empty();
+}
+
+std::string ApplyFailureMessage(ApplyItem failed, const std::string& reason, const std::vector<ApplyItem>& applied)
+{
+    std::string msg = std::string(ApplyItemName(failed)) + ": " + reason;
+    if (applied.empty())
+        return msg + "; nothing was applied";
+    msg += "; already applied and saved: ";
+    for (size_t i = 0; i < applied.size(); i++)
+        msg += (i ? ", " : "") + std::string(ApplyItemName(applied[i]));
+    return msg;
 }
 
 } // namespace ga_math

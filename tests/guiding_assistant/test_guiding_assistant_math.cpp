@@ -547,3 +547,51 @@ TEST(GuidingAssistantRecommend, EncoderMountRecommendsLowpass2WithoutBacklashTes
     EXPECT_DOUBLE_EQ(r.exposure.min, 4.0);
     EXPECT_DOUBLE_EQ(r.exposure.max, 8.0);
 }
+
+// ---------------------------------------------------------------------------
+// guiding_assistant_apply: request parsing / ordering, and the failure message
+// ---------------------------------------------------------------------------
+
+TEST(GuidingAssistantApply, PlansInDependencyOrderWithoutDuplicates)
+{
+    std::vector<ApplyItem> plan;
+    std::string bad;
+    ASSERT_TRUE(PlanApply(
+        { "min_move_dec", "dec_guide_mode", "dec_algorithm", "exposure", "min_move_dec", "min_move_ra", "dec_backlash" }, &plan,
+        &bad));
+    // switching the Dec algorithm resets its min-move, so it must come first
+    std::vector<ApplyItem> expected = { ApplyItem::Exposure,   ApplyItem::MinMoveRa,   ApplyItem::DecAlgorithm,
+                                        ApplyItem::MinMoveDec, ApplyItem::DecBacklash, ApplyItem::DecGuideMode };
+    EXPECT_EQ(plan, expected);
+}
+
+TEST(GuidingAssistantApply, RejectsUnknownNamesAndEmptyRequests)
+{
+    std::vector<ApplyItem> plan;
+    std::string bad;
+    EXPECT_FALSE(PlanApply({ "min_move_ra", "aggressiveness" }, &plan, &bad));
+    EXPECT_EQ(bad, "aggressiveness");
+    EXPECT_FALSE(PlanApply({}, &plan, &bad));
+}
+
+TEST(GuidingAssistantApply, ItemNamesRoundTrip)
+{
+    for (ApplyItem item : { ApplyItem::Exposure, ApplyItem::MinMoveRa, ApplyItem::DecAlgorithm, ApplyItem::MinMoveDec,
+                            ApplyItem::DecBacklash, ApplyItem::DecGuideMode })
+    {
+        std::vector<ApplyItem> plan;
+        std::string bad;
+        ASSERT_TRUE(PlanApply({ ApplyItemName(item) }, &plan, &bad));
+        ASSERT_EQ(plan.size(), 1u);
+        EXPECT_EQ(plan[0], item);
+    }
+}
+
+TEST(GuidingAssistantApply, FailureMessageNamesFailedItemAndWhatWasAlreadySaved)
+{
+    EXPECT_EQ(
+        ApplyFailureMessage(ApplyItem::DecAlgorithm, "Lowpass2 not available", { ApplyItem::Exposure, ApplyItem::MinMoveRa }),
+        "dec_algorithm: Lowpass2 not available; already applied and saved: exposure, min_move_ra");
+    EXPECT_EQ(ApplyFailureMessage(ApplyItem::Exposure, "no exposure in range", {}),
+              "exposure: no exposure in range; nothing was applied");
+}

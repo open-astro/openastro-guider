@@ -1048,7 +1048,8 @@ static struct DarkBuildProgress
 // clang-format on
 
 // A Guiding Assistant run is measuring unguided drift (or backlash); a guide
-// or dither request would corrupt the measurement.
+// or dither request, or a polar-alignment tool taking over the star and guide
+// output, would corrupt the measurement.
 // clang-format off
 #define VERIFY_NO_GUIDING_ASSISTANT(response) \
     do { \
@@ -2962,6 +2963,7 @@ static void staticpa_get_status(JObj& response, const json_value *params)
 
 static void staticpa_start(JObj& response, const json_value *params)
 {
+    VERIFY_NO_GUIDING_ASSISTANT(response);
     Params p("auto", "hemisphere", "ref_star", "hour_angle", "flip_camera", params);
 
     if (!pCamera || !pCamera->Connected)
@@ -3219,6 +3221,7 @@ static void polardrift_get_status(JObj& response, const json_value *params)
 
 static void polardrift_start(JObj& response, const json_value *params)
 {
+    VERIFY_NO_GUIDING_ASSISTANT(response);
     Params p("hemisphere", "mirrored", params);
 
     if (!pCamera || !pCamera->Connected)
@@ -3421,6 +3424,7 @@ static void driftalign_get_status(JObj& response, const json_value *params)
 
 static void driftalign_start(JObj& response, const json_value *params)
 {
+    VERIFY_NO_GUIDING_ASSISTANT(response);
     VERIFY_GUIDER(response);
 
     wxString error;
@@ -3461,6 +3465,7 @@ static void driftalign_set_phase(JObj& response, const json_value *params)
 
 static void driftalign_drift(JObj& response, const json_value *params)
 {
+    VERIFY_NO_GUIDING_ASSISTANT(response);
     wxString error;
     if (!DriftTool::ApiSetMode(DriftTool::API_MODE_DRIFT, &error))
     {
