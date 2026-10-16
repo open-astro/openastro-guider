@@ -76,6 +76,10 @@ async function pollHeader() {
     const pill = $("pill-state");
     pill.textContent = st;
     pill.className = "pill state-" + st;
+    // the server refuses settings changes mid-run; mirror that in the Settings tab
+    const busy = st === "Calibrating" || st === "Guiding";
+    $("st-busy").hidden = !busy;
+    for (const id of ["st-save-guiding", "st-save-star", "st-save-camera"]) $(id).disabled = busy;
   }
   const conn = await rpcQuiet("get_connected");
   if (conn !== undefined) {
@@ -154,6 +158,31 @@ async function pollGuide() {
   // graph + stats
   const hist = await rpcQuiet("get_guide_history", { max_points: 200 });
   if (hist) drawGraph(hist);
+
+  // calibration progress: calibration steps never reach the guide history
+  const cal = $("cal-progress");
+  const prog = appState === "Calibrating" ? await rpcQuiet("get_calibration_progress") : undefined;
+  if (prog && prog.calibrating && prog.dir) {
+    const item = (label, value) => {
+      const span = document.createElement("span");
+      span.append(label);
+      if (value !== undefined) {
+        const b = document.createElement("b");
+        b.textContent = value;
+        span.append(" ", b);
+      }
+      return span;
+    };
+    cal.replaceChildren(
+      item("Calibrating", prog.Mount),
+      item(prog.dir + " step", String(prog.step)),
+      item("distance", prog.dist.toFixed(1) + " px"),
+    );
+    if (prog.State) cal.append(item(prog.State));
+    cal.hidden = false;
+  } else {
+    cal.hidden = true;
+  }
 
   // pause button state
   const paused = await rpcQuiet("get_paused");

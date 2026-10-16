@@ -37,6 +37,7 @@
 #include "staticpa_toolwin.h"
 #include "polardrift_toolwin.h"
 #include "drift_tool.h"
+#include "webui_rpc_guard.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
@@ -318,6 +319,22 @@ static NV NVMount(const Mount *mount)
 {
     return NV("Mount", mount->Name());
 }
+
+// The last calibration step, for HTTP clients (the web UI) that have no event
+// stream; :4400 clients get it as the Calibrating event.
+struct LastCalibrationStep
+{
+    bool valid = false;
+    wxString mount;
+    wxString dir;
+    int step = 0;
+    double dx = 0.0;
+    double dy = 0.0;
+    double dist = 0.0;
+    PHD_Point pos;
+    wxString msg;
+};
+static LastCalibrationStep s_lastCalStep;
 
 static JObj& operator<<(JObj& j, const PHD_Point& pt)
 {
@@ -3480,6 +3497,23 @@ static void get_app_state(JObj& response, const json_value *params)
 {
     EXPOSED_STATE st = Guider::GetExposedState();
     response << jrpc_result(state_name(st));
+}
+
+static void get_calibration_progress(JObj& response, const json_value *params)
+{
+    // Same fields as the Calibrating event; only "calibrating" when idle.
+    bool calibrating = Guider::GetExposedState() == EXPOSED_STATE_CALIBRATING;
+    JObj rslt;
+    rslt << NV("calibrating", calibrating);
+    if (calibrating && s_lastCalStep.valid)
+    {
+        rslt << NV("Mount", s_lastCalStep.mount) << NV("dir", s_lastCalStep.dir) << NV("dist", s_lastCalStep.dist)
+             << NV("dx", s_lastCalStep.dx) << NV("dy", s_lastCalStep.dy) << NV("pos", s_lastCalStep.pos)
+             << NV("step", s_lastCalStep.step);
+        if (!s_lastCalStep.msg.empty())
+            rslt << NV("State", s_lastCalStep.msg);
+    }
+    response << jrpc_result(rslt);
 }
 
 static void get_version(JObj& response, const json_value *params)
@@ -6728,6 +6762,7 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "driftalign_close", &driftalign_close },
         { "get_pixel_scale", &get_pixel_scale },
         { "get_app_state", &get_app_state },
+        { "get_calibration_progress", &get_calibration_progress },
         { "get_version", &get_version },
         { "flip_calibration", &flip_calibration },
         { "get_lock_shift_enabled", &get_lock_shift_enabled },
@@ -7074,10 +7109,14 @@ static wxString http_status_text(int code)
         return "OK";
     case 400:
         return "Bad Request";
+    case 403:
+        return "Forbidden";
     case 404:
         return "Not Found";
     case 405:
         return "Method Not Allowed";
+    case 409:
+        return "Conflict";
     case 500:
         return "Internal Server Error";
     default:
@@ -7570,10 +7609,23 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
             return http_json_response(400, out);
         }
 
+        // Web UI calls never reach dump_request(); log them so they show in the debug log.
+        Debug.Write(wxString::Format("httpsrv: rpc %s\n", method->string_value));
+
+        // A Save in the web UI must not disturb a calibration or guiding run (#81).
+        if (pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding() && !WebUiRpcAllowedWhileBusy(method->string_value))
+        {
+            Debug.Write(wxString::Format("httpsrv: rpc %s refused while calibrating or guiding\n", method->string_value));
+            JObj out;
+            out << NV("ok", false) << NV("error", "stop guiding before changing settings");
+            return http_json_response(409, out);
+        }
+
         wxString resultRaw;
         wxString err;
         if (!call_rpc_result_raw(method->string_value, params, &resultRaw, &err))
         {
+            Debug.Write(wxString::Format("httpsrv: rpc %s failed: %s\n", method->string_value, err));
             JObj out;
             out << NV("ok", false) << NV("error", err);
             return http_json_response(500, out);
@@ -7863,11 +7915,22 @@ void EventServer::OnHttpServerClientEvent(wxSocketEvent& event)
 
 void EventServer::NotifyStartCalibration(const Mount *mount)
 {
+    s_lastCalStep.valid = false;
     SIMPLE_NOTIFY_EV(ev_start_calibration(mount));
 }
 
 void EventServer::NotifyCalibrationStep(const CalibrationStepInfo& info)
 {
+    s_lastCalStep.valid = true;
+    s_lastCalStep.mount = info.mount->Name();
+    s_lastCalStep.dir = info.direction;
+    s_lastCalStep.step = info.stepNumber;
+    s_lastCalStep.dx = info.dx;
+    s_lastCalStep.dy = info.dy;
+    s_lastCalStep.dist = info.dist;
+    s_lastCalStep.pos = info.pos;
+    s_lastCalStep.msg = info.msg;
+
     if (m_eventServerClients.empty())
         return;
 

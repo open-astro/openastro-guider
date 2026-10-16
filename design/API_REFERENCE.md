@@ -24,6 +24,13 @@ The same method table is served over **two** sockets (both bind `0.0.0.0`, insta
 **Request** (JSON-RPC 2.0): `{"method": "<name>", "params": {...}|[...], "id": <n>}`.
 Params may be an object (named) or array (positional). Over HTTP, POST that body to `/api/rpc`;
 the response is wrapped `{"ok": true, "result": ...}` / `{"ok": false, "error": "..."}`.
+While calibrating or guiding, `/api/rpc` refuses calls that change settings, equipment,
+profiles, calibration or darks (every `set_*` except `set_paused`, `set_exposure` and
+`set_lock_position`, plus `clear_calibration`, `flip_calibration`, `delete_calibration_files`,
+`create_profile`, `delete_profile`, `rename_profile`, `build_dark_library`,
+`build_defect_map_darks`, `rebuild_defect_map`) with HTTP `409` and
+`"stop guiding before changing settings"`, so a Save in the web app can't disturb a run.
+`:4400` is not affected. Every `/api/rpc` call is written to the debug log (`httpsrv: rpc ...`).
 Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}`).
 
 **Auth:** none — the daemon is intentionally **LAN-trusted, HTTP-only** (see
@@ -36,6 +43,7 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | Method | Params | Description |
 |--------|--------|-------------|
 | `get_app_state` | — | Current state string (`Stopped`, `Selected`, `Calibrating`, `Guiding`, `LostLock`, `Paused`, `Looping`). |
+| `get_calibration_progress` | — | `{calibrating}`; while calibrating, also the last step with the `Calibrating` event's fields: `Mount`, `dir`, `step`, `dist`, `dx`, `dy`, `pos`, `State?`. For HTTP clients with no event stream (the web app's Guide tab). |
 | `get_version` | — | `version` (user-facing, from `version.md`), `phd_version`, `phd_subver`, `msg_version` — the `Version` event's fields for HTTP clients with no event stream (the web app's header pill). |
 | `get_connected` | — | `true` if all selected equipment is connected. |
 | `set_connected` | `connected` (bool) | Connect/disconnect the profile's equipment. |

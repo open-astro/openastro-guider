@@ -66,6 +66,7 @@
         </span>
       </div>
       <canvas id="graph" height="260"></canvas>
+      <div id="cal-progress" class="stats mono" hidden></div>
       <div id="stats" class="stats mono"></div>
     </div>
   </div>
@@ -220,6 +221,7 @@
 
 <!-- ============================ SETTINGS ============================= -->
 <section id="tab-settings" class="tab">
+  <p id="st-busy" class="hint" hidden>Settings are locked while calibrating or guiding. Stop guiding to change them.</p>
   <div class="grid-2">
     <div class="card">
       <div class="card-title"><span>Guide algorithms</span></div>

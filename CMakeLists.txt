@@ -166,6 +166,8 @@ set(cam_SRC
   ${phd_src_dir}/cam_alpaca.h
   ${phd_src_dir}/alpaca_client.cpp
   ${phd_src_dir}/alpaca_client.h
+  ${phd_src_dir}/webui_rpc_guard.cpp
+  ${phd_src_dir}/webui_rpc_guard.h
   ${phd_src_dir}/alpaca_discovery.cpp
   ${phd_src_dir}/alpaca_discovery.h
   ${phd_src_dir}/config_alpaca.cpp
