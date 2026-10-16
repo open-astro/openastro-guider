@@ -9,15 +9,21 @@
 
 #include <set>
 
+static bool EndsWith(const std::string& s, const std::string& suffix)
+{
+    return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+bool WebUiRpcIsRead(const std::string& method)
+{
+    return method.rfind("get_", 0) == 0 || EndsWith(method, "_get_status");
+}
+
 bool WebUiRpcAllowedWhileBusy(const std::string& method)
 {
-    // setters that drive the run rather than change its settings
-    static const std::set<std::string> runSetters = { "set_paused", "set_exposure", "set_lock_position" };
-    static const std::set<std::string> refused = { "clear_calibration",  "flip_calibration",       "delete_calibration_files",
-                                                   "create_profile",     "delete_profile",         "rename_profile",
-                                                   "build_dark_library", "build_defect_map_darks", "rebuild_defect_map" };
+    static const std::set<std::string> runControl = { "stop_capture",      "set_paused", "dither", "set_exposure",
+                                                      "set_lock_position", "guide",      "loop",   "shutdown" };
 
-    if (method.rfind("set_", 0) == 0)
-        return runSetters.count(method) != 0;
-    return refused.count(method) == 0;
+    // the drift-align tool guides in RA while it measures
+    return WebUiRpcIsRead(method) || runControl.count(method) != 0 || method.rfind("driftalign_", 0) == 0;
 }

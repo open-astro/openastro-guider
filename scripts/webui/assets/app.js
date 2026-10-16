@@ -67,6 +67,14 @@ let activePa = "staticpa";
 /* ---------------- header status poller ---------------- */
 
 let appState = "—";
+
+// buttons whose calls /api/rpc refuses while calibrating or guiding
+const BUSY_LOCKED = [
+  "st-save-guiding", "st-save-star", "st-save-camera",
+  "eq-prof-new", "eq-prof-rename", "eq-prof-delete", "eq-save-profile", "eq-save-alpaca",
+  "eq-connect", "eq-disconnect", "eq-clear-cal", "eq-flip-cal",
+  "dk-build", "dk-bpm-build", "dk-preview", "dk-rebuild", "dk-delete",
+];
 let connected = false;
 
 async function pollHeader() {
@@ -76,10 +84,10 @@ async function pollHeader() {
     const pill = $("pill-state");
     pill.textContent = st;
     pill.className = "pill state-" + st;
-    // the server refuses settings changes mid-run; mirror that in the Settings tab
+    // the server refuses settings, equipment and dark changes mid-run; mirror that here
     const busy = st === "Calibrating" || st === "Guiding";
-    $("st-busy").hidden = !busy;
-    for (const id of ["st-save-guiding", "st-save-star", "st-save-camera"]) $(id).disabled = busy;
+    for (const note of document.querySelectorAll(".busy-note")) note.hidden = !busy;
+    for (const id of BUSY_LOCKED) $(id).disabled = busy;
   }
   const conn = await rpcQuiet("get_connected");
   if (conn !== undefined) {

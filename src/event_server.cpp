@@ -321,7 +321,8 @@ static NV NVMount(const Mount *mount)
 }
 
 // The last calibration step, for HTTP clients (the web UI) that have no event
-// stream; :4400 clients get it as the Calibrating event.
+// stream; :4400 clients get it as the Calibrating event. Written and read on
+// the main thread only (the event and HTTP servers run on the wx event loop).
 struct LastCalibrationStep
 {
     bool valid = false;
@@ -7609,8 +7610,10 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
             return http_json_response(400, out);
         }
 
-        // Web UI calls never reach dump_request(); log them so they show in the debug log.
-        Debug.Write(wxString::Format("httpsrv: rpc %s\n", method->string_value));
+        // Web UI calls never reach dump_request(); log the ones that change
+        // something (not the web app's polling reads) so they show in the debug log.
+        if (!WebUiRpcIsRead(method->string_value))
+            Debug.Write(wxString::Format("httpsrv: rpc %s\n", method->string_value));
 
         // A Save in the web UI must not disturb a calibration or guiding run (#81).
         if (pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding() && !WebUiRpcAllowedWhileBusy(method->string_value))

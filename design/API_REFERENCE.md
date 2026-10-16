@@ -24,13 +24,13 @@ The same method table is served over **two** sockets (both bind `0.0.0.0`, insta
 **Request** (JSON-RPC 2.0): `{"method": "<name>", "params": {...}|[...], "id": <n>}`.
 Params may be an object (named) or array (positional). Over HTTP, POST that body to `/api/rpc`;
 the response is wrapped `{"ok": true, "result": ...}` / `{"ok": false, "error": "..."}`.
-While calibrating or guiding, `/api/rpc` refuses calls that change settings, equipment,
-profiles, calibration or darks (every `set_*` except `set_paused`, `set_exposure` and
-`set_lock_position`, plus `clear_calibration`, `flip_calibration`, `delete_calibration_files`,
-`create_profile`, `delete_profile`, `rename_profile`, `build_dark_library`,
-`build_defect_map_darks`, `rebuild_defect_map`) with HTTP `409` and
+While calibrating or guiding, `/api/rpc` allows only reads (`get_*`, `*_get_status`), run
+control (`stop_capture`, `set_paused`, `dither`, `set_exposure`, `set_lock_position`, `guide`,
+`loop`, `shutdown`) and the drift-align tool (`driftalign_*`, which guides while it measures).
+Everything else, including methods added later, gets HTTP `409` and
 `"stop guiding before changing settings"`, so a Save in the web app can't disturb a run.
-`:4400` is not affected. Every `/api/rpc` call is written to the debug log (`httpsrv: rpc ...`).
+`:4400` is not affected. Every `/api/rpc` call except reads is written to the debug log
+(`httpsrv: rpc ...`).
 Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}`).
 
 **Auth:** none — the daemon is intentionally **LAN-trusted, HTTP-only** (see
