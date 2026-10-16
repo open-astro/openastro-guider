@@ -212,3 +212,15 @@ add_executable(test_webui_rpc_guard
 target_link_libraries(test_webui_rpc_guard PRIVATE phd_test_common)
 set_property(TARGET test_webui_rpc_guard PROPERTY FOLDER "Unit tests")
 add_test(NAME test_webui_rpc_guard COMMAND test_webui_rpc_guard)
+
+############################################################################
+# test_alpaca_gain  --  alpaca_gain.cpp: the GainMin/GainMax support
+# decision and the 0-100 % -> raw gain mapping CameraAlpaca uses. std-only.
+############################################################################
+add_executable(test_alpaca_gain
+  ${PHD_TESTS_DIR}/camera/test_alpaca_gain.cpp
+  ${phd_src_dir}/alpaca_gain.cpp
+)
+target_link_libraries(test_alpaca_gain PRIVATE phd_test_common)
+set_property(TARGET test_alpaca_gain PROPERTY FOLDER "Unit tests")
+add_test(NAME test_alpaca_gain COMMAND test_alpaca_gain)
