@@ -67,6 +67,14 @@ let activePa = "staticpa";
 /* ---------------- header status poller ---------------- */
 
 let appState = "—";
+
+// buttons whose calls /api/rpc refuses while calibrating or guiding
+const BUSY_LOCKED = [
+  "st-save-guiding", "st-save-star", "st-save-camera",
+  "eq-prof-new", "eq-prof-rename", "eq-prof-delete", "eq-save-profile", "eq-save-alpaca",
+  "eq-connect", "eq-disconnect", "eq-clear-cal", "eq-flip-cal",
+  "dk-build", "dk-bpm-build", "dk-preview", "dk-rebuild", "dk-delete",
+];
 let connected = false;
 
 async function pollHeader() {
@@ -76,6 +84,10 @@ async function pollHeader() {
     const pill = $("pill-state");
     pill.textContent = st;
     pill.className = "pill state-" + st;
+    // the server refuses settings, equipment and dark changes mid-run; mirror that here
+    const busy = st === "Calibrating" || st === "Guiding";
+    for (const note of document.querySelectorAll(".busy-note")) note.hidden = !busy;
+    for (const id of BUSY_LOCKED) $(id).disabled = busy;
   }
   const conn = await rpcQuiet("get_connected");
   if (conn !== undefined) {
@@ -154,6 +166,31 @@ async function pollGuide() {
   // graph + stats
   const hist = await rpcQuiet("get_guide_history", { max_points: 200 });
   if (hist) drawGraph(hist);
+
+  // calibration progress: calibration steps never reach the guide history
+  const cal = $("cal-progress");
+  const prog = appState === "Calibrating" ? await rpcQuiet("get_calibration_progress") : undefined;
+  if (prog && prog.calibrating && prog.dir) {
+    const item = (label, value) => {
+      const span = document.createElement("span");
+      span.append(label);
+      if (value !== undefined) {
+        const b = document.createElement("b");
+        b.textContent = value;
+        span.append(" ", b);
+      }
+      return span;
+    };
+    cal.replaceChildren(
+      item("Calibrating", prog.Mount),
+      item(prog.dir + " step", String(prog.step)),
+      item("distance", prog.dist.toFixed(1) + " px"),
+    );
+    if (prog.State) cal.append(item(prog.State));
+    cal.hidden = false;
+  } else {
+    cal.hidden = true;
+  }
 
   // pause button state
   const paused = await rpcQuiet("get_paused");
@@ -686,7 +723,11 @@ async function loadSettings() {
   const sd = await rpcQuiet("get_star_detection");
   if (sd) { $("st-minsnr").value = sd.MinStarSNR; $("st-minhfd").value = sd.MinStarHFD; $("st-maxhfd").value = sd.MaxStarHFD; }
   const gain = await rpcQuiet("get_camera_gain");
-  if (gain) $("st-gain").value = gain.Gain;
+  if (gain) {
+    $("st-gain").value = gain.Gain;
+    $("st-gain").disabled = !gain.HasGainControl;
+    $("st-gain").title = gain.HasGainControl ? "" : "this camera has no gain control";
+  }
   const to = await rpcQuiet("get_camera_timeout");
   if (to !== undefined) $("st-timeout").value = to;
   const nr = await rpcQuiet("get_noise_reduction");
@@ -717,7 +758,7 @@ action("st-save-star", async () => {
 });
 
 action("st-save-camera", async () => {
-  await rpc("set_camera_gain", { gain: parseInt($("st-gain").value, 10) });
+  if (!$("st-gain").disabled) await rpc("set_camera_gain", { gain: parseInt($("st-gain").value, 10) });
   await rpc("set_camera_timeout", { timeout_ms: parseInt($("st-timeout").value, 10) });
   await rpc("set_noise_reduction", { method: $("st-noise").value });
   toast("camera settings applied", true);
