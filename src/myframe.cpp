@@ -1125,8 +1125,8 @@ void MyFrame::UpdateButtonsStatus()
     if (pCometTool)
         CometTool::UpdateCometToolControls(false);
 
-    if (pGuidingAssistant)
-        GuidingAssistant::UpdateUIControls();
+    // also drives a headless (JSON-RPC) Guiding Assistant run, which has no window
+    GuidingAssistant::UpdateUIControls();
 
     if (pierFlipToolWin)
         PierFlipTool::UpdateUIControls();
@@ -2118,6 +2118,9 @@ void MyFrame::OnClose(wxCloseEvent& event)
     }
 
     Debug.Write("MyFrame::OnClose proceeding\n");
+
+    // a headless Guiding Assistant run can't finish normally any more; put back the settings it changed
+    GuidingAssistant::ApiShutdown();
 
     StopCapturing();
 

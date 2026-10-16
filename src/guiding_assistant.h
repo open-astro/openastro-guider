@@ -45,6 +45,86 @@ public:
     static void NotifyBacklashStep(const PHD_Point& camLoc);
     static void NotifyBacklashError();
     static void UpdateUIControls();
+
+    // Headless Guiding Assistant, driven over JSON-RPC (guiding_assistant_*).
+    // Runs the same measurement as the dialog without showing it: guide
+    // output is disabled while the star drifts, the unguided samples feed the
+    // shared ga_math statistics, an optional Dec backlash test follows, and
+    // the dialog's recommendations are computed at the end.
+    enum ApiState
+    {
+        API_IDLE,
+        API_MEASURING,
+        API_MEASURING_BACKLASH,
+        API_DONE,
+        API_FAILED
+    };
+
+    struct ApiMessage
+    {
+        wxString id; // "Exp", "Bin", "Cal", "Star", "PA", "StarHFD", "RAMinMove", "DecMinMove", "BLT", "DecAlgo"
+        wxString text;
+    };
+
+    struct ApiRecommendations
+    {
+        double minMoveRaPx = 0.;
+        double minMoveDecPx = 0.;
+        bool minMoveSeeingBased = false;
+        double exposureMinS = 0.;
+        double exposureMaxS = 0.;
+        double driftLimitingExposureS = 0.; // 0 = n/a
+        bool hasDecBacklashMs = false;
+        int decBacklashMs = 0;
+        wxString decGuideMode; // empty unless the backlash is too large to compensate
+        wxString decAlgorithm; // empty unless Lowpass2 is recommended for Dec
+        std::vector<ApiMessage> messages; // the dialog's recommendation texts, in display order
+    };
+
+    struct ApiStatus
+    {
+        ApiState state = API_IDLE;
+        double durationS = 0.;
+        bool measureBacklash = false;
+        double elapsedS = 0.;
+        unsigned int samples = 0;
+        double pixelScale = 0.;
+        bool hasStats = false; // >= 2 samples
+        double raDriftPxMin = 0.;
+        double decDriftPxMin = 0.;
+        double raRmsPx = 0.;
+        double decRmsPx = 0.;
+        double highFreqRmsPx = 0.;
+        double raPeakPx = 0.;
+        double decPeakPx = 0.;
+        double raPeakPeakPx = 0.;
+        double raMaxDriftPxSec = 0.;
+        double snr = 0.;
+        double starMass = 0.;
+        double polarAlignErrorArcmin = 0.;
+        bool polarAlignErrorIsLowerBound = false; // declination unknown
+        wxString backlashStatus; // backlash-test progress text
+        bool hasBacklash = false;
+        int backlashMs = 0;
+        double backlashSigmaMs = 0.;
+        double backlashPx = 0.;
+        bool hasRecommendations = false;
+        ApiRecommendations recommendations;
+        wxString error;
+    };
+
+    static const char *ApiStateName(ApiState state);
+    // durationS: seconds of unguided sampling before results (and the backlash test)
+    static bool ApiStart(double durationS, bool measureBacklash, wxString *error);
+    static bool ApiStop(wxString *error);
+    static void ApiGetStatus(ApiStatus *status);
+    static bool ApiIsRunning();
+    // which: "min_move_ra", "min_move_dec", "exposure", "dec_backlash", "dec_guide_mode", "dec_algorithm"
+    static bool ApiApply(const std::vector<wxString>& which, std::vector<wxString> *applied, wxString *error);
+    // App closing: restore what a running headless run changed, without driving the guider or gear
+    static void ApiShutdown();
+    // A camera or mount connected (GearDialog); results from before can no longer be applied
+    static void NotifyGearConnected();
 };
 
 #endif

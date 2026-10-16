@@ -33,6 +33,7 @@
  */
 
 #include "phd.h"
+#include "guiding_assistant.h"
 #include "imaging_gear_alpaca.h"
 #include "profile_wizard.h"
 
@@ -990,6 +991,7 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
         }
 
         pFrame->StatusMsg(_("Camera Connected"));
+        GuidingAssistant::NotifyGearConnected();
 
         pFrame->UpdateStatusBarStateLabels();
         pFrame->pStatsWin->UpdateCooler();
@@ -1138,6 +1140,7 @@ void GearDialog::OnButtonConnectScope(wxCommandEvent& event)
             }
 
             pFrame->StatusMsg(_("Mount Connected"));
+            GuidingAssistant::NotifyGearConnected();
             pFrame->UpdateStatusBarStateLabels();
         }
         else

@@ -402,3 +402,229 @@ TEST(JsonRpcSchema, MethodRequestObjectParams)
     expect_numeric_field(params, "y");
     expect_bool_field(params, "exact");
 }
+
+// ---------------------------------------------------------------------------
+// Headless Guiding Assistant (guiding_assistant_status_obj in event_server.cpp)
+// ARA's Setup flow drives these; the get_status result, the
+// GuidingAssistantProgress event and the GuidingAssistantDone event share one
+// formatter, so the same field names apply to all three.
+// ---------------------------------------------------------------------------
+namespace
+{
+
+// Fields present once at least two samples have been taken
+void expect_ga_measurement_fields(const json_value *r)
+{
+    expect_string_field(r, "state");
+    expect_numeric_field(r, "duration_s");
+    expect_bool_field(r, "measure_backlash");
+    expect_numeric_field(r, "elapsed_s");
+    expect_numeric_field(r, "samples");
+    expect_numeric_field(r, "pixel_scale");
+    expect_numeric_field(r, "ra_drift_px_min");
+    expect_numeric_field(r, "dec_drift_px_min");
+    expect_numeric_field(r, "ra_rms_px");
+    expect_numeric_field(r, "dec_rms_px");
+    expect_numeric_field(r, "high_freq_rms_px");
+    expect_numeric_field(r, "ra_peak_px");
+    expect_numeric_field(r, "dec_peak_px");
+    expect_numeric_field(r, "ra_peak_peak_px");
+    expect_numeric_field(r, "ra_max_drift_px_s");
+    expect_numeric_field(r, "snr");
+    expect_numeric_field(r, "star_mass");
+    expect_numeric_field(r, "polar_align_error_arcmin");
+    expect_bool_field(r, "polar_align_error_is_lower_bound");
+}
+
+bool string_is(const json_value *v, const char *s)
+{
+    return v && v->type == JSON_STRING && std::strcmp(v->string_value, s) == 0;
+}
+
+} // namespace
+
+TEST(JsonRpcSchema, GuidingAssistantStatusIdle)
+{
+    // idle: only the state - a client that never started a run sees nothing else
+    const char *fixture = "{\"jsonrpc\":\"2.0\",\"result\":{\"state\":\"idle\"},\"id\":1}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *r = child(p.Root(), "result");
+    ASSERT_NE(r, nullptr);
+    EXPECT_TRUE(string_is(child(r, "state"), "idle"));
+    EXPECT_EQ(child(r, "samples"), nullptr);
+    EXPECT_EQ(child(r, "recommendations"), nullptr);
+}
+
+TEST(JsonRpcSchema, GuidingAssistantStatusMeasuring)
+{
+    const char *fixture = "{\"jsonrpc\":\"2.0\",\"result\":{"
+                          "\"state\":\"measuring\",\"duration_s\":120,\"measure_backlash\":true,\"elapsed_s\":42.0,"
+                          "\"samples\":21,\"pixel_scale\":1.234,"
+                          "\"ra_drift_px_min\":0.512,\"dec_drift_px_min\":-0.204,\"ra_rms_px\":0.311,\"dec_rms_px\":0.287,"
+                          "\"high_freq_rms_px\":0.423,\"ra_peak_px\":0.9,\"dec_peak_px\":0.7,\"ra_peak_peak_px\":1.4,"
+                          "\"ra_max_drift_px_s\":0.0213,\"snr\":35.2,\"star_mass\":12345,"
+                          "\"polar_align_error_arcmin\":1.0,\"polar_align_error_is_lower_bound\":false"
+                          "},\"id\":1}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *r = child(p.Root(), "result");
+    ASSERT_NE(r, nullptr);
+    expect_ga_measurement_fields(r);
+    // results only exist once the run is done; no error while running
+    EXPECT_EQ(child(r, "recommendations"), nullptr);
+    EXPECT_EQ(child(r, "error"), nullptr);
+}
+
+TEST(JsonRpcSchema, GuidingAssistantStatusMeasuringBacklash)
+{
+    const char *fixture = "{\"jsonrpc\":\"2.0\",\"result\":{"
+                          "\"state\":\"measuring_backlash\",\"duration_s\":120,\"measure_backlash\":true,"
+                          "\"elapsed_s\":121.3,\"samples\":61,\"pixel_scale\":1.234,"
+                          "\"backlash_status\":\"Moving North for 500 ms, step 3 / 8\""
+                          "},\"id\":1}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *r = child(p.Root(), "result");
+    ASSERT_NE(r, nullptr);
+    EXPECT_TRUE(string_is(child(r, "state"), "measuring_backlash"));
+    expect_string_field(r, "backlash_status");
+}
+
+TEST(JsonRpcSchema, GuidingAssistantStatusDone)
+{
+    const char *fixture = "{\"jsonrpc\":\"2.0\",\"result\":{"
+                          "\"state\":\"done\",\"duration_s\":120,\"measure_backlash\":true,\"elapsed_s\":120.4,"
+                          "\"samples\":61,\"pixel_scale\":1.234,"
+                          "\"ra_drift_px_min\":0.512,\"dec_drift_px_min\":-0.204,\"ra_rms_px\":0.311,\"dec_rms_px\":0.287,"
+                          "\"high_freq_rms_px\":0.423,\"ra_peak_px\":0.9,\"dec_peak_px\":0.7,\"ra_peak_peak_px\":1.4,"
+                          "\"ra_max_drift_px_s\":0.0213,\"snr\":35.2,\"star_mass\":12345,"
+                          "\"polar_align_error_arcmin\":1.0,\"polar_align_error_is_lower_bound\":true,"
+                          "\"backlash_ms\":1234,\"backlash_sigma_ms\":120,\"backlash_px\":3.21,"
+                          "\"recommendations\":{"
+                          "\"min_move_ra_px\":0.2,\"min_move_dec_px\":0.3,\"min_move_seeing_based\":true,"
+                          "\"exposure_s\":2.0,\"exposure_max_s\":4.0,\"drift_limiting_exposure_s\":9.4,"
+                          "\"dec_backlash_ms\":1230,"
+                          "\"messages\":[{\"id\":\"Exp\",\"text\":\"Use exposure times in the range of 2.0s to 4.0s\"},"
+                          "{\"id\":\"BLT\",\"text\":\"Try starting with a Dec backlash compensation of 1230 ms\"}]"
+                          "}},\"id\":1}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *r = child(p.Root(), "result");
+    ASSERT_NE(r, nullptr);
+    expect_ga_measurement_fields(r);
+    EXPECT_TRUE(string_is(child(r, "state"), "done"));
+    expect_numeric_field(r, "backlash_ms");
+    expect_numeric_field(r, "backlash_sigma_ms");
+    expect_numeric_field(r, "backlash_px");
+
+    const json_value *recs = child(r, "recommendations");
+    ASSERT_NE(recs, nullptr);
+    ASSERT_EQ(recs->type, JSON_OBJECT);
+    expect_numeric_field(recs, "min_move_ra_px");
+    expect_numeric_field(recs, "min_move_dec_px");
+    expect_bool_field(recs, "min_move_seeing_based");
+    expect_numeric_field(recs, "exposure_s");
+    expect_numeric_field(recs, "exposure_max_s");
+    expect_numeric_field(recs, "dec_backlash_ms");
+    // dec_guide_mode / dec_algorithm are only present when recommended
+    EXPECT_EQ(child(recs, "dec_guide_mode"), nullptr);
+    EXPECT_EQ(child(recs, "dec_algorithm"), nullptr);
+
+    const json_value *msgs = child(recs, "messages");
+    ASSERT_NE(msgs, nullptr);
+    ASSERT_EQ(msgs->type, JSON_ARRAY);
+    ASSERT_NE(msgs->first_child, nullptr);
+    for (const json_value *m = msgs->first_child; m; m = m->next_sibling)
+    {
+        expect_string_field(m, "id");
+        expect_string_field(m, "text");
+    }
+}
+
+TEST(JsonRpcSchema, GuidingAssistantStatusDoneTooMuchBacklash)
+{
+    // backlash too large to compensate: no dec_backlash_ms, a one-direction
+    // dec_guide_mode instead (a Scope::DecGuideModeStr value set_dec_guide_mode accepts)
+    const char *fixture = "{\"state\":\"done\",\"recommendations\":{"
+                          "\"min_move_ra_px\":0.2,\"min_move_dec_px\":0.3,\"min_move_seeing_based\":true,"
+                          "\"exposure_s\":2.0,\"exposure_max_s\":4.0,\"dec_guide_mode\":\"South\","
+                          "\"dec_algorithm\":\"Lowpass2\",\"messages\":[]}}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *recs = child(p.Root(), "recommendations");
+    ASSERT_NE(recs, nullptr);
+    EXPECT_EQ(child(recs, "dec_backlash_ms"), nullptr);
+    const json_value *mode = child(recs, "dec_guide_mode");
+    EXPECT_TRUE(string_is(mode, "North") || string_is(mode, "South"));
+    EXPECT_TRUE(string_is(child(recs, "dec_algorithm"), "Lowpass2"));
+}
+
+TEST(JsonRpcSchema, GuidingAssistantStatusFailed)
+{
+    const char *fixture = "{\"jsonrpc\":\"2.0\",\"result\":{"
+                          "\"state\":\"failed\",\"duration_s\":120,\"measure_backlash\":false,\"elapsed_s\":33.0,"
+                          "\"samples\":16,\"pixel_scale\":1.234,\"error\":\"guiding stopped\""
+                          "},\"id\":1}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *r = child(p.Root(), "result");
+    ASSERT_NE(r, nullptr);
+    EXPECT_TRUE(string_is(child(r, "state"), "failed"));
+    expect_string_field(r, "error");
+    EXPECT_EQ(child(r, "recommendations"), nullptr);
+}
+
+TEST(JsonRpcSchema, GuidingAssistantProgressEvent)
+{
+    // one per unguided sample; never carries recommendations
+    const char *fixture = "{\"Event\":\"GuidingAssistantProgress\",\"Timestamp\":1.0,\"Host\":\"h\",\"Inst\":1,"
+                          "\"state\":\"measuring\",\"duration_s\":120,\"measure_backlash\":false,\"elapsed_s\":42.0,"
+                          "\"samples\":21,\"pixel_scale\":1.234,"
+                          "\"ra_drift_px_min\":0.512,\"dec_drift_px_min\":-0.204,\"ra_rms_px\":0.311,\"dec_rms_px\":0.287,"
+                          "\"high_freq_rms_px\":0.423,\"ra_peak_px\":0.9,\"dec_peak_px\":0.7,\"ra_peak_peak_px\":1.4,"
+                          "\"ra_max_drift_px_s\":0.0213,\"snr\":35.2,\"star_mass\":12345,"
+                          "\"polar_align_error_arcmin\":1.0,\"polar_align_error_is_lower_bound\":false}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    EXPECT_TRUE(string_is(child(p.Root(), "Event"), "GuidingAssistantProgress"));
+    expect_ga_measurement_fields(p.Root());
+    EXPECT_EQ(child(p.Root(), "recommendations"), nullptr);
+}
+
+TEST(JsonRpcSchema, GuidingAssistantDoneEvent)
+{
+    const char *fixture = "{\"Event\":\"GuidingAssistantDone\",\"Timestamp\":1.0,\"Host\":\"h\",\"Inst\":1,"
+                          "\"state\":\"done\",\"duration_s\":120,\"measure_backlash\":false,\"elapsed_s\":120.4,"
+                          "\"samples\":61,\"pixel_scale\":1.234,"
+                          "\"ra_drift_px_min\":0.512,\"dec_drift_px_min\":-0.204,\"ra_rms_px\":0.311,\"dec_rms_px\":0.287,"
+                          "\"high_freq_rms_px\":0.423,\"ra_peak_px\":0.9,\"dec_peak_px\":0.7,\"ra_peak_peak_px\":1.4,"
+                          "\"ra_max_drift_px_s\":0.0213,\"snr\":35.2,\"star_mass\":12345,"
+                          "\"polar_align_error_arcmin\":1.0,\"polar_align_error_is_lower_bound\":false,"
+                          "\"recommendations\":{\"min_move_ra_px\":0.2,\"min_move_dec_px\":0.3,"
+                          "\"min_move_seeing_based\":true,\"exposure_s\":2.0,\"exposure_max_s\":4.0,\"messages\":[]}}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    EXPECT_TRUE(string_is(child(p.Root(), "Event"), "GuidingAssistantDone"));
+    const json_value *state = child(p.Root(), "state");
+    EXPECT_TRUE(string_is(state, "done") || string_is(state, "failed"));
+    const json_value *recs = child(p.Root(), "recommendations");
+    ASSERT_NE(recs, nullptr);
+    expect_numeric_field(recs, "min_move_ra_px");
+    expect_numeric_field(recs, "min_move_dec_px");
+    expect_numeric_field(recs, "exposure_s");
+}
+
+TEST(JsonRpcSchema, GuidingAssistantApplyResult)
+{
+    const char *fixture = "{\"jsonrpc\":\"2.0\",\"result\":{\"applied\":[\"min_move_ra\",\"min_move_dec\"]},\"id\":1}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *r = child(p.Root(), "result");
+    ASSERT_NE(r, nullptr);
+    const json_value *applied = child(r, "applied");
+    ASSERT_NE(applied, nullptr);
+    ASSERT_EQ(applied->type, JSON_ARRAY);
+    for (const json_value *a = applied->first_child; a; a = a->next_sibling)
+        EXPECT_EQ(a->type, JSON_STRING);
+}

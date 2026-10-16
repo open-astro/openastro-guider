@@ -288,6 +288,8 @@ set(phd2_SRC
   ${phd_src_dir}/graph.h
   ${phd_src_dir}/guiding_assistant.cpp
   ${phd_src_dir}/guiding_assistant.h
+  ${phd_src_dir}/guiding_assistant_math.cpp
+  ${phd_src_dir}/guiding_assistant_math.h
   ${phd_src_dir}/guidinglog.cpp
   ${phd_src_dir}/guidinglog.h
   ${phd_src_dir}/guiding_stats.cpp

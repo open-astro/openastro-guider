@@ -37,6 +37,7 @@
 #include "staticpa_toolwin.h"
 #include "polardrift_toolwin.h"
 #include "drift_tool.h"
+#include "guiding_assistant.h"
 #include "webui_rpc_guard.h"
 
 #include <wx/dir.h>
@@ -1041,6 +1042,20 @@ static struct DarkBuildProgress
         if (s_darkBuild.active) \
         { \
             response << jrpc_error(1, "dark-frame capture in progress"); \
+            return; \
+        } \
+    } while (0)
+// clang-format on
+
+// A Guiding Assistant run is measuring unguided drift (or backlash); a guide
+// or dither request, or a polar-alignment tool taking over the star and guide
+// output, would corrupt the measurement.
+// clang-format off
+#define VERIFY_NO_GUIDING_ASSISTANT(response) \
+    do { \
+        if (GuidingAssistant::ApiIsRunning()) \
+        { \
+            response << jrpc_error(1, "Guiding Assistant is running - call guiding_assistant_stop first"); \
             return; \
         } \
     } while (0)
@@ -2948,6 +2963,7 @@ static void staticpa_get_status(JObj& response, const json_value *params)
 
 static void staticpa_start(JObj& response, const json_value *params)
 {
+    VERIFY_NO_GUIDING_ASSISTANT(response);
     Params p("auto", "hemisphere", "ref_star", "hour_angle", "flip_camera", params);
 
     if (!pCamera || !pCamera->Connected)
@@ -3205,6 +3221,7 @@ static void polardrift_get_status(JObj& response, const json_value *params)
 
 static void polardrift_start(JObj& response, const json_value *params)
 {
+    VERIFY_NO_GUIDING_ASSISTANT(response);
     Params p("hemisphere", "mirrored", params);
 
     if (!pCamera || !pCamera->Connected)
@@ -3407,6 +3424,7 @@ static void driftalign_get_status(JObj& response, const json_value *params)
 
 static void driftalign_start(JObj& response, const json_value *params)
 {
+    VERIFY_NO_GUIDING_ASSISTANT(response);
     VERIFY_GUIDER(response);
 
     wxString error;
@@ -3447,6 +3465,7 @@ static void driftalign_set_phase(JObj& response, const json_value *params)
 
 static void driftalign_drift(JObj& response, const json_value *params)
 {
+    VERIFY_NO_GUIDING_ASSISTANT(response);
     wxString error;
     if (!DriftTool::ApiSetMode(DriftTool::API_MODE_DRIFT, &error))
     {
@@ -3483,6 +3502,196 @@ static void driftalign_close(JObj& response, const json_value *params)
     }
 
     response << jrpc_result(0);
+}
+
+// --- Guiding Assistant over RPC -----------------------------------------------
+//
+// Runs the Guiding Assistant's measurement without its dialog (see
+// GuidingAssistant::Api* in guiding_assistant.cpp, which shares the dialog's
+// statistics and recommendation code). Guide output is disabled while the
+// star drifts and restored at the end; started from looping with a
+// calibrated mount, the run starts guiding itself and returns to looping
+// when it ends. Progress is pushed as GuidingAssistantProgress (one per
+// sample / backlash step) and the outcome as GuidingAssistantDone.
+
+static void guiding_assistant_status_obj(JObj& rslt, const GuidingAssistant::ApiStatus& st, bool withRecommendations)
+{
+    rslt << NV("state", GuidingAssistant::ApiStateName(st.state));
+    if (st.state == GuidingAssistant::API_IDLE)
+        return;
+
+    rslt << NV("duration_s", st.durationS, 0) << NV("measure_backlash", st.measureBacklash) << NV("elapsed_s", st.elapsedS, 1)
+         << NV("samples", st.samples) << NV("pixel_scale", st.pixelScale, 3);
+
+    // the statistics need at least two samples
+    if (st.hasStats)
+    {
+        rslt << NV("ra_drift_px_min", st.raDriftPxMin, 3) << NV("dec_drift_px_min", st.decDriftPxMin, 3)
+             << NV("ra_rms_px", st.raRmsPx, 3) << NV("dec_rms_px", st.decRmsPx, 3)
+             << NV("high_freq_rms_px", st.highFreqRmsPx, 3) << NV("ra_peak_px", st.raPeakPx, 3)
+             << NV("dec_peak_px", st.decPeakPx, 3) << NV("ra_peak_peak_px", st.raPeakPeakPx, 3)
+             << NV("ra_max_drift_px_s", st.raMaxDriftPxSec, 4) << NV("snr", st.snr, 1) << NV("star_mass", st.starMass, 0)
+             << NV("polar_align_error_arcmin", st.polarAlignErrorArcmin, 1)
+             << NV("polar_align_error_is_lower_bound", st.polarAlignErrorIsLowerBound);
+    }
+
+    if (!st.backlashStatus.IsEmpty())
+        rslt << NV("backlash_status", st.backlashStatus);
+    if (st.hasBacklash)
+        rslt << NV("backlash_ms", st.backlashMs) << NV("backlash_sigma_ms", st.backlashSigmaMs, 0)
+             << NV("backlash_px", st.backlashPx, 2);
+
+    if (withRecommendations && st.hasRecommendations)
+    {
+        const GuidingAssistant::ApiRecommendations& r = st.recommendations;
+        JObj recs;
+        recs << NV("min_move_ra_px", r.minMoveRaPx, 2) << NV("min_move_dec_px", r.minMoveDecPx, 2)
+             << NV("min_move_seeing_based", r.minMoveSeeingBased) << NV("exposure_s", r.exposureMinS, 1)
+             << NV("exposure_max_s", r.exposureMaxS, 1);
+        if (r.driftLimitingExposureS > 0.)
+            recs << NV("drift_limiting_exposure_s", r.driftLimitingExposureS, 1);
+        if (r.hasDecBacklashMs)
+            recs << NV("dec_backlash_ms", r.decBacklashMs);
+        if (!r.decGuideMode.IsEmpty())
+            recs << NV("dec_guide_mode", r.decGuideMode);
+        if (!r.decAlgorithm.IsEmpty())
+            recs << NV("dec_algorithm", r.decAlgorithm);
+        JAry msgs;
+        for (const GuidingAssistant::ApiMessage& m : r.messages)
+        {
+            JObj msg;
+            msg << NV("id", m.id) << NV("text", m.text);
+            msgs << msg;
+        }
+        recs << NV("messages", msgs);
+        rslt << NV("recommendations", recs);
+    }
+
+    if (!st.error.IsEmpty())
+        rslt << NV("error", st.error);
+}
+
+static void guiding_assistant_result(JObj& response)
+{
+    GuidingAssistant::ApiStatus st;
+    GuidingAssistant::ApiGetStatus(&st);
+    JObj rslt;
+    guiding_assistant_status_obj(rslt, st, true);
+    response << jrpc_result(rslt);
+}
+
+static void guiding_assistant_get_status(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    guiding_assistant_result(response);
+}
+
+static void guiding_assistant_start(JObj& response, const json_value *params)
+{
+    VERIFY_NO_PA_SESSION(response);
+    VERIFY_NO_DARK_BUILD(response);
+    VERIFY_GUIDER(response);
+
+    Params p("duration_s", "measure_backlash", params);
+
+    // the dialog asks for at least 2 minutes of sampling
+    double duration = 120.;
+    const json_value *jv;
+    if ((jv = p.param("duration_s")) != nullptr)
+    {
+        if (!float_param(jv, &duration) || duration < 10. || duration > 3600.)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "duration_s must be a number of seconds from 10 to 3600");
+            return;
+        }
+    }
+    bool measureBacklash;
+    if ((jv = p.param("measure_backlash")) == nullptr || !bool_param(jv, &measureBacklash))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected measure_backlash boolean");
+        return;
+    }
+
+    // the polar-alignment tools also take over guide output / the star
+    PolarDriftToolWin *pd = polar_drift_tool();
+    if (pd && pd->IsDrifting())
+    {
+        response << jrpc_error(1, "polar drift alignment is running - call polardrift_stop first");
+        return;
+    }
+    StaticPaToolWin *spa = static_pa_tool();
+    if (spa && spa->IsAligning())
+    {
+        response << jrpc_error(1, "static polar alignment is running - call staticpa_stop first");
+        return;
+    }
+    DriftTool::ApiStatus drift;
+    if (DriftTool::ApiGetStatus(&drift) && drift.drifting)
+    {
+        response << jrpc_error(1, "drift alignment is running - call driftalign_close first");
+        return;
+    }
+
+    wxString err;
+    if (!GuidingAssistant::ApiStart(duration, measureBacklash, &err))
+    {
+        response << jrpc_error(1, err);
+        return;
+    }
+
+    guiding_assistant_result(response);
+}
+
+static void guiding_assistant_stop(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+
+    wxString err;
+    if (!GuidingAssistant::ApiStop(&err))
+    {
+        response << jrpc_error(1, err);
+        return;
+    }
+
+    guiding_assistant_result(response);
+}
+
+static void guiding_assistant_apply(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+
+    Params p("which", params);
+    const json_value *jv = p.param("which");
+    if (!jv || jv->type != JSON_ARRAY || !jv->first_child)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected which: a non-empty array of recommendation names");
+        return;
+    }
+    std::vector<wxString> which;
+    json_for_each(item, jv)
+    {
+        if (item->type != JSON_STRING)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "which must contain only strings");
+            return;
+        }
+        which.push_back(wxString(item->string_value));
+    }
+
+    std::vector<wxString> applied;
+    wxString err;
+    if (!GuidingAssistant::ApiApply(which, &applied, &err))
+    {
+        response << jrpc_error(1, err);
+        return;
+    }
+
+    JAry ary;
+    for (const wxString& name : applied)
+        ary << name;
+    JObj rslt;
+    rslt << NV("applied", ary);
+    response << jrpc_result(rslt);
 }
 
 static void get_pixel_scale(JObj& response, const json_value *params)
@@ -4915,6 +5124,7 @@ static void guide(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
     VERIFY_NO_DARK_BUILD(response);
+    VERIFY_NO_GUIDING_ASSISTANT(response);
 
     // params:
     //   settle [object]:
@@ -4990,6 +5200,7 @@ static void dither(JObj& response, const json_value *params)
 {
     VERIFY_NO_PA_SESSION(response);
     VERIFY_NO_DARK_BUILD(response);
+    VERIFY_NO_GUIDING_ASSISTANT(response);
 
     // params:
     //   amount [integer] - max pixels to move in each axis
@@ -6761,6 +6972,10 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "driftalign_adjust", &driftalign_adjust },
         { "driftalign_get_status", &driftalign_get_status },
         { "driftalign_close", &driftalign_close },
+        { "guiding_assistant_start", &guiding_assistant_start },
+        { "guiding_assistant_stop", &guiding_assistant_stop },
+        { "guiding_assistant_get_status", &guiding_assistant_get_status },
+        { "guiding_assistant_apply", &guiding_assistant_apply },
         { "get_pixel_scale", &get_pixel_scale },
         { "get_app_state", &get_app_state },
         { "get_calibration_progress", &get_calibration_progress },
@@ -8378,5 +8593,33 @@ void EventServer::NotifyEquipmentReconnectFailed(const wxString& deviceType, int
 
     Ev ev("EquipmentReconnectFailed");
     ev << NV("device_type", deviceType) << NV("attempts", attempts) << NV("reason", reason);
+    do_notify(m_eventServerClients, ev);
+}
+
+// Headless Guiding Assistant: one GuidingAssistantProgress per unguided sample
+// (and per backlash-test step), then GuidingAssistantDone carrying the same
+// shape as guiding_assistant_get_status, recommendations included.
+
+void EventServer::NotifyGuidingAssistantProgress()
+{
+    if (m_eventServerClients.empty())
+        return;
+
+    GuidingAssistant::ApiStatus st;
+    GuidingAssistant::ApiGetStatus(&st);
+    Ev ev("GuidingAssistantProgress");
+    guiding_assistant_status_obj(ev, st, false);
+    do_notify(m_eventServerClients, ev);
+}
+
+void EventServer::NotifyGuidingAssistantDone()
+{
+    if (m_eventServerClients.empty())
+        return;
+
+    GuidingAssistant::ApiStatus st;
+    GuidingAssistant::ApiGetStatus(&st);
+    Ev ev("GuidingAssistantDone");
+    guiding_assistant_status_obj(ev, st, true);
     do_notify(m_eventServerClients, ev);
 }
