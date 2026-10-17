@@ -283,7 +283,8 @@ from the same guider hooks without the dialog.
   `ra_drift_px_min`, `dec_drift_px_min`, `ra_rms_px`, `dec_rms_px`, `high_freq_rms_px`,
   `ra_peak_px`, `dec_peak_px`, `ra_peak_peak_px`, `ra_max_drift_px_s`, `snr`, `star_mass`,
   `polar_align_error_arcmin`, `polar_align_error_is_lower_bound`; `backlash_status`?,
-  `backlash_ms`?, `backlash_sigma_ms`?, `backlash_px`?; when done `recommendations` {
+  `backlash_result`? (`valid`/`impaired`/`aborted`), `backlash_ms`?, `backlash_sigma_ms`?,
+  `backlash_px`?; when done `recommendations` {
   `min_move_ra_px`, `min_move_dec_px`, `min_move_seeing_based`, `exposure_s`, `exposure_max_s`,
   `drift_limiting_exposure_s`?, `dec_backlash_ms`?, `dec_guide_mode`?, `dec_algorithm`?,
   `messages` [{`id`, `text`}] }; `error`? }.

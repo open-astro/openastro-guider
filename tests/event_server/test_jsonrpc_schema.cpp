@@ -500,7 +500,7 @@ TEST(JsonRpcSchema, GuidingAssistantStatusDone)
                           "\"high_freq_rms_px\":0.423,\"ra_peak_px\":0.9,\"dec_peak_px\":0.7,\"ra_peak_peak_px\":1.4,"
                           "\"ra_max_drift_px_s\":0.0213,\"snr\":35.2,\"star_mass\":12345,"
                           "\"polar_align_error_arcmin\":1.0,\"polar_align_error_is_lower_bound\":true,"
-                          "\"backlash_ms\":1234,\"backlash_sigma_ms\":120,\"backlash_px\":3.21,"
+                          "\"backlash_result\":\"valid\",\"backlash_ms\":1234,\"backlash_sigma_ms\":120,\"backlash_px\":3.21,"
                           "\"recommendations\":{"
                           "\"min_move_ra_px\":0.2,\"min_move_dec_px\":0.3,\"min_move_seeing_based\":true,"
                           "\"exposure_s\":2.0,\"exposure_max_s\":4.0,\"drift_limiting_exposure_s\":9.4,"
@@ -514,6 +514,7 @@ TEST(JsonRpcSchema, GuidingAssistantStatusDone)
     ASSERT_NE(r, nullptr);
     expect_ga_measurement_fields(r);
     EXPECT_TRUE(string_is(child(r, "state"), "done"));
+    EXPECT_TRUE(string_is(child(r, "backlash_result"), "valid"));
     expect_numeric_field(r, "backlash_ms");
     expect_numeric_field(r, "backlash_sigma_ms");
     expect_numeric_field(r, "backlash_px");
@@ -540,6 +541,20 @@ TEST(JsonRpcSchema, GuidingAssistantStatusDone)
         expect_string_field(m, "id");
         expect_string_field(m, "text");
     }
+}
+
+TEST(JsonRpcSchema, GuidingAssistantStatusDoneBacklashAborted)
+{
+    // the backlash test ran but gave no usable result (failed, or stopped): backlash_result
+    // says so, and there are no backlash_ms / backlash_sigma_ms / backlash_px
+    const char *fixture = "{\"state\":\"done\",\"measure_backlash\":true,\"backlash_result\":\"aborted\"}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *r = p.Root();
+    EXPECT_TRUE(string_is(child(r, "backlash_result"), "aborted"));
+    EXPECT_EQ(child(r, "backlash_ms"), nullptr);
+    EXPECT_EQ(child(r, "backlash_sigma_ms"), nullptr);
+    EXPECT_EQ(child(r, "backlash_px"), nullptr);
 }
 
 TEST(JsonRpcSchema, GuidingAssistantStatusDoneTooMuchBacklash)

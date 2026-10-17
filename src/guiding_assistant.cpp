@@ -147,6 +147,8 @@ static void FormatGAResults(const ga_math::Accumulator& stats, const wxString& s
     wxString ARCSECPERSEC(_("arc-sec/sec"));
 
     double n = (double) stats.Count();
+    // Whole seconds, deliberately: the dialog has always computed the logged / saved RA drift rate from a
+    // `long` elapsed time (get_status reports the full-precision rate)
     long elapsedSecs = (long) (elapsedMs / 1000);
 
     d->TimeStamp = startStr;
@@ -208,28 +210,36 @@ static void LogGAResults(const GADetails& d)
     Debug.Write(str);
 }
 
-// Backlash test result as shown in the "Declination Backlash" cell; *logStr gets the untranslated form
-static wxString FormatBacklashResult(BacklashTool::MeasurementResults qual, int backlashMs, double backlashSigmaMs,
+// How a completed backlash test ended, from the tool's measurement quality
+static ga_math::BacklashOutcome BacklashOutcomeOf(BacklashTool::MeasurementResults qual)
+{
+    if (qual == BacklashTool::MEASUREMENT_VALID)
+        return ga_math::BacklashOutcome::Valid;
+    if (qual == BacklashTool::MEASUREMENT_TOO_FEW_NORTH)
+        return ga_math::BacklashOutcome::Impaired;
+    return ga_math::BacklashOutcome::Aborted;
+}
+
+// The "Declination Backlash" cell (and GA history entry) when the test produced no usable result
+static wxString BacklashAbortedText()
+{
+    return _("Backlash test aborted, see graph...");
+}
+
+// Usable backlash test result as shown in the "Declination Backlash" cell; *logStr gets the untranslated form
+static wxString FormatBacklashResult(ga_math::BacklashOutcome outcome, int backlashMs, double backlashSigmaMs,
                                      double backlashPx, double backlashSigmaPx, wxString *logStr)
 {
     auto pixelScale = pFrame->GetCameraPixelScale();
     double bltGearAngle = (backlashPx * pixelScale);
     double bltGearAngleSigma = (backlashSigmaPx * pixelScale);
-    wxString preamble = ((backlashMs >= 5000 || qual == BacklashTool::MEASUREMENT_TOO_FEW_NORTH) ? ">=" : "");
-    wxString outStrTr;
-    if (qual == BacklashTool::MEASUREMENT_VALID)
-    {
-        *logStr = wxString::Format("%s %d  +/-  %0.0f ms (%0.1f  +/-  %0.1f arc-sec)", preamble, wxMax(0, backlashMs),
-                                   backlashSigmaMs, wxMax(0, bltGearAngle), bltGearAngleSigma);
-        outStrTr = wxString::Format("%s %d  +/-  %0.0f %s (%0.1f  +/-  %0.1f %s)", preamble, wxMax(0, backlashMs),
-                                    backlashSigmaMs, _("ms"), wxMax(0, bltGearAngle), bltGearAngleSigma, _("arc-sec"));
-    }
-    else
-    {
-        *logStr = wxString::Format("%s %d  +/-  ms (test impaired)", preamble, wxMax(0, backlashMs));
-        outStrTr = wxString::Format("%s %d  +/-  %s", preamble, wxMax(0, backlashMs), _("ms (test impaired)"));
-    }
-    return outStrTr;
+    *logStr = wxString::FromUTF8(
+        ga_math::BacklashLogText(outcome, backlashMs, backlashSigmaMs, bltGearAngle, bltGearAngleSigma).c_str());
+    wxString preamble = ga_math::BacklashIsLowerBound(outcome, backlashMs) ? ">=" : "";
+    if (outcome == ga_math::BacklashOutcome::Valid)
+        return wxString::Format("%s %d  +/-  %0.0f %s (%0.1f  +/-  %0.1f %s)", preamble, wxMax(0, backlashMs), backlashSigmaMs,
+                                _("ms"), wxMax(0, bltGearAngle), bltGearAngleSigma, _("arc-sec"));
+    return wxString::Format("%s %d  +/-  %s", preamble, wxMax(0, backlashMs), _("ms (test impaired)"));
 }
 
 // Gather the mount / camera / profile inputs and compute the recommendations
@@ -1142,7 +1152,6 @@ void GuidingAsstWin::FillInstructions(DialogState eState)
 
 void GuidingAsstWin::BacklashStep(const PHD_Point& camLoc)
 {
-    BacklashTool::MeasurementResults qual;
     m_backlashTool->DecMeasurementStep(camLoc);
     wxString bl_msg = _("Measuring backlash: ") + m_backlashTool->GetLastStatus();
     m_gaStatus->SetLabel(bl_msg);
@@ -1162,8 +1171,9 @@ void GuidingAsstWin::BacklashStep(const PHD_Point& camLoc)
                 else
                     inBLTWrapUp = true;
                 Debug.Write("GA-BLT: state = completed\n");
-                qual = m_backlashTool->GetMeasurementQuality();
-                if (qual == BacklashTool::MEASUREMENT_VALID || qual == BacklashTool::MEASUREMENT_TOO_FEW_NORTH)
+                ga_math::BacklashOutcome outcome = BacklashOutcomeOf(m_backlashTool->GetMeasurementQuality());
+                bool usable = ga_math::BacklashOutcomeUsable(outcome);
+                if (usable)
                 {
                     Debug.Write("GA-BLT: Wrap-up after normal completion\n");
                     // populate result variables
@@ -1173,7 +1183,7 @@ void GuidingAsstWin::BacklashStep(const PHD_Point& camLoc)
                     m_backlashTool->GetBacklashSigma(&bltSigmaPx, &m_backlashSigmaMs);
                     wxString outStr; // untranslated
                     wxString outStrTr =
-                        FormatBacklashResult(qual, m_backlashMs, m_backlashSigmaMs, m_backlashPx, bltSigmaPx, &outStr);
+                        FormatBacklashResult(outcome, m_backlashMs, m_backlashSigmaMs, m_backlashPx, bltSigmaPx, &outStr);
                     m_othergrid->SetCellValue(m_backlash_loc, outStrTr);
                     HighlightCell(m_othergrid, m_backlash_loc);
                     outStr += "\n";
@@ -1185,7 +1195,7 @@ void GuidingAsstWin::BacklashStep(const PHD_Point& camLoc)
                 {
                     m_othergrid->SetCellValue(m_backlash_loc, "");
                 }
-                EndBacklashTest(qual == BacklashTool::MEASUREMENT_VALID || qual == BacklashTool::MEASUREMENT_TOO_FEW_NORTH);
+                EndBacklashTest(usable);
             }
             catch (const wxString& msg)
             {
@@ -1679,7 +1689,7 @@ void GuidingAsstWin::EndBacklashTest(bool completed)
     if (!completed)
     {
         m_backlashTool->StopMeasurement();
-        m_othergrid->SetCellValue(m_backlash_loc, _("Backlash test aborted, see graph..."));
+        m_othergrid->SetCellValue(m_backlash_loc, BacklashAbortedText());
         m_graphBtn->Enable(m_backlashTool->IsGraphable());
     }
 
@@ -1901,7 +1911,7 @@ struct HeadlessGA
 
     // backlash test
     std::unique_ptr<BacklashTool> backlashTool;
-    bool backlashValid = false;
+    ga_math::BacklashOutcome backlashOutcome = ga_math::BacklashOutcome::NotRun;
     int backlashMs = 0;
     double backlashSigmaMs = 0.;
     double backlashPx = 0.;
@@ -1962,6 +1972,12 @@ static void HeadlessGASnapshot()
     s_ga.finalPaErrorArcmin = s_ga.stats.Count() > 1 ? GAPolarAlignError(s_ga.stats, &decKnown) : 0.;
     s_ga.finalPaLowerBound = !decKnown;
     s_ga.hasFinalSnapshot = true;
+}
+
+// The backlash test produced a result (possibly a lower bound)
+static bool HeadlessGABacklashUsable()
+{
+    return ga_math::BacklashOutcomeUsable(s_ga.backlashOutcome);
 }
 
 static bool HeadlessGARunning()
@@ -2034,7 +2050,7 @@ static void HeadlessGAComplete()
     }
 
     CalibrationDetails calDetails;
-    s_ga.recs = ComputeGARecommendations(s_ga.stats, s_ga.origMultistarMode, s_ga.backlashValid, s_ga.backlashMs,
+    s_ga.recs = ComputeGARecommendations(s_ga.stats, s_ga.origMultistarMode, HeadlessGABacklashUsable(), s_ga.backlashMs,
                                          s_ga.backlashTool && s_ga.backlashTool->GetBacklashExempted(), &calDetails);
     s_ga.recList = BuildGARecommendations(s_ga.recs, calDetails, s_ga.backlashMs);
     s_ga.hasRecs = true;
@@ -2093,8 +2109,14 @@ static void HeadlessGAEndBacklash(bool completed)
     s_ga.endBacklashPending = false;
     if (s_ga.state != GuidingAssistant::API_MEASURING_BACKLASH)
         return;
-    if (!completed && !s_ga.backlashValid)
+    if (!completed && !HeadlessGABacklashUsable())
+    {
+        // as the dialog's EndBacklashTest(false): no usable result (failed, aborted or stopped)
         s_ga.backlashTool->StopMeasurement();
+        s_ga.backlashOutcome = ga_math::BacklashOutcome::Aborted;
+        s_ga.backlashInfo = BacklashAbortedText();
+        Debug.Write("GuidingAssistant(api): backlash test aborted, no usable result\n");
+    }
     HeadlessGAComplete();
 }
 
@@ -2141,18 +2163,18 @@ static void HeadlessGABacklashStep(const PHD_Point& camLoc)
     {
         try
         {
-            BacklashTool::MeasurementResults qual = blt->GetMeasurementQuality();
-            bool usable = qual == BacklashTool::MEASUREMENT_VALID || qual == BacklashTool::MEASUREMENT_TOO_FEW_NORTH;
+            ga_math::BacklashOutcome outcome = BacklashOutcomeOf(blt->GetMeasurementQuality());
+            bool usable = ga_math::BacklashOutcomeUsable(outcome);
             if (usable)
             {
-                s_ga.backlashValid = true;
+                s_ga.backlashOutcome = outcome;
                 s_ga.backlashPx = blt->GetBacklashResultPx();
                 s_ga.backlashMs = blt->GetBacklashResultMs();
                 double bltSigmaPx;
                 blt->GetBacklashSigma(&bltSigmaPx, &s_ga.backlashSigmaMs);
                 wxString outStr;
                 s_ga.backlashInfo =
-                    FormatBacklashResult(qual, s_ga.backlashMs, s_ga.backlashSigmaMs, s_ga.backlashPx, bltSigmaPx, &outStr);
+                    FormatBacklashResult(outcome, s_ga.backlashMs, s_ga.backlashSigmaMs, s_ga.backlashPx, bltSigmaPx, &outStr);
                 outStr += "\n";
                 GuideLog.NotifyGAResult("Backlash=" + outStr);
                 Debug.Write("BLT: Reported result = " + outStr);
@@ -2397,8 +2419,9 @@ void GuidingAssistant::ApiGetStatus(ApiStatus *st)
 
     if (s_ga.state == API_MEASURING_BACKLASH)
         st->backlashStatus = s_ga.backlashStatus;
+    st->backlashResult = ga_math::BacklashOutcomeName(s_ga.backlashOutcome);
 
-    if (s_ga.backlashValid)
+    if (HeadlessGABacklashUsable())
     {
         st->hasBacklash = true;
         st->backlashMs = std::max(0, s_ga.backlashMs);

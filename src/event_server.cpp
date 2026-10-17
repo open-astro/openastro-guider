@@ -3537,6 +3537,8 @@ static void guiding_assistant_status_obj(JObj& rslt, const GuidingAssistant::Api
 
     if (!st.backlashStatus.IsEmpty())
         rslt << NV("backlash_status", st.backlashStatus);
+    if (!st.backlashResult.IsEmpty())
+        rslt << NV("backlash_result", st.backlashResult);
     if (st.hasBacklash)
         rslt << NV("backlash_ms", st.backlashMs) << NV("backlash_sigma_ms", st.backlashSigmaMs, 0)
              << NV("backlash_px", st.backlashPx, 2);

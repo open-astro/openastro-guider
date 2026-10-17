@@ -104,6 +104,7 @@ public:
         double polarAlignErrorArcmin = 0.;
         bool polarAlignErrorIsLowerBound = false; // declination unknown
         wxString backlashStatus; // backlash-test progress text
+        wxString backlashResult; // "valid" / "impaired" / "aborted" once the backlash test has ended
         bool hasBacklash = false;
         int backlashMs = 0;
         double backlashSigmaMs = 0.;

@@ -161,8 +161,12 @@ dialog does. While a run is active, `guide`, `dither`, `staticpa_start`, `polard
   (high-pass-filtered per-axis RMS — the seeing), `high_freq_rms_px` (their combined total), `ra_peak_px`,
   `dec_peak_px` (largest sample-to-sample moves), `ra_peak_peak_px`, `ra_max_drift_px_s`, `snr`, `star_mass`,
   `polar_align_error_arcmin` and `polar_align_error_is_lower_bound` (declination unknown → dec 0 assumed).
-- `backlash_status` (text, while `measuring_backlash`); `backlash_ms`, `backlash_sigma_ms`, `backlash_px` once the
-  backlash test produced a usable result.
+- `backlash_status` (text, while `measuring_backlash`); `backlash_result` once the backlash test has ended: `valid`,
+  `impaired` (the star ran out of room moving north, so `backlash_ms` is a lower bound — the dialog's
+  `>= … ms (test impaired)`), or `aborted` (no usable result: the test failed, or was stopped by
+  `guiding_assistant_stop` or by guiding stopping — the GA history then says "Backlash test aborted", as the
+  dialog's does); `backlash_ms`, `backlash_sigma_ms`, `backlash_px` once the backlash test produced a usable
+  result (`valid` or `impaired`).
 - `recommendations` (when `done`): `min_move_ra_px`, `min_move_dec_px`, `min_move_seeing_based` (false = the
   measurement wasn't credible and the profile-wizard defaults were used), `exposure_s` / `exposure_max_s` (the
   recommended exposure range), `drift_limiting_exposure_s`?, `dec_backlash_ms`? (only when compensation is worth
@@ -173,7 +177,8 @@ dialog does. While a run is active, `guide`, `dither`, `staticpa_start`, `polard
 - Numbers are always finite: a value that is undefined reads 0 (e.g. `dec_drift_px_min` / `polar_align_error_arcmin`
   until the samples span two wall-clock seconds — the drift fit uses whole-second timestamps, as in the dialog).
   Once the run has ended, `pixel_scale` and the polar-alignment fields are the values the results were computed
-  with, not re-read from the current gear.
+  with, not re-read from the current gear. `ra_drift_px_min` uses the exact elapsed time; the RA drift rate in the
+  guide log and GA history uses whole seconds, as the dialog always has.
 
 Events: `GuidingAssistantProgress` — one per unguided sample and per backlash-test step, the status fields
 without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `done` or `failed`), the full status.
