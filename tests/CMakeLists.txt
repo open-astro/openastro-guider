@@ -258,3 +258,15 @@ add_executable(test_alpaca_gain
 target_link_libraries(test_alpaca_gain PRIVATE phd_test_common)
 set_property(TARGET test_alpaca_gain PROPERTY FOLDER "Unit tests")
 add_test(NAME test_alpaca_gain COMMAND test_alpaca_gain)
+
+############################################################################
+# test_connect_request  --  connect_request.cpp: device names and the
+# refuse-while-busy rules for per-device set_connected (#84). std-only.
+############################################################################
+add_executable(test_connect_request
+  ${PHD_TESTS_DIR}/equipment/test_connect_request.cpp
+  ${phd_src_dir}/connect_request.cpp
+)
+target_link_libraries(test_connect_request PRIVATE phd_test_common)
+set_property(TARGET test_connect_request PROPERTY FOLDER "Unit tests")
+add_test(NAME test_connect_request COMMAND test_connect_request)
