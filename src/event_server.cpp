@@ -39,6 +39,7 @@
 #include "drift_tool.h"
 #include "guiding_assistant.h"
 #include "webui_rpc_guard.h"
+#include "connect_request.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
