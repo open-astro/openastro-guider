@@ -81,3 +81,11 @@ TEST(WebUiRpcGuard, CalibrationProfileAndDarkChangesAreRefused)
     EXPECT_FALSE(WebUiRpcAllowedWhileBusy("build_defect_map_darks"));
     EXPECT_FALSE(WebUiRpcAllowedWhileBusy("rebuild_defect_map"));
 }
+
+TEST(WebUiRpcGuard, NamingTheImagingGearIsAllowed)
+{
+    // Ara may (re)connect mid-run; the imaging-gear devices only change what
+    // the guide log's background reader reads, never the guiding (#89)
+    EXPECT_TRUE(WebUiRpcAllowedWhileBusy("set_imaging_gear_devices"));
+    EXPECT_TRUE(WebUiRpcAllowedWhileBusy("get_imaging_gear"));
+}

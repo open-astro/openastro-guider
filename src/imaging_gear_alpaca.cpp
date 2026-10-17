@@ -179,6 +179,7 @@ public:
 };
 
 std::unique_ptr<ImagingGear::Poller> s_poller;
+ImagingGear::Overrides s_overrides; // outlives the poller, which runs only while the guide log is enabled
 
 ImagingGear::Context CurrentContext()
 {
@@ -195,10 +196,10 @@ ImagingGear::Context CurrentContext()
     ctx.alpaca = true;
     ctx.host = pConfig->Profile.GetString("/alpaca/host", _T("localhost")).ToStdString();
     ctx.port = pConfig->Profile.GetLong("/alpaca/port", 0);
-    // every camera is Alpaca here, so the profile's guide camera is never the imaging camera
-    ctx.guideCamera = (int) pConfig->Profile.GetLong("/alpaca/camera_device", 0);
+    ctx.guideCamera = ImagingGearLog::GuideCamera();
     ctx.telescope = scope ? (int) pConfig->Profile.GetLong("/alpaca/telescope_device", 0) : -1;
     ctx.rotator = rotator ? (int) pConfig->Profile.GetLong("/alpaca/rotator_device", 0) : -1;
+    ctx.overrides = s_overrides;
     return ctx;
 }
 }
@@ -242,5 +243,33 @@ std::vector<std::string> TakeInfoLines()
     if (!s_poller)
         return {};
     return s_poller->TakeInfoLines();
+}
+
+ImagingGear::Overrides Overrides()
+{
+    return s_overrides;
+}
+
+void SetOverrides(const ImagingGear::Overrides& overrides)
+{
+    s_overrides = overrides;
+    EquipmentChanged();
+}
+
+int GuideCamera()
+{
+    // every camera is Alpaca here, so the profile's guide camera is never the imaging camera
+    return (int) pConfig->Profile.GetLong("/alpaca/camera_device", 0);
+}
+
+std::string Json()
+{
+    ImagingGear::Snapshot snap; // no poller (guide log disabled): unavailable
+    if (s_poller)
+    {
+        EquipmentChanged();
+        snap = s_poller->Latest();
+    }
+    return ImagingGear::SnapshotJson(snap, pFrame->GetFocalLength(), s_overrides);
 }
 }

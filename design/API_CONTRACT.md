@@ -306,3 +306,41 @@ Deviations from the issue: `exposure_s` is the start of the recommended range (`
 is its end) because the GA recommends a range, not a single value; `dec_algorithm` was added
 because the GA also recommends Lowpass2 for Dec. Shapes pinned by fixtures in
 `test_jsonrpc_schema`. ARA call sites: the Setup flow's guiding-assistant step.
+
+## 2026-10-16 — imaging-gear devices and snapshot (#89)
+
+The headless guider reads the imaging train from AlpacaBridge for the guide log (#82,
+`design/IMAGING_GEAR_LOG.md`). These two methods let ARA name the devices instead of the guider
+guessing, and read what the guider sees. The override-aware device selection, the overrides'
+validation and the JSON are in the wx-free `src/imaging_gear.{h,cpp}` shared with openastro-phd2
+(unit-tested by `test_imaging_gear`); overrides reach the poll thread through
+`ImagingGear::Poller::SetContext` (under the poller's mutex) and a change triggers a rediscovery
+on the next poll.
+
+- `set_imaging_gear_devices` { `camera`?, `filterwheel`?, `focuser`?, `rotator`?, `telescope`?,
+  `observingconditions`? } (Alpaca device numbers) → { the same six keys: number or null } — the
+  overrides now in effect. Omitted keys keep their override, `-1`/`null` clears one, no params
+  clear all; unknown keys, non-integers and `camera` equal to the guide camera's device number are
+  refused (`-32602`) and nothing changes. An override wins over the selection rules (also over the
+  telescope/rotator the guider is connected to); a camera override is never ambiguous; an
+  override naming an unconfigured device reads nothing for that type. Not persisted to the
+  profile: ARA sets them each session (a saved device number would silently pick the wrong device
+  on another rig or server). Allowed over `/api/rpc` while guiding.
+- `get_imaging_gear` {} → { `source`: alpaca|unavailable|not_alpaca, `server`, `telescope` {
+  `device`, `name`, `focal_length_mm`, `aperture_mm`, `focal_ratio` }, `camera` { `device`, `name`,
+  `sensor`, `sensor_type`, `pixel_size_x_um`, `pixel_size_y_um`, `width_px`, `height_px`, `bin_x`,
+  `bin_y`, `pixel_scale_arcsec`, `gain`, `offset`, `readout_mode`, `cooler_on`, `sensor_temp_c` },
+  `filter_wheel` { `device`, `name`, `filter`, `position` (1-based), `count`, `focus_offset` },
+  `rotator` { `device`, `name`, `position_deg`, `mechanical_position_deg`, `reverse` }, `focuser` {
+  `device`, `name`, `position`, `temperature_c` }, `conditions` { `device`, `name`, `seeing_arcsec`,
+  `wind_speed_m_s`, `wind_gust_m_s`, `temperature_c`, `humidity_pct`, `dew_point_c`,
+  `pressure_hpa`, `cloud_cover_pct`, `sky_quality_mag_arcsec2` }, `guide_train` { `type`:
+  off_axis_guider|separate_guide_scope|null, `ratio` }, `ambiguous_cameras`, `overrides` {...} }.
+  Every key always present; `null` for the log's `unknown` and for absent devices. Reads only the
+  poller's cache (`Poller::Latest()`), never the network.
+
+Additions beyond the issue: each device carries its Alpaca `device` number (so ARA can see that an
+override took effect); switching wheel/rotator/focuser by override writes no `INFO: EQUIPMENT`
+line, and switching cameras doesn't end an exposure in the log; an unreported device name is now
+empty in the snapshot (`unknown` in the log as before, `null` in JSON). Shapes pinned by fixtures
+in `test_jsonrpc_schema`. ARA call sites: none yet.

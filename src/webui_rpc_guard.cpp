@@ -24,6 +24,8 @@ bool WebUiRpcAllowedWhileBusy(const std::string& method)
     static const std::set<std::string> runControl = { "stop_capture",      "set_paused", "dither", "set_exposure",
                                                       "set_lock_position", "guide",      "loop",   "shutdown" };
 
-    // the drift-align tool guides in RA while it measures
-    return WebUiRpcIsRead(method) || runControl.count(method) != 0 || method.rfind("driftalign_", 0) == 0;
+    // the drift-align tool guides in RA while it measures; the imaging-gear
+    // devices only change what the guide log's background reader reads
+    return WebUiRpcIsRead(method) || runControl.count(method) != 0 || method.rfind("driftalign_", 0) == 0 ||
+        method == "set_imaging_gear_devices";
 }

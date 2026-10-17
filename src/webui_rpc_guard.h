@@ -12,8 +12,9 @@
 
 #include <string>
 
-// true only for reads, calls that drive the run (stop, pause, dither) and the
-// drift-align tool; everything else is refused, including methods added later
+// true only for reads, calls that drive the run (stop, pause, dither), the
+// drift-align tool and set_imaging_gear_devices; everything else is refused,
+// including methods added later
 bool WebUiRpcAllowedWhileBusy(const std::string& method);
 
 // get_* and *_get_status: reads that don't need to go in the debug log

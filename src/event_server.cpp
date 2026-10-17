@@ -38,6 +38,7 @@
 #include "polardrift_toolwin.h"
 #include "drift_tool.h"
 #include "guiding_assistant.h"
+#include "imaging_gear_alpaca.h"
 #include "webui_rpc_guard.h"
 #include "connect_request.h"
 
@@ -3734,6 +3735,72 @@ static void guiding_assistant_apply(JObj& response, const json_value *params)
     response << jrpc_result(rslt);
 }
 
+// --- Imaging gear (#89) -------------------------------------------------------
+//
+// The imaging train the guide log describes (design/IMAGING_GEAR_LOG.md), read
+// from the Alpaca server by a background thread. get_imaging_gear returns its
+// cache; set_imaging_gear_devices names the devices it reads, which the next
+// poll picks up. Neither waits on the network.
+
+static void get_imaging_gear(JObj& response, const json_value *params)
+{
+    response << NVRaw("result", wxString::FromUTF8(ImagingGearLog::Json()));
+}
+
+static void set_imaging_gear_devices(JObj& response, const json_value *params)
+{
+    // positional params in this order; an omitted one keeps its override,
+    // -1 or null clears it, and a call without params clears them all
+    static const char *names[] = { "camera", "filterwheel", "focuser", "rotator", "telescope", "observingconditions" };
+
+    ImagingGear::Overrides overrides = ImagingGearLog::Overrides();
+    const int guideCamera = ImagingGearLog::GuideCamera();
+    bool any = false;
+    size_t index = 0;
+    if (params)
+    {
+        json_for_each(jv, params)
+        {
+            std::string name;
+            if (params->type == JSON_OBJECT)
+                name = jv->name;
+            else if (index < WXSIZEOF(names))
+                name = names[index++];
+            else
+            {
+                response << jrpc_error(JSONRPC_INVALID_PARAMS, "too many parameters");
+                return;
+            }
+
+            int device;
+            if (jv->type == JSON_NULL)
+                device = -1;
+            else if (jv->type == JSON_INT)
+                device = jv->int_value;
+            else
+            {
+                response << jrpc_error(JSONRPC_INVALID_PARAMS,
+                                       wxString::FromUTF8(name + ": expected an Alpaca device number, -1 or null"));
+                return;
+            }
+
+            // all or nothing: a bad parameter leaves every override as it was
+            std::string err;
+            if (!ImagingGear::SetOverride(&overrides, name, device, guideCamera, &err))
+            {
+                response << jrpc_error(JSONRPC_INVALID_PARAMS, wxString::FromUTF8(err));
+                return;
+            }
+            any = true;
+        }
+    }
+    if (!any)
+        overrides = ImagingGear::Overrides();
+
+    ImagingGearLog::SetOverrides(overrides);
+    response << NVRaw("result", wxString::FromUTF8(ImagingGear::OverridesJson(overrides)));
+}
+
 static void get_pixel_scale(JObj& response, const json_value *params)
 {
     double scale = pFrame->GetCameraPixelScale();
@@ -7016,6 +7083,8 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "guiding_assistant_stop", &guiding_assistant_stop },
         { "guiding_assistant_get_status", &guiding_assistant_get_status },
         { "guiding_assistant_apply", &guiding_assistant_apply },
+        { "get_imaging_gear", &get_imaging_gear },
+        { "set_imaging_gear_devices", &set_imaging_gear_devices },
         { "get_pixel_scale", &get_pixel_scale },
         { "get_app_state", &get_app_state },
         { "get_calibration_progress", &get_calibration_progress },
