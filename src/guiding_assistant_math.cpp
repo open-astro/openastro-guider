@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <iterator>
 
 namespace ga_math
@@ -434,6 +435,48 @@ Recommendations Recommend(const AxisStats& decAxis, const RecommendationInputs& 
 
 static const ApplyItem APPLY_ORDER[] = { ApplyItem::Exposure,   ApplyItem::MinMoveRa,   ApplyItem::DecAlgorithm,
                                          ApplyItem::MinMoveDec, ApplyItem::DecBacklash, ApplyItem::DecGuideMode };
+
+const char *BacklashOutcomeName(BacklashOutcome outcome)
+{
+    switch (outcome)
+    {
+    case BacklashOutcome::Valid:
+        return "valid";
+    case BacklashOutcome::Impaired:
+        return "impaired";
+    case BacklashOutcome::Aborted:
+        return "aborted";
+    case BacklashOutcome::NotRun:
+        break;
+    }
+    return "";
+}
+
+bool BacklashOutcomeUsable(BacklashOutcome outcome)
+{
+    return outcome == BacklashOutcome::Valid || outcome == BacklashOutcome::Impaired;
+}
+
+bool BacklashIsLowerBound(BacklashOutcome outcome, int backlashMs)
+{
+    return outcome == BacklashOutcome::Impaired || (outcome == BacklashOutcome::Valid && backlashMs >= 5000);
+}
+
+std::string BacklashLogText(BacklashOutcome outcome, int backlashMs, double sigmaMs, double gearAngleArcsec,
+                            double gearAngleSigmaArcsec)
+{
+    if (!BacklashOutcomeUsable(outcome))
+        return std::string();
+
+    const char *preamble = BacklashIsLowerBound(outcome, backlashMs) ? ">=" : "";
+    char buf[160];
+    if (outcome == BacklashOutcome::Valid)
+        std::snprintf(buf, sizeof(buf), "%s %d  +/-  %0.0f ms (%0.1f  +/-  %0.1f arc-sec)", preamble, std::max(0, backlashMs),
+                      sigmaMs, std::max(0., gearAngleArcsec), gearAngleSigmaArcsec);
+    else
+        std::snprintf(buf, sizeof(buf), "%s %d  +/-  ms (test impaired)", preamble, std::max(0, backlashMs));
+    return buf;
+}
 
 const char *ApplyItemName(ApplyItem item)
 {

@@ -684,3 +684,58 @@ TEST(GuidingAssistantApply, SessionMustMatchTheRun)
     EXPECT_FALSE(SameSession(run, now, &why));
     EXPECT_NE(why.find("disconnected"), std::string::npos);
 }
+
+// ---------------------------------------------------------------------------
+// Backlash test outcome: the "Backlash=" guide-log text the dialog has always
+// written, and the outcome name guiding_assistant_get_status reports.
+// ---------------------------------------------------------------------------
+
+TEST(GuidingAssistantBacklash, OutcomeNames)
+{
+    EXPECT_STREQ(BacklashOutcomeName(BacklashOutcome::NotRun), "");
+    EXPECT_STREQ(BacklashOutcomeName(BacklashOutcome::Valid), "valid");
+    EXPECT_STREQ(BacklashOutcomeName(BacklashOutcome::Impaired), "impaired");
+    EXPECT_STREQ(BacklashOutcomeName(BacklashOutcome::Aborted), "aborted");
+}
+
+TEST(GuidingAssistantBacklash, OnlyUsableOutcomesHaveAResult)
+{
+    EXPECT_TRUE(BacklashOutcomeUsable(BacklashOutcome::Valid));
+    EXPECT_TRUE(BacklashOutcomeUsable(BacklashOutcome::Impaired));
+    EXPECT_FALSE(BacklashOutcomeUsable(BacklashOutcome::Aborted));
+    EXPECT_FALSE(BacklashOutcomeUsable(BacklashOutcome::NotRun));
+}
+
+TEST(GuidingAssistantBacklash, ValidResultLogText)
+{
+    // "%s %d  +/-  %0.0f ms (%0.1f  +/-  %0.1f arc-sec)", as the dialog writes it
+    EXPECT_EQ(BacklashLogText(BacklashOutcome::Valid, 640, 35.4, 2.12, 0.31), " 640  +/-  35 ms (2.1  +/-  0.3 arc-sec)");
+}
+
+TEST(GuidingAssistantBacklash, ValidResultOfAtLeastFiveSecondsIsALowerBound)
+{
+    EXPECT_FALSE(BacklashIsLowerBound(BacklashOutcome::Valid, 4999));
+    EXPECT_TRUE(BacklashIsLowerBound(BacklashOutcome::Valid, 5000));
+    EXPECT_EQ(BacklashLogText(BacklashOutcome::Valid, 5200, 120.0, 16.04, 0.36),
+              ">= 5200  +/-  120 ms (16.0  +/-  0.4 arc-sec)");
+}
+
+TEST(GuidingAssistantBacklash, ImpairedResultLogText)
+{
+    // star ran out of room going north: a lower bound without a sigma
+    EXPECT_TRUE(BacklashIsLowerBound(BacklashOutcome::Impaired, 1200));
+    EXPECT_EQ(BacklashLogText(BacklashOutcome::Impaired, 1200, 80.0, 3.0, 0.5), ">= 1200  +/-  ms (test impaired)");
+}
+
+TEST(GuidingAssistantBacklash, NegativeResultsAreShownAsZero)
+{
+    EXPECT_EQ(BacklashLogText(BacklashOutcome::Valid, -20, 12.0, -0.5, 0.2), " 0  +/-  12 ms (0.0  +/-  0.2 arc-sec)");
+    EXPECT_EQ(BacklashLogText(BacklashOutcome::Impaired, -20, 0.0, 0.0, 0.0), ">= 0  +/-  ms (test impaired)");
+}
+
+TEST(GuidingAssistantBacklash, NoLogTextWithoutAUsableResult)
+{
+    // the dialog writes no "Backlash=" line when the test was aborted or failed
+    EXPECT_EQ(BacklashLogText(BacklashOutcome::Aborted, 640, 35.0, 2.0, 0.3), "");
+    EXPECT_EQ(BacklashLogText(BacklashOutcome::NotRun, 0, 0.0, 0.0, 0.0), "");
+}

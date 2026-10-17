@@ -165,6 +165,27 @@ struct BacklashRec
 
 BacklashRec RecommendBacklash(int backlashMs, bool hpEncoders);
 
+// How the Dec backlash test ended
+enum class BacklashOutcome
+{
+    NotRun,
+    Valid,
+    Impaired, // the star ran out of room going north: the result is a lower bound ("test impaired")
+    Aborted // no usable result: the test failed, or was stopped
+};
+
+const char *BacklashOutcomeName(BacklashOutcome outcome); // "valid", "impaired", "aborted" ("" if not run)
+bool BacklashOutcomeUsable(BacklashOutcome outcome); // Valid or Impaired: there is a backlash result
+
+// The result is shown as ">= ms": an impaired test, or at least 5 s of backlash
+bool BacklashIsLowerBound(BacklashOutcome outcome, int backlashMs);
+
+// The backlash result as the guide and debug logs show it (untranslated, after "Backlash="),
+// e.g. " 640  +/-  35 ms (2.1  +/-  0.3 arc-sec)" or ">= 1200  +/-  ms (test impaired)".
+// Empty without a usable result: the dialog logs nothing then.
+std::string BacklashLogText(BacklashOutcome outcome, int backlashMs, double sigmaMs, double gearAngleArcsec,
+                            double gearAngleSigmaArcsec);
+
 enum class DecDirection
 {
     North,
