@@ -47,6 +47,7 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 | `test_imaging_gear` | `src/imaging_gear.cpp` and `src/imaging_gear_poller.cpp` — the imaging-gear guide log lines (`design/IMAGING_GEAR_LOG.md`), pixel scale, `unknown` values, Alpaca device selection, INFO lines from changes between polls, and that the cache never waits on a 5 s server | Direct (extract-for-testability): wx-free code linked unmodified, driven by a fake read-only `Reader` |
 | `test_webui_rpc_guard` | `src/webui_rpc_guard.cpp` — which `POST /api/rpc` methods the web app may call while calibrating or guiding: an allowlist of reads, run control (stop, pause, dither, exposure) and the drift-align tool; everything else refused, including methods added later (#81) | Direct (extract-for-testability): wx-free rule linked unmodified |
 | `test_alpaca_gain` | `src/alpaca_gain.cpp` — the Alpaca camera gain support decision from `GainMin`/`GainMax` (ASCOM value mode, used by ZWO drivers) and the 0–100 % → raw gain mapping `CameraAlpaca::Capture` sends | Direct (extract-for-testability): wx-free helper linked unmodified |
+| `test_connect_request` | `src/connect_request.cpp` — per-device `set_connected` / `get_connected` (#84): device names, and when a request is refused (camera and `all` need capture stopped; mount and rotator may join while looping but not while calibrating or guiding; nothing while the gear dialog is open) | Direct (extract-for-testability): wx-free rules linked unmodified |
 
 ## How the build infra works (and why)
 
