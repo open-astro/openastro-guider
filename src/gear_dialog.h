@@ -35,6 +35,8 @@
 #ifndef GEAR_DIALOG_H_INCLUDED
 #define GEAR_DIALOG_H_INCLUDED
 
+#include "connect_request.h"
+
 class wxGridBagSizer;
 
 class GearDialog : public wxDialog
@@ -91,6 +93,8 @@ public:
     bool SetProfile(int profileId, wxString *error);
     bool ConnectAll(wxString *error);
     bool DisconnectAll(wxString *error);
+    // one device, or all with GearDevice::All; returns true on error, like ConnectAll
+    bool SetDeviceConnected(GearDevice device, bool connect, wxString *error);
     void Shutdown(bool forced);
     bool IsEmptyProfile();
     bool ReconnectCamera();

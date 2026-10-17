@@ -39,6 +39,7 @@
 #include "drift_tool.h"
 #include "guiding_assistant.h"
 #include "webui_rpc_guard.h"
+#include "connect_request.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
@@ -2593,9 +2594,43 @@ static void set_profile_setup(JObj& response, const json_value *params)
     get_profile_setup(response, nullptr);
 }
 
+// optional "device" param of get_connected / set_connected (#84); "all" when absent
+static bool device_param(JObj& response, const json_value *val, GearDevice *device)
+{
+    *device = GearDevice::All;
+    if (!val)
+        return true;
+    if (val->type != JSON_STRING || !ParseGearDevice(val->string_value, device))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "device must be \"all\", \"camera\", \"mount\" or \"rotator\"");
+        return false;
+    }
+    return true;
+}
+
 static void get_connected(JObj& response, const json_value *params)
 {
-    response << jrpc_result(all_equipment_connected());
+    Params p("device", params);
+    GearDevice device;
+    if (!device_param(response, p.param("device"), &device))
+        return;
+
+    // a single device that isn't selected in the profile reports false
+    switch (device)
+    {
+    case GearDevice::Camera:
+        response << jrpc_result(pCamera && pCamera->Connected);
+        break;
+    case GearDevice::Mount:
+        response << jrpc_result(TheScope() && TheScope()->IsConnected());
+        break;
+    case GearDevice::Rotator:
+        response << jrpc_result(pRotator && pRotator->IsConnected());
+        break;
+    default:
+        response << jrpc_result(all_equipment_connected());
+        break;
+    }
 }
 
 static void set_connected(JObj& response, const json_value *params)
@@ -2603,18 +2638,21 @@ static void set_connected(JObj& response, const json_value *params)
     VERIFY_NO_PA_SESSION(response);
     VERIFY_NO_DARK_BUILD(response);
 
-    Params p("connected", params);
+    Params p("connected", "device", params);
     const json_value *val = p.param("connected");
     if (!val || val->type != JSON_BOOL)
     {
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected connected boolean param");
         return;
     }
+    GearDevice device;
+    if (!device_param(response, p.param("device"), &device))
+        return;
 
     VERIFY_GUIDER(response);
 
     wxString errMsg;
-    bool error = val->int_value ? pFrame->pGearDialog->ConnectAll(&errMsg) : pFrame->pGearDialog->DisconnectAll(&errMsg);
+    bool error = pFrame->pGearDialog->SetDeviceConnected(device, val->int_value != 0, &errMsg);
 
     if (error)
     {

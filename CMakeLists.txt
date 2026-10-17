@@ -173,6 +173,8 @@ set(cam_SRC
   ${phd_src_dir}/imaging_gear_poller.cpp
   ${phd_src_dir}/imaging_gear_poller.h
   ${phd_src_dir}/webui_rpc_guard.cpp
+  ${phd_src_dir}/connect_request.cpp
+  ${phd_src_dir}/connect_request.h
   ${phd_src_dir}/webui_rpc_guard.h
   ${phd_src_dir}/alpaca_gain.cpp
   ${phd_src_dir}/alpaca_gain.h

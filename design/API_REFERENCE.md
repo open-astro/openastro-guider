@@ -45,8 +45,8 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | `get_app_state` | — | Current state string (`Stopped`, `Selected`, `Calibrating`, `Guiding`, `LostLock`, `Paused`, `Looping`). |
 | `get_calibration_progress` | — | `{calibrating}`; while calibrating, also the last step with the `Calibrating` event's fields: `Mount`, `dir`, `step`, `dist`, `dx`, `dy`, `pos`, `State?`. For HTTP clients with no event stream (the web app's Guide tab). |
 | `get_version` | — | `version` (user-facing, from `version.md`), `phd_version`, `phd_subver`, `msg_version` — the `Version` event's fields for HTTP clients with no event stream (the web app's header pill). |
-| `get_connected` | — | `true` if all selected equipment is connected. |
-| `set_connected` | `connected` (bool) | Connect/disconnect the profile's equipment. |
+| `get_connected` | `device`? (`all` default, `camera`, `mount`, `rotator`) | With `all`: `true` if all selected equipment is connected. For one device: `true` if it is selected in the profile and connected. |
+| `set_connected` | `connected` (bool), `device`? (`all` default, `camera`, `mount`, `rotator`) | Connect/disconnect the profile's equipment, or one device. `all` connects what it can and returns an error naming what failed (devices that did connect stay connected). A single device lets the camera loop while the mount is off: the mount or rotator can then join or leave while looping (not while calibrating or guiding); the camera and `all` need capture stopped. Already in the requested state is a no-op; a device not selected in the profile is an error on connect and a no-op on disconnect. |
 | `loop` | — | Start looping exposures (no guiding). |
 | `stop_capture` | — | Stop looping/guiding. |
 | `get_paused` | — | `true` if guiding is paused. |

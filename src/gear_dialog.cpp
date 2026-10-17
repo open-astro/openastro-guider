@@ -1536,6 +1536,85 @@ bool GearDialog::DisconnectAll(wxString *error)
     return false;
 }
 
+bool GearDialog::SetDeviceConnected(GearDevice device, bool connect, wxString *error)
+{
+    if (device == GearDevice::All)
+        return connect ? ConnectAll(error) : DisconnectAll(error);
+
+    bool selected, connected;
+    switch (device)
+    {
+    case GearDevice::Camera:
+        selected = m_pCamera != nullptr;
+        connected = selected && m_pCamera->Connected;
+        break;
+    case GearDevice::Mount:
+        selected = m_pScope != nullptr;
+        connected = selected && m_pScope->IsConnected();
+        break;
+    default:
+        selected = m_pRotator != nullptr;
+        connected = selected && m_pRotator->IsConnected();
+        break;
+    }
+
+    const char *name = GearDeviceName(device);
+    if (!selected)
+    {
+        if (!connect)
+            return false; // nothing to disconnect
+        *error = wxString::Format("no %s is selected in the profile", name);
+        return true;
+    }
+    if (connected == connect)
+        return false; // already in the requested state
+
+    std::string refusal = ConnectRefusal(device, connect, pFrame->CaptureActive,
+                                         pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding(), IsModal());
+    if (!refusal.empty())
+    {
+        *error = refusal;
+        return true;
+    }
+
+    Debug.Write(wxString::Format("gear_dialog: SetDeviceConnected %s %d\n", name, connect));
+
+    wxCommandEvent dummy;
+    switch (device)
+    {
+    case GearDevice::Camera:
+        if (connect)
+            DoConnectCamera(false);
+        else
+            OnButtonDisconnectCamera(dummy);
+        break;
+    case GearDevice::Mount:
+        if (connect)
+            OnButtonConnectScope(dummy);
+        else
+            OnButtonDisconnectScope(dummy);
+        break;
+    default:
+        if (connect)
+            OnButtonConnectRotator(dummy);
+        else
+            OnButtonDisconnectRotator(dummy);
+        break;
+    }
+
+    EndModal(0); // need the side effects (calibration auto-load, controls)
+
+    bool now = device == GearDevice::Camera ? m_pCamera && m_pCamera->Connected
+        : device == GearDevice::Mount       ? m_pScope && m_pScope->IsConnected()
+                                            : m_pRotator && m_pRotator->IsConnected();
+    if (now != connect)
+    {
+        *error = wxString::Format("%s failed to %s", name, connect ? "connect" : "disconnect");
+        return true;
+    }
+    return false;
+}
+
 void GearDialog::Shutdown(bool forced)
 {
     Debug.Write(wxString::Format("Shutdown: forced=%d\n", forced));
