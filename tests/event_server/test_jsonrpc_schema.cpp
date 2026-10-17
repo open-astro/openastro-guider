@@ -643,3 +643,217 @@ TEST(JsonRpcSchema, GuidingAssistantApplyResult)
     for (const json_value *a = applied->first_child; a; a = a->next_sibling)
         EXPECT_EQ(a->type, JSON_STRING);
 }
+
+// ---------------------------------------------------------------------------
+// Imaging gear (#89): get_imaging_gear returns the background reader's cached
+// snapshot (ImagingGear::SnapshotJson, pinned value-for-value in
+// test_imaging_gear); set_imaging_gear_devices names the devices it reads and
+// returns the overrides now in effect (ImagingGear::OverridesJson).
+// ---------------------------------------------------------------------------
+namespace
+{
+
+// every value is a number or null ("unknown" in the guide log)
+void expect_numeric_or_null_field(const json_value *parent, const char *name)
+{
+    const json_value *v = child(parent, name);
+    ASSERT_NE(v, nullptr) << "missing field: " << name;
+    ASSERT_TRUE(v->type == JSON_INT || v->type == JSON_FLOAT || v->type == JSON_NULL)
+        << "field " << name << " not numeric or null";
+}
+
+void expect_string_or_null_field(const json_value *parent, const char *name)
+{
+    const json_value *v = child(parent, name);
+    ASSERT_NE(v, nullptr) << "missing field: " << name;
+    ASSERT_TRUE(v->type == JSON_STRING || v->type == JSON_NULL) << "field " << name << " not string or null";
+}
+
+void expect_null_field(const json_value *parent, const char *name)
+{
+    const json_value *v = child(parent, name);
+    ASSERT_NE(v, nullptr) << "missing field: " << name;
+    ASSERT_EQ(v->type, JSON_NULL) << "field " << name << " not null";
+}
+
+const json_value *object_field(const json_value *parent, const char *name)
+{
+    const json_value *v = child(parent, name);
+    EXPECT_NE(v, nullptr) << "missing object: " << name;
+    if (v && v->type != JSON_OBJECT)
+    {
+        ADD_FAILURE() << "field " << name << " not an object";
+        return nullptr;
+    }
+    return v;
+}
+
+void expect_overrides(const json_value *o)
+{
+    ASSERT_NE(o, nullptr);
+    for (const char *key : { "camera", "filterwheel", "focuser", "rotator", "telescope", "observingconditions" })
+        expect_numeric_or_null_field(o, key);
+}
+
+const char *IMAGING_GEAR_FULL =
+    "{\"jsonrpc\":\"2.0\",\"result\":{\"source\":\"alpaca\",\"server\":\"AlpacaBridge 192.168.1.20:11111\","
+    "\"telescope\":{\"device\":0,\"name\":\"Sky-Watcher EQ6-R Pro\",\"focal_length_mm\":250,\"aperture_mm\":51,"
+    "\"focal_ratio\":4.90196},"
+    "\"camera\":{\"device\":1,\"name\":\"ZWO ASI2600MM Pro\",\"sensor\":\"IMX571\",\"sensor_type\":\"Monochrome\","
+    "\"pixel_size_x_um\":3.76,\"pixel_size_y_um\":3.76,\"width_px\":6248,\"height_px\":4176,\"bin_x\":1,\"bin_y\":1,"
+    "\"pixel_scale_arcsec\":3.10223,\"gain\":100,\"offset\":50,\"readout_mode\":\"High Gain\",\"cooler_on\":true,"
+    "\"sensor_temp_c\":-10},"
+    "\"filter_wheel\":{\"device\":0,\"name\":\"ZWO EFW 7x36\",\"filter\":\"Ha\",\"position\":3,\"count\":7,"
+    "\"focus_offset\":0},"
+    "\"rotator\":{\"device\":0,\"name\":\"ZWO CAA\",\"position_deg\":92.3,\"mechanical_position_deg\":90,"
+    "\"reverse\":false},"
+    "\"focuser\":{\"device\":0,\"name\":\"ZWO EAF\",\"position\":12345,\"temperature_c\":8.4},"
+    "\"conditions\":{\"device\":0,\"name\":\"WeeWX\",\"seeing_arcsec\":2.1,\"wind_speed_m_s\":3.2,\"wind_gust_m_s\":5,"
+    "\"temperature_c\":8.9,\"humidity_pct\":71,\"dew_point_c\":3.9,\"pressure_hpa\":1012,\"cloud_cover_pct\":0,"
+    "\"sky_quality_mag_arcsec2\":21.2},"
+    "\"guide_train\":{\"type\":\"separate_guide_scope\",\"ratio\":0.48},\"ambiguous_cameras\":0,"
+    "\"overrides\":{\"camera\":1,\"filterwheel\":null,\"focuser\":null,\"rotator\":null,\"telescope\":null,"
+    "\"observingconditions\":null}},\"id\":1}";
+
+} // namespace
+
+TEST(JsonRpcSchema, GetImagingGearFullRig)
+{
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(IMAGING_GEAR_FULL)));
+    const json_value *r = child(p.Root(), "result");
+    ASSERT_NE(r, nullptr);
+    EXPECT_TRUE(string_is(child(r, "source"), "alpaca"));
+    expect_string_field(r, "server");
+    expect_numeric_field(r, "ambiguous_cameras");
+
+    const json_value *t = object_field(r, "telescope");
+    ASSERT_NE(t, nullptr);
+    expect_numeric_or_null_field(t, "device");
+    expect_string_or_null_field(t, "name");
+    for (const char *k : { "focal_length_mm", "aperture_mm", "focal_ratio" })
+        expect_numeric_or_null_field(t, k);
+
+    const json_value *c = object_field(r, "camera");
+    ASSERT_NE(c, nullptr);
+    expect_numeric_or_null_field(c, "device");
+    for (const char *k : { "name", "sensor", "sensor_type", "readout_mode" })
+        expect_string_or_null_field(c, k);
+    for (const char *k : { "pixel_size_x_um", "pixel_size_y_um", "width_px", "height_px", "bin_x", "bin_y",
+                           "pixel_scale_arcsec", "gain", "offset", "sensor_temp_c" })
+        expect_numeric_or_null_field(c, k);
+    expect_bool_field(c, "cooler_on");
+
+    const json_value *fw = object_field(r, "filter_wheel");
+    ASSERT_NE(fw, nullptr);
+    expect_string_or_null_field(fw, "name");
+    expect_string_or_null_field(fw, "filter");
+    for (const char *k : { "device", "position", "count", "focus_offset" })
+        expect_numeric_or_null_field(fw, k);
+    // 1-based, as in the guide log ("Position = 3 of 7")
+    EXPECT_EQ(child(fw, "position")->int_value, 3);
+
+    const json_value *rot = object_field(r, "rotator");
+    ASSERT_NE(rot, nullptr);
+    expect_string_or_null_field(rot, "name");
+    for (const char *k : { "device", "position_deg", "mechanical_position_deg" })
+        expect_numeric_or_null_field(rot, k);
+    expect_bool_field(rot, "reverse");
+
+    const json_value *foc = object_field(r, "focuser");
+    ASSERT_NE(foc, nullptr);
+    expect_string_or_null_field(foc, "name");
+    for (const char *k : { "device", "position", "temperature_c" })
+        expect_numeric_or_null_field(foc, k);
+
+    const json_value *oc = object_field(r, "conditions");
+    ASSERT_NE(oc, nullptr);
+    expect_string_or_null_field(oc, "name");
+    for (const char *k : { "device", "seeing_arcsec", "wind_speed_m_s", "wind_gust_m_s", "temperature_c", "humidity_pct",
+                           "dew_point_c", "pressure_hpa", "cloud_cover_pct", "sky_quality_mag_arcsec2" })
+        expect_numeric_or_null_field(oc, k);
+
+    const json_value *g = object_field(r, "guide_train");
+    ASSERT_NE(g, nullptr);
+    const json_value *type = child(g, "type");
+    EXPECT_TRUE(string_is(type, "separate_guide_scope") || string_is(type, "off_axis_guider"));
+    expect_numeric_or_null_field(g, "ratio");
+
+    expect_overrides(object_field(r, "overrides"));
+}
+
+TEST(JsonRpcSchema, GetImagingGearUnavailable)
+{
+    // server not read yet / unreachable (or the guide log is off): every key
+    // is still present, the devices are null
+    const char *fixture =
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"source\":\"unavailable\",\"server\":null,\"telescope\":null,"
+        "\"camera\":null,\"filter_wheel\":null,\"rotator\":null,\"focuser\":null,\"conditions\":null,"
+        "\"guide_train\":{\"type\":null,\"ratio\":null},\"ambiguous_cameras\":0,"
+        "\"overrides\":{\"camera\":null,\"filterwheel\":null,\"focuser\":null,\"rotator\":null,\"telescope\":null,"
+        "\"observingconditions\":null}},\"id\":1}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *r = child(p.Root(), "result");
+    ASSERT_NE(r, nullptr);
+    EXPECT_TRUE(string_is(child(r, "source"), "unavailable"));
+    for (const char *k : { "server", "telescope", "camera", "filter_wheel", "rotator", "focuser", "conditions" })
+        expect_null_field(r, k);
+    const json_value *g = object_field(r, "guide_train");
+    ASSERT_NE(g, nullptr);
+    expect_null_field(g, "type");
+    expect_null_field(g, "ratio");
+    expect_overrides(object_field(r, "overrides"));
+}
+
+TEST(JsonRpcSchema, GetImagingGearAmbiguousCamera)
+{
+    // several idle connected imaging cameras and no camera override
+    const char *fixture = "{\"source\":\"alpaca\",\"server\":\"Alpaca 10.0.0.2:11111\",\"telescope\":null,"
+                          "\"camera\":null,\"filter_wheel\":null,\"rotator\":null,\"focuser\":null,\"conditions\":null,"
+                          "\"guide_train\":{\"type\":null,\"ratio\":null},\"ambiguous_cameras\":2,"
+                          "\"overrides\":{\"camera\":null,\"filterwheel\":null,\"focuser\":null,\"rotator\":null,"
+                          "\"telescope\":null,\"observingconditions\":null}}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    expect_null_field(p.Root(), "camera");
+    const json_value *n = child(p.Root(), "ambiguous_cameras");
+    ASSERT_NE(n, nullptr);
+    ASSERT_EQ(n->type, JSON_INT);
+    EXPECT_EQ(n->int_value, 2);
+}
+
+TEST(JsonRpcSchema, SetImagingGearDevicesResult)
+{
+    // request: {"camera":2,"filterwheel":0,"focuser":null} - omitted keys keep
+    // their override, -1 or null clears one, no params clear them all
+    const char *request = "{\"method\":\"set_imaging_gear_devices\",\"params\":{\"camera\":2,\"filterwheel\":0,"
+                          "\"focuser\":null,\"rotator\":-1},\"id\":7}";
+    JsonParser req;
+    ASSERT_TRUE(req.Parse(std::string(request)));
+    const json_value *params = child(req.Root(), "params");
+    ASSERT_NE(params, nullptr);
+    ASSERT_EQ(params->type, JSON_OBJECT);
+
+    const char *fixture = "{\"jsonrpc\":\"2.0\",\"result\":{\"camera\":2,\"filterwheel\":0,\"focuser\":null,"
+                          "\"rotator\":null,\"telescope\":null,\"observingconditions\":null},\"id\":7}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *r = child(p.Root(), "result");
+    ASSERT_NE(r, nullptr);
+    ASSERT_EQ(r->type, JSON_OBJECT);
+    expect_overrides(r);
+}
+
+TEST(JsonRpcSchema, SetImagingGearDevicesRefusesTheGuideCamera)
+{
+    const char *fixture = "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,"
+                          "\"message\":\"camera 0 is the guide camera, not the imaging camera\"},\"id\":7}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    EXPECT_EQ(child(p.Root(), "result"), nullptr);
+    const json_value *err = child(p.Root(), "error");
+    ASSERT_NE(err, nullptr);
+    expect_numeric_field(err, "code");
+    expect_string_field(err, "message");
+}

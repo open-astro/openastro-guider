@@ -3,11 +3,14 @@
  *  PHD Guiding
  *
  *  Connects the imaging-gear poller (imaging_gear_poller.h) to the Alpaca
- *  server the guider uses, for the guide log. Main thread only.
+ *  server the guider uses, for the guide log and the get_imaging_gear /
+ *  set_imaging_gear_devices RPCs. Main thread only.
  */
 
 #ifndef IMAGING_GEAR_ALPACA_H_INCLUDED
 #define IMAGING_GEAR_ALPACA_H_INCLUDED
+
+#include "imaging_gear.h"
 
 #include <string>
 #include <vector>
@@ -28,6 +31,18 @@ std::string Header();
 
 // INFO lines queued since the last call
 std::vector<std::string> TakeInfoLines();
+
+// The devices the imaging app named with set_imaging_gear_devices. Kept until
+// changed or the guider exits (not saved in the profile); setting them makes
+// the next poll rediscover the devices.
+ImagingGear::Overrides Overrides();
+void SetOverrides(const ImagingGear::Overrides& overrides);
+
+// the guide camera's Alpaca device number, which is never the imaging camera
+int GuideCamera();
+
+// get_imaging_gear: the cached snapshot as JSON; never waits on the network
+std::string Json();
 }
 
 #endif

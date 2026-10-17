@@ -26,7 +26,8 @@ Params may be an object (named) or array (positional). Over HTTP, POST that body
 the response is wrapped `{"ok": true, "result": ...}` / `{"ok": false, "error": "..."}`.
 While calibrating or guiding, `/api/rpc` allows only reads (`get_*`, `*_get_status`), run
 control (`stop_capture`, `set_paused`, `dither`, `set_exposure`, `set_lock_position`, `guide`,
-`loop`, `shutdown`) and the drift-align tool (`driftalign_*`, which guides while it measures).
+`loop`, `shutdown`), the drift-align tool (`driftalign_*`, which guides while it measures) and
+`set_imaging_gear_devices` (it only changes what the guide log's imaging-gear reader reads).
 Everything else, including methods added later, gets HTTP `409` and
 `"stop guiding before changing settings"`, so a Save in the web app can't disturb a run.
 `:4400` is not affected. Every `/api/rpc` call except reads is written to the debug log
@@ -322,6 +323,59 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 | `query_alpaca_devices` | `host`, `port`, `device_type` (`CAMERA`/`TELESCOPE`/`ROTATOR`/`ALL`) | Enumerate devices on an Alpaca server. |
 | `get_alpaca_camera_pixelsize` | `host`, `port`, `device_number` | Pixel size of a specific Alpaca camera. |
 | `set_selected_alpaca_device` | `device_type`, `device_number`, `display` | Select a discovered Alpaca device for a slot. |
+
+## Imaging gear
+
+The imaging train the guide log describes (`design/IMAGING_GEAR_LOG.md`): telescope, imaging camera,
+filter wheel, rotator, focuser and observing conditions, read from the Alpaca server (the guider's
+`/alpaca/host`/`port`) by a background thread — fast values every 2 s, everything else and device
+discovery every 30 s. The reader runs while the guide log is enabled (always, unless it was turned
+off). Neither method ever waits on the network.
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `get_imaging_gear` | — | The reader's cached snapshot (below). Right after the guider starts, before the first read completes, `source` is `unavailable`. |
+| `set_imaging_gear_devices` | `camera`?, `filterwheel`?, `focuser`?, `rotator`?, `telescope`?, `observingconditions`? (Alpaca device numbers; positional in that order) | Name the devices the reader uses, so it doesn't have to guess. An override wins over the selection rules (including the telescope/rotator the guider is connected to); with a `camera` override the camera is never ambiguous. A key that is omitted keeps its override; `-1` or `null` clears it; a call with no params (or `{}` / `[]`) clears them all. All or nothing: any bad param leaves every override unchanged. Errors (`-32602`): an unknown key (`unknown device type: <key>`), a value that isn't an integer ≥ −1 or null, more than six positional params, and `camera` equal to the guide camera's device number (`camera <n> is the guide camera, not the imaging camera`). Takes effect on the reader's next poll, which rediscovers the devices. An override naming a device the server doesn't list in `configureddevices` reads nothing for that type (`null` in `get_imaging_gear`). Kept in memory until changed or the guider exits — **not saved in the profile**; set them each session (after choosing the Alpaca server). Returns the overrides now in effect, `{camera, filterwheel, focuser, rotator, telescope, observingconditions}` (number or `null`). Allowed over `/api/rpc` while guiding. |
+
+`get_imaging_gear` result — every key always present; `null` wherever the guide log writes `unknown`
+(not reported, not a number, or no such device):
+
+```json
+{
+  "source": "alpaca",
+  "server": "AlpacaBridge 192.168.1.20:11111",
+  "telescope": {"device": 0, "name": "Sky-Watcher EQ6-R Pro", "focal_length_mm": 250, "aperture_mm": 51, "focal_ratio": 4.90196},
+  "camera": {"device": 1, "name": "ZWO ASI2600MM Pro", "sensor": "IMX571", "sensor_type": "Monochrome",
+             "pixel_size_x_um": 3.76, "pixel_size_y_um": 3.76, "width_px": 6248, "height_px": 4176, "bin_x": 1, "bin_y": 1,
+             "pixel_scale_arcsec": 3.10223, "gain": 100, "offset": 50, "readout_mode": "High Gain", "cooler_on": true,
+             "sensor_temp_c": -10},
+  "filter_wheel": {"device": 0, "name": "ZWO EFW 7x36", "filter": "Ha", "position": 3, "count": 7, "focus_offset": 0},
+  "rotator": {"device": 0, "name": "ZWO CAA", "position_deg": 92.3, "mechanical_position_deg": 90, "reverse": false},
+  "focuser": {"device": 0, "name": "ZWO EAF", "position": 12345, "temperature_c": 8.4},
+  "conditions": {"device": 0, "name": "WeeWX", "seeing_arcsec": 2.1, "wind_speed_m_s": 3.2, "wind_gust_m_s": 5,
+                 "temperature_c": 8.9, "humidity_pct": 71, "dew_point_c": 3.9, "pressure_hpa": 1012, "cloud_cover_pct": 0,
+                 "sky_quality_mag_arcsec2": 21.2},
+  "guide_train": {"type": "separate_guide_scope", "ratio": 0.48},
+  "ambiguous_cameras": 0,
+  "overrides": {"camera": 1, "filterwheel": null, "focuser": null, "rotator": null, "telescope": null, "observingconditions": null}
+}
+```
+
+- `source`: `alpaca` · `unavailable` (the server couldn't be read, the first read hasn't completed, or
+  the guide log is disabled) · `not_alpaca` (openastro-phd2 only). Unless
+  `alpaca`, `server` and every device are `null` and `ambiguous_cameras` is 0.
+- A device is `null` when there is none of that type, it can't be chosen, or its override names a device
+  that isn't configured. `device` is its Alpaca device number.
+- `camera` is `null` with `ambiguous_cameras` > 0 when several imaging cameras are configured and none is
+  the one connected and exposing / the only connected one — name it with `set_imaging_gear_devices`.
+- `sensor_type`: `Monochrome`, `Color`, `RGGB`, `CMYG`, `CMYG2`, `LRGB`. `pixel_scale_arcsec` uses the
+  binning and the telescope's focal length. `seeing_arcsec` is ASCOM `StarFWHM`.
+- `filter_wheel.position` is 1-based (`null` while the wheel moves); `count` is the number of filter names.
+- `guide_train.type`: `off_axis_guider` (guide/imaging focal length `ratio` within 0.15 of 1),
+  `separate_guide_scope`, or `null` when either focal length is unknown (the guide focal length is the
+  profile's).
+- `overrides`: what `set_imaging_gear_devices` set. The snapshot reflects a change after the next poll.
+- Numbers are unrounded (`%.6g`), unlike the log's.
 
 ## Dark / defect-map library
 
