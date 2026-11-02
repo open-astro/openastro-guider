@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-01
+
 ### Added
 - Imaging-gear RPCs (#89): `get_imaging_gear` returns the imaging train the guide log describes (telescope, imaging camera, filter wheel, rotator, focuser, observing conditions, guide train) from the background reader's cache as JSON, `null` for unknown values, without touching the network; `set_imaging_gear_devices` lets the client name the Alpaca device numbers to read (overrides win over the selection rules, the guide camera is refused, not saved in the profile, picked up on the next poll). Switching to another filter wheel, rotator or focuser is no longer logged as a move.
 - Headless Guiding Assistant over JSON-RPC (#83): `guiding_assistant_start` / `_stop` / `_get_status` / `_apply` and the `GuidingAssistantProgress` / `GuidingAssistantDone` events measure unguided drift, seeing (high-frequency RMS), polar-alignment error and (optionally) Dec backlash without the dialog, and return/apply the min-move, exposure, Dec backlash, Dec guide-mode and Dec algorithm recommendations. The measurement and recommendation code was extracted from the dialog into `guiding_assistant_math.{h,cpp}` (now unit-tested); the dialog delegates to it.
