@@ -270,3 +270,15 @@ add_executable(test_connect_request
 target_link_libraries(test_connect_request PRIVATE phd_test_common)
 set_property(TARGET test_connect_request PROPERTY FOLDER "Unit tests")
 add_test(NAME test_connect_request COMMAND test_connect_request)
+
+############################################################################
+# test_capture_cleanup  --  capture_cleanup.cpp: pruning of the
+# save_image_XXXXXX frames the daemon names itself (#93). std-only.
+############################################################################
+add_executable(test_capture_cleanup
+  ${PHD_TESTS_DIR}/capture/test_capture_cleanup.cpp
+  ${phd_src_dir}/capture_cleanup.cpp
+)
+target_link_libraries(test_capture_cleanup PRIVATE phd_test_common)
+set_property(TARGET test_capture_cleanup PROPERTY FOLDER "Unit tests")
+add_test(NAME test_capture_cleanup COMMAND test_capture_cleanup)

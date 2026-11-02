@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `capture_single_frame {save:true}` without a `path` now saves into the configured `/server/capture_frame_dir` (when overridden) instead of always the default data dir, so the auto-named file is retrievable over HTTP.
+- Frames saved under daemon-picked names (`capture_single_frame {save:true}` without a `path`, and `save_image`) are no longer kept forever (#93): the daemon keeps the newest 10 `save_image_XXXXXX` files per directory for at most 15 minutes, pruning the rest on each new save and at startup. A client polling a frame a second (polar alignment) had filled an ASIAIR's root filesystem overnight. Files saved to a caller-supplied `path` are never pruned.
 
 ## [2.1.0] - 2026-07-16
 

@@ -44,6 +44,7 @@
 #include "Refine_DefMap.h"
 #include "starcross_test.h"
 #include "calibration_assistant.h"
+#include "capture_cleanup.h"
 
 #include <algorithm>
 #include <memory>
@@ -467,6 +468,16 @@ void SingleExposure::Complete(bool succeeded, const wxString& errorMsgArg)
                 ::wxRemove(path);
             succeeded = false;
             errorMsg = wxString::Format("error saving image file [%s] -- see debug log for more info", path);
+        }
+        else if (created)
+        {
+            // a remote client can fetch the file but not delete it (#93), so
+            // drop older auto-named frames here; the one just written stays
+            wxString dir = wxFileName(path).GetPath();
+            size_t n = PruneAutoSavedFrames(std::string(dir.utf8_str()), kAutoSavedFrameKeepCount, kAutoSavedFrameMaxAge,
+                                            std::string(path.utf8_str()));
+            if (n)
+                Debug.Write(wxString::Format("SingleExposure: pruned %u old saved frame(s) in [%s]\n", (unsigned) n, dir));
         }
     }
 
