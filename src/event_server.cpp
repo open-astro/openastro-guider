@@ -41,6 +41,7 @@
 #include "imaging_gear_alpaca.h"
 #include "webui_rpc_guard.h"
 #include "connect_request.h"
+#include "capture_cleanup.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
@@ -4171,6 +4172,16 @@ static void set_lock_shift_params(JObj& response, const json_value *params)
     response << jrpc_result(0);
 }
 
+// delete old save_image_XXXXXX frames in dir (#93); keep, when given, is the
+// frame just written and is never deleted
+static void PruneSavedFrames(const wxString& dir, const wxString& keep = wxEmptyString)
+{
+    size_t n = PruneAutoSavedFrames(std::string(dir.utf8_str()), kAutoSavedFrameKeepCount, kAutoSavedFrameMaxAge,
+                                    std::string(keep.utf8_str()));
+    if (n)
+        Debug.Write(wxString::Format("pruned %u old saved frame(s) in [%s]\n", (unsigned) n, dir));
+}
+
 static void save_image(JObj& response, const json_value *params)
 {
     VERIFY_GUIDER(response);
@@ -4181,7 +4192,8 @@ static void save_image(JObj& response, const json_value *params)
         return;
     }
 
-    wxString fname = wxFileName::CreateTempFileName(MyFrame::GetDefaultFileDir() + PATHSEPSTR + "save_image_");
+    wxString dir = MyFrame::GetDefaultFileDir();
+    wxString fname = wxFileName::CreateTempFileName(dir + PATHSEPSTR + "save_image_");
 
     if (pFrame->pGuider->SaveCurrentImage(fname))
     {
@@ -4189,6 +4201,10 @@ static void save_image(JObj& response, const json_value *params)
         response << jrpc_error(3, "error saving image");
         return;
     }
+
+    // the caller reads the file but nothing deletes it (#93); drop older
+    // auto-named frames, keeping the one just written
+    PruneSavedFrames(dir, fname);
 
     JObj rslt;
     rslt << NV("filename", fname);
@@ -8044,6 +8060,14 @@ bool EventServer::EventServerStart(unsigned int instanceId)
     m_configEventDebouncer = new wxTimer();
 
     Debug.Write(wxString::Format("event server started, listening on port %u\n", port));
+
+    // frames left behind by an earlier run (#93): save_image writes to the
+    // data dir, capture_single_frame to the capture dir (the same by default)
+    wxString dataDir = MyFrame::GetDefaultFileDir();
+    wxString captureDir = pConfig->Global.GetString("/server/capture_frame_dir", dataDir);
+    PruneSavedFrames(dataDir);
+    if (captureDir != dataDir)
+        PruneSavedFrames(captureDir);
 
     m_httpPort = 8080 + instanceId - 1;
     wxIPV4address httpServerAddr;

@@ -217,10 +217,12 @@ Application/runtime errors:
   - result: `0` when exposure has been started
   - completion is signaled asynchronously by `SingleFrameComplete` (payload includes `Path` and `Filename` when `save=true`)
   - the saved file can be fetched remotely via `GET /api/capture/<Filename>` on the embedded HTTP server
+  - auto-named files (no `path`) are temporary: the daemon keeps only the newest 10 `save_image_XXXXXX` frames per directory, for at most 15 minutes, and prunes the rest on each new save and at startup — fetch the frame when `SingleFrameComplete` arrives. Files saved to a caller-supplied `path` are never pruned.
 
 - `save_image`
   - saves current guider image to temp file
   - result: `{"filename":"..."}`
+  - the file is temporary and pruned like `capture_single_frame`'s auto-named frames (newest 10, at most 15 minutes) — read it right away
 
 - `get_star_image`
   - params: optional `size` (int, minimum `15`)
@@ -659,6 +661,7 @@ When a client connects, server sends catch-up context including:
 2. watch `SingleFrameComplete`
 3. inspect `Success`, `Path`, and `Filename` in the event payload
 4. a remote client retrieves the FITS bytes with `GET http://<daemon>:<httpport>/api/capture/<Filename>` on the embedded HTTP server (files are served only from the capture directory; traversal attempts return `404`)
+5. the auto-named file is pruned once 10 newer frames exist or after 15 minutes, so fetch it promptly; a later fetch may return `404`
 
 ## Complete Method Name List
 
