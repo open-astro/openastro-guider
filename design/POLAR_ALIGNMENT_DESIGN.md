@@ -5,27 +5,26 @@ taking the best of ASIAIR / iPolar / PoleMaster / PHD2 and — crucially — **s
 "which bolt, which way, how much" problem** for users with any optical train (guide scope,
 OAG, short or long focal length).
 
-Status: **guider-side enablers built and verified** (2026-06-10); ARA-side routine not yet
-started. Owner: ARA + openastro-guider.
+Status: **the guider owns the routine** (corrected 2026-11-05, Ara #1611). The in-guider Static PA
+tool (`staticpa_start` / `staticpa_measure` / `staticpa_get_status` / `staticpa_stop` /
+`staticpa_close`) and Polar Drift (`polardrift_*`) are the polar-alignment routines; Ara drives them
+over RPC and draws their status. An earlier revision of this document gave Ara its own plate-solve
+routine (two-point axis fit over `capture_single_frame`); that was never the intent — PHD2 was kept
+for its guiding AND its polar alignment — and Ara's own fit reported 8″ at 3.5° off the pole
+(Ara #1591). It has been removed from Ara. Owner: openastro-guider (routine) + ARA (driver/UI).
 
-What landed in the guider (see §8/§4 and `API_REFERENCE.md`):
-- **§12.1 spike gate verified:** `capture_single_frame` saves a solver-ready FITS at the
-  caller's absolute path (16-bit unsigned, `EXPOSURE`, `DATE-OBS`, `XBINNING`, `XPIXSZ`/`YPIXSZ`,
-  `SCALE`/`PIXSCALE` arcsec/px hint, `INSTRUME`, `SATURATE`) and the `SingleFrameComplete` event
-  carries `Success` + `Path`. No RA/Dec in the header — ARA seeds the solver per §8.
-- **`get_star_centroids`** { `roi`?, `max_stars`? } → sub-pixel centroids (`x,y,snr,mass,hfd`)
-  of the current frame, no guider-state change — the §8/§11 multi-star centroid report, so the
-  narrow-FOV track loop can choose single- vs multi-star at runtime.
-- **`set_pa_session` / `get_pa_session`** — the §4 ownership enforcement: a renewable,
-  auto-expiring lease that rejects `guide`/`loop`/`dither`/`guide_pulse`/dark-building/
-  `set_connected` while active (capture/centroid/find_star stay available).
-- **The near-pole CoR mode (§2) shipped server-side, ahead of plan** (2026-06-10): the
-  in-guider Static PA tool is drivable over RPC (`staticpa_start` / `staticpa_measure` /
-  `staticpa_get_status` / `staticpa_stop` / `staticpa_close`), reusing the GUI tool's state
-  machine + the `staticpa_geometry` kernel. ARA gets the dot-to-bullseye reticle data
-  (`ref_star_target` + `current_star`) and a `live_adjustment` alt/az decomposition without
-  needing its plate-solve pipeline. Lease note: don't hold a `set_pa_session` lease while
-  using it (the lease blocks `loop`, which the tool needs).
+What the guider provides (see §4/§8 and `API_REFERENCE.md`):
+- **Static PA over RPC:** the GUI tool's state machine + the `staticpa_geometry` kernel, headless.
+  `auto` mode rotates the mount itself (the guider's own pointing source); manual mode takes three
+  star positions the caller records with `staticpa_measure` after rotating RA. The status object
+  carries `ref_star_target` + `current_star` (the dot-to-bullseye reticle) and `live_adjustment`
+  (alt/az/total error in px and arcmin, with the on-sensor push vectors).
+- **Polar Drift over RPC:** `polardrift_start/get_status/stop/close` — the drift-based check for
+  the pole-less sky; the same alt/az readout from a star near the meridian/equator.
+- **`capture_single_frame`, `get_star_centroids`, `set_pa_session`/`get_pa_session`** remain for
+  Ara's other guide-camera uses (Smart Focus, the live view). The PA-session lease is NOT used by
+  polar alignment: it blocks `loop`, which the Static PA tool needs, and the tool already refuses
+  `guide` / `dither` / the Guiding Assistant while it runs.
 
 ---
 
@@ -107,90 +106,73 @@ knob direction.)
 
 ```
         ┌──────────────────────────── ARA ────────────────────────────┐
-        │  PA state machine · plate solver (ASTAP/astrometry) · UX     │
-        │  (reticle / decoupled arrows · bolt-direction calibration)   │
+        │  driver + UX: preflight · loop/find_star · staticpa_* RPCs    │
+        │  manual-mode RA turns · reticle / arrows · session log        │
         └───────┬───────────────────────────────────┬─────────────────┘
-                │ JSON-RPC (:4400 / /api/rpc)        │ ASCOM Alpaca
+                │ JSON-RPC (:4400 / /api/rpc)        │ ASCOM Alpaca (manual mode only)
                 ▼                                      ▼
-        openastro-guider (PHD2)                    Mount (RA slews)
-        capture · centroids · staticpa_geometry    via AlpacaBridge
+        openastro-guider (PHD2)                    Mount (RA turns when the
+        capture · centroids · Static PA state      guider's own mount cannot slew)
+        machine · staticpa_geometry · live
+        alt/az decomposition
                 │
                 ▼ (its own Alpaca connection)
-        Guide camera
+        Guide camera + mount (auto mode rotates RA itself)
 ```
 
-- **ARA owns the routine**: the plate solver (ASTAP/astrometry.net — the guider is *not* a
-  solver), the state machine, and all UX (reticle, arrows, calibration nudge).
-- **openastro-guider provides** what it's good at: the live capture loop, **sub-pixel star
-  centroiding**, and the **`staticpa_geometry`** kernel (already extracted + unit-tested).
-- **Mount RA slews** come from **ARA's own Alpaca mount connection** (via AlpacaBridge), *not*
-  from PHD2 — PHD2 is a guider, not a GOTO controller (its GUI Static-PA tool literally says
-  "manually slew"). This avoids putting slew logic in the guider.
+- **openastro-guider owns the routine**: the capture loop, sub-pixel centroiding, the Static PA
+  state machine (point 1 → rotation → point 2/3 → centre of rotation → alt/az error), the
+  reticle target and the live decomposition as the user turns the bolts. Polar Drift likewise.
+- **ARA drives and displays**: it checks the mount is connected and the site is set, gets the
+  guider looping with a star (`set_exposure`, `loop`, `find_star`), starts the tool
+  (`staticpa_start {auto: true, hemisphere}`), polls `staticpa_get_status` and publishes the
+  `live_adjustment` on its own wire; Stop/Done send `staticpa_stop` + `staticpa_close` +
+  `stop_capture` and log the session row.
+- **Mount rotation**: auto mode uses the guider's own pointing source (`can_slew`). When the
+  guider answers "mount cannot slew", Ara restarts the tool in manual mode and does the RA
+  turns through its own Alpaca mount connection, re-picking the star and sending
+  `staticpa_measure 2` and `3`.
+- **No plate solver in the loop.** The guider is not a solver and the routine does not need one:
+  the centre of rotation comes from the star track. Ara's solver stays for its own uses.
 
-**Camera ownership note (important):** the guide camera can have only one client. During PA the
-guider holds the guide cam, so ARA must get frames/centroids **through the guider's API**
-(§8) rather than grabbing the camera itself. (Alternative: ARA disconnects the guider and drives
-the cam directly — rejected for v1; it loses the guider's centroiding and complicates handoff.)
-This must be **enforced, not left to convention**: signal ownership explicitly — e.g. a
-guider-side "PA session" flag (set on PA start, cleared on completion/abort) that rejects
-conflicting capture/guide requests, or a lease token ARA holds for the session — so a future code
-path can't silently violate the single-client rule.
+**Camera ownership:** during polar alignment the guider holds the guide camera and its tool
+refuses `guide`, `dither`, `guiding_assistant_start`, `polardrift_start` and `driftalign_*`
+("static polar alignment is running"). That is the single-client enforcement for PA; the
+`set_pa_session` lease is for the other guide-camera borrowers (it must not be held here — it
+blocks `loop`).
 
 ---
 
 ## 5. The routine (state machine)
 
-1. **Setup / preflight**
-   - Confirm mount connected (ARA↔Alpaca) and guide cam connected (guider).
-   - **Stop any active guiding/looping** (`stop_capture`) and **record the prior state** so it can
-     be restored at the end — PA drives slews and owns the capture cadence, so it must not run
-     concurrently with guiding. PA relies on the **guider holding the single camera client** (the
-     single-client constraint, §4); there's no separate exclusive lock, so ARA must not grab the
-     camera directly while PA is running.
-   - Read pixel scale from the profile (focal length + pixel size) → pick the live strategy (§7).
-   - Pick an exposure that yields a solvable frame (auto-stretch / star count; longer for OAG).
+The guider's Static PA tool, as Ara drives it (Ara states in `code`):
 
-2. **Axis determination (2-point, ASIAIR-style)**
-   - Capture frame A (guider, full frame, saved FITS) → ARA plate-solves → (RA, Dec, PA, parity)₁.
-   - ARA slews the mount in RA by Δ (default ~60°; smaller near the pole, see §7). **Choose the
-     slew direction / start position so Δ does not cross the meridian** — a 60° slew near the
-     meridian can trigger a **meridian flip**, which flips the OTA (camera angle/parity + opposite
-     side of pier) and turns the 2-point axis fit to garbage. Mitigation: start ≥ Δ from the
-     meridian, or slew away from it.
-   - **Wait for the mount to settle** after the slew (a configurable settle delay, or a
-     settle-confirmed signal) before capturing frame B — a still-moving frame injects a systematic
-     error into the axis fit (the very budget the spike measures).
-   - Capture frame B → solve → (RA, Dec, PA, parity)₂.
-   - Compute the **RA rotation axis** on the sky from the two pointings, then the **alt/az
-     offset** from the true refracted pole at the observer's location/time.
-   - **Two points give a unique axis but zero redundancy** — any solve error in either point
-     propagates straight into the axis. The spike (§12) must measure the real single-solve error
-     budget (typical ASTAP residuals ~1–2″); add a **3rd point (over-determined least-squares
-     fit)** if 2-pt can't hit sub-arcmin reliably.
-   - **Refraction + precession are required for v1 (they may not be deferred to v2).** A routine that claims "sub-arcmin"
-     cannot defer the refraction term on the pole position (it is itself arcmin-scale at typical
-     pole altitudes). Precess catalog/pole positions to date (`PrecessJ2000`) and apply
-     atmospheric refraction for the apparent pole. **Refraction is ARA's responsibility** (it
-     owns the solver/geometry orchestration); use a standard model (e.g. Bennett / Saemundsson).
+1. **Preflight (Ara)** — mount connected, site latitude set; a running Smart Focus loop is
+   stopped; a parked mount is unparked.
+2. **`seeding`** — `set_exposure` → `loop` → `find_star` (up to five frames) →
+   `staticpa_start {auto: true, hemisphere}`. In auto mode the guider records point 1, rotates
+   the mount west in steps (`rotation {required_deg, rotated_deg, step, required_steps,
+   slewing}` in the status while it does), records point 2 and computes the centre of rotation.
+   If the guider has no slewable mount ("mount cannot slew") Ara restarts with `auto: false`,
+   turns RA itself (`SeedRotationDeg`, away from the meridian), re-picks the star and sends
+   `staticpa_measure 2`, then again for point 3; the guider computes once it has three points.
+3. **`adjusting`** — `calced=true`: the status carries `centre`, `adjustment` (at the measured
+   point), `ref_star_target` and, whenever the live star is valid, `current_star` +
+   `live_adjustment` — the alt/az/total error against the star's current position, which goes to
+   zero as the bolts are turned. Ara relays `live_adjustment` on every poll (`polar_align.progress`).
+4. **`paused`** — no `current_star` for five polls (cloud, a bumped mount); the next sighting
+   resumes. Nothing is remeasured: the centre of rotation stands until the user restarts.
+5. **Done / Stop (Ara)** — `staticpa_stop`, `staticpa_close`, `stop_capture`; Ara logs the last
+   readout with outcome `complete` or `aborted`. `active=false` seen while polling is `failed`.
 
-3. **Live adjust loop** (the calibration nudge happens *inside* this loop, so there is no stale
-   baseline — the loop re-derives the current error every cycle, so the nudge's deliberate error
-   change is simply observed, not a problem):
-   - Continuously refresh the error (§7: re-solve, or centroid-track between sparse solves).
-   - **Calibration nudge** (§3) as the first live action: prompt a small alt-knob turn, observe
-     how the marker moves in the just-refreshed frames → derive the bolt→image mapping. Because
-     the loop is already measuring live, the nudge needs no separate re-measurement of the axis.
-   - Render reticle (pole framed) or decoupled alt/az arrows + arcmin (pole not framed).
-   - Update until both components are under the target threshold (configurable; e.g. < 0.5–1′).
-
-4. **Verify & hand back** — one more solve to confirm residual error; report final alt/az; then
-   **restore the pre-PA state** recorded in step 1 (resume looping/guiding if it was running).
-
-Events stream throughout so ARA's UI updates in real time (§9).
+Tracking is the guider's business during the routine (the tool keeps the mount tracking so the
+star stays put while the bolts move); Ara does not touch it.
 
 ---
 
 ## 6. Reusing `staticpa_geometry`
+
+> Historical note (2026-11-05): the "plate-solve path" below was Ara's own routine, since removed; only the near-pole path is in use. Kept for the kernel's documentation.
 
 The extracted, unit-tested kernel (`src/staticpa_geometry.{h,cpp}`) already implements the
 geometry; the plate-solve path and the near-pole path both use it:
@@ -212,6 +194,8 @@ the kernel.
 ---
 
 ## 7. FOV / setup adaptivity (the guide-scope vs OAG question)
+
+> Historical note (2026-11-05): written for the removed plate-solve path. With Static PA the only FOV requirement is a usable star near the pole in the guide camera's frame; a wide-field reticle mode and an OAG's narrow field are both served by the same star track.
 
 Plate-solving **normalizes hardware differences** — the math is identical regardless of scope;
 FOV only changes *how the live loop runs*, chosen automatically from the known pixel scale:
@@ -241,39 +225,37 @@ Key adaptations:
 
 ---
 
-## 8. openastro-guider API needs
+## 8. openastro-guider API (what Ara calls)
 
-Most pieces already exist (see `design/API_REFERENCE.md`):
+All in `design/API_REFERENCE.md`:
 
-- **Capture full frame for solving:** `capture_single_frame` (with `save`/`path`) → ARA solves the
-  saved FITS. *Confirm it writes a solver-friendly FITS and returns the path.* **Seed the solver**
-  with an approximate RA/Dec + pixel scale (from the mount's current pointing + the profile) as a
-  position/WCS hint — this dramatically speeds and stabilizes ASTAP, especially for narrow OAG FOV.
-- **Centroids for live tracking:** `find_star` / `get_star_image` give star position(s); for the
-  high-refresh track loop ARA needs a star (or few) centroid per frame. *Possible small addition:
-  a "report centroids for the current frame / a list of stars" call if `find_star` (single best
-  star) isn't enough for multi-star tracking.*
-- **Exposure / subframe / gain:** `set_exposure`, `set_use_subframes`, `set_camera_gain` (Batch B)
-  — already present.
-- **Events:** the existing event stream; PA progress can ride a new `PolarAlignment*` event set
-  (§9) or be ARA-side only.
+- `set_exposure`, `loop`, `find_star` — get the camera looping with a selected star (the tool
+  refuses to start without one: "no star selected - start looping and select a star first").
+- `staticpa_start {auto?, hemisphere?, ref_star?, hour_angle?, flip_camera?}` — Ara sends
+  `auto: true` + the hemisphere from the site latitude; on "mount cannot slew" it retries with
+  `auto: false`.
+- `staticpa_measure {position}` — manual mode only, positions 2 and 3, after Ara's RA turns.
+- `staticpa_get_status` — polled every `LoopCadenceMs` (profile, default 1 s): `calced=false`
+  is Ara's `seeding`; `live_adjustment` is `adjusting`; no `current_star` for five polls is
+  `paused`; `active=false` is `failed` (the tool went away underneath Ara).
+- `staticpa_stop`, `staticpa_close`, `stop_capture` — the hand-back on Stop / Done / failure.
+- `polardrift_*` — the drift check; Ara's DTOs exist, wiring is the follow-up (Ara #1611).
 
-What's **not** in the guider and stays in ARA: the plate solver and the mount RA slews.
-
-**Net:** v1 likely needs **zero or one** new guider RPC (a multi-star centroid report), plus a
-check that `capture_single_frame` produces a solvable saved FITS. The heavy lifting is ARA-side.
+Nothing new is needed in the guider for v1. Possible later additions: a `PolarAlignment*` event
+set (§9) so Ara can stop polling, and running Polar Drift alongside guiding so the guiding-time
+residual (Ara #1311) comes from the same kernel.
 
 ---
 
-## 9. Live-feedback events (optional, if PA runs through the guider)
+## 9. Live-feedback events (optional)
 
-If any PA orchestration lands in the guider later, emit on the shared dispatch (both `:4400` and
+The routine runs in the guider, so these would let Ara stop polling `staticpa_get_status`. Emit on the shared dispatch (both `:4400` and
 `/api/rpc`), mirroring existing events:
 
 - `PolarAlignmentState` — phase (`Setup`/`Measuring`/`Calibrating`/`Adjusting`/`Done`/`Failed`).
 - `PolarAlignmentUpdate` — `{ AltError, AzError, TotalError (arcmin), AltDir, AzDir, ReticlePx? }`.
 
-For v1 (ARA-orchestrated) these may be unnecessary — ARA already has the numbers.
+For v1 Ara polls; the status object already has the numbers.
 
 ---
 
@@ -296,26 +278,23 @@ For v1 (ARA-orchestrated) these may be unnecessary — ARA already has the numbe
   rig in a half-configured state.
 
 ## 11. Open questions / decisions
-- **Solver:** ASTAP (fast, local, good for small FOV) vs astrometry.net index files — likely ASTAP.
-- Do we add the **multi-star centroid** RPC, or is `find_star` enough for the track loop?
-  **Resolve in the phase-1 spike** (don't decide on paper): if single-star tracking is too fragile
-  (one lost star → forced full re-solve, disrupting the live UX), add a multi-star centroid report;
-  note that a re-solve *is* the re-anchor, so occasional single-star loss may be acceptable.
-- Is the **near-pole CoR / reticle** mode worth shipping in v1, or start decoupled-arrows-only?
-- Default **target threshold** and RA slew Δ; make both configurable.
-- Does `capture_single_frame` already emit a solver-ready FITS? (verify)
+
+- **Decided (2026-11-05):** the guider owns the routine; Ara has no polar-alignment math of its
+  own. Any accuracy work (fit quality, rejection of a bad geometry, a verification pass before
+  "Excellent") happens in `staticpa_toolwin.cpp` / `staticpa_geometry`, where the GUI tool and
+  Ara both benefit.
+- Should `staticpa_get_status` grow a fit-quality figure (residual of the circle fit) so Ara can
+  refuse to say "Excellent" on a weak fit?
+- Push events (§9) vs polling — polling at 1 Hz is fine for now.
+- Polar Drift during guiding for the guiding-time residual (Ara #1311): needs the drift fit to
+  run on the uncorrected star motion while guiding, or a guider-side replay of the guide log.
 
 ## 12. Phasing
-1. **Spike:** *first* verify `capture_single_frame` emits a solver-ready FITS at a known path
-   (the highest-risk unknown — gate everything else on it). Then ARA drives `capture_single_frame`
-   → ASTAP solve → 2-pt axis → static alt/az error printout (no live loop), and **measures the
-   solve error budget** to decide 2-pt vs 3-pt (§5) — record ASTAP's **per-solve residuals**, not
-   just the final error, so the budget is attributed correctly. Proves the pipeline end-to-end.
-2. **Live adjust:** continuous re-solve + decoupled arrows; target threshold; verify step.
-3. **Bolt calibration nudge** → labelled physical directions.
-4. **FOV adaptivity:** centroid-track-between-solves for small FOV; reticle mode for framed pole.
-5. **Polish / optional:** PoleMaster/iPolar passthrough; in-guider `PolarAlignment*` events if
-   any orchestration moves server-side.
+
+1. **Done (guider):** Static PA + Polar Drift over RPC, reticle + live decomposition in the status object.
+2. **Done (Ara #1611):** Ara drives Static PA (auto, with manual fallback) and shows the guider's readout; Ara's own fit removed.
+3. **Next:** fit-quality figure in the status object; `PolarAlignment*` events; Polar Drift wiring in Ara.
+4. **Later:** the guiding-time residual from the same kernel (Ara #1311).
 
 ---
 
