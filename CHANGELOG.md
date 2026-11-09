@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `restore_calibration` JSON-RPC method: puts back the last calibration saved in the profile, so a client can keep guiding after a forced recalibration fails. `guide` with `recalibrate: true` erases the mount's calibration before it calibrates, and a failed run left the mount uncalibrated with no way back over the API. The result is `true` when every mount is calibrated afterwards and `false` when nothing was saved; the call is refused while calibrating or guiding.
+
 ### Fixed
 - The JSON-RPC and HTTP servers keep answering while a dark-library or defect-map build captures a frame (#100): each dark frame is now captured on its own thread while the main thread pumps the event loop, where before the loop ran only between frames, so an RPC sent during a frame waited for the whole exposure plus the camera's retries (a 1.5 s dark behind AlpacaBridge's exposure retries took 7.6 s) and a client with a 5 s per-call timeout saw every `get_dark_build_progress` poll and liveness ping time out, declared the guider down and reconnected mid-build. While a build is active, `set_profile`, `set_profile_by_name`, `delete_profile`, the camera setters (`set_exposure`, `set_camera_gain`, `set_camera_timeout`, `set_use_subframes`, `set_camera_saturation`, `set_cooler_state`, `set_cooler_setpoint`) and `shutdown` are refused with "dark-frame capture in progress", like the capture-starting RPCs already were, and the Gear dialog's camera connect, disconnect, setup and selection refuse the same way; a camera auto-reconnect that the capture's own timeout raises mid-frame runs once the build has ended.
 

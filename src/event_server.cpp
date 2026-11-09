@@ -4017,6 +4017,24 @@ static void clear_calibration(JObj& response, const json_value *params)
     response << jrpc_result(0);
 }
 
+// Puts back the last calibration saved in the profile, the one a failed recalibration erased from the
+// mount. The result says whether every mount is calibrated afterwards; false means nothing was saved.
+static void restore_calibration(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+
+    if (pFrame->pGuider->IsCalibratingOrGuiding())
+    {
+        response << jrpc_error(1, "cannot restore calibration while calibrating or guiding");
+        return;
+    }
+
+    pFrame->LoadCalibration();
+
+    bool calibrated = pMount && pMount->IsCalibrated() && (!pSecondaryMount || pSecondaryMount->IsCalibrated());
+    response << jrpc_result(calibrated);
+}
+
 static void flip_calibration(JObj& response, const json_value *params)
 {
     bool error = pFrame->FlipCalibrationData();
@@ -7203,6 +7221,7 @@ static const RpcMethod *rpc_methods(size_t *count)
         { "get_calibration_progress", &get_calibration_progress },
         { "get_version", &get_version },
         { "flip_calibration", &flip_calibration },
+        { "restore_calibration", &restore_calibration },
         { "get_lock_shift_enabled", &get_lock_shift_enabled },
         { "set_lock_shift_enabled", &set_lock_shift_enabled },
         { "get_lock_shift_params", &get_lock_shift_params },

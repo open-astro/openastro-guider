@@ -192,6 +192,7 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 | `get_calibration_data` | `which` (`Mount`/`AO`) | Calibration angles/rates/parity. |
 | `clear_calibration` | `which` (`Mount`/`AO`/`Both`) | Clear calibration so the next guide recalibrates. |
 | `flip_calibration` | — | Flip calibration for a meridian flip. |
+| `restore_calibration` | — | Put back the last calibration saved in the profile; `false` when none was saved. |
 | `get_calibration_files_status` | — | Whether dark-library / defect-map files exist for the profile. |
 | `delete_calibration_files` | `delete_dark_library`, `delete_defect_map` (bool) | Delete the selected calibration files. |
 

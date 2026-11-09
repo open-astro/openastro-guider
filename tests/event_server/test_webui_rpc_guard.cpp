@@ -35,6 +35,7 @@ TEST(WebUiRpcGuard, AnythingElseIsRefused)
     EXPECT_FALSE(WebUiRpcAllowedWhileBusy("polardrift_start"));
     EXPECT_FALSE(WebUiRpcAllowedWhileBusy("capture_single_frame"));
     EXPECT_FALSE(WebUiRpcAllowedWhileBusy("find_star"));
+    EXPECT_FALSE(WebUiRpcAllowedWhileBusy("restore_calibration"));
     EXPECT_FALSE(WebUiRpcAllowedWhileBusy("some_method_added_later"));
 }
 
