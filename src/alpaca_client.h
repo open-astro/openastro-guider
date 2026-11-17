@@ -65,15 +65,18 @@ public:
     AlpacaClient(const wxString& host, long port, long deviceNumber);
     ~AlpacaClient();
 
-    bool Get(const wxString& endpoint, JsonParser& parser, long *errorCode = nullptr, std::string *rawResponse = nullptr);
+    bool Get(const wxString& endpoint, JsonParser& parser, long *errorCode = nullptr, std::string *rawResponse = nullptr,
+             wxString *errorMessage = nullptr);
     bool GetRaw(const wxString& endpoint, const wxString& acceptHeader, std::string *response, std::string *contentType,
                 long *errorCode = nullptr);
-    bool Put(const wxString& endpoint, const wxString& params, JsonParser& parser, long *errorCode = nullptr);
+    bool Put(const wxString& endpoint, const wxString& params, JsonParser& parser, long *errorCode = nullptr,
+             wxString *errorMessage = nullptr);
     bool GetDouble(const wxString& endpoint, double *value, long *errorCode = nullptr);
     bool GetInt(const wxString& endpoint, int *value, long *errorCode = nullptr);
-    bool GetBool(const wxString& endpoint, bool *value, long *errorCode = nullptr);
+    bool GetBool(const wxString& endpoint, bool *value, long *errorCode = nullptr, wxString *errorMessage = nullptr);
     bool GetString(const wxString& endpoint, wxString *value, long *errorCode = nullptr);
-    bool PutAction(const wxString& endpoint, const wxString& action, const wxString& params, long *errorCode = nullptr);
+    bool PutAction(const wxString& endpoint, const wxString& action, const wxString& params, long *errorCode = nullptr,
+                   wxString *errorMessage = nullptr);
 
     wxString GetBaseUrl() const;
 

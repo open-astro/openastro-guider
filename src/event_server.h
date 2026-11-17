@@ -127,8 +127,9 @@ extern EventServer EvtServer;
 // checks this first; the JSON-RPC handlers do it through VERIFY_NO_DARK_BUILD, the Gear dialog through this.
 bool DarkBuildActive();
 
-// A camera auto-reconnect raised while DarkBuildActive() (the driver's capture timeout on the capture thread) is
-// not run then; the build runs it through MyFrame::TryReconnect() once it has ended (#100).
+// A camera auto-reconnect raised while DarkBuildActive() (any capture error on the capture thread that reconnects:
+// the driver's capture timeout, an Alpaca 1031, or a 3rd consecutive 1280, #103) is not run then; the build runs it
+// through MyFrame::TryReconnect() once it has ended (#100).
 void DeferCameraReconnectUntilDarkBuildEnds();
 
 #endif

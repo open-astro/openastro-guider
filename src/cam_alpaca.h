@@ -37,6 +37,7 @@
 #ifdef ALPACA_CAMERA
 
 # include "alpaca_client.h"
+# include "alpaca_errors.h"
 # include "alpaca_gain.h"
 
 class CameraAlpaca : public GuideCamera
@@ -62,10 +63,12 @@ private:
 
     AlpacaGain::Range m_gainRange;
     int m_lastRawGain; // last gain sent to the driver, -1 when unknown
+    AlpacaErrors::CaptureFailureTracker m_captureFailures; // 1031 / repeated 1280 -> reconnect (#103)
 
     void ClearStatus();
     void CameraSetup();
     bool AbortExposure();
+    bool CaptureFailed(long alpacaError, const wxString& serverMessage, const wxString& alert);
 
 public:
     bool Color;

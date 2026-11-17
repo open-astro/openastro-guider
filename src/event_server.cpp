@@ -1054,8 +1054,9 @@ bool DarkBuildActive()
     return s_darkBuild.active;
 }
 
-// #100: a camera auto-reconnect that a dark capture's own timeout raised mid-frame runs once the build has ended,
-// on the next event-loop turn, not from inside the pump while the capture thread is still unwinding.
+// #100: a camera auto-reconnect that a dark capture's error raised mid-frame (its timeout, or an Alpaca 1031 / repeated
+// 1280, #103) runs once the build has ended, on the next event-loop turn, not from inside the pump while the capture
+// thread is still unwinding. No exposure is pending then, so DoTryReconnect only sends the events.
 static bool s_reconnectDeferredForDarkBuild = false;
 
 void DeferCameraReconnectUntilDarkBuildEnds()
@@ -4369,6 +4370,10 @@ static bool capture_dark_frame_pumping_events(usImage& frame, const CaptureParam
         wxMilliSleep(10);
     }
     capture.join();
+    // Deliver what the capture queued for the main thread on its way out (an EquipmentDisconnected, an Alert,
+    // a camera reconnect, which DoTryReconnect defers to the build's end), so a client sees the disconnect
+    // before the build reports the failed frame (#103).
+    wxYield();
     return err;
 }
 
@@ -8846,7 +8851,8 @@ void EventServer::NotifyCalibrationBuildFailed(const wxString& artifact, const w
 // The disconnect state machine is fully observable from the stream:
 //   EquipmentDisconnected{reconnecting:true}
 //     -> EquipmentReconnected               (auto-reconnect succeeded), or
-//     -> EquipmentReconnectFailed           (throttle gave up — terminal).
+//     -> EquipmentReconnectFailed           (the reconnect attempt failed, or the
+//                                            throttle gave up — terminal).
 
 void EventServer::NotifyEquipmentDisconnected(const wxString& deviceType, const wxString& reason, bool reconnecting)
 {
@@ -8868,9 +8874,10 @@ void EventServer::NotifyEquipmentReconnected(const wxString& deviceType)
     do_notify(m_eventServerClients, ev);
 }
 
-// Terminal event when the auto-reconnect throttle gives up: a client that keyed
-// off EquipmentDisconnected{reconnecting:true} can stop waiting instead of
-// hanging forever on a permanent unplug.
+// Terminal event when the auto-reconnect fails: either the reconnect attempt
+// itself failed or the throttle gave up. A client that keyed off
+// EquipmentDisconnected{reconnecting:true} can stop waiting instead of hanging
+// forever on a permanent unplug.
 void EventServer::NotifyEquipmentReconnectFailed(const wxString& deviceType, int attempts, const wxString& reason)
 {
     if (m_eventServerClients.empty())

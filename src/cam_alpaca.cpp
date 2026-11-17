@@ -39,6 +39,7 @@
 # include "camera.h"
 # include "config_alpaca.h"
 # include "alpaca_client.h"
+# include "alpaca_errors.h"
 # include "image_math.h"
 # include <wx/stopwatch.h>
 # include <sstream>
@@ -605,6 +606,7 @@ bool CameraAlpaca::Connect(const wxString& camId)
     // defer defining FrameSize since it is not simply derivable from max size and binning
     FrameSize = UNDEFINED_FRAME_SIZE;
     m_roi = wxRect(); // reset ROI state in case we're reconnecting
+    m_captureFailures.Reset();
 
     Connected = true;
 
@@ -613,6 +615,7 @@ bool CameraAlpaca::Connect(const wxString& camId)
 
 bool CameraAlpaca::Disconnect()
 {
+    m_captureFailures.Reset();
     if (!Connected)
     {
         Debug.Write("Alpaca camera: attempt to disconnect when not connected\n");
@@ -699,6 +702,46 @@ bool CameraAlpaca::AbortExposure()
     return !result;
 }
 
+// The EquipmentDisconnected reason for a capture error that reconnects the camera (#103). The server's
+// message says why (for example "camera removed from USB"), so clients can show it; the clause is left out
+// when the server sent none.
+static wxString CaptureReconnectReason(long alpacaError, const wxString& serverMessage)
+{
+    wxString message(serverMessage);
+    message.Trim(true).Trim(false);
+    if (alpacaError == AlpacaErrors::kNotConnected)
+    {
+        if (message.empty())
+            return _("The Alpaca server reports the camera as not connected");
+        return wxString::Format(_("The Alpaca server reports the camera as not connected: %s"), message);
+    }
+    if (message.empty())
+        return wxString::Format(_("The camera failed %d image acquisitions in a row (Alpaca error %ld)"),
+                                AlpacaErrors::kAcquisitionFailuresBeforeReconnect, alpacaError);
+    return wxString::Format(_("The camera failed %d image acquisitions in a row (Alpaca error %ld: %s)"),
+                            AlpacaErrors::kAcquisitionFailuresBeforeReconnect, alpacaError, message);
+}
+
+// Fails the frame of a capture call that returned an error. 1031, or the
+// kAcquisitionFailuresBeforeReconnect-th 1280 in a row (counted across capture attempts), disconnects the
+// camera with RECONNECT: EquipmentDisconnected{reconnecting:true}, then the auto-reconnect. Any other error,
+// and a 1280 below the threshold, keeps the alert. Returns true, Capture's error result.
+bool CameraAlpaca::CaptureFailed(long alpacaError, const wxString& serverMessage, const wxString& alert)
+{
+    if (m_captureFailures.OnFailure(alpacaError) == AlpacaErrors::CaptureFailureAction::Reconnect)
+    {
+        DisconnectWithAlert(CaptureReconnectReason(alpacaError, serverMessage), RECONNECT);
+    }
+    else
+    {
+        Debug.Write(wxString::Format("Alpaca Camera: capture error %ld, %d consecutive acquisition failure(s) of %d\n",
+                                     alpacaError, m_captureFailures.Consecutive(),
+                                     AlpacaErrors::kAcquisitionFailuresBeforeReconnect));
+        pFrame->Alert(alert);
+    }
+    return true;
+}
+
 bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
 {
     int duration = captureParams.duration;
@@ -755,18 +798,19 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
         wxString endpoint = wxString::Format("camera/%ld/binx", m_deviceNumber);
         wxString params = wxString::Format("BinX=%d", HwBinning);
         long errorCode = 0;
+        wxString errorMessage;
         JsonParser parser;
-        if (!m_client->Put(endpoint, params, parser, &errorCode))
+        if (!m_client->Put(endpoint, params, parser, &errorCode, &errorMessage))
         {
-            pFrame->Alert(_("The Alpaca camera failed to set binning. See the debug log for more information."));
-            return true;
+            return CaptureFailed(errorCode, errorMessage,
+                                 _("The Alpaca camera failed to set binning. See the debug log for more information."));
         }
         endpoint = wxString::Format("camera/%ld/biny", m_deviceNumber);
         params = wxString::Format("BinY=%d", HwBinning);
-        if (!m_client->Put(endpoint, params, parser, &errorCode))
+        if (!m_client->Put(endpoint, params, parser, &errorCode, &errorMessage))
         {
-            pFrame->Alert(_("The Alpaca camera failed to set binning. See the debug log for more information."));
-            return true;
+            return CaptureFailed(errorCode, errorMessage,
+                                 _("The Alpaca camera failed to set binning. See the debug log for more information."));
         }
         m_curBin = HwBinning;
     }
@@ -845,11 +889,11 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
     wxString startExposureEndpoint = wxString::Format("camera/%ld/startexposure", m_deviceNumber);
     wxString params = wxString::Format("Duration=%.3f&Light=%s", duration / 1000.0, takeDark ? "false" : "true");
     long errorCode = 0;
-    if (!m_client->PutAction(startExposureEndpoint, "StartExposure", params, &errorCode))
+    wxString errorMessage;
+    if (!m_client->PutAction(startExposureEndpoint, "StartExposure", params, &errorCode, &errorMessage))
     {
         Debug.Write(wxString::Format("Alpaca_StartExposure failed, HTTP %ld\n", errorCode));
-        pFrame->Alert(_("Alpaca error -- Cannot start exposure with given parameters"));
-        return true;
+        return CaptureFailed(errorCode, errorMessage, _("Alpaca error -- Cannot start exposure with given parameters"));
     }
 
     CameraWatchdog watchdog(duration, GetTimeoutMs());
@@ -876,11 +920,10 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
         wxMilliSleep(20);
         bool ready = false;
         wxString imageReadyEndpoint = wxString::Format("camera/%ld/imageready", m_deviceNumber);
-        if (!m_client->GetBool(imageReadyEndpoint, &ready, &errorCode))
+        if (!m_client->GetBool(imageReadyEndpoint, &ready, &errorCode, &errorMessage))
         {
             Debug.Write(wxString::Format("Alpaca_ImageReady failed, HTTP %ld\n", errorCode));
-            pFrame->Alert(_("Exception thrown polling camera"));
-            return true;
+            return CaptureFailed(errorCode, errorMessage, _("Exception thrown polling camera"));
         }
         if (ready)
             break;
@@ -961,8 +1004,7 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
                 errorMessage = wxString(payload.substr(dataStart).c_str(), wxConvUTF8);
             }
             Debug.Write(wxString::Format("Alpaca Camera: ImageBytes error %u: %s\n", errorNumber, errorMessage));
-            pFrame->Alert(_("Error reading image"));
-            return true;
+            return CaptureFailed(static_cast<long>(errorNumber), errorMessage, _("Error reading image"));
         }
 
         if (rank != 2 || width == 0 || height == 0)
@@ -1138,6 +1180,17 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
             Debug.Write("Alpaca Camera: Invalid image array response\n");
             pFrame->Alert(_("Error reading image"));
             return true;
+        }
+
+        // A server reports an imagearray error as JSON even when ImageBytes was requested (AlpacaBridge, #103),
+        // with HTTP 200, so read ErrorNumber before looking for the Value array.
+        long jsonErrorNumber = 0;
+        std::string jsonErrorMessage;
+        if (AlpacaErrors::ReadError(root, &jsonErrorNumber, &jsonErrorMessage))
+        {
+            wxString serverMessage(jsonErrorMessage.c_str(), wxConvUTF8);
+            Debug.Write(wxString::Format("Alpaca Camera: imagearray error %ld: %s\n", jsonErrorNumber, serverMessage));
+            return CaptureFailed(jsonErrorNumber, serverMessage, _("Error reading image"));
         }
 
         // Find the Value array in the response
@@ -1326,6 +1379,8 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
             }
         }
     }
+
+    m_captureFailures.OnSuccess(); // a good frame ends a run of acquisition failures
 
     if (options & CAPTURE_SUBTRACT_DARK)
         SubtractDark(img);

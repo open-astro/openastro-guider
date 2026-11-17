@@ -15,6 +15,25 @@ shift the star field (so the guider can calibrate and guide against it), and
 misalignment - what the drift-align flow measures. Slew endpoints update the
 reported coordinates only.
 
+Error injection (for the guider's capture-error handling, #103) goes through a
+small control endpoint and is off until used, so the default behaviour is unchanged:
+
+    PUT /fake/inject   call=<binx|biny|startexposure|imageready|imagearray>
+                       &error=<Alpaca ErrorNumber, e.g. 1031 or 1280>&count=<N, default 1>
+                       [&message=<ErrorMessage>][&format=<json|imagebytes>]
+        The next N calls of that camera endpoint answer with the Alpaca error
+        (HTTP 200). imagearray errors are JSON by default; format=imagebytes sends
+        an ImageBytes error payload instead. A new inject for a call replaces the
+        old one; count=0 clears it.
+    PUT /fake/unplug   unplugged=<true|false>[&message=<ErrorMessage>]
+        While unplugged, the camera reads as not connected, a Connected=true PUT is
+        refused with 1031, and binx/biny/startexposure/imageready/imagearray
+        answer 1031 (an injection for the call still wins).
+    GET /fake/state    the injections and the unplugged flag, as JSON.
+
+    e.g. curl -X PUT -d 'call=imageready&error=1280&count=3&message=acq failed' \
+             http://127.0.0.1:11111/fake/inject
+
 Usage:
     python3 scripts/fake_alpaca_camera.py [--host 127.0.0.1] [--port 11111] \
         [--rotate-deg-per-sec 0.8] [--pole 200,150]
@@ -30,9 +49,11 @@ import argparse
 import json
 import math
 import re
+import struct
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
 
 W, H = 640, 480
 state = {"connected": False, "imageready": False}
@@ -55,6 +76,33 @@ STARS = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000
          (380, 60, 26000), (60, 250, 32000), (520, 430, 24000), (300, 160, 15000)]
 
 _frame = None  # cache used only when rotation is off
+
+# Error injection (see the module docstring): call -> {"error", "message", "count", "format"}
+INJECTABLE_CALLS = ("binx", "biny", "startexposure", "imageready", "imagearray")
+injections = {}
+unplugged = {"on": False, "message": "camera removed from USB"}
+
+
+def take_injected_error(call):
+    """The (error, message, format) a camera call must answer with, or None. Guarded by state_lock."""
+    inj = injections.get(call)
+    if inj and inj["count"] > 0:
+        inj["count"] -= 1
+        if inj["count"] == 0:
+            del injections[call]
+        return inj["error"], inj["message"], inj["format"]
+    if unplugged["on"] and call in INJECTABLE_CALLS:
+        return 1031, unplugged["message"], "json"
+    return None
+
+
+def imagebytes_error(error, message):
+    """An ASCOM ImageBytes response carrying an error: 44-byte metadata, then the UTF-8 message."""
+    data_start = 44
+    # MetadataVersion, ErrorNumber, ClientTransactionID, ServerTransactionID, DataStart,
+    # ImageElementType, TransmissionElementType, Rank, Dimension1, Dimension2, Dimension3
+    meta = struct.pack("<11I", 1, error, 0, 0, data_start, 0, 0, 0, 0, 0, 0)
+    return meta + message.encode()
 
 
 def render(theta_deg):
@@ -160,11 +208,57 @@ def apply_pulse(direction, duration_ms):
 class Handler(BaseHTTPRequestHandler):
     def reply(self, value):
         body = json.dumps({"Value": value, "ErrorNumber": 0, "ErrorMessage": ""}).encode()
+        self.send_body(body, "application/json")
+
+    def send_body(self, body, content_type):
         self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def reply_error(self, error, message, fmt="json"):
+        """An Alpaca error, HTTP 200 like a real server."""
+        self.log_message("injected error %d on %s: %s", error, self.path, message)
+        if fmt == "imagebytes":
+            return self.send_body(imagebytes_error(error, message), "application/imagebytes")
+        body = json.dumps({"ErrorNumber": error, "ErrorMessage": message}).encode()
+        return self.send_body(body, "application/json")
+
+    def injected(self, call):
+        """Answer with an injected error if one is due; True when it did."""
+        with state_lock:
+            err = take_injected_error(call)
+        if err is None:
+            return False
+        self.reply_error(*err)
+        return True
+
+    def control(self, method, body):
+        """The /fake/* error-injection control endpoint."""
+        params = {k: v[-1] for k, v in parse_qs(body, keep_blank_values=True).items()}
+        name = self.path.split("?", 1)[0]
+        with state_lock:
+            if method == "PUT" and name == "/fake/inject":
+                call = params.get("call", "")
+                if call not in INJECTABLE_CALLS:
+                    return self.send_body(b'{"error":"unknown call"}', "application/json")
+                count = int(params.get("count", "1"))
+                if count <= 0:
+                    injections.pop(call, None)
+                else:
+                    injections[call] = {"error": int(params.get("error", "1031")), "count": count,
+                                        "message": params.get("message", "injected error"),
+                                        "format": params.get("format", "json")}
+            elif method == "PUT" and name == "/fake/unplug":
+                unplugged["on"] = params.get("unplugged", "true").lower() == "true"
+                if "message" in params:
+                    unplugged["message"] = params["message"]
+                if unplugged["on"]:
+                    state["connected"] = False
+            body = json.dumps({"injections": injections, "unplugged": unplugged}).encode()
+        self.log_message("control %s %s %s", method, name, params)
+        return self.send_body(body, "application/json")
 
     def prop_name(self):
         m = re.match(r"^/api/v1/camera/0/(\w+)", self.path)
@@ -175,6 +269,8 @@ class Handler(BaseHTTPRequestHandler):
         return m.group(1) if m else None
 
     def do_GET(self):
+        if self.path.startswith("/fake/"):
+            return self.control("GET", "")
         sprop = self.scope_prop_name()
         if sprop is not None:
             if sprop == "connected":
@@ -197,10 +293,14 @@ class Handler(BaseHTTPRequestHandler):
                 value = state["connected"]
             return self.reply(value)
         if prop == "imageready":
+            if self.injected("imageready"):
+                return None
             with state_lock:
                 value = state["imageready"]
             return self.reply(value)
         if prop == "imagearray":
+            if self.injected("imagearray"):
+                return None
             return self.reply(star_field())
         if prop in PROPS:
             return self.reply(PROPS[prop])
@@ -210,6 +310,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length).decode() if length else ""
+
+        if self.path.startswith("/fake/"):
+            return self.control("PUT", body)
 
         sprop = self.scope_prop_name()
         if sprop is not None:
@@ -230,9 +333,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(None)
 
         prop = self.prop_name()
+        if prop in INJECTABLE_CALLS and self.injected(prop):
+            return None
         if prop == "connected":
             with state_lock:
-                state["connected"] = "true" in body.lower()
+                want = "true" in body.lower()
+                refused = want and unplugged["on"]
+                if not refused:
+                    state["connected"] = want
+                message = unplugged["message"]
+            if refused:
+                return self.reply_error(1031, message)
         elif prop == "startexposure":
             with state_lock:
                 state["imageready"] = True

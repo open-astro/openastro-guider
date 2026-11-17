@@ -258,7 +258,8 @@ ARA call sites: none (the web app is an alternative client; ARA supersedes it on
   `set_camera_timeout`, `set_use_subframes`, `set_camera_saturation`, `set_cooler_state`,
   `set_cooler_setpoint`) and `shutdown` are rejected with "dark-frame capture in progress";
   the Gear dialog's camera connect, disconnect, setup and selection refuse the same way, and a camera
-  auto-reconnect that the capture's own timeout raises mid-frame runs once the build has ended.
+  auto-reconnect that a capture error raises mid-frame (the capture timeout, or an Alpaca camera reporting
+  not connected or failing acquisitions, #103) runs once the build has ended and starts no exposure.
   ARA call sites: none yet (added for the web app's Darks tab; available to ARA's dark
   flows if useful).
 

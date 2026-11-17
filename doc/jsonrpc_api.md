@@ -617,17 +617,31 @@ Payload notes for downstream clients:
     units. Clients keying off "partial progress" should read whichever key matches the event (`DarkLibrary*` →
     `partial_groups_completed`; `DefectMap*` → `partial_frames_completed`).
 - `EquipmentDisconnected` — `{ device_type: "camera", reason: string, reconnecting: bool }`. Emitted (in addition
-  to `Alert`) whenever the daemon force-disconnects a device on a fault (capture timeout, USB unplug, memory
-  error). `reconnecting: true` means the daemon WILL ATTEMPT automatic reconnection — best-effort, throttled to
-  3 attempts per minute. The disconnect state machine is now fully observable: `reconnecting: true` is followed
-  by either `EquipmentReconnected` (recovered) or `EquipmentReconnectFailed` (throttle gave up — terminal).
-  `device_type` is `"camera"` today — a mount fault surfaces as RPC errors, not an auto-disconnect.
-- `EquipmentReconnected` — `{ device_type: "camera" }`. The recovered twin: automatic reconnection succeeded and
-  exposures resume. A client that raised a fault on `EquipmentDisconnected` clears it here.
-- `EquipmentReconnectFailed` — `{ device_type: "camera", attempts: int, reason: string }`. Terminal event when the
-  auto-reconnect throttle is exhausted: a client that keyed off `reconnecting: true` clears the pending state here
-  instead of waiting indefinitely. `attempts` is the number of *completed* prior attempts in the window (i.e. the
-  throttle limit, 3); the current blocked attempt is not counted.
+  to `Alert`) whenever the daemon force-disconnects a device on a fault: the capture timeout, an Alpaca camera the
+  server reports as not connected (Alpaca error 1031 from any capture call: `binx`/`biny`, `startexposure`,
+  `imageready`, `imagearray` as ImageBytes or JSON), an Alpaca camera that fails 3 image acquisitions in a row
+  (Alpaca error 1280 from those calls, counted across capture attempts; a good frame, a connect or disconnect and
+  the reconnect itself start a new count), or a memory error. For the two Alpaca triggers `reason` carries the
+  server's message: `"The Alpaca server reports the camera as not connected: <message>"` and
+  `"The camera failed 3 image acquisitions in a row (Alpaca error 1280: <message>)"` (without `: <message>` when
+  the server sent none). A single 1280, and any other capture error, only raises `Alert`; like every capture error
+  it fails the frame, which stops looping and guiding (`LoopingExposuresStopped`), so 3 consecutive 1280s are reached
+  when the client restarts after each failure. `reconnecting: true` means the daemon WILL ATTEMPT automatic
+  reconnection — best-effort, throttled to 3 attempts per minute (a memory error sends `reconnecting: false`). The
+  disconnect state machine is fully observable: `reconnecting: true` is always followed by either
+  `EquipmentReconnected` (recovered) or `EquipmentReconnectFailed` (the reconnect failed or the throttle gave up —
+  terminal). `device_type` is `"camera"` today — a mount fault surfaces as RPC errors, not an auto-disconnect.
+- `EquipmentReconnected` — `{ device_type: "camera" }`. The recovered twin: automatic reconnection succeeded. If the
+  failed frame was part of looping or guiding, exposures resume; a reconnect deferred until a dark-library or
+  defect-map build has ended starts no exposure. A client that raised a fault on `EquipmentDisconnected` clears it
+  here.
+- `EquipmentReconnectFailed` — `{ device_type: "camera", attempts: int, reason: string }`. Terminal event: a client
+  that keyed off `reconnecting: true` clears the pending state here instead of waiting indefinitely. Sent when the
+  reconnect attempt itself fails (`reason: "the camera did not reconnect"`, for example because the server refuses
+  `Connected=true`; `attempts` counts the attempts made in the last 60 s, this one included), or when the
+  auto-reconnect throttle is exhausted (`reason: "auto-reconnect throttle exhausted (3 attempts in 60 s)"`;
+  `attempts` is the number of *completed* prior attempts in the window, i.e. the throttle limit, 3 — the blocked
+  attempt is not counted). The camera stays disconnected; reconnect it with `set_connected`.
 
 ### Startup Catch-Up Events
 

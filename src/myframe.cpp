@@ -1320,13 +1320,20 @@ void MyFrame::DoTryReconnect()
 {
     if (DarkBuildActive())
     {
-        // #100: a dark frame is being captured on its own thread, and the camera driver's own timeout inside that
-        // capture is what queued this reconnect; the capture thread is still unwinding through the camera object.
+        // #100: a dark frame is being captured on its own thread, and a capture error inside it (the capture
+        // timeout, or an Alpaca camera the server reports as not connected or that keeps failing acquisitions,
+        // #103) is what queued this reconnect; the capture thread is still unwinding through the camera object.
         // The build fails on that frame, and runs the reconnect once its capture has returned.
         Debug.Write("camera reconnect deferred: dark-frame capture in progress\n");
         DeferCameraReconnectUntilDarkBuildEnds();
         return;
     }
+
+    // The worker thread skipped the exposure-complete notification of the frame that failed
+    // (InitiateReconnect), so that exposure is still pending and this finishes it. A reconnect
+    // deferred past a dark build (#100), or raised by a capture outside the worker thread, has
+    // no exposure pending: it only sends the events, and must not start or stop the capture loop.
+    bool exposurePending = m_exposurePending;
 
     // do not reconnect more than 3 times in 1 minute
     enum
@@ -1348,7 +1355,8 @@ void MyFrame::DoTryReconnect()
         EvtServer.NotifyEquipmentReconnectFailed(
             "camera", (int) m_cameraReconnectAttempts.size(),
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
-        OnExposeComplete(0, true);
+        if (exposurePending)
+            OnExposeComplete(0, true);
         return;
     }
     m_cameraReconnectAttempts.push_back(now);
@@ -1357,18 +1365,27 @@ void MyFrame::DoTryReconnect()
     if (err)
     {
         Debug.Write("Camera Re-connect failed\n");
+        // Terminal too: EquipmentDisconnected{reconnecting:true} is always followed by
+        // EquipmentReconnected or EquipmentReconnectFailed.
+        EvtServer.NotifyEquipmentReconnectFailed("camera", (int) m_cameraReconnectAttempts.size(),
+                                                 "the camera did not reconnect");
         // complete the pending exposure notification
-        OnExposeComplete(0, true);
+        if (exposurePending)
+            OnExposeComplete(0, true);
     }
     else
     {
-        Debug.Write("Camera Re-connect succeeded, resume exposures\n");
+        Debug.Write(exposurePending ? "Camera Re-connect succeeded, resume exposures\n"
+                                    : "Camera Re-connect succeeded, no exposure pending\n");
         // ARA integration (PHD2-GAP gap 2): the recovered twin of
         // EquipmentDisconnected, so clients can clear their fault state.
         EvtServer.NotifyEquipmentReconnected("camera");
         UpdateStatusBarStateLabels();
-        m_exposurePending = false; // exposure no longer pending
-        ScheduleExposure();
+        if (exposurePending)
+        {
+            m_exposurePending = false; // exposure no longer pending
+            ScheduleExposure();
+        }
     }
 }
 

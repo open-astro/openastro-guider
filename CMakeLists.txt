@@ -182,6 +182,8 @@ set(cam_SRC
   ${phd_src_dir}/webui_rpc_guard.h
   ${phd_src_dir}/alpaca_gain.cpp
   ${phd_src_dir}/alpaca_gain.h
+  ${phd_src_dir}/alpaca_errors.cpp
+  ${phd_src_dir}/alpaca_errors.h
   ${phd_src_dir}/alpaca_discovery.cpp
   ${phd_src_dir}/alpaca_discovery.h
   ${phd_src_dir}/config_alpaca.cpp
