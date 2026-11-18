@@ -13,7 +13,21 @@ A fake Alpaca *telescope* is served at device 0 too. Its pulseguide requests
 shift the star field (so the guider can calibrate and guide against it), and
 --dec-drift-px-per-min injects a steady dec-axis drift simulating polar
 misalignment - what the drift-align flow measures. Slew endpoints update the
-reported coordinates only.
+reported coordinates only, unless --slew-seconds is given:
+
+    --slew-seconds S   slewtocoordinatesasync takes S seconds: telescope `slewing`
+                       reads true and the reported RA moves from the start to the
+                       target until S has passed; abortslew stops it where it is.
+    --slew-rotates     the field angle follows the scope's RA about --pole,
+                       (RA at start - RA now) * 15 deg, interpolated during a slew,
+                       which is what a Static PA auto-mode RA step does to the sky.
+    --slew-smear F     a frame whose exposure (startexposure time + Duration)
+                       overlapped a slew is drawn with the stars at the field angle
+                       of the middle of the overlap and their flux divided by F
+                       (about 80 on the #98 rig), like a star smeared by the slew.
+
+    e.g. Static PA auto mode against a pole 5 deg off the star at 7.73"/px:
+        --slew-seconds 2 --slew-rotates --slew-smear 80 --pole 320,-2089
 
 Error injection (for the guider's capture-error handling, #103) goes through a
 small control endpoint and is off until used, so the default behaviour is unchanged:
@@ -89,6 +103,16 @@ IMAGE_SCALE = 7.73  # arcsec/px the pulses are converted with
 DEC_DRIFT_PX_PER_MIN = 0.0
 scope = {"connected": False, "ra": 12.0, "dec": 30.0, "pulse_x": 0.0, "pulse_y": 0.0}
 
+# Slew simulation (off by default; see --slew-seconds / --slew-rotates / --slew-smear)
+SLEW_SECONDS = 0.0
+SLEW_ROTATES = False
+SLEW_SMEAR = 0.0
+RA0 = scope["ra"]
+# the slew in progress or last finished: monotonic start/end, RA from/to
+slew = {"t0": 0.0, "t1": 0.0, "ra0": 0.0, "ra1": 0.0}
+# the last startexposure: monotonic start and Duration (s)
+exposure = {"t0": 0.0, "dur": 0.0}
+
 STARS = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000),
          (120, 350, 35000), (420, 380, 28000), (560, 300, 22000), (250, 420, 18000),
          (380, 60, 26000), (60, 250, 32000), (520, 430, 24000), (300, 160, 15000)]
@@ -127,7 +151,46 @@ def imagebytes_error(error, message):
     return meta + message.encode()
 
 
-def render(theta_deg):
+def ra_delta(ra_from, ra_to):
+    """Shortest signed RA change in hours."""
+    return (ra_to - ra_from + 12.0) % 24.0 - 12.0
+
+
+def ra_at(t):
+    """The scope's RA at monotonic time t (interpolated during a slew). Guarded by state_lock."""
+    if t >= slew["t1"] or slew["t1"] <= slew["t0"]:
+        return scope["ra"]
+    f = max(0.0, (t - slew["t0"]) / (slew["t1"] - slew["t0"]))
+    return (slew["ra0"] + ra_delta(slew["ra0"], slew["ra1"]) * f) % 24.0
+
+
+def slewing_now():
+    """Guarded by state_lock."""
+    return time.monotonic() < slew["t1"]
+
+
+def field_angle(t):
+    """Field rotation (deg) at monotonic time t: the time-based rate, plus the
+    scope's RA offset with --slew-rotates. Guarded by state_lock."""
+    theta = ROTATE_DEG_PER_SEC * (t - T0)
+    if SLEW_ROTATES:
+        theta += -ra_delta(RA0, ra_at(t)) * 15.0
+    return theta
+
+
+def frame_angle_and_dim():
+    """The (field angle, flux divisor) to draw the frame now being read with.
+    Guarded by state_lock."""
+    now = time.monotonic()
+    if SLEW_SMEAR > 0.0 and exposure["dur"] > 0.0:
+        e0, e1 = exposure["t0"], exposure["t0"] + exposure["dur"]
+        o0, o1 = max(e0, slew["t0"]), min(e1, slew["t1"])
+        if o1 > o0:
+            return field_angle((o0 + o1) / 2.0), SLEW_SMEAR
+    return field_angle(now), 1.0
+
+
+def render(theta_deg, dim=1.0):
     import numpy as np
 
     rng = np.random.default_rng(7)
@@ -142,7 +205,7 @@ def render(theta_deg):
         rx, ry = sx - px, sy - py
         cx = px + rx * math.cos(th) - ry * math.sin(th) + ox
         cy = py + rx * math.sin(th) + ry * math.cos(th) + oy
-        img += flux * np.exp(-(((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * 2.0 ** 2)))
+        img += flux / dim * np.exp(-(((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * 2.0 ** 2)))
     img = img.clip(0, 65535).astype(int)
     # Alpaca imagearray is [x][y] (column-major)
     return img.T.tolist()
@@ -153,8 +216,9 @@ def star_field():
     rotated about the fake pole by the elapsed-time angle."""
     global _frame
     with state_lock:
-        if ROTATE_DEG_PER_SEC != 0.0 or DEC_DRIFT_PX_PER_MIN != 0.0 or scope["pulse_x"] or scope["pulse_y"]:
-            return render(ROTATE_DEG_PER_SEC * (time.monotonic() - T0))
+        theta, dim = frame_angle_and_dim()
+        if theta != 0.0 or dim != 1.0 or DEC_DRIFT_PX_PER_MIN != 0.0 or scope["pulse_x"] or scope["pulse_y"]:
+            return render(theta, dim)
         if _frame is None:
             _frame = render(0.0)
         return _frame
@@ -340,7 +404,11 @@ class Handler(BaseHTTPRequestHandler):
                 with state_lock:
                     return self.reply(scope["connected"])
             if sprop == "rightascension":
-                return self.reply(scope["ra"])
+                with state_lock:
+                    return self.reply(ra_at(time.monotonic()))
+            if sprop == "slewing":
+                with state_lock:
+                    return self.reply(slewing_now())
             if sprop == "declination":
                 return self.reply(scope["dec"])
             if sprop == "siderealtime":
@@ -406,10 +474,20 @@ class Handler(BaseHTTPRequestHandler):
                 apply_pulse(int(params.get("Direction", -1)), float(params.get("Duration", 0)))
             elif sprop in ("slewtocoordinates", "slewtocoordinatesasync"):
                 with state_lock:
+                    now = time.monotonic()
+                    ra_from = ra_at(now)
                     scope["ra"] = float(params.get("RightAscension", scope["ra"]))
                     scope["dec"] = float(params.get("Declination", scope["dec"]))
+                    if SLEW_SECONDS > 0.0:
+                        slew.update(t0=now, t1=now + SLEW_SECONDS, ra0=ra_from, ra1=scope["ra"])
+                        self.log_message("slew RA %.4f -> %.4f over %.1f s", ra_from, scope["ra"], SLEW_SECONDS)
             elif sprop == "abortslew":
-                pass
+                with state_lock:
+                    now = time.monotonic()
+                    if now < slew["t1"]:
+                        scope["ra"] = ra_at(now)
+                        slew["t1"] = now
+                        self.log_message("slew aborted at RA %.4f", scope["ra"])
             else:
                 self.log_message("unknown scope PUT %s body=%s", self.path, body)
             return self.reply(None)
@@ -430,8 +508,10 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(delay / 1000.0)
                 return self.reply_error(error, message)
         elif prop == "startexposure":
+            params = dict(p.split("=", 1) for p in body.split("&") if "=" in p)
             with state_lock:
                 state["imageready"] = True
+                exposure.update(t0=time.monotonic(), dur=float(params.get("Duration", 0) or 0))
         elif prop in ("abortexposure", "stopexposure"):
             with state_lock:
                 state["imageready"] = False
@@ -458,11 +538,21 @@ if __name__ == "__main__":
                     help="steady dec-axis (y) star drift simulating polar misalignment")
     ap.add_argument("--image-scale", type=float, default=7.73,
                     help="arcsec/px used to convert telescope pulses into star-field shifts")
+    ap.add_argument("--slew-seconds", type=float, default=0.0,
+                    help="slewtocoordinatesasync takes this long and reads slewing meanwhile (0: instant)")
+    ap.add_argument("--slew-rotates", action="store_true",
+                    help="rotate the star field about --pole by the scope's RA change (Static PA steps)")
+    ap.add_argument("--slew-smear", type=float, default=0.0, metavar="F",
+                    help="divide star flux by F on frames exposed during a slew (0: off)")
     args = ap.parse_args()
+    SLEW_SECONDS = args.slew_seconds
+    SLEW_ROTATES = args.slew_rotates
+    SLEW_SMEAR = args.slew_smear
     ROTATE_DEG_PER_SEC = args.rotate_deg_per_sec
     POLE = tuple(float(v) for v in args.pole.split(","))
     DEC_DRIFT_PX_PER_MIN = args.dec_drift_px_per_min
     IMAGE_SCALE = args.image_scale
     print(f"fake-alpaca: serving camera+telescope 0 on {args.host}:{args.port}"
-          f" (rotation {ROTATE_DEG_PER_SEC} deg/s about {POLE}, dec drift {DEC_DRIFT_PX_PER_MIN} px/min)", flush=True)
+          f" (rotation {ROTATE_DEG_PER_SEC} deg/s about {POLE}, dec drift {DEC_DRIFT_PX_PER_MIN} px/min,"
+          f" slew {SLEW_SECONDS} s rotates={SLEW_ROTATES} smear={SLEW_SMEAR})", flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()

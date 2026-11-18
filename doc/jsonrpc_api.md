@@ -620,6 +620,37 @@ Alpaca discovery/query:
   - exports configuration to default data directory as `phd2_settings.txt`
   - result: `{"filename":"..."}`
 
+### Static Polar Alignment
+
+The `staticpa_*` methods (`staticpa_start`, `staticpa_measure`, `staticpa_get_status`, `staticpa_stop`,
+`staticpa_close`) drive the Static PA tool headlessly. This section covers only how auto mode treats the frames
+exposed during its own RA steps (#98).
+
+- In auto mode (`staticpa_start {auto:true}`) the tool turns the mount west in RA in steps while the camera keeps
+  looping. While it is aligning, the daemon asks the mount whether it is slewing on every frame, before the star is
+  tracked. A frame is **not star-tracked** when the mount reads slewing, and after a step until the first frame
+  whose exposure started after the mount was seen to have stopped. The frame on which the stop is first seen was
+  exposed while the mount may still have been moving, so it is skipped as well. Each step's reading (and the
+  reference position for the next step) comes from the first frame that is tracked again.
+- A skipped frame is still displayed and still sent as `LoopingExposures`, with `Frame` and
+  `Status: "Static PA: waiting for the RA step to finish"` and no `StarMass`/`SNR`/`HFD`/`ErrorCode`. It is not a
+  star loss: no `StarLost` is sent and the run does not end, and it does not feed the mass-change check or auto
+  exposure.
+- `staticpa_get_status` keeps its shape. `rotation.slewing` is the mount's live `Slewing` state, so it can read
+  `false` for about one more frame while the step's reading is still pending.
+- Cost: one extra frame per step compared with reading the step on the frame where the mount is first seen
+  stopped (about one exposure plus download per step). A frame whose start time reads later than now (the system
+  clock was stepped back while it downloaded) is skipped too, so such a step costs one more frame.
+- No smeared-frame bridge: the star must be found within one search region of its position before the step. The
+  steps are sized for an assumed 5 deg polar error, one search region per step, so a mount that is much further off
+  can now lose the star on the first frame after a step and end the run ("Static PA rotation failed - star lost"),
+  where before a smeared frame found partway along the arc could carry the tracker across. This is the limit
+  upstream PHD2 already has on a mount whose steps finish between two frames. A larger search region does not help,
+  because the steps grow with it.
+- A mount that cannot report slewing (`Slewing` always `false`) skips one frame per step. A mount whose `Slewing`
+  read fails (an Alpaca HTTP error reads as not slewing) is treated as stopped.
+- Manual mode (`auto:false` with `staticpa_measure`) is unchanged.
+
 ## Async Events
 
 All events include base fields:
@@ -683,6 +714,10 @@ Payload notes for downstream clients:
     *groups*, the defect-map build between *frames* of its single group, so one field name never carries two
     units. Clients keying off "partial progress" should read whichever key matches the event (`DarkLibrary*` →
     `partial_groups_completed`; `DefectMap*` → `partial_frames_completed`).
+- `LoopingExposures` — `{ Frame }`, plus `StarMass`, `SNR`, `HFD` when a star was measured, `ErrorCode` when the
+  star was not found and `Status` when there is a reason to show. While a Static PA auto-mode RA step is moving, the
+  frame is not measured: the event carries `Frame` and `Status: "Static PA: waiting for the RA step to finish"`
+  only, and no `StarLost` follows (see Static Polar Alignment above).
 - `EquipmentDisconnected` — `{ device_type: "camera", reason: string, reconnecting: bool }`. Emitted (in addition
   to `Alert`) whenever the daemon force-disconnects a device on a fault: the capture timeout, an Alpaca camera the
   server reports as not connected (Alpaca error 1031 from any capture call: `binx`/`biny`, `startexposure`,

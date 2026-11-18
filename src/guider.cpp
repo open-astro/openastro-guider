@@ -1306,6 +1306,20 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
             NudgeLockTool::UpdateNudgeLockControls();
         }
 
+        // #98: a frame exposed while a Static PA auto-mode RA step is moving has a
+        // smeared star. Show it and tell clients about it, but do not track it: it
+        // must not move the star, count as a star loss, or feed the mass checker
+        // or auto exposure.
+        if (m_state == STATE_SELECTED && StaticPaTool::IgnoreFrame(pImage))
+        {
+            statusMessage = _("Static PA: waiting for the RA step to finish");
+            FrameDroppedInfo skipped {};
+            skipped.frameNumber = pImage->FrameNum;
+            skipped.status = statusMessage;
+            EvtServer.NotifyLooping(pImage->FrameNum, nullptr, &skipped);
+            throw THROW_INFO("Static PA RA step moving - frame not star-tracked");
+        }
+
         GuiderOffset ofs;
         FrameDroppedInfo info;
 

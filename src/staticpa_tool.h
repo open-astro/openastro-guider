@@ -34,6 +34,8 @@
 #ifndef STATICPA_TOOL_H
 #define STATICPA_TOOL_H
 
+class usImage;
+
 class StaticPaTool
 {
     StaticPaTool() = delete;
@@ -43,6 +45,9 @@ public:
     static void PaintHelper(wxAutoBufferedPaintDCBase& dc, double scale);
     static void NotifyStarLost();
     static bool UpdateState();
+    // True while an auto-mode RA step is moving: the frame must not be
+    // star-tracked (#98). Called on every STATE_SELECTED frame before tracking.
+    static bool IgnoreFrame(const usImage *image);
 };
 
 #endif

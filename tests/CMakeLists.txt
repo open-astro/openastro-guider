@@ -149,6 +149,18 @@ set_property(TARGET test_polar_alignment PROPERTY FOLDER "Unit tests")
 add_test(NAME test_polar_alignment COMMAND test_polar_alignment)
 
 ############################################################################
+# test_staticpa_step_gate  --  staticpa_step_gate.cpp: frames exposed while a
+# Static PA auto-mode RA step is moving are not star-tracked (#98). std-only.
+############################################################################
+add_executable(test_staticpa_step_gate
+  ${PHD_TESTS_DIR}/polar_alignment/test_staticpa_step_gate.cpp
+  ${phd_src_dir}/staticpa_step_gate.cpp
+)
+target_link_libraries(test_staticpa_step_gate PRIVATE phd_test_common)
+set_property(TARGET test_staticpa_step_gate PROPERTY FOLDER "Unit tests")
+add_test(NAME test_staticpa_step_gate COMMAND test_staticpa_step_gate)
+
+############################################################################
 # test_guide_algorithm_lowpass  --  links the REAL Lowpass/Lowpass2 decision
 # math (guide_algorithm_lowpass_math.cpp) against the REAL WindowedAxisStats
 # (guiding_stats.cpp). The algorithm .cpp files themselves carry wx GUI

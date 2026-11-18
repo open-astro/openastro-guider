@@ -41,6 +41,8 @@
 #include <wx/valnum.h>
 #include <wx/textwrapper.h>
 
+#include <chrono>
+
 //==================================
 // clang-format off
 wxBEGIN_EVENT_TABLE(StaticPaToolWin, wxFrame)
@@ -148,6 +150,69 @@ void StaticPaTool::NotifyStarLost()
         win->RotateFail(_("Static PA rotation failed - star lost"));
     }
 }
+
+bool StaticPaTool::IgnoreFrame(const usImage *image)
+{
+    // #98: while an auto-mode RA step is moving, the frame's star is smeared.
+    // Tracking it would drag the reference star or lose it (and a star loss
+    // aborts the run), so ask the mount on every frame, before the guider
+    // tracks it, and let the step gate decide.
+    using staticpa_step::Phase;
+
+    StaticPaToolWin *win = static_cast<StaticPaToolWin *>(pFrame->pStaticPaTool);
+    if (!win || win->IsBeingDeleted())
+        return false;
+
+    staticpa_step::StepGate& gate = win->m_stepGate;
+    Phase before = gate.phase();
+
+    if (!win->IsAligning() || !win->m_auto)
+    {
+        if (before != Phase::Idle)
+        {
+            gate.Reset();
+            Debug.AddLine("StaticPA: step gate reset, not aligning in auto mode");
+        }
+        return false;
+    }
+
+    bool slewing = pPointingSource && pPointingSource->Slewing();
+
+    std::int64_t steadyNow =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    // every capture sets ImgStartTime (GuideCamera::Capture); if one ever does
+    // not, treat the frame as started now so the gate cannot stall (the gate
+    // always skips the frame on which the end is first seen, so this cannot
+    // release a frame that overlapped the slew)
+    std::int64_t frameStart = steadyNow;
+    if (image && image->ImgStartTime.IsValid())
+    {
+        std::int64_t wallNow = wxDateTime::UNow().GetValue().GetValue();
+        frameStart = staticpa_step::FrameStartOnSteadyClock(image->ImgStartTime.GetValue().GetValue(), wallNow, steadyNow);
+    }
+
+    bool ignore = gate.IgnoreFrame(slewing, frameStart, steadyNow);
+
+    Phase after = gate.phase();
+    if (after != before)
+    {
+        unsigned int frameNum = image ? image->FrameNum : 0;
+        wxString msg = wxString::Format("StaticPA: step gate %s -> %s, frame %u %s", staticpa_step::PhaseName(before),
+                                        staticpa_step::PhaseName(after), frameNum, ignore ? "not tracked" : "tracked");
+        if (after != Phase::Slewing && frameStart == staticpa_step::kUnknownFrameStart)
+            msg += " (exposure start later than now: the wall clock stepped back)";
+        else if (after != Phase::Slewing)
+        {
+            long long delta = (long long) (frameStart - gate.EndSeenMs());
+            msg += wxString::Format(" (exposure started %lld ms %s the end of the slew was seen)", delta < 0 ? -delta : delta,
+                                    delta < 0 ? "before" : "after");
+        }
+        Debug.AddLine(msg);
+    }
+
+    return ignore;
+}
+
 bool StaticPaTool::UpdateState()
 {
     StaticPaToolWin *win = static_cast<StaticPaToolWin *>(pFrame->pStaticPaTool);
@@ -1091,6 +1156,7 @@ bool StaticPaToolWin::RotateFail(const wxString& msg)
 {
     SetStatusText(msg);
     m_aligning = false;
+    m_stepGate.Reset();
     if (m_auto) // STOP rotating
     {
         pPointingSource->AbortSlew();
@@ -1169,6 +1235,10 @@ bool StaticPaToolWin::MoveWestBy(double thetadeg)
         Debug.AddLine("StaticPA: MoveWestBy: async slew failed");
         return false;
     }
+    // frames are not star-tracked until the mount has been seen to stop and a
+    // frame has started after that (#98)
+    m_stepGate.Arm();
+    Debug.AddLine("StaticPA: step gate armed for the RA step");
 
     m_nStep++;
     PHD_Point lockpos = pFrame->pGuider->CurrentPosition();

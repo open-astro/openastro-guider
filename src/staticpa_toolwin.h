@@ -36,6 +36,7 @@
 
 #include "phd.h"
 #include "staticpa_geometry.h"
+#include "staticpa_step_gate.h"
 
 #include <wx/gbsizer.h>
 #include <wx/valnum.h>
@@ -135,6 +136,7 @@ struct StaticPaToolWin : public wxFrame
     int m_reqStep; // Number of steps needed
     double m_totRot; // Rotation so far
     int m_nStep; // Number of steps taken so far
+    staticpa_step::StepGate m_stepGate; // RA step moving: frames are not star-tracked (#98)
 
     double m_raPos[3]; // RA readings at each point
     PHD_Point m_pxPos[3]; // Alignment points - in pixels
