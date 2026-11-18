@@ -177,6 +177,15 @@ struct DetectParams
 // Binning factor for the detection pass of a w x h area.
 int DetectBinning(int w, int h);
 
+// The smallest binned side the detection pass works on: its peak search keeps
+// 2 px off each edge, so a narrower side holds no peak.
+constexpr int kMinDetectBinnedSide = 5;
+
+// Whether both sides of a w x h area, binned by DetectBinning, are at least
+// kMinDetectBinnedSide. FindCandidates finds nothing in an area that fails it
+// (and must not size its sample stride or index its binned copy from it, #110).
+bool DetectGridUsable(int w, int h);
+
 // The stars of the image's valid area, brightest (by mass) first: local maxima
 // of a smoothed, possibly binned copy above the background, each measured with
 // star_find::FindStar at full resolution, duplicates merged.

@@ -14,6 +14,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <memory>
 #include <random>
 #include <vector>
 
@@ -196,6 +198,47 @@ TEST(StaticPaTrackerDetect, BinningKeepsTheDetectionPassSmall)
         int b = DetectBinning(w, h);
         EXPECT_LE((long) (w / b) * (h / b), kMaxDetectPixels) << w;
     }
+}
+
+// #110: a very thin, very tall area bins its narrow side below the peak
+// search's 5 px, where FindCandidates returns before sizing its sample stride
+// (NaN for a binned side of 0 or 1) or indexing an empty binned copy.
+TEST(StaticPaTrackerDetect, DegenerateBinnedGridIsNotSearched)
+{
+    EXPECT_EQ(DetectBinning(16, 4000000), 9); // binned 1 x 444444
+    EXPECT_FALSE(DetectGridUsable(16, 4000000));
+    EXPECT_EQ(DetectBinning(16, 1400000), 6); // binned 2 x 233333
+    EXPECT_FALSE(DetectGridUsable(16, 1400000));
+    EXPECT_EQ(DetectBinning(16, 600000), 4); // binned 4 x 150000
+    EXPECT_FALSE(DetectGridUsable(16, 600000));
+    EXPECT_FALSE(DetectGridUsable(600000, 16)); // either side
+    EXPECT_EQ(DetectBinning(16, 400000), 3); // binned 5 x 133333: the smallest searched side
+    EXPECT_TRUE(DetectGridUsable(16, 400000));
+    EXPECT_FALSE(DetectGridUsable(0, 480));
+    EXPECT_FALSE(DetectGridUsable(4, 4));
+    // every real sensor and the smallest valid area FindCandidates accepts
+    for (int w : { 16, 640, 1280, 1936, 3096, 4144, 6248, 16000 })
+        EXPECT_TRUE(DetectGridUsable(w, w < 100 ? w : w * 2 / 3)) << w;
+}
+
+// #110: FindCandidates itself on a 16 x 4,000,000 view (binned 1 x 444444)
+// returns nothing. The buffer is calloc'd, so its zero pages are mapped only
+// if read: with the guard in place nothing touches them. If the guard is
+// removed or moved below the stride, a build with
+// -fsanitize=float-cast-overflow (which GCC's -fsanitize=undefined leaves out)
+// fails here on the NaN stride cast to int.
+TEST(StaticPaTrackerDetect, FindCandidatesSkipsADegenerateBinnedGrid)
+{
+    const int w = 16, h = 4000000;
+    ASSERT_EQ(DetectBinning(w, h), 9);
+    std::unique_ptr<unsigned short, decltype(&std::free)> pix(
+        static_cast<unsigned short *>(std::calloc((size_t) w * h, sizeof(unsigned short))), &std::free);
+    ASSERT_TRUE(pix);
+    star_find::StarImage v;
+    v.data = pix.get();
+    v.width = w;
+    v.height = h;
+    EXPECT_TRUE(FindCandidates(v, DetectParams()).empty());
 }
 
 TEST(StaticPaTrackerDetect, FindsAllFakeCameraStarsWithinQuarterPixel)
