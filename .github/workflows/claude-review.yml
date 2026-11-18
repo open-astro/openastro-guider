@@ -128,9 +128,41 @@ jobs:
             — the permission rules reject any command containing substitution, and
             the review will silently fail to post.
             Do not submit the review text as a chat message.
+
+            How to work within the tool rules (anything else is refused):
+            - Read files with the Read tool and search with Grep and Glob; do
+              not use cat, sed, head, wc, ls or find.
+            - Bash runs only `gh pr diff`, `gh pr view`, `gh pr comment`,
+              `git log`, `git diff` and `git show`, each as one plain command:
+              no pipes, no `&&` or `;`, no `cd`, no redirections.
+            - The checkout is shallow (only the PR's head commit), so get the
+              changes with `gh pr diff <PR NUMBER>` (add `--name-only` for the
+              file list), not `git diff` against the base branch. A large diff
+              is saved to a file you can Read in parts with offset and limit;
+              you can also Read the changed files themselves.
+            - Do the whole review yourself, in this one session, and post the
+              comment before you finish. There are no subagents, background
+              tasks or wake-ups here: the job ends as soon as you stop, and
+              anything still pending is lost.
+          # The agent ends the job when it ends its turn. Delegating to
+          # background subagents and then waiting (Agent/Task + ScheduleWakeup)
+          # ended #106's reviews with nothing posted, so those tools are off.
           claude_args: |
             --model sonnet
             --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob,Write,Bash(git log:*),Bash(git diff:*),Bash(git show:*)"
+            --disallowedTools "Agent,Task,Workflow,ScheduleWakeup,Monitor,CronCreate,RemoteTrigger,SendMessage"
+
+      # Keep the agent's execution log (its turns, tool calls and any refused
+      # commands) so a run that ends without a comment can be diagnosed; the
+      # job log shows only a count of permission denials. Kept 7 days.
+      - name: Upload the review agent's execution log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: claude-review-execution-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/claude-execution-output.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       # The action exits 0 even when the agent never manages to post its
       # comment, so a green check could exist with no review anywhere. The
