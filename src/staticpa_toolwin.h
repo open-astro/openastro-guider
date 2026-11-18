@@ -133,10 +133,12 @@ struct StaticPaToolWin : public wxFrame
     bool m_aligning; // Indicates that alignment points are being collected
     unsigned int m_state; // state of the alignment process
     int m_numPos; // Number of alignment points
-    double m_reqRot; // Amount of rotation required
-    int m_reqStep; // Number of steps needed
-    double m_totRot; // Rotation so far
-    int m_nStep; // Number of steps taken so far
+    // auto-mode rotation progress, reported by staticpa_status_obj from the start of a run (#109):
+    // zero until point 1 sets the targets
+    double m_reqRot = 0.; // Amount of rotation required
+    int m_reqStep = 0; // Number of steps needed
+    double m_totRot = 0.; // Rotation so far
+    int m_nStep = 0; // Number of steps taken so far
     staticpa_step::StepGate m_stepGate; // RA step moving: frames are not star-tracked (#98)
 
     // Adjust phase live readout (#99): the reference star is tracked through
@@ -218,10 +220,15 @@ struct StaticPaToolWin : public wxFrame
         m_solutionFresh = false;
         m_runPoints.Start();
     }
-    // A new measurement run (point 1 next): staticpa_start, the Rotate button
+    // A new measurement run (point 1 next): staticpa_start, the Rotate button. The rotation
+    // progress restarts at zero, not at the last run's values (#109).
     void StartRun()
     {
         m_numPos = 1;
+        m_reqRot = 0.;
+        m_reqStep = 0;
+        m_totRot = 0.;
+        m_nStep = 0;
         m_runPoints.Start();
     }
     void PaintHelper(wxAutoBufferedPaintDCBase& dc, double scale);
