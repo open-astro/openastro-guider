@@ -36,8 +36,15 @@
 #define GEAR_DIALOG_H_INCLUDED
 
 #include "connect_request.h"
+#include "connect_retry.h"
+
+#include <atomic>
+#include <string>
+#include <thread>
+#include <vector>
 
 class wxGridBagSizer;
+struct AlpacaProbeTarget;
 
 class GearDialog : public wxDialog
 {
@@ -80,6 +87,24 @@ class GearDialog : public wxDialog
 
     bool m_flushConfig;
 
+    // #104: recovery of a selected device that failed to connect (headless only). Main thread only, except the
+    // probe thread, which reads only its own copy of the target and m_probeCancel and hands its result back through
+    // m_probeHandoff and a CallAfter.
+    ConnectRetry::Tracker m_connectRetry;
+    wxTimer m_connectRetryTimer;
+    int m_connectDepth; // connect / disconnect calls on the stack
+    bool m_connectRetryStopped; // shutting down: no more attempts
+    std::vector<GearDevice> m_reconnectedPending; // EquipmentReconnected to send at the end of EndModal
+    wxString m_lastConnectError[3]; // the reason of each device's last failed connect, for the RPC error texts
+    std::string m_retryDeferral[3]; // the gate a due attempt last waited on, logged once per stretch
+    std::thread m_probeThread;
+    std::atomic<bool> m_probeCancel;
+    bool m_probeRunning;
+    GearDevice m_probeDevice; // the device the running probe is for
+    uint64_t m_probeToken; // its attempt (Tracker::BeginAttempt)
+    ConnectRetry::ProbeHandoff m_probeHandoff;
+    ConnectRetry::Tracker::ServerChangeCarry m_serverChangeCarry; // AlpacaServerChanging to AlpacaServerChanged
+
 public:
     GearDialog(wxWindow *pParent);
     ~GearDialog();
@@ -98,6 +123,22 @@ public:
     void Shutdown(bool forced);
     bool IsEmptyProfile();
     bool ReconnectCamera();
+
+    // #104 (headless only; each returns at once in the GUI)
+    // The guide RPC: connect the selected camera and mount if they are not connected, probing an Alpaca server
+    // first. Returns true with *error set when one is still not connected (a device the user disconnected is left
+    // alone); false when there was nothing to do or everything connected.
+    bool ConnectForGuide(wxString *error);
+    // The camera auto-reconnect (#105) ended in EquipmentReconnectFailed: the camera joins the slow retry. An empty
+    // reason uses the camera's last connect failure.
+    void NoteCameraReconnectFailed(const wxString& reason);
+    // set_alpaca_server: Changing just before it re-selects the Alpaca devices for the new settings, Changed after.
+    // A device the guider was still asked to connect (retrying, or parked as not configured) stays asked across the
+    // re-selection and is retried at once.
+    void AlpacaServerChanging();
+    void AlpacaServerChanged();
+    // Shutdown: stop retrying and ask a probe in flight to stop; join also waits for it (a request timeout at most).
+    void StopConnectRetry(bool join);
     wxString SelectedCameraId() const;
     static wxString CameraSelectionKey(const wxString& camName);
 
@@ -146,6 +187,23 @@ private:
     void OnButtonDisconnectRotator(wxCommandEvent& event);
 
     void OnButtonWizard(wxCommandEvent& event);
+
+    bool RetryEnabled() const;
+    bool DeviceSelected(GearDevice dev) const;
+    bool DeviceConnected(GearDevice dev) const;
+    ConnectRetry::ProbeKind ProbeTargetFor(GearDevice dev, AlpacaProbeTarget *target) const;
+    ConnectRetry::Gates CurrentRetryGates() const;
+    void NoteConnectResult(GearDevice dev, bool connected, bool autoReconnecting = false);
+    void NoteUserDisconnect(GearDevice dev);
+    void CancelProbeFor(GearDevice dev);
+    void ForgetDevice(GearDevice dev);
+    void NoteChosen(GearDevice dev, const wxString& choice);
+    void SendPendingReconnected();
+    void StartConnectRetryTimer();
+    void LogNextRetry(GearDevice dev);
+    void OnConnectRetryTimer(wxTimerEvent& event);
+    void OnProbeDone(GearDevice dev, uint64_t token);
+    void RetryConnect(GearDevice dev);
 
     wxDECLARE_EVENT_TABLE();
 };

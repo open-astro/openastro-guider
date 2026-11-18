@@ -1159,7 +1159,8 @@ void Guider::StopGuiding()
     case STATE_CALIBRATING_SECONDARY:
     case STATE_CALIBRATED:
         EvtServer.NotifyCalibrationFailed(m_state == STATE_CALIBRATING_SECONDARY ? pSecondaryMount : pMount,
-                                          _("Calibration manually stopped"));
+                                          pFrame->CaptureFailureStopReason().empty() ? _("Calibration manually stopped")
+                                                                                     : pFrame->CaptureFailureStopReason());
         // fall through to notify guiding stopped
     case STATE_GUIDING:
         if ((!pMount || !pMount->IsBusy()) && (!pSecondaryMount || !pSecondaryMount->IsBusy()))
@@ -1182,6 +1183,7 @@ void Guider::StopGuiding()
 void Guider::Reset(bool fullReset)
 {
     SetState(STATE_UNINITIALIZED);
+    StaticPaTool::NotifyLiveStale(); // #99: no live readout from a frame before the reset
     if (fullReset)
     {
         InvalidateCurrentPosition(true);
@@ -1305,10 +1307,30 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
             NudgeLockTool::UpdateNudgeLockControls();
         }
 
+        // #98: a frame exposed while a Static PA auto-mode RA step is moving has a
+        // smeared star. Show it and tell clients about it, but do not track it: it
+        // must not move the star, count as a star loss, or feed the mass checker
+        // or auto exposure.
+        if (m_state == STATE_SELECTED && StaticPaTool::IgnoreFrame(pImage))
+        {
+            statusMessage = _("Static PA: waiting for the RA step to finish");
+            FrameDroppedInfo skipped {};
+            skipped.frameNumber = pImage->FrameNum;
+            skipped.status = statusMessage;
+            EvtServer.NotifyLooping(pImage->FrameNum, nullptr, &skipped);
+            throw THROW_INFO("Static PA RA step moving - frame not star-tracked");
+        }
+
         GuiderOffset ofs;
         FrameDroppedInfo info;
 
-        if (UpdateCurrentPosition(pImage, &ofs, &info)) // true means error
+        bool positionError = UpdateCurrentPosition(pImage, &ofs, &info); // true means error
+
+        // #99: the Static PA adjust phase follows the reference star's field on
+        // every looping frame, whether or not the guider kept its own star
+        StaticPaTool::NotifyFrame(pImage, !positionError);
+
+        if (positionError)
         {
             info.frameNumber = pImage->FrameNum;
             info.time = pFrame->TimeSinceGuidingStarted();

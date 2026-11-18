@@ -41,6 +41,7 @@
 #include "imaging_gear_alpaca.h"
 #include "webui_rpc_guard.h"
 #include "connect_request.h"
+#include "connect_retry.h"
 #include "restore_calibration.h"
 #include "capture_cleanup.h"
 
@@ -1054,6 +1055,11 @@ bool DarkBuildActive()
     return s_darkBuild.active;
 }
 
+bool PaSessionActive()
+{
+    return pa_session_active();
+}
+
 // #100: a camera auto-reconnect that a dark capture's error raised mid-frame (its timeout, or an Alpaca 1031 / repeated
 // 1280, #103) runs once the build has ended, on the next event-loop turn, not from inside the pump while the capture
 // thread is still unwinding. No exposure is pending then, so DoTryReconnect only sends the events.
@@ -1485,8 +1491,12 @@ static void set_alpaca_server(JObj& response, const json_value *params)
     if (!setDeviceNum(rotatorDevice, "/alpaca/rotator_device", "rotator_device"))
         return;
 
+    // the re-selection forgets each Alpaca device; a device that was still to be connected (retrying, or parked as
+    // "not configured") stays asked for and is retried at once (#104)
+    pFrame->pGearDialog->AlpacaServerChanging();
     apply_alpaca_choice_if_selected();
     pConfig->Flush();
+    pFrame->pGearDialog->AlpacaServerChanged();
     response << jrpc_result(0);
 }
 
@@ -3016,19 +3026,36 @@ static void staticpa_status_obj(JObj& rslt)
     tgt << NV("x", target.x, 2) << NV("y", target.y, 2);
     rslt << NV("ref_star_target", tgt);
 
-    // live adjustment against the star's current position: this is what an
-    // adjust-the-bolts UI polls — it converges to zero as the user moves the
-    // reference star onto its target
-    const PHD_Point& cur = pFrame->pGuider->CurrentPosition();
-    if (cur.IsValid())
+    // live adjustment against the reference star's current position: this is
+    // what an adjust-the-bolts UI polls. It converges to zero as the user moves
+    // the reference star onto its target. The Static PA tracker follows the
+    // reference star through its star field (#99), so a bolt turn of any size
+    // within the frame keeps the readout, and another star is never taken for
+    // it. current_star / live_adjustment are present only for a fresh fix from
+    // the latest frame; live_tracking says why they are missing.
+    if (!tool->IsAdjusting())
+        return;
+
+    PHD_Point cur;
+    staticpa_track::LiveState liveState = staticpa_track::LiveState::Searching;
+    double sinceFix = 0.;
+    bool live = tool->LiveFix(&cur, &liveState, &sinceFix);
+
+    JObj trk;
+    trk << NV("state", staticpa_track::LiveStateName(liveState)) << NV("frames_since_fix", tool->m_liveTracker.FramesSinceFix())
+        << NV("seconds_since_fix", sinceFix, 1) << NV("confirmed_by", tool->m_liveTracker.ConfirmedBy())
+        << NV("ambiguous", tool->m_liveTracker.Ambiguous());
+    rslt << NV("live_tracking", trk);
+
+    if (live)
     {
         JObj curObj;
         curObj << NV("x", cur.X, 2) << NV("y", cur.Y, 2);
         rslt << NV("current_star", curObj);
 
-        staticpa_geom::AltAzResult live = tool->CalcAdjustmentsFor(cur);
+        staticpa_geom::AltAzResult liveAdj = tool->CalcAdjustmentsFor(cur);
         JObj liveObj;
-        staticpa_adjustment_obj(tool, live, liveObj);
+        staticpa_adjustment_obj(tool, liveAdj, liveObj);
         rslt << NV("live_adjustment", liveObj);
     }
 }
@@ -3151,7 +3178,7 @@ static void staticpa_start(JObj& response, const json_value *params)
     tool->FillPanel();
 
     // equivalent of the GUI's Rotate / "Get first position" button
-    tool->m_numPos = 1;
+    tool->StartRun();
     if (tool->m_auto)
         tool->ClearState();
     tool->m_aligning = true;
@@ -3255,6 +3282,18 @@ static PolarDriftToolWin *polar_drift_tool()
     if (win && win->IsBeingDeleted())
         return nullptr;
     return win;
+}
+
+bool AlignmentToolActive()
+{
+    ConnectRetry::AlignmentTools tools;
+    // open in any phase: aligning, between manual points (m_aligning is false while the user turns RA) or adjusting
+    tools.staticPaOpen = static_pa_tool() != nullptr;
+    PolarDriftToolWin *pd = polar_drift_tool();
+    tools.polarDriftDrifting = pd && pd->IsDrifting();
+    DriftTool::ApiStatus drift;
+    tools.driftToolOpen = DriftTool::ApiGetStatus(&drift); // open, drifting or not
+    return ConnectRetry::AlignmentToolBlocks(tools);
 }
 
 static void polardrift_status_obj(JObj& rslt)
@@ -4420,7 +4459,12 @@ static bool capture_master_dark_frame(usImage& darkFrame, int expTimeMs, int fra
         if (err)
         {
             pCamera->ShutterClosed = false;
-            *error = wxString::Format("failed to capture dark frame %d/%d", j, frameCount);
+            // #97: with the camera's reason, e.g. "failed to capture dark frame 1/5: Camera not connected (Alpaca 1031)"
+            wxString why = wxString::FromUTF8(CaptureFailures::Reason(pCamera->TakeCaptureFailure()).c_str());
+            if (why.empty())
+                *error = wxString::Format("failed to capture dark frame %d/%d", j, frameCount);
+            else
+                *error = wxString::Format("failed to capture dark frame %d/%d: %s", j, frameCount, why);
             return true;
         }
 
@@ -5454,6 +5498,15 @@ static void guide(JObj& response, const json_value *params)
         recalibrate = false;
     }
 
+    // #104: a selected camera or mount that is not connected (a mount that was off when the guider started) is
+    // connected first, not refused; the refusal names the device and the server's reason
+    wxString connErr;
+    if (pFrame->pGearDialog->ConnectForGuide(&connErr))
+    {
+        response << jrpc_error(1, connErr);
+        return;
+    }
+
     wxString err;
     unsigned int ctrlOptions = GUIDEOPT_USE_STICKY_LOCK;
     if (recalibrate)
@@ -5536,6 +5589,8 @@ static void shutdown(JObj& response, const json_value *params)
     // A dark capture runs on its own thread while the main thread pumps events (#100); an exit from inside
     // that pump would tear the camera down under it. The build ends within one exposure; ask again then.
     VERIFY_NO_DARK_BUILD(response);
+    // no background connect attempt may start while the app winds down (#104)
+    pFrame->pGearDialog->StopConnectRetry(false);
     wxGetApp().TerminateApp();
 
     response << jrpc_result(0);
@@ -8845,14 +8900,21 @@ void EventServer::NotifyCalibrationBuildFailed(const wxString& artifact, const w
 
 // Structured equipment fault events: clients route these directly instead of
 // string-parsing Alert. Emitted IN ADDITION to the existing Alert (which stays
-// for human-readable surfaces). device_type is "camera" today — the mount has
-// no auto-disconnect path in PHD2 (a mount fault surfaces as RPC errors).
+// for human-readable surfaces). EquipmentDisconnected and EquipmentReconnectFailed
+// are "camera" only — the mount has no auto-disconnect path in PHD2 (a mount
+// fault surfaces as RPC errors).
 //
 // The disconnect state machine is fully observable from the stream:
 //   EquipmentDisconnected{reconnecting:true}
 //     -> EquipmentReconnected               (auto-reconnect succeeded), or
 //     -> EquipmentReconnectFailed           (the reconnect attempt failed, or the
-//                                            throttle gave up — terminal).
+//                                            throttle gave up — terminal for the
+//                                            auto-reconnect).
+// On the headless daemon a device that failed to connect (at startup, on a
+// connect request, or after EquipmentReconnectFailed) is retried slowly in the
+// background (#104, GearDialog), and EquipmentReconnected{camera|mount|rotator}
+// is sent once when it connects by any path, with or without an earlier
+// EquipmentDisconnected.
 
 void EventServer::NotifyEquipmentDisconnected(const wxString& deviceType, const wxString& reason, bool reconnecting)
 {

@@ -400,7 +400,9 @@ void MyFrame::FinishStop(void)
     ResetAutoExposure();
     UpdateButtonsStatus();
     StatusMsg(_("Stopped."));
-    PhdController::AbortController("Stopped capturing");
+    wxString abortReason = m_captureFailureStopReason.empty() ? wxString("Stopped capturing") : m_captureFailureStopReason;
+    m_captureFailureStopReason.clear();
+    PhdController::AbortController(abortReason);
 }
 
 bool SingleExposure::Activate(int duration, wxByte binning, int gain, const wxRect& subframe, bool save, const wxString& path)
@@ -550,20 +552,33 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
 
             delete pNewFrame;
 
+            // #97: the camera's reason for this failure, built once for every report of it:
+            // "camera error: <reason>", or "camera error -- see debug log" when it gave none
+            wxString failure = wxString::FromUTF8(
+                CaptureFailures::Text(pCamera ? pCamera->TakeCaptureFailure() : CaptureFailures::Failure()).c_str());
+            if (failure.empty())
+                failure = CaptureFailures::kFallback;
+            Debug.Write(wxString::Format("OnExposeComplete: %s\n", failure));
+
             bool stopping = !m_continueCapturing;
+            // the guide / dither request this ends fails with the reason, and so does an interrupted calibration
+            // (NotifyGuidingStopped, FinishStop and Guider::StopGuiding read it, so the event order is unchanged)
+            if (!stopping)
+                m_captureFailureStopReason = failure;
             StopCapturing();
+            m_captureFailureStopReason.clear(); // one-shot, even if StopCapturing did not reach FinishStop
             if (pGuider->IsCalibratingOrGuiding())
             {
                 pGuider->StopGuiding();
                 pGuider->UpdateImageDisplay();
             }
             if (m_singleExposure.enabled)
-                m_singleExposure.Complete(false, "camera error -- see debug log");
+                m_singleExposure.Complete(false, failure);
             EvtServer.NotifyLoopingStopped();
             pGuider->Reset(false);
             CaptureActive = m_continueCapturing;
             UpdateButtonsStatus();
-            PhdController::AbortController(stopping ? "Image capture stopped" : "Error reported capturing image");
+            PhdController::AbortController(stopping ? wxString("Image capture stopped") : failure);
             StatusMsg(_("Stopped."));
 
             // some camera drivers disconnect the camera on error

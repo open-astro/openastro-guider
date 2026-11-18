@@ -42,6 +42,7 @@
 #include "phdupdate.h"
 #include "pierflip_tool.h"
 #include "Refine_DefMap.h"
+#include "staticpa_tool.h"
 
 #include <algorithm>
 #include <memory>
@@ -1357,6 +1358,9 @@ void MyFrame::DoTryReconnect()
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         if (exposurePending)
             OnExposeComplete(0, true);
+        // #104: the headless daemon keeps retrying slowly; EquipmentReconnected follows when the camera is back
+        pGearDialog->NoteCameraReconnectFailed(
+            wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         return;
     }
     m_cameraReconnectAttempts.push_back(now);
@@ -1372,6 +1376,8 @@ void MyFrame::DoTryReconnect()
         // complete the pending exposure notification
         if (exposurePending)
             OnExposeComplete(0, true);
+        // #104: the headless daemon keeps retrying slowly, with the reason the reconnect failed
+        pGearDialog->NoteCameraReconnectFailed(wxEmptyString);
     }
     else
     {
@@ -1707,6 +1713,10 @@ void MyFrame::ScheduleExposure()
 
     m_exposurePending = true;
 
+    // #97: this exposure must not report the reason an earlier one failed
+    if (pCamera)
+        pCamera->ClearCaptureFailure();
+
     usImage *img = new usImage();
 
     wxCriticalSectionLocker lock(m_CSpWorkerThread);
@@ -1865,6 +1875,7 @@ bool MyFrame::StopCapturing()
 {
     Debug.Write(wxString::Format("StopCapturing CaptureActive=%d continueCapturing=%d exposurePending=%d\n", CaptureActive,
                                  m_continueCapturing, m_exposurePending));
+    StaticPaTool::NotifyLiveStale(); // #99: no live Static PA readout once capture is stopping
 
     bool finished = true;
     bool continueCapturing = m_continueCapturing;
@@ -2157,6 +2168,10 @@ void MyFrame::OnClose(wxCloseEvent& event)
 
     Debug.Write("MyFrame::OnClose proceeding\n");
 
+    // #104: before StopWorkerThread pumps the event loop below, so no background connect attempt starts (and could
+    // connect equipment that is about to be disconnected) while the app winds down; waits for a probe in flight
+    pGearDialog->StopConnectRetry(true);
+
     // a headless Guiding Assistant run can't finish normally any more; put back the settings it changed
     GuidingAssistant::ApiShutdown();
 
@@ -2278,7 +2293,8 @@ void MyFrame::NotifyGuidingStopped()
 
     EvtServer.NotifyGuidingStopped();
     GuideLog.GuidingStopped();
-    PhdController::AbortController("Guiding stopped");
+    PhdController::AbortController(m_captureFailureStopReason.empty() ? wxString("Guiding stopped")
+                                                                      : m_captureFailureStopReason);
 }
 
 void MyFrame::SetAutoLoadCalibration(bool val)

@@ -41,6 +41,8 @@
 #include <wx/valnum.h>
 #include <wx/textwrapper.h>
 
+#include <chrono>
+
 //==================================
 // clang-format off
 wxBEGIN_EVENT_TABLE(StaticPaToolWin, wxFrame)
@@ -148,6 +150,69 @@ void StaticPaTool::NotifyStarLost()
         win->RotateFail(_("Static PA rotation failed - star lost"));
     }
 }
+
+bool StaticPaTool::IgnoreFrame(const usImage *image)
+{
+    // #98: while an auto-mode RA step is moving, the frame's star is smeared.
+    // Tracking it would drag the reference star or lose it (and a star loss
+    // aborts the run), so ask the mount on every frame, before the guider
+    // tracks it, and let the step gate decide.
+    using staticpa_step::Phase;
+
+    StaticPaToolWin *win = static_cast<StaticPaToolWin *>(pFrame->pStaticPaTool);
+    if (!win || win->IsBeingDeleted())
+        return false;
+
+    staticpa_step::StepGate& gate = win->m_stepGate;
+    Phase before = gate.phase();
+
+    if (!win->IsAligning() || !win->m_auto)
+    {
+        if (before != Phase::Idle)
+        {
+            gate.Reset();
+            Debug.AddLine("StaticPA: step gate reset, not aligning in auto mode");
+        }
+        return false;
+    }
+
+    bool slewing = pPointingSource && pPointingSource->Slewing();
+
+    std::int64_t steadyNow =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    // every capture sets ImgStartTime (GuideCamera::Capture); if one ever does
+    // not, treat the frame as started now so the gate cannot stall (the gate
+    // always skips the frame on which the end is first seen, so this cannot
+    // release a frame that overlapped the slew)
+    std::int64_t frameStart = steadyNow;
+    if (image && image->ImgStartTime.IsValid())
+    {
+        std::int64_t wallNow = wxDateTime::UNow().GetValue().GetValue();
+        frameStart = staticpa_step::FrameStartOnSteadyClock(image->ImgStartTime.GetValue().GetValue(), wallNow, steadyNow);
+    }
+
+    bool ignore = gate.IgnoreFrame(slewing, frameStart, steadyNow);
+
+    Phase after = gate.phase();
+    if (after != before)
+    {
+        unsigned int frameNum = image ? image->FrameNum : 0;
+        wxString msg = wxString::Format("StaticPA: step gate %s -> %s, frame %u %s", staticpa_step::PhaseName(before),
+                                        staticpa_step::PhaseName(after), frameNum, ignore ? "not tracked" : "tracked");
+        if (after != Phase::Slewing && frameStart == staticpa_step::kUnknownFrameStart)
+            msg += " (exposure start later than now: the wall clock stepped back)";
+        else if (after != Phase::Slewing)
+        {
+            long long delta = (long long) (frameStart - gate.EndSeenMs());
+            msg += wxString::Format(" (exposure started %lld ms %s the end of the slew was seen)", delta < 0 ? -delta : delta,
+                                    delta < 0 ? "before" : "after");
+        }
+        Debug.AddLine(msg);
+    }
+
+    return ignore;
+}
+
 bool StaticPaTool::UpdateState()
 {
     StaticPaToolWin *win = static_cast<StaticPaToolWin *>(pFrame->pStaticPaTool);
@@ -159,6 +224,249 @@ bool StaticPaTool::UpdateState()
             return false;
         }
     }
+    return true;
+}
+
+namespace
+{
+// Looping and not calibrating or guiding: the only frames the #99 live readout
+// tracks (calibration and guiding move the star on purpose)
+bool GuiderLoopingForLive(Guider *guider)
+{
+    if (!guider)
+        return false;
+    GUIDER_STATE gs = guider->GetState();
+    return (gs == STATE_UNINITIALIZED || gs == STATE_SELECTING || gs == STATE_SELECTED) && !guider->IsCalibratingOrGuiding();
+}
+} // namespace
+
+bool StaticPaTool::WantsFullFrames()
+{
+    // #99: the live readout tracks the whole star field, so every frame it
+    // tracks is a full frame, whether or not the guider has its star (paused,
+    // star lost or found again). Calibration and guiding keep their subframes:
+    // the readout is off then, and a solved tool left open must not slow them.
+    if (!pFrame)
+        return false;
+    StaticPaToolWin *win = static_cast<StaticPaToolWin *>(pFrame->pStaticPaTool);
+    return win && !win->IsBeingDeleted() && win->IsAdjusting() && GuiderLoopingForLive(pFrame->pGuider);
+}
+
+namespace
+{
+std::int64_t SteadyNowMs()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// a wx-free view of the frame, as Star::Find builds it
+star_find::StarImage LiveStarImage(const usImage *img)
+{
+    star_find::StarImage im;
+    im.data = img->ImageData;
+    im.width = img->Size.GetWidth();
+    im.height = img->Size.GetHeight();
+    im.subframeEmpty = img->Subframe.IsEmpty();
+    if (!im.subframeEmpty)
+    {
+        im.subLeft = img->Subframe.GetLeft();
+        im.subRight = img->Subframe.GetRight();
+        im.subTop = img->Subframe.GetTop();
+        im.subBottom = img->Subframe.GetBottom();
+    }
+    im.pedestal = img->Pedestal;
+    im.bitsPerPixel = img->BitsPerPixel;
+    return im;
+}
+
+// the guider's own star-detection settings, so the tracker sees the stars the
+// guider would
+staticpa_track::DetectParams LiveDetectParams()
+{
+    staticpa_track::DetectParams dp;
+    dp.minHFD = pFrame->pGuider->GetMinStarHFD();
+    dp.maxHFD = pFrame->pGuider->GetMaxStarHFD();
+    dp.minSNR = pFrame->pGuider->GetAFMinStarSNR();
+    dp.maxADU = pCamera ? pCamera->GetSaturationADU() : 0;
+    return dp;
+}
+} // namespace
+
+void StaticPaTool::NotifyFrame(const usImage *image, bool guiderFound)
+{
+    if (!pFrame)
+        return;
+    StaticPaToolWin *win = static_cast<StaticPaToolWin *>(pFrame->pStaticPaTool);
+    if (!win || win->IsBeingDeleted() || !image || !image->ImageData)
+        return;
+    win->TrackLiveFrame(image, guiderFound);
+}
+
+void StaticPaTool::NotifyLiveStale()
+{
+    if (!pFrame)
+        return;
+    StaticPaToolWin *win = static_cast<StaticPaToolWin *>(pFrame->pStaticPaTool);
+    if (!win || win->IsBeingDeleted() || !win->m_liveTracker.Seeded())
+        return;
+    if (win->m_liveTracker.FixIsFresh(SteadyNowMs()))
+        Debug.AddLine("StaticPA live: last fix no longer reported (guider reset or capture stopping)");
+    win->m_liveTracker.MarkStale();
+}
+
+void StaticPaToolWin::SeedLiveTracker()
+{
+    using staticpa_track::LiveState;
+
+    // #99: seed from the frame that produced the measurement, in the same
+    // UpdateState call that measured it, with the star the guider measured
+    m_liveTracker.Reset();
+    m_liveSeedPending = false;
+    m_liveImage = nullptr;
+    m_liveFrameNum = 0;
+    m_liveLoggedState = LiveState::Tracking;
+
+    const usImage *img = pFrame->pGuider->CurrentImage();
+    PHD_Point ref = pFrame->pGuider->CurrentPosition();
+    if (!ref.IsValid())
+        ref = m_pxPos[m_auto ? 1 : 2];
+    if (!img || !img->ImageData)
+    {
+        Debug.AddLine("StaticPA live: no measurement frame, live readout unavailable");
+        return;
+    }
+    m_liveImage = img;
+    m_liveFrameNum = img->FrameNum;
+    if (!img->Subframe.IsEmpty())
+    {
+        // a subframe has too few stars to vote with: seed from the next full frame
+        m_liveSeedPending = true;
+        m_liveSeedRef = ref;
+        Debug.AddLine(wxString::Format("StaticPA live: measurement frame %u is a subframe, seeding on the next full frame "
+                                       "if the reference star is still at (%.1f,%.1f)",
+                                       img->FrameNum, ref.X, ref.Y));
+        return;
+    }
+    staticpa_track::FrameInfo fi;
+    fi.nowMs = SteadyNowMs();
+    fi.exposureMs = img->ImgExpDur;
+    m_liveTracker.Seed(LiveStarImage(img), ref.X, ref.Y, LiveDetectParams(), fi);
+    Debug.AddLine(wxString::Format("StaticPA live: seeded from frame %u, reference star (%.1f,%.1f), %d field stars%s",
+                                   img->FrameNum, ref.X, ref.Y, m_liveTracker.SeedCount(),
+                                   m_liveTracker.FieldMode() ? "" : " (too few: following the guider's star)"));
+}
+
+void StaticPaToolWin::TrackLiveFrame(const usImage *image, bool guiderFound)
+{
+    using staticpa_track::LiveState;
+    using staticpa_track::StepResult;
+
+    if (!IsAdjusting())
+        return;
+
+    if (!GuiderLoopingForLive(pFrame->pGuider))
+    {
+        // calibration and guiding move the star on purpose; stay out of their way
+        if (!m_liveInactive)
+        {
+            m_liveTracker.MarkStale();
+            m_liveInactive = true;
+            Debug.AddLine("StaticPA live: not tracking while calibrating or guiding");
+        }
+        return;
+    }
+    m_liveInactive = false;
+
+    // UpdateGuideState can re-enter with the frame it already handled
+    if (image == m_liveImage && image->FrameNum == m_liveFrameNum)
+        return;
+    m_liveImage = image;
+    m_liveFrameNum = image->FrameNum;
+
+    staticpa_track::FrameInfo fi;
+    fi.nowMs = SteadyNowMs();
+    fi.exposureMs = image->ImgExpDur;
+    star_find::StarImage view = LiveStarImage(image);
+    const PHD_Point& gpos = pFrame->pGuider->CurrentPosition();
+    bool guiderHas = guiderFound && gpos.IsValid();
+
+    if (m_liveSeedPending)
+    {
+        if (!image->Subframe.IsEmpty())
+            return;
+        // The field may have moved since the measurement (a bolt turn started
+        // at once), and the guider may by now hold another star or none: seed
+        // only if the measured star is still where it was measured
+        m_liveSeedPending = false;
+        if (m_liveTracker.SeedAtMeasuredStar(view, m_liveSeedRef.X, m_liveSeedRef.Y, LiveDetectParams(), fi))
+            Debug.AddLine(wxString::Format("StaticPA live: seeded from frame %u, reference star (%.1f,%.1f), %d field stars%s",
+                                           image->FrameNum, m_liveTracker.FixX(), m_liveTracker.FixY(),
+                                           m_liveTracker.SeedCount(),
+                                           m_liveTracker.FieldMode() ? "" : " (too few: following the guider's star)"));
+        else
+            Debug.AddLine(wxString::Format("StaticPA live: no star within %.0f px of the measured (%.1f,%.1f) on frame %u, "
+                                           "live readout unavailable until the next measurement",
+                                           staticpa_track::kRefSnapPx, m_liveSeedRef.X, m_liveSeedRef.Y, image->FrameNum));
+        return;
+    }
+    if (!m_liveTracker.Seeded())
+        return;
+    if (image->Size.GetWidth() != m_liveTracker.FrameWidth() || image->Size.GetHeight() != m_liveTracker.FrameHeight())
+    {
+        // binning or ROI changed: the seed (and the solution) are in other
+        // pixels, so the frame is a miss; the readout comes back if the size does
+        if (m_liveTracker.FramesSinceFix() == 0)
+            Debug.AddLine(wxString::Format("StaticPA live: frame size %dx%d is not the measurement's %dx%d, not tracked",
+                                           image->Size.GetWidth(), image->Size.GetHeight(), m_liveTracker.FrameWidth(),
+                                           m_liveTracker.FrameHeight()));
+        m_liveTracker.StepUnusable(fi);
+        return;
+    }
+
+    auto t0 = std::chrono::steady_clock::now();
+    StepResult r = m_liveTracker.FieldMode() ? m_liveTracker.Step(view, LiveDetectParams(), fi)
+                                             : m_liveTracker.StepGuider(guiderHas, gpos.X, gpos.Y, fi);
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    LiveState after = m_liveTracker.State(fi.nowMs, true);
+
+    const char *what = r == StepResult::Fix ? "fix" : r == StepResult::Miss ? "miss" : "skipped (subframe)";
+    if (m_liveTracker.FieldMode())
+    {
+        const staticpa_track::FieldMatch& m = m_liveTracker.LastMatch();
+        Debug.Write(wxString::Format(
+            "StaticPA live: frame %u %s, %d stars, votes %d/%d of %d inside (runner-up %d, rms %.2f px), move (%.1f,%.1f) "
+            "rot %.2f deg, star (%.1f,%.1f)%s, %.1f ms\n",
+            image->FrameNum, what, m_liveTracker.LastStarCount(), m.votes, m.needed, m.predictedInside, m.runnerUp, m.rmsPx,
+            m.motion.dx, m.motion.dy, m.motion.rot * 180.0 / M_PI, m_liveTracker.FixX(), m_liveTracker.FixY(),
+            m_liveTracker.FixDetected() ? "" : " predicted", ms));
+    }
+    else
+    {
+        Debug.Write(wxString::Format("StaticPA live: frame %u %s (guider's star), star (%.1f,%.1f)\n", image->FrameNum, what,
+                                     m_liveTracker.FixX(), m_liveTracker.FixY()));
+    }
+    if (after != m_liveLoggedState)
+    {
+        Debug.AddLine(wxString::Format("StaticPA live: %s -> %s, frame %u", staticpa_track::LiveStateName(m_liveLoggedState),
+                                       staticpa_track::LiveStateName(after), image->FrameNum));
+        m_liveLoggedState = after;
+    }
+}
+
+bool StaticPaToolWin::LiveFix(PHD_Point *pos, staticpa_track::LiveState *state, double *secondsSinceFix)
+{
+    std::int64_t now = SteadyNowMs();
+    // calibration and guiding move the star on purpose: no live readout from
+    // the moment they start, not only from their first frame
+    bool looping = GuiderLoopingForLive(pFrame->pGuider);
+    bool capturing = pFrame->CaptureActive && pCamera && pCamera->Connected && looping;
+    *state = m_liveTracker.Seeded()
+        ? m_liveTracker.State(now, capturing)
+        : (m_liveSeedPending ? staticpa_track::LiveState::Searching : staticpa_track::LiveState::Lost);
+    *secondsSinceFix = m_liveTracker.SecondsSinceFix(now);
+    if (!capturing || !m_liveTracker.FixIsFresh(now))
+        return false;
+    pos->SetXY(m_liveTracker.FixX(), m_liveTracker.FixY());
     return true;
 }
 
@@ -531,7 +839,7 @@ void StaticPaToolWin::OnRotate(wxCommandEvent& evt)
         SetStatusText(_("Please select a star"));
         return;
     }
-    m_numPos = 1;
+    StartRun();
     if (m_auto)
         ClearState();
     m_aligning = true;
@@ -728,6 +1036,17 @@ void StaticPaToolWin::CalcRotationCentre(void)
     m_ConeCorr.X = corr.b.x;
     m_ConeCorr.Y = corr.b.y;
     SetState(0);
+    // #99: the live readout follows only a solution from points of this run
+    // (manual mode recalculates with points left over from an earlier run)
+    m_solutionFresh = m_runPoints.Covers(m_auto);
+    if (m_solutionFresh)
+        SeedLiveTracker();
+    else
+    {
+        m_liveTracker.Reset();
+        m_liveSeedPending = false;
+        Debug.AddLine("StaticPA live: solution uses points of an earlier run, no live readout until they are measured again");
+    }
     FillPanel();
     return;
 }
@@ -1091,6 +1410,7 @@ bool StaticPaToolWin::RotateFail(const wxString& msg)
 {
     SetStatusText(msg);
     m_aligning = false;
+    m_stepGate.Reset();
     if (m_auto) // STOP rotating
     {
         pPointingSource->AbortSlew();
@@ -1122,6 +1442,7 @@ bool StaticPaToolWin::SetStar(int npos)
     }
     m_pxPos[idx] = star;
     SetState(npos);
+    m_runPoints.Measured(npos);
     Debug.AddLine(wxString::Format("StaticPA: Setstar #%d %.0f, %.0f", npos, m_pxPos[idx].X, m_pxPos[idx].Y));
     SetStatusText(wxString::Format(_("Read Position #%d: %.0f, %.0f"), npos, m_pxPos[idx].X, m_pxPos[idx].Y));
     FillPanel();
@@ -1169,6 +1490,10 @@ bool StaticPaToolWin::MoveWestBy(double thetadeg)
         Debug.AddLine("StaticPA: MoveWestBy: async slew failed");
         return false;
     }
+    // frames are not star-tracked until the mount has been seen to stop and a
+    // frame has started after that (#98)
+    m_stepGate.Arm();
+    Debug.AddLine("StaticPA: step gate armed for the RA step");
 
     m_nStep++;
     PHD_Point lockpos = pFrame->pGuider->CurrentPosition();

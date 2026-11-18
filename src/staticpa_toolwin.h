@@ -36,6 +36,8 @@
 
 #include "phd.h"
 #include "staticpa_geometry.h"
+#include "staticpa_step_gate.h"
+#include "staticpa_tracker.h"
 
 #include <wx/gbsizer.h>
 #include <wx/valnum.h>
@@ -135,6 +137,19 @@ struct StaticPaToolWin : public wxFrame
     int m_reqStep; // Number of steps needed
     double m_totRot; // Rotation so far
     int m_nStep; // Number of steps taken so far
+    staticpa_step::StepGate m_stepGate; // RA step moving: frames are not star-tracked (#98)
+
+    // Adjust phase live readout (#99): the reference star is tracked through
+    // its star field, independently of the guider's own star
+    bool m_solutionFresh = false; // CalcRotationCentre from points of this run; cleared by any measurement change
+    staticpa_track::RunPoints m_runPoints; // points measured since the latest start
+    staticpa_track::LiveTracker m_liveTracker;
+    bool m_liveSeedPending = false; // the measurement frame was a subframe: seed on the next full frame
+    PHD_Point m_liveSeedRef;
+    const usImage *m_liveImage = nullptr; // last frame tracked (with m_liveFrameNum) so a re-entry is skipped
+    unsigned int m_liveFrameNum = 0;
+    bool m_liveInactive = false; // calibrating or guiding: not tracking
+    staticpa_track::LiveState m_liveLoggedState = staticpa_track::LiveState::Tracking; // for the state-change log line
 
     double m_raPos[3]; // RA readings at each point
     PHD_Point m_pxPos[3]; // Alignment points - in pixels
@@ -172,6 +187,14 @@ struct StaticPaToolWin : public wxFrame
     bool SetStar(int idx);
     bool IsAligned() { return m_auto ? ((m_state >> 1) & 3) == 3 : ((m_state >> 1) & 7) == 7; }
     bool IsCalced() { return HasState(0); }
+    // Calced from the current measurements and not measuring again: the user
+    // is turning the bolts and the live readout follows the reference star
+    bool IsAdjusting() { return IsCalced() && !IsAligning() && m_solutionFresh; }
+    void SeedLiveTracker();
+    void TrackLiveFrame(const usImage *image, bool guiderFound);
+    // The live position of the reference star, when there is a fresh fix and
+    // capture is running. state/secondsSinceFix describe the tracker either way.
+    bool LiveFix(PHD_Point *pos, staticpa_track::LiveState *state, double *secondsSinceFix);
     void CalcRotationCentre(void);
     void CalcAdjustments(void);
     // Alt/Az decomposition of the residual between the reference star's
@@ -184,8 +207,23 @@ struct StaticPaToolWin : public wxFrame
                                                   double *haDegOut = nullptr);
     bool HasState(int ipos) { return (m_state & (1 << ipos)) > 0; }
     void SetState(int ipos) { m_state = m_state | (1 << ipos); }
-    void UnsetState(int ipos) { m_state = m_state & ~(1 << ipos) & 15; }
-    void ClearState() { m_state = 0; }
+    void UnsetState(int ipos)
+    {
+        m_state = m_state & ~(1 << ipos) & 15;
+        m_solutionFresh = false;
+    }
+    void ClearState()
+    {
+        m_state = 0;
+        m_solutionFresh = false;
+        m_runPoints.Start();
+    }
+    // A new measurement run (point 1 next): staticpa_start, the Rotate button
+    void StartRun()
+    {
+        m_numPos = 1;
+        m_runPoints.Start();
+    }
     void PaintHelper(wxAutoBufferedPaintDCBase& dc, double scale);
     PHD_Point Radec2Px(const PHD_Point& radec);
     PHD_Point J2000Now(const PHD_Point& radec);

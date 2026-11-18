@@ -222,3 +222,240 @@ TEST(ReadError, NonObjectRootIsNotAnError)
     EXPECT_FALSE(p.isError);
     EXPECT_EQ(p.number, -1); // left untouched
 }
+
+// ---------------------------------------------------------------------------
+// CallError: what a failed AlpacaClient call reports, and the one-line reason
+// built from it (#97, also used by #104). The reason goes into client-visible
+// strings (SingleFrameComplete.Error, SettleDone.Error, the dark-build error,
+// the Alert), so it must be one line of valid UTF-8 within the cap.
+// ---------------------------------------------------------------------------
+
+using AlpacaErrors::CallError;
+using AlpacaErrors::CallErrorReason;
+using AlpacaErrors::OneLine;
+
+namespace
+{
+CallError Err(CallError::Kind kind, long http, long alpaca, const std::string& message)
+{
+    CallError e;
+    e.kind = kind;
+    e.httpStatus = http;
+    e.alpacaError = alpaca;
+    e.message = message;
+    return e;
+}
+
+bool IsValidUtf8(const std::string& s)
+{
+    std::size_t i = 0;
+    while (i < s.size())
+    {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        std::size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 0;
+        if (len == 0 || i + len > s.size())
+            return false;
+        for (std::size_t k = 1; k < len; k++)
+            if ((static_cast<unsigned char>(s[i + k]) & 0xC0) != 0x80)
+                return false;
+        i += len;
+    }
+    return true;
+}
+} // namespace
+
+TEST(CallErrorReason, NoneIsEmpty)
+{
+    EXPECT_EQ(CallErrorReason(CallError()), "");
+}
+
+TEST(CallErrorReason, AlpacaNumberAndMessage)
+{
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Alpaca, 200, 1031, "Camera not connected")),
+              "Camera not connected (Alpaca 1031)");
+}
+
+TEST(CallErrorReason, AlpacaNumberWithoutMessage)
+{
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Alpaca, 200, 1280, "")), "Alpaca error 1280");
+    // a message that is empty once cleaned counts as none
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Alpaca, 200, 1025, "  \n\t ")), "Alpaca error 1025");
+}
+
+TEST(CallErrorReason, AlpacaMessageTrimmedAndOneLine)
+{
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Alpaca, 200, 1031, "  Camera not connected \n")),
+              "Camera not connected (Alpaca 1031)");
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Alpaca, 200, 1280, "line1\r\n  line2\n\tline3")),
+              "line1 line2 line3 (Alpaca 1280)");
+}
+
+TEST(CallErrorReason, LongAlpacaMessageCappedKeepsSuffix)
+{
+    std::string r = CallErrorReason(Err(CallError::Kind::Alpaca, 200, 1280, std::string(1000, 'x')));
+    EXPECT_LE(r.size(), AlpacaErrors::kReasonMaxBytes);
+    EXPECT_EQ(r.substr(r.size() - std::string("... (Alpaca 1280)").size()), "... (Alpaca 1280)");
+}
+
+TEST(CallErrorReason, HttpStatusWithShortBody)
+{
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 400, 0, "Invalid Duration\r\n")), "HTTP 400: Invalid Duration");
+}
+
+TEST(CallErrorReason, HttpStatusWithoutBody)
+{
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 500, 0, "")), "HTTP 500");
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 500, 0, " \n ")), "HTTP 500");
+}
+
+TEST(CallErrorReason, HttpHtmlOrLongBodyLeftOut)
+{
+    // a proxy's error page is never shipped to clients
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 502, 0, "<html><body>Bad Gateway</body></html>")), "HTTP 502");
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 503, 0, std::string(121, 'a'))), "HTTP 503");
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 503, 0, std::string(120, 'a'))), "HTTP 503: " + std::string(120, 'a'));
+}
+
+TEST(CallErrorReason, HttpLongBodyLeftOutEvenWhenItsCapWouldFit)
+{
+    // a space at byte 117: capping to 121 bytes would drop it before the "..." and come out at 120
+    std::string spaced = std::string(117, 'a') + " " + std::string(82, 'b');
+    ASSERT_EQ(spaced.size(), 200u);
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 500, 0, spaced)), "HTTP 500");
+    // a 3-byte UTF-8 character straddling byte 118: the cap would back off to 117 bytes
+    std::string straddle = std::string(117, 'a') + "\xE2\x82\xAC" + std::string(80, 'b');
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 500, 0, straddle)), "HTTP 500");
+    // a '<' past where a cap would cut is still seen (and the body is too long anyway)
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 500, 0, std::string(117, 'a') + " <html>")), "HTTP 500");
+    // cleaning happens before the length test: whitespace runs that collapse to fit are fine
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Http, 400, 0, "bad" + std::string(200, ' ') + "duration")),
+              "HTTP 400: bad duration");
+}
+
+TEST(CallErrorReason, HttpStatusIsNeverLabelledAlpaca)
+{
+    std::string r = CallErrorReason(Err(CallError::Kind::Http, 400, 0, "bad"));
+    EXPECT_EQ(r.find("Alpaca"), std::string::npos);
+}
+
+TEST(CallErrorReason, Transport)
+{
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Transport, 0, 0, "Couldn't connect to server")),
+              "no response from the Alpaca server (Couldn't connect to server)");
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Transport, 0, 0, "")), "no response from the Alpaca server");
+}
+
+TEST(CallErrorReason, Parse)
+{
+    EXPECT_EQ(CallErrorReason(Err(CallError::Kind::Parse, 200, 0, "unexpected token at 1:1")),
+              "invalid response from the Alpaca server");
+}
+
+TEST(CallErrorReason, InvalidUtf8MessageReplacedNotEmptied)
+{
+    // a Latin-1 message from a Windows ASCOM Remote server: "café" with é = 0xE9
+    std::string r = CallErrorReason(Err(CallError::Kind::Alpaca, 200, 1280, "caf\xE9 failed"));
+    EXPECT_TRUE(IsValidUtf8(r));
+    EXPECT_EQ(r, "caf\xEF\xBF\xBD failed (Alpaca 1280)");
+}
+
+TEST(OneLine, CollapsesWhitespaceAndControls)
+{
+    EXPECT_EQ(OneLine("  a\r\n\r\n b\t\tc  "), "a b c");
+    EXPECT_EQ(OneLine(std::string("a\0b", 3)), "a b");
+    EXPECT_EQ(OneLine(""), "");
+    EXPECT_EQ(OneLine(" \r\n\t "), "");
+}
+
+TEST(OneLine, KeepsValidUtf8)
+{
+    EXPECT_EQ(OneLine("C\xC3\xA2mera n\xC3\xA3o conectada"), "C\xC3\xA2mera n\xC3\xA3o conectada");
+    EXPECT_EQ(OneLine("\xE2\x82\xAC \xF0\x9F\x94\xAD"), "\xE2\x82\xAC \xF0\x9F\x94\xAD");
+}
+
+TEST(OneLine, ReplacesInvalidUtf8)
+{
+    EXPECT_EQ(OneLine(std::string("a\xFF") + "b"), std::string("a\xEF\xBF\xBD") + "b");
+    EXPECT_EQ(OneLine("a\xC3"), "a\xEF\xBF\xBD"); // truncated sequence
+    EXPECT_EQ(OneLine("\xC0\xAF"), "\xEF\xBF\xBD\xEF\xBF\xBD"); // overlong encoding
+    EXPECT_EQ(OneLine("\xED\xA0\x80"), "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD"); // UTF-16 surrogate
+    EXPECT_TRUE(IsValidUtf8(OneLine("\x80\x81\x82 \xF5\x80")));
+}
+
+TEST(OneLine, CapsWithoutSplittingUtf8)
+{
+    std::string s;
+    for (int i = 0; i < 300; i++)
+        s += "\xC3\xA9";
+    for (std::size_t cap : { 10u, 11u, 12u, 13u, 200u })
+    {
+        std::string r = OneLine(s, cap);
+        EXPECT_LE(r.size(), cap);
+        EXPECT_TRUE(IsValidUtf8(r)) << cap;
+        EXPECT_EQ(r.substr(r.size() - 3), "...") << cap;
+    }
+    std::string ascii(500, 'x');
+    std::string r = OneLine(ascii, 200);
+    EXPECT_EQ(r.size(), 200u);
+    EXPECT_EQ(r, std::string(197, 'x') + "...");
+    EXPECT_EQ(OneLine(std::string(200, 'y'), 200), std::string(200, 'y')); // exactly at the cap: untouched
+}
+
+// The guard AlpacaClient's Get / GetRaw / Put / PutAction / GetBool use, so no
+// failure return can leave *callError unset.
+TEST(CallErrorScope, ClearsOnEntryAndFillsGenericFailure)
+{
+    CallError out = Err(CallError::Kind::Alpaca, 200, 1031, "stale");
+    {
+        AlpacaErrors::CallErrorScope scope(&out);
+        EXPECT_EQ(out.kind, CallError::Kind::None); // stale value never survives the call
+    }
+    EXPECT_EQ(out.kind, CallError::Kind::Parse);
+    EXPECT_EQ(CallErrorReason(out), "invalid response from the Alpaca server");
+}
+
+TEST(CallErrorScope, SpecificFailureKept)
+{
+    CallError out;
+    {
+        AlpacaErrors::CallErrorScope scope(&out);
+        scope.Set(CallError::Kind::Http, 404, 0, "Not Found");
+    }
+    EXPECT_EQ(out.kind, CallError::Kind::Http);
+    EXPECT_EQ(out.httpStatus, 404);
+    EXPECT_EQ(out.message, "Not Found");
+}
+
+TEST(CallErrorScope, SuccessLeavesNone)
+{
+    CallError out = Err(CallError::Kind::Transport, 0, 0, "old");
+    {
+        AlpacaErrors::CallErrorScope scope(&out);
+        scope.Set(CallError::Kind::Http, 500, 0, "");
+        scope.Succeeded();
+    }
+    EXPECT_EQ(out.kind, CallError::Kind::None);
+    EXPECT_EQ(out.message, "");
+}
+
+TEST(CallErrorScope, NestedCallFillsTheOuterScope)
+{
+    // GetBool passes its scope's target to Get; Get's failure is GetBool's failure
+    CallError out;
+    {
+        AlpacaErrors::CallErrorScope outer(&out);
+        {
+            AlpacaErrors::CallErrorScope inner(outer.Target());
+            inner.Set(CallError::Kind::Alpaca, 200, 1031, "Camera not connected");
+        }
+    }
+    EXPECT_EQ(out.kind, CallError::Kind::Alpaca);
+    EXPECT_EQ(out.alpacaError, 1031);
+}
+
+TEST(CallErrorScope, NullTargetIsFine)
+{
+    AlpacaErrors::CallErrorScope scope(nullptr);
+    scope.Set(CallError::Kind::Transport, 0, 0, "x");
+    EXPECT_NE(scope.Target(), nullptr);
+}

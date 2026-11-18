@@ -35,6 +35,8 @@
 #ifndef CAMERA_H_INCLUDED
 #define CAMERA_H_INCLUDED
 
+#include "capture_failure.h"
+
 typedef std::map<int, usImage *> ExposureImgMap; // map exposure to image
 class DefectMap;
 
@@ -262,8 +264,20 @@ public:
 
     virtual bool Capture(usImage& img, const CaptureParams& captureParams) = 0;
 
+    // Why the last capture failed (#97), for the main thread once that capture has returned; clears it.
+    CaptureFailures::Failure TakeCaptureFailure();
+    // Forgets it: an exposure is about to start (GuideCamera::Capture, WorkerThread::HandleExpose,
+    // MyFrame::ScheduleExposure), so a stale reason never reaches a client.
+    void ClearCaptureFailure();
+
 protected:
     static bool CamConnectFailed(const wxString& errorMessage);
+
+    // Capture-thread side of the failure slot: a driver records the failed call of this capture,
+    // and the alert it raises for it (CaptureAlert alerts and records; DisconnectWithAlert records).
+    void RecordCaptureFailure(const AlpacaErrors::CallError& error);
+    void NoteCaptureAlert(const wxString& msg);
+    void CaptureAlert(const wxString& msg);
 
     enum CaptureFailType
     {
@@ -277,6 +291,12 @@ protected:
     };
     void DisconnectWithAlert(CaptureFailType type);
     void DisconnectWithAlert(const wxString& msg, ReconnectType reconnect);
+
+private:
+    // Written on the capture thread (the worker thread, or the dark-build capture thread) and read on
+    // the main thread. Never held while calling out (Alert, Disconnect).
+    wxCriticalSection m_lastCaptureFailureLock;
+    CaptureFailures::Failure m_lastCaptureFailure;
 };
 
 inline int GuideCamera::GetTimeoutMs() const

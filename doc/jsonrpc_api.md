@@ -151,6 +151,36 @@ Application/runtime errors:
 
 - `set_connected`
   - params: `{"connected":true|false}`
+  - a failed connect's error text ends with the reason the driver got, when it has one:
+    `"mount failed to connect (<reason>)"`, `"equipment failed to connect: mount (<reason>)"` (reasons are worded as
+    in the capture failure reasons below, e.g. `"The mount did not reply (Alpaca 1280)"`,
+    `"no response from the Alpaca server (Couldn't connect to server)"`)
+  - connect recovery (#104, headless daemon only; the desktop GUI keeps PHD2's behaviour): a selected camera, mount
+    or rotator the guider was asked to connect (`--auto-connect` at startup, `set_connected` true, `guide`, or the
+    camera auto-reconnect ending in `EquipmentReconnectFailed`) that is still not connected is retried in the
+    background 15 s, 30 s and 60 s after each failure, then every 60 s, with no limit. An attempt first asks the
+    Alpaca server on a thread of its own, with 1.5 s connect / 3 s request timeouts: `GET <type>/<n>/connected`
+    and, if false, `PUT Connected=true` (10 s, since a server that connects synchronously answers it only once the
+    device is open), then up to 5 s more for the device to read connected. Only when the server reports the device
+    connected does the guider connect it, the same way `set_connected` does (including the calibration auto-load),
+    so a failing attempt never holds up the JSON-RPC or event servers. When it connects, `EquipmentReconnected` is
+    sent (below); no exposure starts. Failed attempts send no `Alert`, not even when the driver fails after the
+    server reported the device connected (that failure goes to the debug log, and its reason to the next error
+    text); a connect a client asks for keeps its `Alert`.
+  - an attempt waits while a dark-library or defect-map build runs, a `set_pa_session` lease is held, the static
+    polar alignment tool is open (in any phase, from `staticpa_start` to `staticpa_close`: aligning, between
+    manual points and adjusting, since a mount that connected mid-run would move the target), polar drift
+    alignment is drifting, the drift-alignment tool is open, or the Guiding Assistant runs, and under the same
+    rules as `set_connected` (the camera not while capture is active; the mount and rotator not while calibrating
+    or guiding). It runs once the gate opens.
+  - `set_connected` false (for that device or for all) stops the retries for the devices it covers, even one that
+    was not connected: the guider never connects a device the user disconnected behind their back. A refused
+    disconnect changes nothing. Selecting another device or another profile forgets the state, and the device is then
+    connected only when a client asks again (`set_connected`, `guide`); choosing the same device again keeps it. A
+    device that failed because the Alpaca server is not configured is not retried until `set_alpaca_server` changes
+    the server settings. An attempt already asking the server when the user disconnects the device, selects
+    another one or changes the Alpaca server is stopped before its `PUT Connected=true` if that has not been sent
+    yet, and its result is dropped.
 
 - `shutdown`
   - requests app termination
@@ -173,6 +203,39 @@ Application/runtime errors:
     - optional `roi` as `[x,y,width,height]`
   - notes:
     - if `/server/guide_allow_recalibrate` is false, requested recalibration is ignored
+    - headless daemon (#104): a selected camera or mount that is not connected is connected first, with the same
+      probe of the Alpaca server as the background retry (above, under `set_connected`; it waits at most 2 s, not
+      5 s, for the device to read connected after its `PUT`). The probe runs on the main thread, so the daemon
+      answers no other RPC and sends no event until `guide` returns. The camera and the mount therefore share one
+      budget of about 4 s, which every request gets what is left of (so a stalled `PUT Connected=true` gets the
+      rest, not 10 s): the call takes as long as the server takes to refuse or finish `Connected=true` (the test
+      server simulates AlpacaBridge timing out on a powered-off mount in about 2.3 s), about 1.5 s per device for
+      a server that is not reachable (about 3 s for a camera and a mount on the same server), and at worst about
+      4 s. The budget stays below a 5 s per-call or ping timeout such as Ara's (the #100 note in
+      `design/API_CONTRACT.md`). A device the server reports connected is then connected through its driver (a
+      `GET connected` and the property reads, normally well under a second), which the budget does not bound, so
+      that starts only with at least 1 s of the budget left; with less, the device is refused as `"...: the mount
+      is still connecting"` and the background retry connects it at once (only a driver that stalls after the
+      server answered can take `guide` past the budget). A device whose request was sent but had not connected
+      when the budget ran out is refused (`"...: the mount failed to connect: no response from the Alpaca server
+      (Timeout was reached)"`) and left to the background retry, which keeps its longer timeouts on its own
+      thread. A device the budget had run out for before any request for it was sent (the camera used it up, or
+      the server read it not connected with no time left for the `PUT`) is refused as `"...: the mount was not
+      tried in time"`; that counts as no attempt, so its retry schedule and last reason stay as they were (a
+      device that was not being retried yet is tried by the background retry at once). When a
+      background attempt for the device is already asking the server, `guide` sends no second request: it waits
+      for that attempt's answer within the same budget and connects the device if the server reports it connected;
+      if the attempt has not ended by then, `guide` is refused with `"...: the mount is still connecting"` and the
+      attempt finishes on its own (`EquipmentReconnected` follows when it connects). `guide` is refused only
+      when the connect fails, with error code `1` and the old text as a prefix, one clause per device joined by
+      `"; "`:
+      `"all equipment must be connected first: the mount failed to connect: <reason>"`;
+      `"...: the mount was disconnected by the user"` for a device `set_connected` false disconnected (it is not
+      connected by `guide`); `"...: the camera is not connected: <refusal>"` when the connect itself is refused
+      (for example while capture is active). A device that had failed to connect (see `EquipmentReconnected`) sends
+      `EquipmentReconnected` before the calibration or guiding events; a device connected for the first time (never
+      tried since the daemon started without `--auto-connect`, or forgotten by another selection) sends none. A
+      rotator does not gate `guide`.
 
 - `dither`
   - params:
@@ -344,6 +407,10 @@ Alpaca server config (blocked while equipment is connected):
   - port range `1..65535`
   - device ids must be `>= 0`
   - when matching Alpaca devices are currently selected, menu selections are auto-updated
+  - headless daemon (#104): a device still to be connected (one that failed and is being retried, or one that failed
+    because the server was not configured) stays to be connected across that re-selection and is tried again at
+    once, so `set_alpaca_server` alone connects a device `--auto-connect` could not connect; `EquipmentReconnected`
+    follows when it connects. A device the user disconnected stays disconnected.
 
 Alpaca discovery/query:
 
@@ -553,6 +620,97 @@ Alpaca discovery/query:
   - exports configuration to default data directory as `phd2_settings.txt`
   - result: `{"filename":"..."}`
 
+### Static Polar Alignment
+
+The `staticpa_*` methods (`staticpa_start`, `staticpa_measure`, `staticpa_get_status`, `staticpa_stop`,
+`staticpa_close`) drive the Static PA tool headlessly. This section covers only how auto mode treats the frames
+exposed during its own RA steps (#98) and the live readout while the user adjusts the mount (#99).
+
+- In auto mode (`staticpa_start {auto:true}`) the tool turns the mount west in RA in steps while the camera keeps
+  looping. While it is aligning, the daemon asks the mount whether it is slewing on every frame, before the star is
+  tracked. A frame is **not star-tracked** when the mount reads slewing, and after a step until the first frame
+  whose exposure started after the mount was seen to have stopped. The frame on which the stop is first seen was
+  exposed while the mount may still have been moving, so it is skipped as well. Each step's reading (and the
+  reference position for the next step) comes from the first frame that is tracked again.
+- A skipped frame is still displayed and still sent as `LoopingExposures`, with `Frame` and
+  `Status: "Static PA: waiting for the RA step to finish"` and no `StarMass`/`SNR`/`HFD`/`ErrorCode`. It is not a
+  star loss: no `StarLost` is sent and the run does not end, and it does not feed the mass-change check or auto
+  exposure.
+- `staticpa_get_status` keeps its shape. `rotation.slewing` is the mount's live `Slewing` state, so it can read
+  `false` for about one more frame while the step's reading is still pending.
+- Cost: one extra frame per step compared with reading the step on the frame where the mount is first seen
+  stopped (about one exposure plus download per step). A frame whose start time reads later than now (the system
+  clock was stepped back while it downloaded) is skipped too, so such a step costs one more frame.
+- No smeared-frame bridge: the star must be found within one search region of its position before the step. The
+  steps are sized for an assumed 5 deg polar error, one search region per step, so a mount that is much further off
+  can now lose the star on the first frame after a step and end the run ("Static PA rotation failed - star lost"),
+  where before a smeared frame found partway along the arc could carry the tracker across. This is the limit
+  upstream PHD2 already has on a mount whose steps finish between two frames. A larger search region does not help,
+  because the steps grow with it.
+- A mount that cannot report slewing (`Slewing` always `false`) skips one frame per step. A mount whose `Slewing`
+  read fails (an Alpaca HTTP error reads as not slewing) is treated as stopped.
+- Manual mode (`auto:false` with `staticpa_measure`) is unchanged.
+
+#### Live readout while adjusting (#99)
+
+Once the solution is calculated from points measured since the latest `staticpa_start` (`calced: true`) and the
+tool is not measuring (`aligning: false`), it is adjusting: the user turns the alt/az bolts and a client polls `staticpa_get_status` for `live_adjustment`, which converges to zero as the
+reference star reaches `ref_star_target`. The tool follows the reference star itself, through its star field,
+instead of reading the guider's star:
+
+- When the solution is calculated, the tool keeps the frame that produced the measurement: the reference star and up
+  to 30 stars around it. On every looping frame after that it lists the stars of the whole frame and works out how
+  the field moved (a translation plus a small rotation). A frame counts as a fix only when at least
+  max(3, 30% of the stars expected in view) of the measurement frame's stars agree on the move and no other move
+  explains nearly as many of them. A bolt turn of any size is found on the first frame after it while enough of the
+  field stays in view, and another star is never taken for the reference star. The guider's search region no longer
+  limits the readout.
+- When the measurement frame was a subframe (`UseSubframes` on), the field is taken from the next frame, a full one,
+  and only if a star is still within 3 px of the measured position: when the field has already moved (a turn started
+  at once), nothing ties the reference star to a star of that frame, so there is no live readout (`lost`, both
+  counters 0) until the alignment is measured again.
+- `staticpa_get_status` (and the `staticpa_stop` result, which returns the same object) gains `live_tracking` while
+  adjusting. The `staticpa_start` and `staticpa_measure` results never carry it: the tool is measuring by then.
+  `{"state": "tracking"|"searching"|"lost", "frames_since_fix": int, "seconds_since_fix": number,
+  "confirmed_by": int, "ambiguous": bool}`.
+  - `tracking`: the latest frame gave a fix, and it is fresh: capture is running and the fix is younger than
+    max(3 x exposure, 5 s).
+  - `searching`: no fresh fix (the field did not match on the latest frame, capture stopped or failed, the guider
+    was reset, or the guider is calibrating or guiding). The tool keeps looking.
+  - `lost`: no fix for at least 10 frames and 15 s. The tool still keeps looking, and the state goes back to
+    `tracking` on its own once the field is in view again. `lost` with `frames_since_fix` and `seconds_since_fix`
+    both 0 is the one exception: there is no field to look for (see the subframe case above) until the alignment is
+    measured again.
+  - `frames_since_fix`: frames evaluated since the last fix (0 when the latest frame is the fix). `seconds_since_fix`:
+    since the last fix, on a steady clock.
+  - `confirmed_by`: stars of the measurement frame that matched on the last fix. It is 0 for the measurement itself,
+    and for a field with fewer than 3 stars, where the tool follows the guider's own star instead (with the guider's
+    search-region limits, as before).
+  - `ambiguous`: the latest frame matched two different moves nearly equally well, so it is not a fix.
+- `current_star` and `live_adjustment` keep their shape but are present only while `live_tracking.state` is
+  `tracking`. `current_star` is the reference star's position on the latest frame. When the star has been moved off
+  the sensor while enough of its field is still in view, it is the position the field puts it at, which can lie
+  outside the frame (x < 0, y < 0, or beyond the frame size). It can differ from the guider's star: the guider is not
+  changed and may still lose its star during a turn (`StarLost`, `LoopingExposures` without a star), so select the
+  star again (`find_star`) before measuring again.
+- Neither `live_tracking` nor `current_star` / `live_adjustment` is sent while a solution uses points from an
+  earlier run. Manual mode keeps the previous points, so after `staticpa_start {auto:false}` the new point 1 is
+  calculated with the old points 2 and 3 (`calced: true`, `aligning: false`); the live readout comes back only once
+  points 1, 2 and 3 have all been measured again (auto mode: points 1 and 2). Before, the fields were reported
+  against such a mixed solution. They are also not sent while calibrating or guiding with the tool open (`state`
+  reads `searching` from the moment calibration or guiding starts).
+- While adjusting and looping, the guider takes no subframes, so that every frame shows the whole field (this
+  matters only when `UseSubframes` is on, also while the guider is paused or has lost its star). Calibration and
+  guiding keep their subframes even with a solved tool left open, since the readout is off then. The one frame
+  already scheduled when the adjust phase begins can still be a subframe: it is not counted either way, and the
+  previous fix is no longer reported.
+- Limits: the field is matched against the measurement frame's stars only, so a move that leaves fewer than
+  max(3, 30%) of them in view reads `searching` until the field comes back. A frame of another size (binning
+  changed) is not matched: it counts as a frame without a fix, so the state goes to `lost`, and the readout comes back
+  if the size is changed back. The search runs on the main thread on every frame: about
+  2 ms at 1280x960 and 10 ms at 3096x2080 on the arm64 test machine (larger sensors are binned for the detection
+  pass and measured at full resolution); the debug log has one `StaticPA live:` line per frame with the timing.
+
 ## Async Events
 
 All events include base fields:
@@ -593,7 +751,7 @@ Event names emitted:
 - `ConfigurationChange`
 - `DarkLibraryBuildStarted` / `DarkLibraryFrameComplete` / `DarkLibraryBuildComplete` / `DarkLibraryBuildFailed`
 - `DefectMapBuildStarted` / `DefectMapFrameComplete` / `DefectMapBuildComplete` / `DefectMapBuildFailed`
-- `EquipmentDisconnected` / `EquipmentReconnected`
+- `EquipmentDisconnected` / `EquipmentReconnected` / `EquipmentReconnectFailed`
 
 Payload notes for downstream clients:
 
@@ -616,6 +774,10 @@ Payload notes for downstream clients:
     *groups*, the defect-map build between *frames* of its single group, so one field name never carries two
     units. Clients keying off "partial progress" should read whichever key matches the event (`DarkLibrary*` →
     `partial_groups_completed`; `DefectMap*` → `partial_frames_completed`).
+- `LoopingExposures` — `{ Frame }`, plus `StarMass`, `SNR`, `HFD` when a star was measured, `ErrorCode` when the
+  star was not found and `Status` when there is a reason to show. While a Static PA auto-mode RA step is moving, the
+  frame is not measured: the event carries `Frame` and `Status: "Static PA: waiting for the RA step to finish"`
+  only, and no `StarLost` follows (see Static Polar Alignment above).
 - `EquipmentDisconnected` — `{ device_type: "camera", reason: string, reconnecting: bool }`. Emitted (in addition
   to `Alert`) whenever the daemon force-disconnects a device on a fault: the capture timeout, an Alpaca camera the
   server reports as not connected (Alpaca error 1031 from any capture call: `binx`/`biny`, `startexposure`,
@@ -631,17 +793,66 @@ Payload notes for downstream clients:
   disconnect state machine is fully observable: `reconnecting: true` is always followed by either
   `EquipmentReconnected` (recovered) or `EquipmentReconnectFailed` (the reconnect failed or the throttle gave up —
   terminal). `device_type` is `"camera"` today — a mount fault surfaces as RPC errors, not an auto-disconnect.
-- `EquipmentReconnected` — `{ device_type: "camera" }`. The recovered twin: automatic reconnection succeeded. If the
-  failed frame was part of looping or guiding, exposures resume; a reconnect deferred until a dark-library or
-  defect-map build has ended starts no exposure. A client that raised a fault on `EquipmentDisconnected` clears it
-  here.
+- `EquipmentReconnected` — `{ device_type: "camera"|"mount"|"rotator" }`. The recovered twin: automatic
+  reconnection succeeded. If the failed frame was part of looping or guiding, exposures resume; a reconnect deferred
+  until a dark-library or defect-map build has ended starts no exposure. A client that raised a fault on
+  `EquipmentDisconnected` clears it here. On the headless daemon (#104) it is also sent, once, when a device that
+  had failed to connect (at startup, on a connect request, or after `EquipmentReconnectFailed`) connects by any
+  path: the background retry, `guide`, `set_connected` or the Gear dialog. It then follows the calibration
+  auto-load and comes before the response of the RPC that connected it; it can arrive with no
+  `EquipmentDisconnected` before it (a mount that was off at startup), or after the terminal
+  `EquipmentReconnectFailed`; a recovery by the retry starts no exposure.
 - `EquipmentReconnectFailed` — `{ device_type: "camera", attempts: int, reason: string }`. Terminal event: a client
   that keyed off `reconnecting: true` clears the pending state here instead of waiting indefinitely. Sent when the
   reconnect attempt itself fails (`reason: "the camera did not reconnect"`, for example because the server refuses
   `Connected=true`; `attempts` counts the attempts made in the last 60 s, this one included), or when the
   auto-reconnect throttle is exhausted (`reason: "auto-reconnect throttle exhausted (3 attempts in 60 s)"`;
   `attempts` is the number of *completed* prior attempts in the window, i.e. the throttle limit, 3 — the blocked
-  attempt is not counted). The camera stays disconnected; reconnect it with `set_connected`.
+  attempt is not counted). It ends the automatic reconnection only: on the headless daemon (#104) the camera joins
+  the slow background retry (15 s, 30 s, then every 60 s; see `set_connected`), and `EquipmentReconnected` follows
+  when it connects, by the retry or by `set_connected`.
+- Capture failure reasons (#97). When the guide camera fails a frame, every report of that failure carries the
+  camera's own reason, one line of UTF-8 of at most 200 bytes:
+  - for an Alpaca error, `"<ErrorMessage> (Alpaca <ErrorNumber>)"`, or `"Alpaca error <ErrorNumber>"` when the
+    server sent no message;
+  - for an HTTP status other than 200, `"HTTP <status>"`, plus `": <body>"` when the whole body, whitespace
+    collapsed, is at most 120 bytes and has no `<` (a longer body or an HTML error page is left out, never cut);
+  - for no response, `"no response from the Alpaca server (<curl error>)"`; for a response that is not Alpaca
+    JSON, `"invalid response from the Alpaca server"`;
+  - otherwise the alert the camera driver raised for the frame, such as the capture-timeout text.
+
+  Where it appears:
+  - `SingleFrameComplete` — `{ Success, Error?, Path?, Filename? }`. On a capture failure `Error` is
+    `"camera error: <reason>"`, for example `"camera error: Camera not connected (Alpaca 1031)"`, or exactly
+    `"camera error -- see debug log"` when the camera gave no reason. This includes a single frame whose camera the
+    daemon tried to reconnect (1031) and could not.
+  - `SettleDone` of a `guide` or `dither` request that a capture failure ended: `Error` is the same
+    `"camera error: <reason>"` text. It used to be `"Stopped capturing"` (failure while looping or selecting a star)
+    or `"Guiding stopped"` (failure while calibrating or guiding). A request ended by `stop_capture` still says
+    `"Stopped capturing"` / `"Guiding stopped"`. The event order is unchanged from earlier releases:
+    - failure while calibrating or guiding: `CalibrationFailed` (when calibrating), `GuidingStopped`, `SettleDone`,
+      then `LoopingExposuresStopped` (it can arrive twice);
+    - failure while looping or selecting a star: `LoopingExposuresStopped`, `SettleDone`, then a second
+      `LoopingExposuresStopped`;
+    - while a guide pulse is still in progress, `GuidingStopped` is held until the pulse ends, so it can follow
+      `SettleDone` and `LoopingExposuresStopped`.
+
+    Treat `SettleDone` as the end of the request and a `LoopingExposuresStopped` around it as part of the same stop.
+  - `CalibrationFailed` of a calibration a capture failure interrupted: `Reason` is the same text instead of
+    `"Calibration manually stopped"`.
+  - The `build_dark_library` / `build_defect_map_darks` error and `DarkLibraryBuildFailed` /
+    `DefectMapBuildFailed` `error`: `"failed to capture dark frame <i>/<n>: <reason>"` (without `: <reason>` when
+    there is none).
+  - `Alert` `Msg` for a failed `startexposure`, `imageready`, `imagearray` or binning call:
+    `"<prefix>: <reason>"`, for example
+    `"Alpaca error -- Cannot start exposure: Duration out of range (Alpaca 1025)"` (the old prefix
+    `"... with given parameters"` is gone).
+
+  The reason's server text is passed through untranslated; the driver-alert fallback is the daemon's own message
+  and can be localised. The reason is cleared whenever an exposure is scheduled or starts, so a frame never reports
+  an earlier frame's failure. Looping, guiding and the polar-alignment tools with no `guide` / `dither` request in
+  flight still end with `LoopingExposuresStopped` / `GuidingStopped`, which carry no reason; the `Alert` does. A
+  failed gain write is still logged and does not fail the frame.
 
 ### Startup Catch-Up Events
 
@@ -713,7 +924,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_profile_setup` | none | none | setup object with 11 fields | none expected | none |
 | `set_profile_setup` | object with any subset of setup fields | no equipment connected | full setup object (post-apply) | `-32602` type/range violations; `1` blocked while connected | profile settings flushed; runtime setup reloaded |
 | `get_connected` | none | none | `bool` | none expected | none |
-| `set_connected` | `connected:bool` | guider context must exist | `0` | `-32602` invalid boolean; `1` connect/disconnect failure | device connection state changes; corresponding events may follow |
+| `set_connected` | `connected:bool` | guider context must exist | `0` | `-32602` invalid boolean; `1` connect/disconnect failure (a connect failure ends with ` (<reason>)` when the driver has one) | device connection state changes; corresponding events may follow. Headless (#104): a failed connect is retried in the background (15/30/60 s, then every 60 s) until it connects; `connected:false` stops that for the devices it covers; `EquipmentReconnected` when a failed device connects |
 | `shutdown` | none | none | `0` | none in normal path | app termination requested. Semantics: the daemon exits CLEANLY (exit code 0) — under systemd `Restart=on-failure` this is a deliberate stop and the unit is NOT restarted; use `Restart=always` if a supervisor should bring it back |
 | `get_version` | none | none | `{version,phd_version,phd_subver,msg_version,overlap_support,fork}` | none expected | none. Synchronous twin of the `Version` catch-up event (previously implemented but undocumented); `version` is the user-facing FULLVER string and `fork` is `"openastro-guider"` for daemon-vs-stock-PHD2 detection. **Casing:** this RPC *result* is snake_case while the `Version` *event* is PascalCase for the same data — `phd_version`↔`PHDVersion`, `phd_subver`↔`PHDSubver`, `overlap_support`↔`OverlapSupport`, `msg_version`↔`MsgVersion`, `fork`↔`Fork` (the split is deliberate: RPC results follow the snake_case method convention, events follow PHD2's PascalCase event convention — a client reading both must map the keys). **Back-compat:** `fork` is `"openastro-guider"` post-rename; older builds/docs used `"openastro-phd2"`, so clients matching on it should accept both |
 
@@ -724,7 +935,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_app_state` | none | none | state string | none expected | none |
 | `loop` | none | none | `0` | `1` cannot start looping | transitions toward `Looping` state |
 | `stop_capture` | none | none | `0` | none expected | stops looping/guiding capture path |
-| `guide` | `settle:{pixels,time,timeout}`; optional `recalibrate:bool`; optional `roi:[x,y,w,h]` | guiding must be possible (`CanGuide`) | `0` | `-32602` bad settle/roi/recalibrate type; `1` cannot guide or guide failed | guiding/calibration/settle event flow starts |
+| `guide` | `settle:{pixels,time,timeout}`; optional `recalibrate:bool`; optional `roi:[x,y,w,h]` | guiding must be possible (`CanGuide`); headless (#104): a selected camera or mount that is not connected is connected first | `0` | `-32602` bad settle/roi/recalibrate type; `1` cannot guide or guide failed; `1` `"all equipment must be connected first: the mount failed to connect: <reason>"` (or `"...: the mount was disconnected by the user"`) when that connect fails | guiding/calibration/settle event flow starts; `EquipmentReconnected` first when a failed device connected |
 | `dither` | `amount:number`; optional `raOnly:bool`; `settle:{pixels,time,timeout}` | guiding controller available | `0` | `-32602` missing/invalid params; `1` dither failure | `GuidingDithered` + settling events |
 | `get_settling` | none | none | `bool` | none expected | none |
 | `get_paused` | none | guider context must exist | `bool` | `1` internal guider error | none |
@@ -741,7 +952,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_exposure` | none | none | exposure ms (int) | none expected | none |
 | `set_exposure` | `exposure:int` | none | `0` | `-32602` invalid/missing exposure; `1` set failure | requested exposure changes |
 | `get_exposure_durations` | none | none | int[] (ms) | none expected | none |
-| `capture_single_frame` | optional `exposure`,`binning`,`gain`,`subframe`,`path`,`save` | no active capture; connected camera required; `path` must be absolute, in an existing directory inside the data directory (or the `/server/capture_frame_dir` config override); symlinks are resolved before the check | `0` (capture queued) | `-32602` invalid params/path rules; `1` camera/capture state failure; `2` exposure start failure | completion via `SingleFrameComplete` event |
+| `capture_single_frame` | optional `exposure`,`binning`,`gain`,`subframe`,`path`,`save` | no active capture; connected camera required; `path` must be absolute, in an existing directory inside the data directory (or the `/server/capture_frame_dir` config override); symlinks are resolved before the check | `0` (capture queued) | `-32602` invalid params/path rules; `1` camera/capture state failure; `2` exposure start failure | completion via `SingleFrameComplete` event (a capture failure gives `Success:false`, `Error:"camera error: <reason>"`; see Capture failure reasons) |
 | `save_image` | none | guider context; current image must exist | `{filename}` | `2` no image; `3` save failure | writes temporary image file |
 | `get_star_image` | optional `size:int>=15` | guider context; selected star and valid image | `{frame,width,height,star_pos,pixels}` | `-32602` invalid size; `2` no star selected | none |
 | `get_use_subframes` | none | none | `bool` | none expected | none |
@@ -781,7 +992,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_indi_server` | none | none | `{host,port}` | none expected | none |
 | `set_indi_server` | any of `host:string`,`port:int` | no equipment connected | `0` | `-32602` missing both fields/invalid host/port out of `1..65535`; `1` blocked while connected | persisted INDI host/port |
 | `get_alpaca_server` | none | none | `{host,port,camera_device,telescope_device,rotator_device}` | none expected | none |
-| `set_alpaca_server` | any subset of `host`,`port`,`camera_device`,`telescope_device`,`rotator_device` | no equipment connected | `0` | `-32602` invalid/missing all fields/port range/device < 0; `1` blocked while connected | persisted Alpaca endpoint/device ids; may auto-adjust selected Alpaca choices |
+| `set_alpaca_server` | any subset of `host`,`port`,`camera_device`,`telescope_device`,`rotator_device` | no equipment connected | `0` | `-32602` invalid/missing all fields/port range/device < 0; `1` blocked while connected | persisted Alpaca endpoint/device ids; may auto-adjust selected Alpaca choices; headless (#104): a device still to be connected is tried again at once |
 | `discover_alpaca_servers` | optional `num_queries|queries` (`1..20`), `timeout_seconds|timeout` (`1..30`) | Alpaca support compiled in | `string[]` host:port list | `-32602` invalid numeric ranges; `1` Alpaca disabled in build | network discovery queries |
 | `query_alpaca_devices` | optional `host`,`port`,`device_type|type` | Alpaca support compiled in | array of `{device_number,device_type,device_name,display_name,display}` | `-32602` invalid args/type enum; `1` server query/response failure or Alpaca disabled | HTTP query to Alpaca management endpoint |
 | `get_alpaca_camera_pixelsize` | optional `host`,`port`,`device_number|device` | Alpaca support compiled in | `{host,port,device_number,pixel_size}` | `-32602` invalid host/port/device args; `1` query failure or Alpaca disabled | reads Alpaca camera `pixelsizex`/`pixelsizey` |

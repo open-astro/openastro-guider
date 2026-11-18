@@ -68,7 +68,7 @@ private:
     void ClearStatus();
     void CameraSetup();
     bool AbortExposure();
-    bool CaptureFailed(long alpacaError, const wxString& serverMessage, const wxString& alert);
+    bool CaptureFailed(const AlpacaErrors::CallError& error, const wxString& alert);
 
 public:
     bool Color;
