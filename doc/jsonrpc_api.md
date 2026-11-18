@@ -151,6 +151,36 @@ Application/runtime errors:
 
 - `set_connected`
   - params: `{"connected":true|false}`
+  - a failed connect's error text ends with the reason the driver got, when it has one:
+    `"mount failed to connect (<reason>)"`, `"equipment failed to connect: mount (<reason>)"` (reasons are worded as
+    in the capture failure reasons below, e.g. `"The mount did not reply (Alpaca 1280)"`,
+    `"no response from the Alpaca server (Couldn't connect to server)"`)
+  - connect recovery (#104, headless daemon only; the desktop GUI keeps PHD2's behaviour): a selected camera, mount
+    or rotator the guider was asked to connect (`--auto-connect` at startup, `set_connected` true, `guide`, or the
+    camera auto-reconnect ending in `EquipmentReconnectFailed`) that is still not connected is retried in the
+    background 15 s, 30 s and 60 s after each failure, then every 60 s, with no limit. An attempt first asks the
+    Alpaca server on a thread of its own, with 1.5 s connect / 3 s request timeouts: `GET <type>/<n>/connected`
+    and, if false, `PUT Connected=true` (10 s, since a server that connects synchronously answers it only once the
+    device is open), then up to 5 s more for the device to read connected. Only when the server reports the device
+    connected does the guider connect it, the same way `set_connected` does (including the calibration auto-load),
+    so a failing attempt never holds up the JSON-RPC or event servers. When it connects, `EquipmentReconnected` is
+    sent (below); no exposure starts. Failed attempts send no `Alert`, not even when the driver fails after the
+    server reported the device connected (that failure goes to the debug log, and its reason to the next error
+    text); a connect a client asks for keeps its `Alert`.
+  - an attempt waits while a dark-library or defect-map build runs, a `set_pa_session` lease is held, the static
+    polar alignment tool is open (in any phase, from `staticpa_start` to `staticpa_close`: aligning, between
+    manual points and adjusting, since a mount that connected mid-run would move the target), polar drift
+    alignment is drifting, the drift-alignment tool is open, or the Guiding Assistant runs, and under the same
+    rules as `set_connected` (the camera not while capture is active; the mount and rotator not while calibrating
+    or guiding). It runs once the gate opens.
+  - `set_connected` false (for that device or for all) stops the retries for the devices it covers, even one that
+    was not connected: the guider never connects a device the user disconnected behind their back. A refused
+    disconnect changes nothing. Selecting another device or another profile forgets the state, and the device is then
+    connected only when a client asks again (`set_connected`, `guide`); choosing the same device again keeps it. A
+    device that failed because the Alpaca server is not configured is not retried until `set_alpaca_server` changes
+    the server settings. An attempt already asking the server when the user disconnects the device, selects
+    another one or changes the Alpaca server is stopped before its `PUT Connected=true` if that has not been sent
+    yet, and its result is dropped.
 
 - `shutdown`
   - requests app termination
@@ -173,6 +203,39 @@ Application/runtime errors:
     - optional `roi` as `[x,y,width,height]`
   - notes:
     - if `/server/guide_allow_recalibrate` is false, requested recalibration is ignored
+    - headless daemon (#104): a selected camera or mount that is not connected is connected first, with the same
+      probe of the Alpaca server as the background retry (above, under `set_connected`; it waits at most 2 s, not
+      5 s, for the device to read connected after its `PUT`). The probe runs on the main thread, so the daemon
+      answers no other RPC and sends no event until `guide` returns. The camera and the mount therefore share one
+      budget of about 4 s, which every request gets what is left of (so a stalled `PUT Connected=true` gets the
+      rest, not 10 s): the call takes as long as the server takes to refuse or finish `Connected=true` (the test
+      server simulates AlpacaBridge timing out on a powered-off mount in about 2.3 s), about 1.5 s per device for
+      a server that is not reachable (about 3 s for a camera and a mount on the same server), and at worst about
+      4 s. The budget stays below a 5 s per-call or ping timeout such as Ara's (the #100 note in
+      `design/API_CONTRACT.md`). A device the server reports connected is then connected through its driver (a
+      `GET connected` and the property reads, normally well under a second), which the budget does not bound, so
+      that starts only with at least 1 s of the budget left; with less, the device is refused as `"...: the mount
+      is still connecting"` and the background retry connects it at once (only a driver that stalls after the
+      server answered can take `guide` past the budget). A device whose request was sent but had not connected
+      when the budget ran out is refused (`"...: the mount failed to connect: no response from the Alpaca server
+      (Timeout was reached)"`) and left to the background retry, which keeps its longer timeouts on its own
+      thread. A device the budget had run out for before any request for it was sent (the camera used it up, or
+      the server read it not connected with no time left for the `PUT`) is refused as `"...: the mount was not
+      tried in time"`; that counts as no attempt, so its retry schedule and last reason stay as they were (a
+      device that was not being retried yet is tried by the background retry at once). When a
+      background attempt for the device is already asking the server, `guide` sends no second request: it waits
+      for that attempt's answer within the same budget and connects the device if the server reports it connected;
+      if the attempt has not ended by then, `guide` is refused with `"...: the mount is still connecting"` and the
+      attempt finishes on its own (`EquipmentReconnected` follows when it connects). `guide` is refused only
+      when the connect fails, with error code `1` and the old text as a prefix, one clause per device joined by
+      `"; "`:
+      `"all equipment must be connected first: the mount failed to connect: <reason>"`;
+      `"...: the mount was disconnected by the user"` for a device `set_connected` false disconnected (it is not
+      connected by `guide`); `"...: the camera is not connected: <refusal>"` when the connect itself is refused
+      (for example while capture is active). A device that had failed to connect (see `EquipmentReconnected`) sends
+      `EquipmentReconnected` before the calibration or guiding events; a device connected for the first time (never
+      tried since the daemon started without `--auto-connect`, or forgotten by another selection) sends none. A
+      rotator does not gate `guide`.
 
 - `dither`
   - params:
@@ -344,6 +407,10 @@ Alpaca server config (blocked while equipment is connected):
   - port range `1..65535`
   - device ids must be `>= 0`
   - when matching Alpaca devices are currently selected, menu selections are auto-updated
+  - headless daemon (#104): a device still to be connected (one that failed and is being retried, or one that failed
+    because the server was not configured) stays to be connected across that re-selection and is tried again at
+    once, so `set_alpaca_server` alone connects a device `--auto-connect` could not connect; `EquipmentReconnected`
+    follows when it connects. A device the user disconnected stays disconnected.
 
 Alpaca discovery/query:
 
@@ -593,7 +660,7 @@ Event names emitted:
 - `ConfigurationChange`
 - `DarkLibraryBuildStarted` / `DarkLibraryFrameComplete` / `DarkLibraryBuildComplete` / `DarkLibraryBuildFailed`
 - `DefectMapBuildStarted` / `DefectMapFrameComplete` / `DefectMapBuildComplete` / `DefectMapBuildFailed`
-- `EquipmentDisconnected` / `EquipmentReconnected`
+- `EquipmentDisconnected` / `EquipmentReconnected` / `EquipmentReconnectFailed`
 
 Payload notes for downstream clients:
 
@@ -631,17 +698,24 @@ Payload notes for downstream clients:
   disconnect state machine is fully observable: `reconnecting: true` is always followed by either
   `EquipmentReconnected` (recovered) or `EquipmentReconnectFailed` (the reconnect failed or the throttle gave up —
   terminal). `device_type` is `"camera"` today — a mount fault surfaces as RPC errors, not an auto-disconnect.
-- `EquipmentReconnected` — `{ device_type: "camera" }`. The recovered twin: automatic reconnection succeeded. If the
-  failed frame was part of looping or guiding, exposures resume; a reconnect deferred until a dark-library or
-  defect-map build has ended starts no exposure. A client that raised a fault on `EquipmentDisconnected` clears it
-  here.
+- `EquipmentReconnected` — `{ device_type: "camera"|"mount"|"rotator" }`. The recovered twin: automatic
+  reconnection succeeded. If the failed frame was part of looping or guiding, exposures resume; a reconnect deferred
+  until a dark-library or defect-map build has ended starts no exposure. A client that raised a fault on
+  `EquipmentDisconnected` clears it here. On the headless daemon (#104) it is also sent, once, when a device that
+  had failed to connect (at startup, on a connect request, or after `EquipmentReconnectFailed`) connects by any
+  path: the background retry, `guide`, `set_connected` or the Gear dialog. It then follows the calibration
+  auto-load and comes before the response of the RPC that connected it; it can arrive with no
+  `EquipmentDisconnected` before it (a mount that was off at startup), or after the terminal
+  `EquipmentReconnectFailed`; a recovery by the retry starts no exposure.
 - `EquipmentReconnectFailed` — `{ device_type: "camera", attempts: int, reason: string }`. Terminal event: a client
   that keyed off `reconnecting: true` clears the pending state here instead of waiting indefinitely. Sent when the
   reconnect attempt itself fails (`reason: "the camera did not reconnect"`, for example because the server refuses
   `Connected=true`; `attempts` counts the attempts made in the last 60 s, this one included), or when the
   auto-reconnect throttle is exhausted (`reason: "auto-reconnect throttle exhausted (3 attempts in 60 s)"`;
   `attempts` is the number of *completed* prior attempts in the window, i.e. the throttle limit, 3 — the blocked
-  attempt is not counted). The camera stays disconnected; reconnect it with `set_connected`.
+  attempt is not counted). It ends the automatic reconnection only: on the headless daemon (#104) the camera joins
+  the slow background retry (15 s, 30 s, then every 60 s; see `set_connected`), and `EquipmentReconnected` follows
+  when it connects, by the retry or by `set_connected`.
 - Capture failure reasons (#97). When the guide camera fails a frame, every report of that failure carries the
   camera's own reason, one line of UTF-8 of at most 200 bytes:
   - for an Alpaca error, `"<ErrorMessage> (Alpaca <ErrorNumber>)"`, or `"Alpaca error <ErrorNumber>"` when the
@@ -755,7 +829,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_profile_setup` | none | none | setup object with 11 fields | none expected | none |
 | `set_profile_setup` | object with any subset of setup fields | no equipment connected | full setup object (post-apply) | `-32602` type/range violations; `1` blocked while connected | profile settings flushed; runtime setup reloaded |
 | `get_connected` | none | none | `bool` | none expected | none |
-| `set_connected` | `connected:bool` | guider context must exist | `0` | `-32602` invalid boolean; `1` connect/disconnect failure | device connection state changes; corresponding events may follow |
+| `set_connected` | `connected:bool` | guider context must exist | `0` | `-32602` invalid boolean; `1` connect/disconnect failure (a connect failure ends with ` (<reason>)` when the driver has one) | device connection state changes; corresponding events may follow. Headless (#104): a failed connect is retried in the background (15/30/60 s, then every 60 s) until it connects; `connected:false` stops that for the devices it covers; `EquipmentReconnected` when a failed device connects |
 | `shutdown` | none | none | `0` | none in normal path | app termination requested. Semantics: the daemon exits CLEANLY (exit code 0) — under systemd `Restart=on-failure` this is a deliberate stop and the unit is NOT restarted; use `Restart=always` if a supervisor should bring it back |
 | `get_version` | none | none | `{version,phd_version,phd_subver,msg_version,overlap_support,fork}` | none expected | none. Synchronous twin of the `Version` catch-up event (previously implemented but undocumented); `version` is the user-facing FULLVER string and `fork` is `"openastro-guider"` for daemon-vs-stock-PHD2 detection. **Casing:** this RPC *result* is snake_case while the `Version` *event* is PascalCase for the same data — `phd_version`↔`PHDVersion`, `phd_subver`↔`PHDSubver`, `overlap_support`↔`OverlapSupport`, `msg_version`↔`MsgVersion`, `fork`↔`Fork` (the split is deliberate: RPC results follow the snake_case method convention, events follow PHD2's PascalCase event convention — a client reading both must map the keys). **Back-compat:** `fork` is `"openastro-guider"` post-rename; older builds/docs used `"openastro-phd2"`, so clients matching on it should accept both |
 
@@ -766,7 +840,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_app_state` | none | none | state string | none expected | none |
 | `loop` | none | none | `0` | `1` cannot start looping | transitions toward `Looping` state |
 | `stop_capture` | none | none | `0` | none expected | stops looping/guiding capture path |
-| `guide` | `settle:{pixels,time,timeout}`; optional `recalibrate:bool`; optional `roi:[x,y,w,h]` | guiding must be possible (`CanGuide`) | `0` | `-32602` bad settle/roi/recalibrate type; `1` cannot guide or guide failed | guiding/calibration/settle event flow starts |
+| `guide` | `settle:{pixels,time,timeout}`; optional `recalibrate:bool`; optional `roi:[x,y,w,h]` | guiding must be possible (`CanGuide`); headless (#104): a selected camera or mount that is not connected is connected first | `0` | `-32602` bad settle/roi/recalibrate type; `1` cannot guide or guide failed; `1` `"all equipment must be connected first: the mount failed to connect: <reason>"` (or `"...: the mount was disconnected by the user"`) when that connect fails | guiding/calibration/settle event flow starts; `EquipmentReconnected` first when a failed device connected |
 | `dither` | `amount:number`; optional `raOnly:bool`; `settle:{pixels,time,timeout}` | guiding controller available | `0` | `-32602` missing/invalid params; `1` dither failure | `GuidingDithered` + settling events |
 | `get_settling` | none | none | `bool` | none expected | none |
 | `get_paused` | none | guider context must exist | `bool` | `1` internal guider error | none |
@@ -823,7 +897,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_indi_server` | none | none | `{host,port}` | none expected | none |
 | `set_indi_server` | any of `host:string`,`port:int` | no equipment connected | `0` | `-32602` missing both fields/invalid host/port out of `1..65535`; `1` blocked while connected | persisted INDI host/port |
 | `get_alpaca_server` | none | none | `{host,port,camera_device,telescope_device,rotator_device}` | none expected | none |
-| `set_alpaca_server` | any subset of `host`,`port`,`camera_device`,`telescope_device`,`rotator_device` | no equipment connected | `0` | `-32602` invalid/missing all fields/port range/device < 0; `1` blocked while connected | persisted Alpaca endpoint/device ids; may auto-adjust selected Alpaca choices |
+| `set_alpaca_server` | any subset of `host`,`port`,`camera_device`,`telescope_device`,`rotator_device` | no equipment connected | `0` | `-32602` invalid/missing all fields/port range/device < 0; `1` blocked while connected | persisted Alpaca endpoint/device ids; may auto-adjust selected Alpaca choices; headless (#104): a device still to be connected is tried again at once |
 | `discover_alpaca_servers` | optional `num_queries|queries` (`1..20`), `timeout_seconds|timeout` (`1..30`) | Alpaca support compiled in | `string[]` host:port list | `-32602` invalid numeric ranges; `1` Alpaca disabled in build | network discovery queries |
 | `query_alpaca_devices` | optional `host`,`port`,`device_type|type` | Alpaca support compiled in | array of `{device_number,device_type,device_name,display_name,display}` | `-32602` invalid args/type enum; `1` server query/response failure or Alpaca disabled | HTTP query to Alpaca management endpoint |
 | `get_alpaca_camera_pixelsize` | optional `host`,`port`,`device_number|device` | Alpaca support compiled in | `{host,port,device_number,pixel_size}` | `-32602` invalid host/port/device args; `1` query failure or Alpaca disabled | reads Alpaca camera `pixelsizex`/`pixelsizey` |

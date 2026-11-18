@@ -38,6 +38,7 @@
 # include "scope_alpaca.h"
 # include "scope.h"
 # include "config_alpaca.h"
+# include "connect_retry.h"
 # include "alpaca_client.h"
 # include <wx/stopwatch.h>
 
@@ -95,6 +96,7 @@ bool ScopeAlpaca::Connect()
             if (m_port == 0)
             {
                 Debug.Write("Alpaca Mount: not configured, skipping connection\n");
+                ConnectRetry::RecordConnectError(GearDevice::Mount, ConnectRetry::kNotConfiguredReason, false);
                 throw ERROR_INFO("Alpaca Mount: not configured - set the Alpaca server host and port first");
             }
         }
@@ -108,11 +110,16 @@ bool ScopeAlpaca::Connect()
         wxString endpoint = wxString::Format("telescope/%ld/connected", m_deviceNumber);
         bool connected = false;
         long errorCode = 0;
-        if (!m_client->GetBool(endpoint, &connected, &errorCode))
+        AlpacaErrors::CallError callError;
+        if (!m_client->GetBool(endpoint, &connected, &errorCode, nullptr, &callError))
         {
             // no message box (headless: a modal would hang the daemon when the
-            // mount is simply unreachable); the thrown error reaches the caller
-            throw ERROR_INFO("Alpaca Mount: Could not check connection status, HTTP " + wxString::Format("%ld", errorCode));
+            // mount is simply unreachable); the thrown error reaches the caller.
+            // The reason goes to the caller of the connect too (#104).
+            std::string reason = AlpacaErrors::CallErrorReason(callError);
+            ConnectRetry::RecordConnectError(GearDevice::Mount, reason);
+            throw ERROR_INFO("Alpaca Mount: Could not check connection status, HTTP " + wxString::Format("%ld", errorCode) +
+                             ": " + wxString(reason.c_str(), wxConvUTF8));
         }
 
         if (!connected)
@@ -121,10 +128,15 @@ bool ScopeAlpaca::Connect()
             wxString connectEndpoint = wxString::Format("telescope/%ld/connected", m_deviceNumber);
             wxString params = "Connected=true";
             JsonParser parser;
-            if (!m_client->Put(connectEndpoint, params, parser, &errorCode))
+            // Put leaves errorCode alone when no response came: don't report the GET's 200 for it
+            errorCode = 0;
+            if (!m_client->Put(connectEndpoint, params, parser, &errorCode, nullptr, &callError))
             {
                 // no message box (see above)
-                throw ERROR_INFO("Alpaca Mount: Could not connect device, HTTP " + wxString::Format("%ld", errorCode));
+                std::string reason = AlpacaErrors::CallErrorReason(callError);
+                ConnectRetry::RecordConnectError(GearDevice::Mount, reason);
+                throw ERROR_INFO("Alpaca Mount: Could not connect device, HTTP " + wxString::Format("%ld", errorCode) + ": " +
+                                 wxString(reason.c_str(), wxConvUTF8));
             }
         }
 

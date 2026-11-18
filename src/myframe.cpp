@@ -1357,6 +1357,9 @@ void MyFrame::DoTryReconnect()
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         if (exposurePending)
             OnExposeComplete(0, true);
+        // #104: the headless daemon keeps retrying slowly; EquipmentReconnected follows when the camera is back
+        pGearDialog->NoteCameraReconnectFailed(
+            wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         return;
     }
     m_cameraReconnectAttempts.push_back(now);
@@ -1372,6 +1375,8 @@ void MyFrame::DoTryReconnect()
         // complete the pending exposure notification
         if (exposurePending)
             OnExposeComplete(0, true);
+        // #104: the headless daemon keeps retrying slowly, with the reason the reconnect failed
+        pGearDialog->NoteCameraReconnectFailed(wxEmptyString);
     }
     else
     {
@@ -2160,6 +2165,10 @@ void MyFrame::OnClose(wxCloseEvent& event)
     }
 
     Debug.Write("MyFrame::OnClose proceeding\n");
+
+    // #104: before StopWorkerThread pumps the event loop below, so no background connect attempt starts (and could
+    // connect equipment that is about to be disconnected) while the app winds down; waits for a probe in flight
+    pGearDialog->StopConnectRetry(true);
 
     // a headless Guiding Assistant run can't finish normally any more; put back the settings it changed
     GuidingAssistant::ApiShutdown();

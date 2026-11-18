@@ -41,6 +41,7 @@
 #include "imaging_gear_alpaca.h"
 #include "webui_rpc_guard.h"
 #include "connect_request.h"
+#include "connect_retry.h"
 #include "restore_calibration.h"
 #include "capture_cleanup.h"
 
@@ -1054,6 +1055,11 @@ bool DarkBuildActive()
     return s_darkBuild.active;
 }
 
+bool PaSessionActive()
+{
+    return pa_session_active();
+}
+
 // #100: a camera auto-reconnect that a dark capture's error raised mid-frame (its timeout, or an Alpaca 1031 / repeated
 // 1280, #103) runs once the build has ended, on the next event-loop turn, not from inside the pump while the capture
 // thread is still unwinding. No exposure is pending then, so DoTryReconnect only sends the events.
@@ -1485,8 +1491,12 @@ static void set_alpaca_server(JObj& response, const json_value *params)
     if (!setDeviceNum(rotatorDevice, "/alpaca/rotator_device", "rotator_device"))
         return;
 
+    // the re-selection forgets each Alpaca device; a device that was still to be connected (retrying, or parked as
+    // "not configured") stays asked for and is retried at once (#104)
+    pFrame->pGearDialog->AlpacaServerChanging();
     apply_alpaca_choice_if_selected();
     pConfig->Flush();
+    pFrame->pGearDialog->AlpacaServerChanged();
     response << jrpc_result(0);
 }
 
@@ -3255,6 +3265,18 @@ static PolarDriftToolWin *polar_drift_tool()
     if (win && win->IsBeingDeleted())
         return nullptr;
     return win;
+}
+
+bool AlignmentToolActive()
+{
+    ConnectRetry::AlignmentTools tools;
+    // open in any phase: aligning, between manual points (m_aligning is false while the user turns RA) or adjusting
+    tools.staticPaOpen = static_pa_tool() != nullptr;
+    PolarDriftToolWin *pd = polar_drift_tool();
+    tools.polarDriftDrifting = pd && pd->IsDrifting();
+    DriftTool::ApiStatus drift;
+    tools.driftToolOpen = DriftTool::ApiGetStatus(&drift); // open, drifting or not
+    return ConnectRetry::AlignmentToolBlocks(tools);
 }
 
 static void polardrift_status_obj(JObj& rslt)
@@ -5459,6 +5481,15 @@ static void guide(JObj& response, const json_value *params)
         recalibrate = false;
     }
 
+    // #104: a selected camera or mount that is not connected (a mount that was off when the guider started) is
+    // connected first, not refused; the refusal names the device and the server's reason
+    wxString connErr;
+    if (pFrame->pGearDialog->ConnectForGuide(&connErr))
+    {
+        response << jrpc_error(1, connErr);
+        return;
+    }
+
     wxString err;
     unsigned int ctrlOptions = GUIDEOPT_USE_STICKY_LOCK;
     if (recalibrate)
@@ -5541,6 +5572,8 @@ static void shutdown(JObj& response, const json_value *params)
     // A dark capture runs on its own thread while the main thread pumps events (#100); an exit from inside
     // that pump would tear the camera down under it. The build ends within one exposure; ask again then.
     VERIFY_NO_DARK_BUILD(response);
+    // no background connect attempt may start while the app winds down (#104)
+    pFrame->pGearDialog->StopConnectRetry(false);
     wxGetApp().TerminateApp();
 
     response << jrpc_result(0);
@@ -8850,14 +8883,21 @@ void EventServer::NotifyCalibrationBuildFailed(const wxString& artifact, const w
 
 // Structured equipment fault events: clients route these directly instead of
 // string-parsing Alert. Emitted IN ADDITION to the existing Alert (which stays
-// for human-readable surfaces). device_type is "camera" today — the mount has
-// no auto-disconnect path in PHD2 (a mount fault surfaces as RPC errors).
+// for human-readable surfaces). EquipmentDisconnected and EquipmentReconnectFailed
+// are "camera" only — the mount has no auto-disconnect path in PHD2 (a mount
+// fault surfaces as RPC errors).
 //
 // The disconnect state machine is fully observable from the stream:
 //   EquipmentDisconnected{reconnecting:true}
 //     -> EquipmentReconnected               (auto-reconnect succeeded), or
 //     -> EquipmentReconnectFailed           (the reconnect attempt failed, or the
-//                                            throttle gave up — terminal).
+//                                            throttle gave up — terminal for the
+//                                            auto-reconnect).
+// On the headless daemon a device that failed to connect (at startup, on a
+// connect request, or after EquipmentReconnectFailed) is retried slowly in the
+// background (#104, GearDialog), and EquipmentReconnected{camera|mount|rotator}
+// is sent once when it connects by any path, with or without an earlier
+// EquipmentDisconnected.
 
 void EventServer::NotifyEquipmentDisconnected(const wxString& deviceType, const wxString& reason, bool reconnecting)
 {

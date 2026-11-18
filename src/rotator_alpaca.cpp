@@ -38,6 +38,7 @@
 # include "rotator_alpaca.h"
 # include "config_alpaca.h"
 # include "alpaca_client.h"
+# include "connect_retry.h"
 
 static const int kConnectTimeoutMs = 10000;
 static const int kConnectPollIntervalMs = 100;
@@ -89,6 +90,15 @@ bool RotatorAlpaca::WaitForConnected()
     return false;
 }
 
+// A failed connect's Alert; the background retry (#104) logs it instead of raising one at every attempt
+static void ConnectFailedAlert(const wxString& msg)
+{
+    if (ConnectRetry::QuietConnect())
+        Debug.Write("rotator connect failed (background retry, no alert): " + msg + "\n");
+    else if (pFrame)
+        pFrame->Alert(msg);
+}
+
 bool RotatorAlpaca::Connect()
 {
     if (IsConnected())
@@ -109,10 +119,8 @@ bool RotatorAlpaca::Connect()
         if (m_port == 0)
         {
             Debug.Write("Alpaca Rotator: not configured, skipping connection\n");
-            if (pFrame)
-            {
-                pFrame->Alert(_("Alpaca Rotator is not configured - set the Alpaca server host and port first"));
-            }
+            ConnectRetry::RecordConnectError(GearDevice::Rotator, ConnectRetry::kNotConfiguredReason, false);
+            ConnectFailedAlert(_("Alpaca Rotator is not configured - set the Alpaca server host and port first"));
             return true;
         }
     }
@@ -127,14 +135,14 @@ bool RotatorAlpaca::Connect()
     wxString endpoint = wxString::Format("rotator/%ld/connected", m_deviceNumber);
     bool connected = false;
     long errorCode = 0;
-    if (!m_client->GetBool(endpoint, &connected, &errorCode))
+    AlpacaErrors::CallError callError;
+    if (!m_client->GetBool(endpoint, &connected, &errorCode, nullptr, &callError))
     {
+        // the one-line reason for the caller of the connect (#104)
+        ConnectRetry::RecordConnectError(GearDevice::Rotator, AlpacaErrors::CallErrorReason(callError));
         wxString msg = wxString::Format(_("Alpaca Rotator: Failed to query connection status (error %ld)"), errorCode);
         Debug.Write(msg + "\n");
-        if (pFrame)
-        {
-            pFrame->Alert(msg);
-        }
+        ConnectFailedAlert(msg);
         return true;
     }
 
@@ -142,26 +150,29 @@ bool RotatorAlpaca::Connect()
     {
         wxString params = "Connected=true";
         JsonParser parser;
-        if (!m_client->Put(endpoint, params, parser, &errorCode))
+        // Put leaves errorCode alone when no response came: don't report the GET's 200 for it
+        errorCode = 0;
+        if (!m_client->Put(endpoint, params, parser, &errorCode, nullptr, &callError))
         {
+            std::string reason = AlpacaErrors::CallErrorReason(callError);
+            ConnectRetry::RecordConnectError(GearDevice::Rotator, reason);
             wxString msg =
                 wxString::Format(_("Alpaca Rotator: Failed to connect device %ld (error %ld)"), m_deviceNumber, errorCode);
+            if (!reason.empty())
+                msg += ": " + wxString(reason.c_str(), wxConvUTF8);
             Debug.Write(msg + "\n");
-            if (pFrame)
-            {
-                pFrame->Alert(msg);
-            }
+            ConnectFailedAlert(msg);
             return true;
         }
 
         if (!WaitForConnected())
         {
+            ConnectRetry::RecordConnectError(GearDevice::Rotator,
+                                             "the rotator did not report connected after the "
+                                             "Connected=true request");
             wxString msg = wxString::Format(_("Alpaca Rotator: Timed out waiting for device %ld to connect"), m_deviceNumber);
             Debug.Write(msg + "\n");
-            if (pFrame)
-            {
-                pFrame->Alert(msg);
-            }
+            ConnectFailedAlert(msg);
             return true;
         }
     }

@@ -18,7 +18,7 @@ reported coordinates only.
 Error injection (for the guider's capture-error handling, #103) goes through a
 small control endpoint and is off until used, so the default behaviour is unchanged:
 
-    PUT /fake/inject   call=<binx|biny|gain|startexposure|imageready|imagearray>
+    PUT /fake/inject   call=<binx|biny|gain|startexposure|imageready|imagearray|cameraxsize>
                        &error=<Alpaca ErrorNumber, e.g. 1031 or 1280>&count=<N, default 1>
                        [&message=<ErrorMessage>][&format=<json|imagebytes>][&http=<status>]
         The next N calls of that camera endpoint answer with the Alpaca error
@@ -28,11 +28,26 @@ small control endpoint and is off until used, so the default behaviour is unchan
         Alpaca error (#97). A new inject for a call replaces the old one; count=0
         clears it. The camera has gain control (gainmin 0, gainmax 100), so the
         guider writes gain when it changes; a gain failure must not fail the frame.
-    PUT /fake/unplug   unplugged=<true|false>[&message=<ErrorMessage>]
-        While unplugged, the camera reads as not connected, a Connected=true PUT is
-        refused with 1031, and binx/biny/gain/startexposure/imageready/imagearray
-        answer 1031 (an injection for the call still wins).
-    GET /fake/state    the injections and the unplugged flag, as JSON.
+        cameraxsize fails a connect after its connected check, with the camera left
+        connected on the server (#104: a driver failure the probe can't see).
+    PUT /fake/unplug   unplugged=<true|false>[&device=<camera|telescope>][&message=<ErrorMessage>]
+                       [&error=<ErrorNumber>][&delay_ms=<N>][&connect_delay_ms=<N>]
+        device=camera (the default): while unplugged, the camera reads as not
+        connected, a Connected=true PUT is refused with 1031, and binx/biny/gain/
+        startexposure/imageready/imagearray answer 1031 (an injection for the call
+        still wins).
+        device=telescope (#104): while unplugged, the telescope reads as not
+        connected and a Connected=true PUT is refused with error (default 1280) and
+        message (default a Sky-Watcher "did not reply" text) after delay_ms (default
+        0; ~2300 reproduces AlpacaBridge timing out on a powered-off mount).
+        unplugged=false lets the next Connected=true PUT succeed. connect_delay_ms
+        (telescope, default 0) holds a Connected=true PUT that succeeds that long
+        before it answers, connected only then (a synchronous connect that opens a
+        serial port).
+    PUT /fake/stall    device=<camera|telescope>&ms=<N>
+        Every request for that device sleeps N ms before it answers (a server that
+        accepts the connection, then stalls); ms=0 clears it.
+    GET /fake/state    the injections, the unplugged flags and the stalls, as JSON.
 
     e.g. curl -X PUT -d 'call=imageready&error=1280&count=3&message=acq failed' \
              http://127.0.0.1:11111/fake/inject
@@ -81,9 +96,13 @@ STARS = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000
 _frame = None  # cache used only when rotation is off
 
 # Error injection (see the module docstring): call -> {"error", "message", "count", "format"}
-INJECTABLE_CALLS = ("binx", "biny", "gain", "startexposure", "imageready", "imagearray")
+INJECTABLE_CALLS = ("binx", "biny", "gain", "startexposure", "imageready", "imagearray", "cameraxsize")
 injections = {}
-unplugged = {"on": False, "message": "camera removed from USB"}
+unplugged = {"on": False, "message": "camera removed from USB", "error": 1031, "delay_ms": 0}
+scope_unplugged = {"on": False, "error": 1280, "delay_ms": 0, "connect_delay_ms": 0,
+                   "message": "The Sky-Watcher mount on /dev/ttyUSB0 did not reply (Timeout waiting for motor "
+                              "controller reply to ':a1'). Check the Serial Port setting and that the mount is on."}
+stall_ms = {"camera": 0, "telescope": 0}
 
 
 def take_injected_error(call):
@@ -95,7 +114,7 @@ def take_injected_error(call):
             del injections[call]
         return inj["error"], inj["message"], inj["format"], inj["http"]
     if unplugged["on"] and call in INJECTABLE_CALLS:
-        return 1031, unplugged["message"], "json", 200
+        return unplugged["error"], unplugged["message"], "json", 200
     return None
 
 
@@ -267,12 +286,31 @@ class Handler(BaseHTTPRequestHandler):
                                         "format": params.get("format", "json"),
                                         "http": int(params.get("http", "200"))}
             elif method == "PUT" and name == "/fake/unplug":
-                unplugged["on"] = params.get("unplugged", "true").lower() == "true"
+                device = params.get("device", "camera")
+                if device not in ("camera", "telescope"):
+                    return self.send_body(b'{"error":"unknown device"}', "application/json")
+                plug = unplugged if device == "camera" else scope_unplugged
+                plug["on"] = params.get("unplugged", "true").lower() == "true"
                 if "message" in params:
-                    unplugged["message"] = params["message"]
-                if unplugged["on"]:
-                    state["connected"] = False
-            body = json.dumps({"injections": injections, "unplugged": unplugged}).encode()
+                    plug["message"] = params["message"]
+                if "error" in params:
+                    plug["error"] = int(params["error"])
+                if "delay_ms" in params:
+                    plug["delay_ms"] = int(params["delay_ms"])
+                if "connect_delay_ms" in params and device == "telescope":
+                    plug["connect_delay_ms"] = max(0, int(params["connect_delay_ms"]))
+                if plug["on"]:
+                    if device == "camera":
+                        state["connected"] = False
+                    else:
+                        scope["connected"] = False
+            elif method == "PUT" and name == "/fake/stall":
+                device = params.get("device", "camera")
+                if device not in stall_ms:
+                    return self.send_body(b'{"error":"unknown device"}', "application/json")
+                stall_ms[device] = max(0, int(params.get("ms", "0")))
+            body = json.dumps({"injections": injections, "unplugged": unplugged,
+                               "telescope_unplugged": scope_unplugged, "stall": stall_ms}).encode()
         self.log_message("control %s %s %s", method, name, params)
         return self.send_body(body, "application/json")
 
@@ -284,11 +322,20 @@ class Handler(BaseHTTPRequestHandler):
         m = re.match(r"^/api/v1/telescope/0/(\w+)", self.path)
         return m.group(1) if m else None
 
+    def stall(self, device):
+        """Sleep the /fake/stall time for the device, outside the lock."""
+        with state_lock:
+            ms = stall_ms[device]
+        if ms > 0:
+            self.log_message("stalling %s %d ms: %s", device, ms, self.path)
+            time.sleep(ms / 1000.0)
+
     def do_GET(self):
         if self.path.startswith("/fake/"):
             return self.control("GET", "")
         sprop = self.scope_prop_name()
         if sprop is not None:
+            self.stall("telescope")
             if sprop == "connected":
                 with state_lock:
                     return self.reply(scope["connected"])
@@ -304,6 +351,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(0)
 
         prop = self.prop_name()
+        if prop is not None:
+            self.stall("camera")
         if prop == "connected":
             with state_lock:
                 value = state["connected"]
@@ -318,6 +367,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.injected("imagearray"):
                 return None
             return self.reply(star_field())
+        if prop in INJECTABLE_CALLS and self.injected(prop):
+            return None
         if prop in PROPS:
             return self.reply(PROPS[prop])
         self.log_message("unknown GET %s", self.path)
@@ -332,10 +383,25 @@ class Handler(BaseHTTPRequestHandler):
 
         sprop = self.scope_prop_name()
         if sprop is not None:
+            self.stall("telescope")
             params = dict(p.split("=", 1) for p in body.split("&") if "=" in p)
             if sprop == "connected":
                 with state_lock:
-                    scope["connected"] = "true" in body.lower()
+                    want = "true" in body.lower()
+                    refused = want and scope_unplugged["on"]
+                    slow = want and not refused and not scope["connected"] and scope_unplugged["connect_delay_ms"] > 0
+                    if not refused and not slow:
+                        scope["connected"] = want
+                    error, message, delay = scope_unplugged["error"], scope_unplugged["message"], scope_unplugged["delay_ms"]
+                    connect_delay = scope_unplugged["connect_delay_ms"]
+                if slow:
+                    time.sleep(connect_delay / 1000.0)
+                    with state_lock:
+                        scope["connected"] = True
+                if refused:
+                    # AlpacaBridge holds the request while the driver times out on the serial port
+                    time.sleep(delay / 1000.0)
+                    return self.reply_error(error, message)
             elif sprop == "pulseguide":
                 apply_pulse(int(params.get("Direction", -1)), float(params.get("Duration", 0)))
             elif sprop in ("slewtocoordinates", "slewtocoordinatesasync"):
@@ -349,6 +415,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(None)
 
         prop = self.prop_name()
+        if prop is not None:
+            self.stall("camera")
         if prop in INJECTABLE_CALLS and self.injected(prop):
             return None
         if prop == "connected":
@@ -357,9 +425,10 @@ class Handler(BaseHTTPRequestHandler):
                 refused = want and unplugged["on"]
                 if not refused:
                     state["connected"] = want
-                message = unplugged["message"]
+                error, message, delay = unplugged["error"], unplugged["message"], unplugged["delay_ms"]
             if refused:
-                return self.reply_error(1031, message)
+                time.sleep(delay / 1000.0)
+                return self.reply_error(error, message)
         elif prop == "startexposure":
             with state_lock:
                 state["imageready"] = True

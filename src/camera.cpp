@@ -38,6 +38,8 @@
 
 #include "camera.h"
 #include "gear_simulator.h"
+#include "alpaca_errors.h"
+#include "connect_retry.h"
 
 #include <wx/stdpaths.h>
 
@@ -193,7 +195,14 @@ bool GuideCamera::EnumCameras(wxArrayString& names, wxArrayString& ids)
 
 bool GuideCamera::CamConnectFailed(const wxString& errorMessage)
 {
-    pFrame->Alert(errorMessage);
+    // the reason for the caller of the connect (#104), unless the failure path recorded a better one: the first
+    // line of the message
+    wxString first = errorMessage.BeforeFirst('\n');
+    ConnectRetry::RecordConnectErrorIfNone(GearDevice::Camera, AlpacaErrors::OneLine(std::string(first.utf8_str())));
+    if (ConnectRetry::QuietConnect())
+        Debug.Write("camera connect failed (background retry, no alert): " + errorMessage + "\n");
+    else
+        pFrame->Alert(errorMessage);
     return true; // error
 }
 

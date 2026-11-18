@@ -40,6 +40,7 @@
 # include "config_alpaca.h"
 # include "alpaca_client.h"
 # include "alpaca_errors.h"
+# include "connect_retry.h"
 # include "image_math.h"
 # include <wx/stopwatch.h>
 # include <sstream>
@@ -179,6 +180,7 @@ bool CameraAlpaca::Connect(const wxString& camId)
         if (m_port == 0)
         {
             Debug.Write("Alpaca Camera: not configured, skipping connection\n");
+            ConnectRetry::RecordConnectError(GearDevice::Camera, ConnectRetry::kNotConfiguredReason, false);
             return CamConnectFailed(
                 _("Alpaca Camera is not configured - set the Alpaca server host and port first (set_alpaca_server)"));
         }
@@ -205,8 +207,11 @@ bool CameraAlpaca::Connect(const wxString& camId)
     wxString endpoint = wxString::Format("camera/%ld/connected", m_deviceNumber);
     bool connected = false;
     long errorCode = 0;
-    if (!m_client->GetBool(endpoint, &connected, &errorCode))
+    AlpacaErrors::CallError callError;
+    if (!m_client->GetBool(endpoint, &connected, &errorCode, nullptr, &callError))
     {
+        // the one-line reason for the caller of the connect (#104); the alert keeps its advice
+        ConnectRetry::RecordConnectError(GearDevice::Camera, AlpacaErrors::CallErrorReason(callError));
         wxString errorMsg;
         if (errorCode == 0)
         {
@@ -240,10 +245,16 @@ bool CameraAlpaca::Connect(const wxString& camId)
         wxString connectEndpoint = wxString::Format("camera/%ld/connected", m_deviceNumber);
         wxString params = "Connected=true";
         JsonParser parser;
-        if (!m_client->Put(connectEndpoint, params, parser, &errorCode))
+        // Put leaves errorCode alone when no response came: don't report the GET's 200 for it
+        errorCode = 0;
+        if (!m_client->Put(connectEndpoint, params, parser, &errorCode, nullptr, &callError))
         {
+            std::string reason = AlpacaErrors::CallErrorReason(callError);
+            ConnectRetry::RecordConnectError(GearDevice::Camera, reason);
             wxString errorMsg = wxString::Format(_("Alpaca Camera: Failed to connect device %ld on %s:%ld - error %ld"),
                                                  m_deviceNumber, m_host, m_port, errorCode);
+            if (!reason.empty())
+                errorMsg += ": " + wxString(reason.c_str(), wxConvUTF8);
             Debug.Write(errorMsg + "\n");
             return CamConnectFailed(errorMsg);
         }
@@ -305,6 +316,9 @@ bool CameraAlpaca::Connect(const wxString& camId)
                     errorMsg = wxString::Format(_("Alpaca Camera: Timed out waiting for device %ld to connect on %s:%ld"),
                                                 m_deviceNumber, m_host, m_port);
                 }
+                ConnectRetry::RecordConnectError(GearDevice::Camera,
+                                                 "the camera did not report connected after the "
+                                                 "Connected=true request");
                 Debug.Write(errorMsg + "\n");
                 return CamConnectFailed(errorMsg);
             }

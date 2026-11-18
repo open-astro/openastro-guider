@@ -377,3 +377,55 @@ next `guide` is refused as in progress. The rules are in the wx-free `src/restor
   calibration. Refused over `/api/rpc` while calibrating or guiding, like every other setter.
 
 ARA call sites: none yet (meant for the recovery after `CalibrationFailed` on a forced recalibration).
+
+## 2026-11-18 — connect recovery (#104)
+
+A mount that did not answer when the guider started (the Pi up before the rig's 12 V) was never
+tried again, so every `guide` was refused with "all equipment must be connected first" until
+someone sent `set_connected` by hand. Headless daemon only; the desktop GUI is unchanged. The
+schedule, per-device state, gates, probe sequence and texts are in the wx-free
+`src/connect_retry.cpp` (unit-tested by `test_connect_retry`); GearDialog drives them.
+
+- Background retry: a selected camera, mount or rotator the guider was asked to connect
+  (`--auto-connect`, `set_connected` true, `guide`, or the camera auto-reconnect ending in
+  `EquipmentReconnectFailed`) that is still not connected is retried 15 s, 30 s and 60 s after
+  each failure, then every 60 s, with no limit. An attempt probes the Alpaca server on its own
+  thread with short timeouts (GET connected, PUT Connected=true with 10 s, wait for connected);
+  only a device the server reports connected is connected on the main thread, through the
+  `set_connected` path. It waits during a dark build, a PA lease, an open static PA tool (any
+  phase, until `staticpa_close`), polar drift / drift align, the Guiding Assistant, and the `set_connected` refusal rules. No `Alert` per attempt, also
+  when the driver fails after the probe saw the device connected (debug log only).
+- `set_connected` false (one device or all) stops the retry for the devices it covers;
+  choosing another device or profile forgets the state (choosing the same device again keeps it);
+  either, or a server change, stops a probe in flight before its PUT if not yet sent and drops its result;
+  "not configured" is not retried until `set_alpaca_server`. `set_alpaca_server` re-selects the
+  Alpaca devices for the new settings but keeps a device still to be connected (retrying or not
+  configured) and tries it at once, so it alone connects a device `--auto-connect` could not.
+- `guide`: connects a selected camera or mount that is not connected first (same probe, on the
+  main thread, so the daemon answers no other RPC meanwhile; the camera and the mount share a
+  budget of about 4 s, every request getting what is left of it; about 1.5 s per device, ~3 s for
+  both, when the server is not reachable). The driver connect of a device the server reports
+  connected is not bounded by the budget, so it starts only with at least 1 s left, else the device
+  is refused as "...: the mount is still connecting" and the background retry connects it at once.
+  A device whose request had not ended when the budget ran out is refused ("...: the mount failed
+  to connect: no response from the Alpaca server (Timeout was reached)") and left to the
+  background retry; one the budget ran out for before any request was sent is refused as "...: the
+  mount was not tried in time" and counts as no attempt (its schedule and reason stay). A background attempt already
+  in flight for the device is waited for within the budget (no second PUT) and its result used;
+  if it has not ended in time: "...: the mount is still connecting". Refused only if that fails,
+  code 1, the old text kept as the prefix:
+  "all equipment must be connected first: the mount failed to connect: <reason>", or
+  "...: the mount was disconnected by the user".
+- `set_connected` connect errors gain " (<reason>)": "mount failed to connect (<reason>)",
+  "equipment failed to connect: mount (<reason>)".
+- `EquipmentReconnected{device_type}`: device_type can now be "mount" or "rotator" as well as
+  "camera". Also sent once when a device that had failed to connect connects by any path (not for a
+  device's first connect),
+  flushed at the end of `GearDialog::EndModal` (after the calibration auto-load, before the RPC
+  response). This fixes the RC51 finding: `set_connected` after `EquipmentReconnectFailed` now
+  sends `EquipmentReconnected{camera}`. `EquipmentReconnectFailed` is still terminal for the
+  automatic reconnection, but the camera then joins the slow retry.
+
+ARA: does not parse "all equipment must be connected first" or "equipment failed to connect";
+its `EquipmentReconnected` handler resolves only a camera-drop fault and ignores other device
+types and unsolicited events (`GuiderService.FaultReaction.cs`, `AffectsGuiding`).

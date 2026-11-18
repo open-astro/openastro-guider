@@ -286,6 +286,22 @@ set_property(TARGET test_connect_request PROPERTY FOLDER "Unit tests")
 add_test(NAME test_connect_request COMMAND test_connect_request)
 
 ############################################################################
+# test_connect_retry  --  connect_retry.cpp: the background retry of a
+# selected device that failed to connect, its gates, the Alpaca probe run
+# before a connect, and the guide refusal text (#104). std-only.
+############################################################################
+add_executable(test_connect_retry
+  ${PHD_TESTS_DIR}/equipment/test_connect_retry.cpp
+  ${phd_src_dir}/connect_retry.cpp
+  ${phd_src_dir}/connect_request.cpp
+  ${phd_src_dir}/alpaca_errors.cpp
+  ${phd_src_dir}/json_parser.cpp
+)
+target_link_libraries(test_connect_retry PRIVATE phd_test_common Threads::Threads)
+set_property(TARGET test_connect_retry PROPERTY FOLDER "Unit tests")
+add_test(NAME test_connect_retry COMMAND test_connect_retry)
+
+############################################################################
 # test_capture_cleanup  --  capture_cleanup.cpp: pruning of the
 # save_image_XXXXXX frames the daemon names itself (#93). std-only.
 ############################################################################
