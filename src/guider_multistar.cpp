@@ -41,6 +41,7 @@
  */
 
 #include "phd.h"
+#include "staticpa_tool.h"
 
 #include <wx/dir.h>
 #include <algorithm>
@@ -569,7 +570,7 @@ wxRect GuiderMultiStar::GetBoundingBox() const
         subframe = false;
     }
 
-    if (m_forceFullFrame)
+    if (m_forceFullFrame || StaticPaTool::WantsFullFrames())
     {
         subframe = false;
     }

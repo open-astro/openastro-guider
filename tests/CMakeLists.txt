@@ -161,6 +161,20 @@ set_property(TARGET test_staticpa_step_gate PROPERTY FOLDER "Unit tests")
 add_test(NAME test_staticpa_step_gate COMMAND test_staticpa_step_gate)
 
 ############################################################################
+# test_staticpa_tracker  --  staticpa_tracker.cpp: the field tracker that keeps
+# the Static PA live readout on the reference star through bolt turns (#99).
+# Links the REAL star_find_core.cpp; images are synthetic, in memory.
+############################################################################
+add_executable(test_staticpa_tracker
+  ${PHD_TESTS_DIR}/polar_alignment/test_staticpa_tracker.cpp
+  ${phd_src_dir}/staticpa_tracker.cpp
+  ${phd_src_dir}/star_find_core.cpp
+)
+target_link_libraries(test_staticpa_tracker PRIVATE phd_test_common)
+set_property(TARGET test_staticpa_tracker PROPERTY FOLDER "Unit tests")
+add_test(NAME test_staticpa_tracker COMMAND test_staticpa_tracker)
+
+############################################################################
 # test_guide_algorithm_lowpass  --  links the REAL Lowpass/Lowpass2 decision
 # math (guide_algorithm_lowpass_math.cpp) against the REAL WindowedAxisStats
 # (guiding_stats.cpp). The algorithm .cpp files themselves carry wx GUI

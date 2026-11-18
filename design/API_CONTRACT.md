@@ -156,7 +156,10 @@ the API status share one code path).
   near-pole catalog stars, RA/Dec of date), `measured_points`, `rotation`? (auto progress),
   `calced`, and when calced: `centre {x,y,radius_px}`, `adjustment` (alt/az/total error px +
   arcmin, correction vectors), `ref_star_target`, `current_star`, `live_adjustment` (same
-  decomposition vs the live star — poll this during bolt adjustment; it converges to zero) }.
+  decomposition vs the live star — poll this during bolt adjustment; it converges to zero),
+  and while adjusting (calced from this run's points, not aligning) `live_tracking` { `state` tracking|searching|lost, `frames_since_fix`,
+  `seconds_since_fix`, `confirmed_by`, `ambiguous` }. `current_star` / `live_adjustment` come
+  from the tool's own field tracker (#99), only while `state` is `tracking` }.
 - `staticpa_stop` → status. Auto: aborts slew + clears points; manual: keeps points.
 - `staticpa_close` → 0. Tears the tool down.
 

@@ -29,6 +29,23 @@ reported coordinates only, unless --slew-seconds is given:
     e.g. Static PA auto mode against a pole 5 deg off the star at 7.73"/px:
         --slew-seconds 2 --slew-rotates --slew-smear 80 --pole 320,-2089
 
+Larger sensors and denser fields (#99, the Static PA adjust phase):
+
+    --size W,H         sensor size (default 640,480)
+    --stars N          N random stars per frame area instead of the dozen fixed ones,
+                       spread over twice the frame each way so a shifted field brings
+                       new stars in; --star-seed picks the field (default 1)
+    --imagebytes       answer imagearray with ASCOM ImageBytes when the client accepts
+                       it (JSON otherwise): a 1280x960 frame is 2.5 MB instead of ~7 MB
+                       of JSON
+
+    PUT /fake/shift    dx=<px>&dy=<px>[&absolute=true]
+        Move the whole star field (a bolt turn): added to the current offset, or set
+        with absolute=true. Applied after rotation, like the pulse offsets.
+    PUT /fake/decoy    x=<px>&y=<px>[&flux=<peak ADU, default 30000>] | clear=true
+        Add a star fixed on the sensor that does not move with the field (for the
+        "latched onto another star" case); clear=true removes them all.
+
 Error injection (for the guider's capture-error handling, #103) goes through a
 small control endpoint and is off until used, so the default behaviour is unchanged:
 
@@ -88,6 +105,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
 W, H = 640, 480
+IMAGEBYTES = False
 state = {"connected": False, "imageready": False}
 # handlers run on concurrent threads (ThreadingHTTPServer); guard shared state
 state_lock = threading.Lock()
@@ -118,6 +136,10 @@ STARS = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000
          (380, 60, 26000), (60, 250, 32000), (520, 430, 24000), (300, 160, 15000)]
 
 _frame = None  # cache used only when rotation is off
+
+# Field translation (bolt turns) and sensor-fixed decoy stars (see /fake/shift, /fake/decoy)
+shift = {"x": 0.0, "y": 0.0}
+decoys = []
 
 # Error injection (see the module docstring): call -> {"error", "message", "count", "format"}
 INJECTABLE_CALLS = ("binx", "biny", "gain", "startexposure", "imageready", "imagearray", "cameraxsize")
@@ -190,38 +212,72 @@ def frame_angle_and_dim():
     return field_angle(now), 1.0
 
 
+def random_stars(n, seed):
+    """n stars per frame area, spread over [-W/2, 1.5W] x [-H/2, 1.5H]."""
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    count = 4 * n
+    xs = rng.uniform(-W / 2, 1.5 * W, count)
+    ys = rng.uniform(-H / 2, 1.5 * H, count)
+    fluxes = np.exp(rng.uniform(math.log(3000), math.log(40000), count))
+    return [(float(x), float(y), float(f)) for x, y, f in zip(xs, ys, fluxes)]
+
+
+def add_star(img, cx, cy, flux):
+    """Add a sigma-2 Gaussian star; only the pixels within 12 px are touched."""
+    import numpy as np
+
+    x0, x1 = max(0, int(cx) - 12), min(W, int(cx) + 13)
+    y0, y1 = max(0, int(cy) - 12), min(H, int(cy) + 13)
+    if x0 >= x1 or y0 >= y1:
+        return
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    img[y0:y1, x0:x1] += flux * np.exp(-(((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * 2.0 ** 2)))
+
+
 def render(theta_deg, dim=1.0):
+    """The frame as a [y][x] numpy array of ints."""
     import numpy as np
 
     rng = np.random.default_rng(7)
     img = rng.normal(800, 15, (H, W))
     th = math.radians(theta_deg)
     px, py = POLE
-    # pulses + injected dec drift shift the whole field
-    ox = scope["pulse_x"]
-    oy = scope["pulse_y"] + DEC_DRIFT_PX_PER_MIN * (time.monotonic() - T0) / 60.0
-    yy, xx = np.mgrid[0:H, 0:W]
+    # pulses + injected dec drift + bolt-turn shifts move the whole field
+    ox = scope["pulse_x"] + shift["x"]
+    oy = scope["pulse_y"] + shift["y"] + DEC_DRIFT_PX_PER_MIN * (time.monotonic() - T0) / 60.0
     for sx, sy, flux in STARS:
         rx, ry = sx - px, sy - py
         cx = px + rx * math.cos(th) - ry * math.sin(th) + ox
         cy = py + rx * math.sin(th) + ry * math.cos(th) + oy
-        img += flux / dim * np.exp(-(((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * 2.0 ** 2)))
-    img = img.clip(0, 65535).astype(int)
-    # Alpaca imagearray is [x][y] (column-major)
-    return img.T.tolist()
+        add_star(img, cx, cy, flux / dim)
+    for dx, dy, flux in decoys:
+        add_star(img, dx, dy, flux / dim)
+    return img.clip(0, 65535).astype(int)
 
 
 def star_field():
-    """Synthetic frame: noisy background + a dozen Gaussian stars, optionally
+    """Synthetic frame ([y][x] array): noisy background + Gaussian stars, optionally
     rotated about the fake pole by the elapsed-time angle."""
     global _frame
     with state_lock:
         theta, dim = frame_angle_and_dim()
-        if theta != 0.0 or dim != 1.0 or DEC_DRIFT_PX_PER_MIN != 0.0 or scope["pulse_x"] or scope["pulse_y"]:
+        if (theta != 0.0 or dim != 1.0 or DEC_DRIFT_PX_PER_MIN != 0.0 or scope["pulse_x"] or scope["pulse_y"]
+                or shift["x"] or shift["y"] or decoys):
             return render(theta, dim)
         if _frame is None:
             _frame = render(0.0)
         return _frame
+
+
+def imagebytes_frame(img):
+    """An ASCOM ImageBytes response: 44-byte metadata, then UInt16 pixels, x-major."""
+    data_start = 44
+    # MetadataVersion, ErrorNumber, ClientTransactionID, ServerTransactionID, DataStart,
+    # ImageElementType (Int32=2), TransmissionElementType (UInt16=8), Rank, Dimension1..3
+    meta = struct.pack("<11I", 1, 0, 0, 0, data_start, 2, 8, 2, W, H, 0)
+    return meta + img.T.astype("<u2").tobytes()
 
 
 PROPS = {
@@ -349,6 +405,17 @@ class Handler(BaseHTTPRequestHandler):
                                         "message": params.get("message", "injected error"),
                                         "format": params.get("format", "json"),
                                         "http": int(params.get("http", "200"))}
+            elif method == "PUT" and name == "/fake/shift":
+                dx, dy = float(params.get("dx", "0")), float(params.get("dy", "0"))
+                if params.get("absolute", "false").lower() == "true":
+                    shift.update(x=dx, y=dy)
+                else:
+                    shift.update(x=shift["x"] + dx, y=shift["y"] + dy)
+            elif method == "PUT" and name == "/fake/decoy":
+                if params.get("clear", "false").lower() == "true":
+                    decoys.clear()
+                else:
+                    decoys.append((float(params["x"]), float(params["y"]), float(params.get("flux", "30000"))))
             elif method == "PUT" and name == "/fake/unplug":
                 device = params.get("device", "camera")
                 if device not in ("camera", "telescope"):
@@ -374,7 +441,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_body(b'{"error":"unknown device"}', "application/json")
                 stall_ms[device] = max(0, int(params.get("ms", "0")))
             body = json.dumps({"injections": injections, "unplugged": unplugged,
-                               "telescope_unplugged": scope_unplugged, "stall": stall_ms}).encode()
+                               "telescope_unplugged": scope_unplugged, "stall": stall_ms,
+                               "shift": shift, "decoys": decoys}).encode()
         self.log_message("control %s %s %s", method, name, params)
         return self.send_body(body, "application/json")
 
@@ -434,7 +502,11 @@ class Handler(BaseHTTPRequestHandler):
         if prop == "imagearray":
             if self.injected("imagearray"):
                 return None
-            return self.reply(star_field())
+            img = star_field()
+            if IMAGEBYTES and "application/imagebytes" in (self.headers.get("Accept") or ""):
+                return self.send_body(imagebytes_frame(img), "application/imagebytes")
+            # Alpaca imagearray is [x][y] (column-major)
+            return self.reply(img.T.tolist())
         if prop in INJECTABLE_CALLS and self.injected(prop):
             return None
         if prop in PROPS:
@@ -544,7 +616,18 @@ if __name__ == "__main__":
                     help="rotate the star field about --pole by the scope's RA change (Static PA steps)")
     ap.add_argument("--slew-smear", type=float, default=0.0, metavar="F",
                     help="divide star flux by F on frames exposed during a slew (0: off)")
+    ap.add_argument("--size", default="640,480", help="sensor W,H in px")
+    ap.add_argument("--stars", type=int, default=0, metavar="N",
+                    help="N random stars per frame area instead of the dozen fixed ones (0: fixed)")
+    ap.add_argument("--star-seed", type=int, default=1, help="random field for --stars")
+    ap.add_argument("--imagebytes", action="store_true",
+                    help="serve imagearray as ASCOM ImageBytes when the client accepts it")
     args = ap.parse_args()
+    W, H = (int(v) for v in args.size.split(","))
+    PROPS.update(cameraxsize=W, cameraysize=H, numx=W, numy=H)
+    if args.stars > 0:
+        STARS = random_stars(args.stars, args.star_seed)
+    IMAGEBYTES = args.imagebytes
     SLEW_SECONDS = args.slew_seconds
     SLEW_ROTATES = args.slew_rotates
     SLEW_SMEAR = args.slew_smear
@@ -554,5 +637,6 @@ if __name__ == "__main__":
     IMAGE_SCALE = args.image_scale
     print(f"fake-alpaca: serving camera+telescope 0 on {args.host}:{args.port}"
           f" (rotation {ROTATE_DEG_PER_SEC} deg/s about {POLE}, dec drift {DEC_DRIFT_PX_PER_MIN} px/min,"
-          f" slew {SLEW_SECONDS} s rotates={SLEW_ROTATES} smear={SLEW_SMEAR})", flush=True)
+          f" slew {SLEW_SECONDS} s rotates={SLEW_ROTATES} smear={SLEW_SMEAR}, {W}x{H}, {len(STARS)} stars"
+          f"{', imagebytes' if IMAGEBYTES else ''})", flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()

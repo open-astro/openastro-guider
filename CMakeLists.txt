@@ -378,6 +378,8 @@ set(phd2_SRC
   ${phd_src_dir}/staticpa_geometry.cpp
   ${phd_src_dir}/staticpa_step_gate.h
   ${phd_src_dir}/staticpa_step_gate.cpp
+  ${phd_src_dir}/staticpa_tracker.h
+  ${phd_src_dir}/staticpa_tracker.cpp
   ${phd_src_dir}/staticpa_tool.h
   ${phd_src_dir}/staticpa_toolwin.h
   ${phd_src_dir}/staticpa_toolwin.cpp

@@ -1183,6 +1183,7 @@ void Guider::StopGuiding()
 void Guider::Reset(bool fullReset)
 {
     SetState(STATE_UNINITIALIZED);
+    StaticPaTool::NotifyLiveStale(); // #99: no live readout from a frame before the reset
     if (fullReset)
     {
         InvalidateCurrentPosition(true);
@@ -1323,7 +1324,13 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
         GuiderOffset ofs;
         FrameDroppedInfo info;
 
-        if (UpdateCurrentPosition(pImage, &ofs, &info)) // true means error
+        bool positionError = UpdateCurrentPosition(pImage, &ofs, &info); // true means error
+
+        // #99: the Static PA adjust phase follows the reference star's field on
+        // every looping frame, whether or not the guider kept its own star
+        StaticPaTool::NotifyFrame(pImage, !positionError);
+
+        if (positionError)
         {
             info.frameNumber = pImage->FrameNum;
             info.time = pFrame->TimeSinceGuidingStarted();

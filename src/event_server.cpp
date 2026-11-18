@@ -3026,19 +3026,36 @@ static void staticpa_status_obj(JObj& rslt)
     tgt << NV("x", target.x, 2) << NV("y", target.y, 2);
     rslt << NV("ref_star_target", tgt);
 
-    // live adjustment against the star's current position: this is what an
-    // adjust-the-bolts UI polls — it converges to zero as the user moves the
-    // reference star onto its target
-    const PHD_Point& cur = pFrame->pGuider->CurrentPosition();
-    if (cur.IsValid())
+    // live adjustment against the reference star's current position: this is
+    // what an adjust-the-bolts UI polls. It converges to zero as the user moves
+    // the reference star onto its target. The Static PA tracker follows the
+    // reference star through its star field (#99), so a bolt turn of any size
+    // within the frame keeps the readout, and another star is never taken for
+    // it. current_star / live_adjustment are present only for a fresh fix from
+    // the latest frame; live_tracking says why they are missing.
+    if (!tool->IsAdjusting())
+        return;
+
+    PHD_Point cur;
+    staticpa_track::LiveState liveState = staticpa_track::LiveState::Searching;
+    double sinceFix = 0.;
+    bool live = tool->LiveFix(&cur, &liveState, &sinceFix);
+
+    JObj trk;
+    trk << NV("state", staticpa_track::LiveStateName(liveState)) << NV("frames_since_fix", tool->m_liveTracker.FramesSinceFix())
+        << NV("seconds_since_fix", sinceFix, 1) << NV("confirmed_by", tool->m_liveTracker.ConfirmedBy())
+        << NV("ambiguous", tool->m_liveTracker.Ambiguous());
+    rslt << NV("live_tracking", trk);
+
+    if (live)
     {
         JObj curObj;
         curObj << NV("x", cur.X, 2) << NV("y", cur.Y, 2);
         rslt << NV("current_star", curObj);
 
-        staticpa_geom::AltAzResult live = tool->CalcAdjustmentsFor(cur);
+        staticpa_geom::AltAzResult liveAdj = tool->CalcAdjustmentsFor(cur);
         JObj liveObj;
-        staticpa_adjustment_obj(tool, live, liveObj);
+        staticpa_adjustment_obj(tool, liveAdj, liveObj);
         rslt << NV("live_adjustment", liveObj);
     }
 }
@@ -3161,7 +3178,7 @@ static void staticpa_start(JObj& response, const json_value *params)
     tool->FillPanel();
 
     // equivalent of the GUI's Rotate / "Get first position" button
-    tool->m_numPos = 1;
+    tool->StartRun();
     if (tool->m_auto)
         tool->ClearState();
     tool->m_aligning = true;

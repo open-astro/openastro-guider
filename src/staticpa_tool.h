@@ -48,6 +48,16 @@ public:
     // True while an auto-mode RA step is moving: the frame must not be
     // star-tracked (#98). Called on every STATE_SELECTED frame before tracking.
     static bool IgnoreFrame(const usImage *image);
+    // Adjust phase (#99): track the reference star's field on every looping
+    // frame, whether or not the guider found its own star (guiderFound).
+    // Called after the guider has tracked the frame.
+    static void NotifyFrame(const usImage *image, bool guiderFound);
+    // The last live fix must not be reported any more (guider reset, capture
+    // error or stop).
+    static void NotifyLiveStale();
+    // While adjusting (#99) every looping frame (not calibrating or guiding)
+    // must show the whole field: the guider takes no subframe.
+    static bool WantsFullFrames();
 };
 
 #endif

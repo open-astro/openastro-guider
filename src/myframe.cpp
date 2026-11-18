@@ -42,6 +42,7 @@
 #include "phdupdate.h"
 #include "pierflip_tool.h"
 #include "Refine_DefMap.h"
+#include "staticpa_tool.h"
 
 #include <algorithm>
 #include <memory>
@@ -1874,6 +1875,7 @@ bool MyFrame::StopCapturing()
 {
     Debug.Write(wxString::Format("StopCapturing CaptureActive=%d continueCapturing=%d exposurePending=%d\n", CaptureActive,
                                  m_continueCapturing, m_exposurePending));
+    StaticPaTool::NotifyLiveStale(); // #99: no live Static PA readout once capture is stopping
 
     bool finished = true;
     bool continueCapturing = m_continueCapturing;
