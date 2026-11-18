@@ -3,7 +3,8 @@
  *  PHD Guiding
  *
  *  Which Alpaca errors from a capture call mean the server has lost the camera,
- *  and reading an Alpaca error out of a JSON response.
+ *  reading an Alpaca error out of a JSON response, and the one-line reason a
+ *  failed AlpacaClient call gives clients (#97).
  *  Kept free of wx so it can be unit tested (tests/camera/test_alpaca_errors.cpp).
  */
 
@@ -11,6 +12,7 @@
 #define ALPACA_ERRORS_H_INCLUDED
 
 #include <atomic>
+#include <cstddef>
 #include <string>
 
 struct json_value;
@@ -59,6 +61,66 @@ private:
 // from an Alpaca JSON response object. Returns true when ErrorNumber is non-zero. Fields
 // that are missing or of another type read as 0 / "".
 bool ReadError(const json_value *root, long *errorNumber, std::string *errorMessage);
+
+// What a failed AlpacaClient call (Get, GetRaw, Put, PutAction, GetBool) reports through its optional
+// callError out-param, so a caller can tell an Alpaca error from an HTTP or transport failure (#97).
+// errorCode mixes them: it holds the HTTP status, the Alpaca number, or 0 when no response came.
+struct CallError
+{
+    enum class Kind
+    {
+        None, // the call succeeded
+        Transport, // no HTTP response: message is the curl error text
+        Http, // a status other than 200: message is the response body (raw, possibly cut)
+        Parse, // a response that is not the expected Alpaca JSON: message is the parser's description
+        Alpaca, // ErrorNumber != 0: alpacaError and the server's ErrorMessage
+    };
+    Kind kind = Kind::None;
+    long httpStatus = 0; // 0 when no response came
+    long alpacaError = 0; // the Alpaca ErrorNumber; 0 unless kind is Alpaca
+    std::string message; // raw bytes from the server or curl, not necessarily valid UTF-8
+};
+
+// The cap, in bytes, on a reason built by CallErrorReason or OneLine.
+const std::size_t kReasonMaxBytes = 200;
+// An HTTP error body is shown only when it is at most this long and has no '<' (no HTML error page).
+const std::size_t kHttpBodyMaxBytes = 120;
+
+// One line of valid UTF-8: invalid sequences become U+FFFD; control characters (\r, \n, \t, NUL, ...)
+// and runs of whitespace become one space; trimmed; when longer than maxBytes, cut to fit with "..." and
+// never inside a UTF-8 sequence.
+std::string OneLine(const std::string& text, std::size_t maxBytes = kReasonMaxBytes);
+
+// The one-line reason for a failed call, or "" for Kind::None:
+//   Alpaca:    "<message> (Alpaca <n>)", or "Alpaca error <n>" when there is no message
+//   Http:      "HTTP <status>", plus ": <body>" when the body is short and has no '<'
+//   Transport: "no response from the Alpaca server (<curl text>)"
+//   Parse:     "invalid response from the Alpaca server"
+// The result is OneLine-clean and at most kReasonMaxBytes long (a cut message keeps the Alpaca suffix).
+std::string CallErrorReason(const CallError& error);
+
+// Fills a call's optional CallError out-param on every return. It clears *out on entry, so a stale
+// value never survives a call; on scope exit it copies the failure recorded with Set, or a generic
+// Kind::Parse failure when the function returned without calling Set or Succeeded, so a new return
+// path can't leave it unset. Succeeded leaves Kind::None. Target is where a nested call (GetBool's
+// Get) writes its failure.
+class CallErrorScope
+{
+public:
+    explicit CallErrorScope(CallError *out);
+    ~CallErrorScope();
+    CallErrorScope(const CallErrorScope&) = delete;
+    CallErrorScope& operator=(const CallErrorScope&) = delete;
+
+    void Set(CallError::Kind kind, long httpStatus, long alpacaError, const std::string& message);
+    void Succeeded() { m_succeeded = true; }
+    CallError *Target() { return &m_error; }
+
+private:
+    CallError *m_out;
+    CallError m_error;
+    bool m_succeeded = false;
+};
 }
 
 #endif

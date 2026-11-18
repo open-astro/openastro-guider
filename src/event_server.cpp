@@ -4420,7 +4420,12 @@ static bool capture_master_dark_frame(usImage& darkFrame, int expTimeMs, int fra
         if (err)
         {
             pCamera->ShutterClosed = false;
-            *error = wxString::Format("failed to capture dark frame %d/%d", j, frameCount);
+            // #97: with the camera's reason, e.g. "failed to capture dark frame 1/5: Camera not connected (Alpaca 1031)"
+            wxString why = wxString::FromUTF8(CaptureFailures::Reason(pCamera->TakeCaptureFailure()).c_str());
+            if (why.empty())
+                *error = wxString::Format("failed to capture dark frame %d/%d", j, frameCount);
+            else
+                *error = wxString::Format("failed to capture dark frame %d/%d: %s", j, frameCount, why);
             return true;
         }
 

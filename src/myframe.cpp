@@ -1707,6 +1707,10 @@ void MyFrame::ScheduleExposure()
 
     m_exposurePending = true;
 
+    // #97: this exposure must not report the reason an earlier one failed
+    if (pCamera)
+        pCamera->ClearCaptureFailure();
+
     usImage *img = new usImage();
 
     wxCriticalSectionLocker lock(m_CSpWorkerThread);
@@ -2278,7 +2282,8 @@ void MyFrame::NotifyGuidingStopped()
 
     EvtServer.NotifyGuidingStopped();
     GuideLog.GuidingStopped();
-    PhdController::AbortController("Guiding stopped");
+    PhdController::AbortController(m_captureFailureStopReason.empty() ? wxString("Guiding stopped")
+                                                                      : m_captureFailureStopReason);
 }
 
 void MyFrame::SetAutoLoadCalibration(bool val)

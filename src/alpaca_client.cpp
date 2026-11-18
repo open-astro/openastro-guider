@@ -37,7 +37,7 @@
 namespace
 {
 // The parsing itself is the wx-free AlpacaErrors::ReadError (unit tested in test_alpaca_errors).
-bool ExtractAlpacaError(const json_value *root, int *errorNumber, wxString *errorMessage)
+bool ExtractAlpacaError(const json_value *root, int *errorNumber, wxString *errorMessage, std::string *rawMessage = nullptr)
 {
     long number = 0;
     std::string message;
@@ -46,8 +46,20 @@ bool ExtractAlpacaError(const json_value *root, int *errorNumber, wxString *erro
         *errorNumber = static_cast<int>(number);
     if (errorMessage)
         *errorMessage = wxString(message.c_str(), wxConvUTF8);
+    if (rawMessage)
+        *rawMessage = message;
     return isError;
 }
+
+// How much of an HTTP error body a CallError keeps; CallErrorReason shows it only when it is short.
+const std::size_t kCallErrorBodyBytes = 1024;
+
+std::string BodyForCallError(const std::string& body)
+{
+    return body.substr(0, kCallErrorBodyBytes);
+}
+
+using CallKind = AlpacaErrors::CallError::Kind;
 } // namespace
 
 size_t AlpacaClient::WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
@@ -193,11 +205,13 @@ std::string AlpacaClient::BuildPutBody(const wxString& params)
 }
 
 bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *errorCode, std::string *rawResponse,
-                       wxString *errorMessage)
+                       wxString *errorMessage, AlpacaErrors::CallError *callError)
 {
+    AlpacaErrors::CallErrorScope callErr(callError);
     if (!m_curl)
     {
         Debug.Write("AlpacaClient: curl not initialized\n");
+        callErr.Set(CallKind::Transport, 0, 0, "curl not initialized");
         return false;
     }
 
@@ -309,6 +323,7 @@ bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *error
             {
                 *errorCode = 0; // No HTTP response received
             }
+            callErr.Set(CallKind::Transport, 0, 0, curlError ? curlError : "");
             return false;
         }
     }
@@ -374,24 +389,28 @@ bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *error
         {
             *errorCode = httpCode; // Still HTTP 200, but wrong content
         }
+        callErr.Set(CallKind::Parse, httpCode, 0, "authentication response instead of an API response");
         return false;
     }
 
     if (httpCode != 200)
     {
         Debug.Write(wxString::Format("AlpacaClient GET returned HTTP %ld\n", httpCode));
+        callErr.Set(CallKind::Http, httpCode, 0, BodyForCallError(responseStr));
         return false;
     }
 
     if (!parser.Parse(responseStr))
     {
         Debug.Write(wxString::Format("AlpacaClient: JSON parse error: %s\n", parser.ErrorDesc()));
+        callErr.Set(CallKind::Parse, httpCode, 0, parser.ErrorDesc() ? parser.ErrorDesc() : "");
         return false;
     }
 
     int alpacaErrorNumber = 0;
     wxString alpacaErrorMessage;
-    if (ExtractAlpacaError(parser.Root(), &alpacaErrorNumber, &alpacaErrorMessage))
+    std::string rawAlpacaMessage;
+    if (ExtractAlpacaError(parser.Root(), &alpacaErrorNumber, &alpacaErrorMessage, &rawAlpacaMessage))
     {
         Debug.Write(wxString::Format("AlpacaClient GET: Alpaca API error for %s: ErrorNumber=%d, ErrorMessage=%s\n", endpoint,
                                      alpacaErrorNumber, alpacaErrorMessage));
@@ -403,18 +422,22 @@ bool AlpacaClient::Get(const wxString& endpoint, JsonParser& parser, long *error
         {
             *errorMessage = alpacaErrorMessage;
         }
+        callErr.Set(CallKind::Alpaca, httpCode, alpacaErrorNumber, rawAlpacaMessage);
         return false;
     }
 
+    callErr.Succeeded();
     return true;
 }
 
 bool AlpacaClient::GetRaw(const wxString& endpoint, const wxString& acceptHeader, std::string *response,
-                          std::string *contentType, long *errorCode)
+                          std::string *contentType, long *errorCode, AlpacaErrors::CallError *callError)
 {
+    AlpacaErrors::CallErrorScope callErr(callError);
     if (!m_curl)
     {
         Debug.Write("AlpacaClient: curl not initialized\n");
+        callErr.Set(CallKind::Transport, 0, 0, "curl not initialized");
         return false;
     }
 
@@ -506,6 +529,7 @@ bool AlpacaClient::GetRaw(const wxString& endpoint, const wxString& acceptHeader
             {
                 *errorCode = 0;
             }
+            callErr.Set(CallKind::Transport, 0, 0, curl_easy_strerror(res));
             return false;
         }
     }
@@ -541,6 +565,7 @@ bool AlpacaClient::GetRaw(const wxString& endpoint, const wxString& acceptHeader
         {
             Debug.Write(wxString::Format("AlpacaClient GET raw returned HTTP %ld\n", httpCode));
         }
+        callErr.Set(CallKind::Http, httpCode, 0, BodyForCallError(responseStr));
         return false;
     }
 
@@ -554,18 +579,22 @@ bool AlpacaClient::GetRaw(const wxString& endpoint, const wxString& acceptHeader
         response->find("\"message\": \"authenticated user\"") != std::string::npos)
     {
         Debug.Write("AlpacaClient GET raw: Received authentication response instead of API response.\n");
+        callErr.Set(CallKind::Parse, httpCode, 0, "authentication response instead of an API response");
         return false;
     }
 
+    callErr.Succeeded();
     return true;
 }
 
 bool AlpacaClient::Put(const wxString& endpoint, const wxString& params, JsonParser& parser, long *errorCode,
-                       wxString *errorMessage)
+                       wxString *errorMessage, AlpacaErrors::CallError *callError)
 {
+    AlpacaErrors::CallErrorScope callErr(callError);
     if (!m_curl)
     {
         Debug.Write("AlpacaClient: curl not initialized\n");
+        callErr.Set(CallKind::Transport, 0, 0, "curl not initialized");
         return false;
     }
 
@@ -610,6 +639,7 @@ bool AlpacaClient::Put(const wxString& endpoint, const wxString& params, JsonPar
     if (res != CURLE_OK)
     {
         Debug.Write(wxString::Format("AlpacaClient PUT failed: %s\n", curl_easy_strerror(res)));
+        callErr.Set(CallKind::Transport, 0, 0, curl_easy_strerror(res));
         return false;
     }
 
@@ -630,6 +660,7 @@ bool AlpacaClient::Put(const wxString& endpoint, const wxString& params, JsonPar
         std::string responseStr = m_response.str();
         Debug.Write(wxString::Format("AlpacaClient PUT returned HTTP %ld, response: %s\n", httpCode,
                                      wxString(responseStr.c_str(), wxConvUTF8)));
+        callErr.Set(CallKind::Http, httpCode, 0, BodyForCallError(responseStr));
         return false;
     }
 
@@ -642,12 +673,14 @@ bool AlpacaClient::Put(const wxString& endpoint, const wxString& params, JsonPar
     if (!parser.Parse(responseStr))
     {
         Debug.Write(wxString::Format("AlpacaClient: JSON parse error: %s\n", parser.ErrorDesc()));
+        callErr.Set(CallKind::Parse, httpCode, 0, parser.ErrorDesc() ? parser.ErrorDesc() : "");
         return false;
     }
 
     int alpacaErrorNumber = 0;
     wxString alpacaErrorMessage;
-    if (ExtractAlpacaError(parser.Root(), &alpacaErrorNumber, &alpacaErrorMessage))
+    std::string rawAlpacaMessage;
+    if (ExtractAlpacaError(parser.Root(), &alpacaErrorNumber, &alpacaErrorMessage, &rawAlpacaMessage))
     {
         Debug.Write(wxString::Format("AlpacaClient PUT: Alpaca API error for %s: ErrorNumber=%d, ErrorMessage=%s\n", endpoint,
                                      alpacaErrorNumber, alpacaErrorMessage));
@@ -659,9 +692,11 @@ bool AlpacaClient::Put(const wxString& endpoint, const wxString& params, JsonPar
         {
             *errorMessage = alpacaErrorMessage;
         }
+        callErr.Set(CallKind::Alpaca, httpCode, alpacaErrorNumber, rawAlpacaMessage);
         return false;
     }
 
+    callErr.Succeeded();
     return true;
 }
 
@@ -975,12 +1010,16 @@ bool AlpacaClient::GetInt(const wxString& endpoint, int *value, long *errorCode)
     return false;
 }
 
-bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCode, wxString *errorMessage)
+bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCode, wxString *errorMessage,
+                           AlpacaErrors::CallError *callError)
 {
+    // A failure of the Get below fills callErr's target; GetBool's own failures are a Parse failure
+    // (the scope's default) or the Alpaca error set below.
+    AlpacaErrors::CallErrorScope callErr(callError);
     JsonParser parser;
     long httpCode = 0;
     std::string raw;
-    if (!Get(endpoint, parser, &httpCode, &raw, errorMessage))
+    if (!Get(endpoint, parser, &httpCode, &raw, errorMessage, callErr.Target()))
     {
         if (errorCode)
         {
@@ -1005,6 +1044,7 @@ bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCod
     // Check for Alpaca API errors first (ErrorNumber/ErrorMessage fields)
     int alpacaErrorNumber = 0;
     wxString alpacaErrorMessage;
+    std::string rawAlpacaMessage;
     json_for_each(n, root)
     {
         if (n->name && strcmp(n->name, "ErrorNumber") == 0 && n->type == JSON_INT)
@@ -1014,6 +1054,7 @@ bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCod
         else if (n->name && strcmp(n->name, "ErrorMessage") == 0 && n->type == JSON_STRING)
         {
             alpacaErrorMessage = wxString(n->string_value, wxConvUTF8);
+            rawAlpacaMessage = n->string_value;
         }
     }
 
@@ -1025,6 +1066,7 @@ bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCod
         {
             *errorCode = alpacaErrorNumber;
         }
+        callErr.Set(CallKind::Alpaca, httpCode, alpacaErrorNumber, rawAlpacaMessage);
         return false;
     }
 
@@ -1049,6 +1091,7 @@ bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCod
             {
                 *value = n->int_value != 0;
                 Debug.Write(wxString::Format("AlpacaClient GetBool: Parsed boolean value: %s\n", *value ? "true" : "false"));
+                callErr.Succeeded();
                 return true;
             }
             else if (n->type == JSON_INT)
@@ -1057,6 +1100,7 @@ bool AlpacaClient::GetBool(const wxString& endpoint, bool *value, long *errorCod
                 *value = n->int_value != 0;
                 Debug.Write(
                     wxString::Format("AlpacaClient GetBool: Parsed integer value as boolean: %s\n", *value ? "true" : "false"));
+                callErr.Succeeded();
                 return true;
             }
             else
@@ -1214,11 +1258,13 @@ bool AlpacaClient::GetString(const wxString& endpoint, wxString *value, long *er
 }
 
 bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, const wxString& params, long *errorCode,
-                             wxString *errorMessage)
+                             wxString *errorMessage, AlpacaErrors::CallError *callError)
 {
+    AlpacaErrors::CallErrorScope callErr(callError);
     if (!m_curl)
     {
         Debug.Write("AlpacaClient: curl not initialized\n");
+        callErr.Set(CallKind::Transport, 0, 0, "curl not initialized");
         return false;
     }
 
@@ -1267,6 +1313,7 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
     if (res != CURLE_OK)
     {
         Debug.Write(wxString::Format("AlpacaClient PutAction failed: %s\n", curl_easy_strerror(res)));
+        callErr.Set(CallKind::Transport, 0, 0, curl_easy_strerror(res));
         return false;
     }
 
@@ -1288,12 +1335,14 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
     // server-closed-connection case — see the note in Put().)
     if (httpCode != 200)
     {
+        callErr.Set(CallKind::Http, httpCode, 0, BodyForCallError(m_response.str()));
         return false;
     }
 
     std::string responseStr = m_response.str();
     if (responseStr.empty())
     {
+        callErr.Succeeded();
         return true;
     }
 
@@ -1301,12 +1350,14 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
     if (!parser.Parse(responseStr))
     {
         Debug.Write(wxString::Format("AlpacaClient PutAction: JSON parse error: %s\n", parser.ErrorDesc()));
+        callErr.Set(CallKind::Parse, httpCode, 0, parser.ErrorDesc() ? parser.ErrorDesc() : "");
         return false;
     }
 
     int alpacaErrorNumber = 0;
     wxString alpacaErrorMessage;
-    if (ExtractAlpacaError(parser.Root(), &alpacaErrorNumber, &alpacaErrorMessage))
+    std::string rawAlpacaMessage;
+    if (ExtractAlpacaError(parser.Root(), &alpacaErrorNumber, &alpacaErrorMessage, &rawAlpacaMessage))
     {
         Debug.Write(wxString::Format("AlpacaClient PutAction: Alpaca API error for %s: ErrorNumber=%d, ErrorMessage=%s\n",
                                      endpoint, alpacaErrorNumber, alpacaErrorMessage));
@@ -1318,8 +1369,10 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
         {
             *errorMessage = alpacaErrorMessage;
         }
+        callErr.Set(CallKind::Alpaca, httpCode, alpacaErrorNumber, rawAlpacaMessage);
         return false;
     }
 
+    callErr.Succeeded();
     return true;
 }

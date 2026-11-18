@@ -172,6 +172,10 @@ bool WorkerThread::HandleExpose(EXPOSE_REQUEST *req)
 {
     bool bError = false;
 
+    // #97: a frame that fails before the capture starts (the time-lapse interrupt below) has no reason
+    if (pCamera)
+        pCamera->ClearCaptureFailure();
+
     try
     {
         if (WorkerThread::MilliSleep(m_pFrame->GetExposureDelay(), INT_ANY))

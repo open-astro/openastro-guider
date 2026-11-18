@@ -132,7 +132,9 @@ contributions, on the shared dispatch:
 Also verified (the §12.1 spike gate): `capture_single_frame` with `save` + absolute `path`
 writes a solver-ready FITS (16-bit unsigned; `EXPOSURE`, `DATE-OBS`, `XBINNING`,
 `XPIXSZ`/`YPIXSZ`, `SCALE`/`PIXSCALE` arcsec/px, `INSTRUME`, `SATURATE`) and the
-`SingleFrameComplete` event carries `Success` + `Path`. No RA/Dec in the header — ARA seeds
+`SingleFrameComplete` event carries `Success` + `Path` (on a failed capture `Success:false` and
+`Error:"camera error: <reason>"`, e.g. `"camera error: Camera not connected (Alpaca 1031)"`, or
+`"camera error -- see debug log"` when the camera gave no reason, #97). No RA/Dec in the header — ARA seeds
 the solver from the mount pointing.
 
 ARA call sites: the polar-alignment routine (all phases).

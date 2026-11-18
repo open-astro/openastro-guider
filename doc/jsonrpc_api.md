@@ -642,6 +642,48 @@ Payload notes for downstream clients:
   auto-reconnect throttle is exhausted (`reason: "auto-reconnect throttle exhausted (3 attempts in 60 s)"`;
   `attempts` is the number of *completed* prior attempts in the window, i.e. the throttle limit, 3 — the blocked
   attempt is not counted). The camera stays disconnected; reconnect it with `set_connected`.
+- Capture failure reasons (#97). When the guide camera fails a frame, every report of that failure carries the
+  camera's own reason, one line of UTF-8 of at most 200 bytes:
+  - for an Alpaca error, `"<ErrorMessage> (Alpaca <ErrorNumber>)"`, or `"Alpaca error <ErrorNumber>"` when the
+    server sent no message;
+  - for an HTTP status other than 200, `"HTTP <status>"`, plus `": <body>"` when the whole body, whitespace
+    collapsed, is at most 120 bytes and has no `<` (a longer body or an HTML error page is left out, never cut);
+  - for no response, `"no response from the Alpaca server (<curl error>)"`; for a response that is not Alpaca
+    JSON, `"invalid response from the Alpaca server"`;
+  - otherwise the alert the camera driver raised for the frame, such as the capture-timeout text.
+
+  Where it appears:
+  - `SingleFrameComplete` — `{ Success, Error?, Path?, Filename? }`. On a capture failure `Error` is
+    `"camera error: <reason>"`, for example `"camera error: Camera not connected (Alpaca 1031)"`, or exactly
+    `"camera error -- see debug log"` when the camera gave no reason. This includes a single frame whose camera the
+    daemon tried to reconnect (1031) and could not.
+  - `SettleDone` of a `guide` or `dither` request that a capture failure ended: `Error` is the same
+    `"camera error: <reason>"` text. It used to be `"Stopped capturing"` (failure while looping or selecting a star)
+    or `"Guiding stopped"` (failure while calibrating or guiding). A request ended by `stop_capture` still says
+    `"Stopped capturing"` / `"Guiding stopped"`. The event order is unchanged from earlier releases:
+    - failure while calibrating or guiding: `CalibrationFailed` (when calibrating), `GuidingStopped`, `SettleDone`,
+      then `LoopingExposuresStopped` (it can arrive twice);
+    - failure while looping or selecting a star: `LoopingExposuresStopped`, `SettleDone`, then a second
+      `LoopingExposuresStopped`;
+    - while a guide pulse is still in progress, `GuidingStopped` is held until the pulse ends, so it can follow
+      `SettleDone` and `LoopingExposuresStopped`.
+
+    Treat `SettleDone` as the end of the request and a `LoopingExposuresStopped` around it as part of the same stop.
+  - `CalibrationFailed` of a calibration a capture failure interrupted: `Reason` is the same text instead of
+    `"Calibration manually stopped"`.
+  - The `build_dark_library` / `build_defect_map_darks` error and `DarkLibraryBuildFailed` /
+    `DefectMapBuildFailed` `error`: `"failed to capture dark frame <i>/<n>: <reason>"` (without `: <reason>` when
+    there is none).
+  - `Alert` `Msg` for a failed `startexposure`, `imageready`, `imagearray` or binning call:
+    `"<prefix>: <reason>"`, for example
+    `"Alpaca error -- Cannot start exposure: Duration out of range (Alpaca 1025)"` (the old prefix
+    `"... with given parameters"` is gone).
+
+  The reason's server text is passed through untranslated; the driver-alert fallback is the daemon's own message
+  and can be localised. The reason is cleared whenever an exposure is scheduled or starts, so a frame never reports
+  an earlier frame's failure. Looping, guiding and the polar-alignment tools with no `guide` / `dither` request in
+  flight still end with `LoopingExposuresStopped` / `GuidingStopped`, which carry no reason; the `Alert` does. A
+  failed gain write is still logged and does not fail the frame.
 
 ### Startup Catch-Up Events
 
@@ -741,7 +783,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_exposure` | none | none | exposure ms (int) | none expected | none |
 | `set_exposure` | `exposure:int` | none | `0` | `-32602` invalid/missing exposure; `1` set failure | requested exposure changes |
 | `get_exposure_durations` | none | none | int[] (ms) | none expected | none |
-| `capture_single_frame` | optional `exposure`,`binning`,`gain`,`subframe`,`path`,`save` | no active capture; connected camera required; `path` must be absolute, in an existing directory inside the data directory (or the `/server/capture_frame_dir` config override); symlinks are resolved before the check | `0` (capture queued) | `-32602` invalid params/path rules; `1` camera/capture state failure; `2` exposure start failure | completion via `SingleFrameComplete` event |
+| `capture_single_frame` | optional `exposure`,`binning`,`gain`,`subframe`,`path`,`save` | no active capture; connected camera required; `path` must be absolute, in an existing directory inside the data directory (or the `/server/capture_frame_dir` config override); symlinks are resolved before the check | `0` (capture queued) | `-32602` invalid params/path rules; `1` camera/capture state failure; `2` exposure start failure | completion via `SingleFrameComplete` event (a capture failure gives `Success:false`, `Error:"camera error: <reason>"`; see Capture failure reasons) |
 | `save_image` | none | guider context; current image must exist | `{filename}` | `2` no image; `3` save failure | writes temporary image file |
 | `get_star_image` | optional `size:int>=15` | guider context; selected star and valid image | `{frame,width,height,star_pos,pixels}` | `-32602` invalid size; `2` no star selected | none |
 | `get_use_subframes` | none | none | `bool` | none expected | none |

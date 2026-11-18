@@ -211,6 +211,9 @@ private:
 
     bool m_continueCapturing; // should another image be captured?
     SingleExposure m_singleExposure;
+    // #97: set by a capture failure just before it stops capturing, so FinishStop fails a pending guide or
+    // dither request with the camera's reason rather than "Stopped capturing". One-shot: FinishStop clears it.
+    wxString m_captureFailureStopReason;
 
 public:
     MyFrame();
@@ -455,6 +458,9 @@ public:
 
     void NotifyGuidingStarted();
     void NotifyGuidingStopped();
+    // #97: non-empty only while a capture failure is stopping capture: the camera's reason, which the
+    // guide / dither request it ends (and an interrupted calibration) report instead of a bare "stopped"
+    const wxString& CaptureFailureStopReason() const { return m_captureFailureStopReason; }
 
     void SetDitherMode(DitherMode mode);
     DitherMode GetDitherMode() const;

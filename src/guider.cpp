@@ -1159,7 +1159,8 @@ void Guider::StopGuiding()
     case STATE_CALIBRATING_SECONDARY:
     case STATE_CALIBRATED:
         EvtServer.NotifyCalibrationFailed(m_state == STATE_CALIBRATING_SECONDARY ? pSecondaryMount : pMount,
-                                          _("Calibration manually stopped"));
+                                          pFrame->CaptureFailureStopReason().empty() ? _("Calibration manually stopped")
+                                                                                     : pFrame->CaptureFailureStopReason());
         // fall through to notify guiding stopped
     case STATE_GUIDING:
         if ((!pMount || !pMount->IsBusy()) && (!pSecondaryMount || !pSecondaryMount->IsBusy()))

@@ -35,6 +35,7 @@
 #define ALPACA_CLIENT_H
 
 #include "phd.h"
+#include "alpaca_errors.h"
 #include "json_parser.h"
 #include <curl/curl.h>
 #include <atomic>
@@ -65,18 +66,21 @@ public:
     AlpacaClient(const wxString& host, long port, long deviceNumber);
     ~AlpacaClient();
 
+    // callError (optional, #97): on failure, which layer failed (transport, HTTP status, parse, Alpaca
+    // error) and its text; Kind::None on success. Every failure return fills it (AlpacaErrors::CallErrorScope).
     bool Get(const wxString& endpoint, JsonParser& parser, long *errorCode = nullptr, std::string *rawResponse = nullptr,
-             wxString *errorMessage = nullptr);
+             wxString *errorMessage = nullptr, AlpacaErrors::CallError *callError = nullptr);
     bool GetRaw(const wxString& endpoint, const wxString& acceptHeader, std::string *response, std::string *contentType,
-                long *errorCode = nullptr);
+                long *errorCode = nullptr, AlpacaErrors::CallError *callError = nullptr);
     bool Put(const wxString& endpoint, const wxString& params, JsonParser& parser, long *errorCode = nullptr,
-             wxString *errorMessage = nullptr);
+             wxString *errorMessage = nullptr, AlpacaErrors::CallError *callError = nullptr);
     bool GetDouble(const wxString& endpoint, double *value, long *errorCode = nullptr);
     bool GetInt(const wxString& endpoint, int *value, long *errorCode = nullptr);
-    bool GetBool(const wxString& endpoint, bool *value, long *errorCode = nullptr, wxString *errorMessage = nullptr);
+    bool GetBool(const wxString& endpoint, bool *value, long *errorCode = nullptr, wxString *errorMessage = nullptr,
+                 AlpacaErrors::CallError *callError = nullptr);
     bool GetString(const wxString& endpoint, wxString *value, long *errorCode = nullptr);
     bool PutAction(const wxString& endpoint, const wxString& action, const wxString& params, long *errorCode = nullptr,
-                   wxString *errorMessage = nullptr);
+                   wxString *errorMessage = nullptr, AlpacaErrors::CallError *callError = nullptr);
 
     wxString GetBaseUrl() const;
 

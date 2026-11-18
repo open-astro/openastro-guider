@@ -298,6 +298,22 @@ set_property(TARGET test_capture_cleanup PROPERTY FOLDER "Unit tests")
 add_test(NAME test_capture_cleanup COMMAND test_capture_cleanup)
 
 ############################################################################
+# test_capture_failure  --  capture_failure.cpp: the reason a failed capture
+# reports to clients (SingleFrameComplete / SettleDone / dark-build error /
+# Alert), built from the failed Alpaca call or the driver's alert (#97).
+# std-only.
+############################################################################
+add_executable(test_capture_failure
+  ${PHD_TESTS_DIR}/capture/test_capture_failure.cpp
+  ${phd_src_dir}/capture_failure.cpp
+  ${phd_src_dir}/alpaca_errors.cpp
+  ${phd_src_dir}/json_parser.cpp
+)
+target_link_libraries(test_capture_failure PRIVATE phd_test_common)
+set_property(TARGET test_capture_failure PROPERTY FOLDER "Unit tests")
+add_test(NAME test_capture_failure COMMAND test_capture_failure)
+
+############################################################################
 # test_restore_calibration  --  restore_calibration.cpp: when
 # restore_calibration is refused, returns false or ends a stale guide
 # request before restoring (#102). std-only.

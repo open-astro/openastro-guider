@@ -18,16 +18,19 @@ reported coordinates only.
 Error injection (for the guider's capture-error handling, #103) goes through a
 small control endpoint and is off until used, so the default behaviour is unchanged:
 
-    PUT /fake/inject   call=<binx|biny|startexposure|imageready|imagearray>
+    PUT /fake/inject   call=<binx|biny|gain|startexposure|imageready|imagearray>
                        &error=<Alpaca ErrorNumber, e.g. 1031 or 1280>&count=<N, default 1>
-                       [&message=<ErrorMessage>][&format=<json|imagebytes>]
+                       [&message=<ErrorMessage>][&format=<json|imagebytes>][&http=<status>]
         The next N calls of that camera endpoint answer with the Alpaca error
         (HTTP 200). imagearray errors are JSON by default; format=imagebytes sends
-        an ImageBytes error payload instead. A new inject for a call replaces the
-        old one; count=0 clears it.
+        an ImageBytes error payload instead. http=<status> (e.g. 400 or 500) answers
+        with that HTTP status and the message as a text/plain body instead of an
+        Alpaca error (#97). A new inject for a call replaces the old one; count=0
+        clears it. The camera has gain control (gainmin 0, gainmax 100), so the
+        guider writes gain when it changes; a gain failure must not fail the frame.
     PUT /fake/unplug   unplugged=<true|false>[&message=<ErrorMessage>]
         While unplugged, the camera reads as not connected, a Connected=true PUT is
-        refused with 1031, and binx/biny/startexposure/imageready/imagearray
+        refused with 1031, and binx/biny/gain/startexposure/imageready/imagearray
         answer 1031 (an injection for the call still wins).
     GET /fake/state    the injections and the unplugged flag, as JSON.
 
@@ -78,21 +81,21 @@ STARS = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000
 _frame = None  # cache used only when rotation is off
 
 # Error injection (see the module docstring): call -> {"error", "message", "count", "format"}
-INJECTABLE_CALLS = ("binx", "biny", "startexposure", "imageready", "imagearray")
+INJECTABLE_CALLS = ("binx", "biny", "gain", "startexposure", "imageready", "imagearray")
 injections = {}
 unplugged = {"on": False, "message": "camera removed from USB"}
 
 
 def take_injected_error(call):
-    """The (error, message, format) a camera call must answer with, or None. Guarded by state_lock."""
+    """The (error, message, format, http) a camera call must answer with, or None. Guarded by state_lock."""
     inj = injections.get(call)
     if inj and inj["count"] > 0:
         inj["count"] -= 1
         if inj["count"] == 0:
             del injections[call]
-        return inj["error"], inj["message"], inj["format"]
+        return inj["error"], inj["message"], inj["format"], inj["http"]
     if unplugged["on"] and call in INJECTABLE_CALLS:
-        return 1031, unplugged["message"], "json"
+        return 1031, unplugged["message"], "json", 200
     return None
 
 
@@ -155,6 +158,9 @@ PROPS = {
     "coolerpower": 0.0,
     "hasshutter": False,
     "maxadu": 65535,
+    "gain": 0,
+    "gainmin": 0,
+    "gainmax": 100,
     "maxbinx": 1,
     "maxbiny": 1,
     "binx": 1,
@@ -217,8 +223,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def reply_error(self, error, message, fmt="json"):
-        """An Alpaca error, HTTP 200 like a real server."""
+    def reply_error(self, error, message, fmt="json", http=200):
+        """An Alpaca error, HTTP 200 like a real server; or, with http != 200, that HTTP status."""
+        if http != 200:
+            self.log_message("injected HTTP %d on %s: %s", http, self.path, message)
+            body = message.encode()
+            self.send_response(http)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return None
         self.log_message("injected error %d on %s: %s", error, self.path, message)
         if fmt == "imagebytes":
             return self.send_body(imagebytes_error(error, message), "application/imagebytes")
@@ -249,7 +264,8 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     injections[call] = {"error": int(params.get("error", "1031")), "count": count,
                                         "message": params.get("message", "injected error"),
-                                        "format": params.get("format", "json")}
+                                        "format": params.get("format", "json"),
+                                        "http": int(params.get("http", "200"))}
             elif method == "PUT" and name == "/fake/unplug":
                 unplugged["on"] = params.get("unplugged", "true").lower() == "true"
                 if "message" in params:
@@ -350,6 +366,10 @@ class Handler(BaseHTTPRequestHandler):
         elif prop in ("abortexposure", "stopexposure"):
             with state_lock:
                 state["imageready"] = False
+        elif prop == "gain":
+            m = re.search(r"(?:^|&)Gain=(-?\d+)", body)
+            if m:
+                PROPS["gain"] = int(m.group(1))
         else:
             self.log_message("unknown PUT %s body=%s", self.path, body)
         return self.reply(None)

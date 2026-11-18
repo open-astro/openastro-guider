@@ -1028,6 +1028,10 @@ void GuideCamera::DisconnectWithAlert(CaptureFailType type)
 
 void GuideCamera::DisconnectWithAlert(const wxString& msg, ReconnectType reconnect)
 {
+    // #97: the capture timeout and the memory error give the failed capture its reason. Every caller is on a
+    // capture path; a failed Alpaca call recorded before this (1031 / repeated 1280) takes priority.
+    NoteCaptureAlert(msg);
+
     Disconnect();
 
     // ARA integration (PHD2-GAP gap 2): structured fault event alongside the
@@ -1059,6 +1063,39 @@ void GuideCamera::DisconnectWithAlert(const wxString& msg, ReconnectType reconne
         pFrame->Alert(msg + "\n" +
                       _("The camera has been disconnected. Please resolve the problem and re-connect the camera."));
     }
+}
+
+CaptureFailures::Failure GuideCamera::TakeCaptureFailure()
+{
+    wxCriticalSectionLocker lock(m_lastCaptureFailureLock);
+    CaptureFailures::Failure failure = m_lastCaptureFailure;
+    m_lastCaptureFailure = CaptureFailures::Failure();
+    return failure;
+}
+
+void GuideCamera::ClearCaptureFailure()
+{
+    wxCriticalSectionLocker lock(m_lastCaptureFailureLock);
+    m_lastCaptureFailure = CaptureFailures::Failure();
+}
+
+void GuideCamera::RecordCaptureFailure(const AlpacaErrors::CallError& error)
+{
+    wxCriticalSectionLocker lock(m_lastCaptureFailureLock);
+    CaptureFailures::RecordCallError(m_lastCaptureFailure, error);
+}
+
+void GuideCamera::NoteCaptureAlert(const wxString& msg)
+{
+    std::string text(msg.utf8_str());
+    wxCriticalSectionLocker lock(m_lastCaptureFailureLock);
+    CaptureFailures::NoteDriverAlert(m_lastCaptureFailure, text);
+}
+
+void GuideCamera::CaptureAlert(const wxString& msg)
+{
+    NoteCaptureAlert(msg);
+    pFrame->Alert(msg);
 }
 
 void GuideCamera::InitCapture() { }
@@ -1107,6 +1144,7 @@ bool GuideCamera::Capture(GuideCamera *camera, usImage& img, const CaptureParams
     img.Gain = captureParams.gain;
     img.ImgExpDur = captureParams.duration;
 
+    camera->ClearCaptureFailure(); // a new capture never inherits an old reason (#97)
     bool err = camera->Capture(img, cameraParams);
     if (err)
         return err;
