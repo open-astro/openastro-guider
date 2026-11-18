@@ -1999,8 +1999,8 @@ void GearDialog::OnConnectRetryTimer(wxTimerEvent& event)
         std::string blocker = ConnectRetry::RetryBlocker(m_probeDevice, now);
         if (!blocker.empty() && !m_probeCancel)
         {
-            Debug.Write(
-                wxString::Format("connect retry: the %s probe in flight waits: %s\n", GearDeviceName(m_probeDevice), blocker));
+            Debug.Write(wxString::Format("connect retry: the %s probe in flight waits: %s\n", GearDeviceName(m_probeDevice),
+                                         FromStd(blocker)));
             CancelProbeFor(m_probeDevice);
         }
         return;
