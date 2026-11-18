@@ -748,7 +748,10 @@ bool CameraAlpaca::CaptureFailed(const AlpacaErrors::CallError& error, const wxS
     long alpacaError = error.kind == AlpacaErrors::CallError::Kind::Alpaca ? error.alpacaError : 0;
     if (m_captureFailures.OnFailure(alpacaError) == AlpacaErrors::CaptureFailureAction::Reconnect)
     {
-        DisconnectWithAlert(CaptureReconnectReason(alpacaError, wxString(error.message.c_str(), wxConvUTF8)), RECONNECT);
+        // the same clean-up as every other reason: valid UTF-8, one line, capped (a raw wxConvUTF8 conversion gives
+        // an empty message for invalid UTF-8 and stops at an embedded NUL)
+        DisconnectWithAlert(
+            CaptureReconnectReason(alpacaError, wxString::FromUTF8(AlpacaErrors::OneLine(error.message).c_str())), RECONNECT);
     }
     else
     {

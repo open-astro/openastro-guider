@@ -1989,7 +1989,22 @@ void GearDialog::OnConnectRetryTimer(wxTimerEvent& event)
         return;
     }
     if (m_probeRunning)
+    {
+        // The gates were checked when the probe started. One that has closed since (a dark build, calibration,
+        // the Static PA tool opening...) cancels the probe before its Connected=true PUT if that is not sent yet;
+        // the device then waits on the gate like any other due attempt. A connect on the stack is left out: that
+        // connect records its own result.
+        ConnectRetry::Gates now = CurrentRetryGates();
+        now.connectInProgress = false;
+        std::string blocker = ConnectRetry::RetryBlocker(m_probeDevice, now);
+        if (!blocker.empty() && !m_probeCancel)
+        {
+            Debug.Write(
+                wxString::Format("connect retry: the %s probe in flight waits: %s\n", GearDeviceName(m_probeDevice), blocker));
+            CancelProbeFor(m_probeDevice);
+        }
         return;
+    }
 
     int64_t now = SteadyNowMs();
     ConnectRetry::Gates gates = CurrentRetryGates();

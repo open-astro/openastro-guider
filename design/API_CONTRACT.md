@@ -400,7 +400,8 @@ schedule, per-device state, gates, probe sequence and texts are in the wx-free
   when the driver fails after the probe saw the device connected (debug log only).
 - `set_connected` false (one device or all) stops the retry for the devices it covers;
   choosing another device or profile forgets the state (choosing the same device again keeps it);
-  either, or a server change, stops a probe in flight before its PUT if not yet sent and drops its result;
+  either, a server change, or a retry gate that closes while the probe runs (checked every 1 s tick)
+  stops a probe in flight before its PUT if not yet sent and drops its result;
   "not configured" is not retried until `set_alpaca_server`. `set_alpaca_server` re-selects the
   Alpaca devices for the new settings but keeps a device still to be connected (retrying or not
   configured) and tries it at once, so it alone connects a device `--auto-connect` could not.
