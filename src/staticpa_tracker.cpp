@@ -385,6 +385,12 @@ int DetectBinning(int w, int h)
     return b;
 }
 
+bool DetectGridUsable(int w, int h)
+{
+    const int b = DetectBinning(w, h);
+    return w / b >= kMinDetectBinnedSide && h / b >= kMinDetectBinnedSide;
+}
+
 std::vector<Candidate> FindCandidates(const star_find::StarImage& img, const DetectParams& p)
 {
     std::vector<Candidate> out;
@@ -392,6 +398,10 @@ std::vector<Candidate> FindCandidates(const star_find::StarImage& img, const Det
         return out;
     Rect r = ValidRect(img);
     if (r.Width() < 16 || r.Height() < 16)
+        return out;
+    // a binned side under 5 px holds no peak; under 2 px (0 or 1) it would also
+    // make the sample stride NaN and, at 0, leave the binned copy empty (#110)
+    if (!DetectGridUsable(r.Width(), r.Height()))
         return out;
 
     // detection pass on a binned copy of the valid area

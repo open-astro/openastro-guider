@@ -188,15 +188,16 @@ std::string CallErrorReason(const CallError& error)
 
     case CallError::Kind::Alpaca:
     {
-        std::string message = OneLine(error.message, kReasonMaxBytes);
+        // one pass, capped to leave room for the suffix (at most 30 bytes, so the cap stays above the "...")
+        snprintf(buf, sizeof(buf), " (Alpaca %ld)", error.alpacaError);
+        std::string suffix(buf);
+        std::string message = OneLine(error.message, kReasonMaxBytes - suffix.size());
         if (message.empty())
         {
             snprintf(buf, sizeof(buf), "Alpaca error %ld", error.alpacaError);
             return buf;
         }
-        snprintf(buf, sizeof(buf), " (Alpaca %ld)", error.alpacaError);
-        std::string suffix(buf);
-        return OneLine(message, kReasonMaxBytes - suffix.size()) + suffix;
+        return message + suffix;
     }
 
     case CallError::Kind::Http:

@@ -624,7 +624,8 @@ Alpaca discovery/query:
 
 The `staticpa_*` methods (`staticpa_start`, `staticpa_measure`, `staticpa_get_status`, `staticpa_stop`,
 `staticpa_close`) drive the Static PA tool headlessly. This section covers only how auto mode treats the frames
-exposed during its own RA steps (#98) and the live readout while the user adjusts the mount (#99).
+exposed during its own RA steps (#98), the auto-mode `rotation` progress at the start of a run (#109) and the live
+readout while the user adjusts the mount (#99).
 
 - In auto mode (`staticpa_start {auto:true}`) the tool turns the mount west in RA in steps while the camera keeps
   looping. While it is aligning, the daemon asks the mount whether it is slewing on every frame, before the star is
@@ -638,6 +639,9 @@ exposed during its own RA steps (#98) and the live readout while the user adjust
   exposure.
 - `staticpa_get_status` keeps its shape. `rotation.slewing` is the mount's live `Slewing` state, so it can read
   `false` for about one more frame while the step's reading is still pending.
+- `rotation.required_deg`, `rotated_deg`, `step` and `required_steps` read `0` from each `staticpa_start` (the
+  `staticpa_start` result included) until point 1 is measured and sets the targets (#109), not the previous run's
+  values.
 - Cost: one extra frame per step compared with reading the step on the frame where the mount is first seen
   stopped (about one exposure plus download per step). A frame whose start time reads later than now (the system
   clock was stepped back while it downloaded) is skipped too, so such a step costs one more frame.
