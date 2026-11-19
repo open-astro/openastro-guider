@@ -46,6 +46,14 @@ Larger sensors and denser fields (#99, the Static PA adjust phase):
         Add a star fixed on the sensor that does not move with the field (for the
         "latched onto another star" case); clear=true removes them all.
 
+A camera readout (#120, the guider's ImageReady poll backoff):
+
+    --readout-ms N     imageready reads false until N ms after the exposure is due
+                       (startexposure time + Duration + N), and the server logs how
+                       many imageready polls each frame took once it reads true.
+                       Default 0: imageready reads true as soon as startexposure
+                       arrives, as before.
+
 Error injection (for the guider's capture-error handling, #103) goes through a
 small control endpoint and is off until used, so the default behaviour is unchanged:
 
@@ -128,8 +136,11 @@ SLEW_SMEAR = 0.0
 RA0 = scope["ra"]
 # the slew in progress or last finished: monotonic start/end, RA from/to
 slew = {"t0": 0.0, "t1": 0.0, "ra0": 0.0, "ra1": 0.0}
-# the last startexposure: monotonic start and Duration (s)
-exposure = {"t0": 0.0, "dur": 0.0}
+# the last startexposure: monotonic start and Duration (s), and the imageready
+# polls since (logged once it reads true with --readout-ms)
+exposure = {"t0": 0.0, "dur": 0.0, "polls": 0, "logged": False}
+# --readout-ms: imageready reads false until this long after the exposure is due
+READOUT_MS = 0.0
 
 STARS = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000),
          (120, 350, 35000), (420, 380, 28000), (560, 300, 22000), (250, 420, 18000),
@@ -498,6 +509,14 @@ class Handler(BaseHTTPRequestHandler):
                 return None
             with state_lock:
                 value = state["imageready"]
+                if value and READOUT_MS > 0:
+                    exposure["polls"] += 1
+                    past_ms = (time.monotonic() - exposure["t0"] - exposure["dur"]) * 1000.0
+                    value = past_ms >= READOUT_MS
+                    if value and not exposure["logged"]:
+                        exposure["logged"] = True
+                        self.log_message("imageready true after %d polls (%.0f ms past the exposure end, readout %d ms)",
+                                         exposure["polls"], past_ms, READOUT_MS)
             return self.reply(value)
         if prop == "imagearray":
             if self.injected("imagearray"):
@@ -583,7 +602,7 @@ class Handler(BaseHTTPRequestHandler):
             params = dict(p.split("=", 1) for p in body.split("&") if "=" in p)
             with state_lock:
                 state["imageready"] = True
-                exposure.update(t0=time.monotonic(), dur=float(params.get("Duration", 0) or 0))
+                exposure.update(t0=time.monotonic(), dur=float(params.get("Duration", 0) or 0), polls=0, logged=False)
         elif prop in ("abortexposure", "stopexposure"):
             with state_lock:
                 state["imageready"] = False
@@ -622,12 +641,15 @@ if __name__ == "__main__":
     ap.add_argument("--star-seed", type=int, default=1, help="random field for --stars")
     ap.add_argument("--imagebytes", action="store_true",
                     help="serve imagearray as ASCOM ImageBytes when the client accepts it")
+    ap.add_argument("--readout-ms", type=float, default=0.0, metavar="N",
+                    help="imageready reads false until N ms after the exposure is due (0: true at startexposure)")
     args = ap.parse_args()
     W, H = (int(v) for v in args.size.split(","))
     PROPS.update(cameraxsize=W, cameraysize=H, numx=W, numy=H)
     if args.stars > 0:
         STARS = random_stars(args.stars, args.star_seed)
     IMAGEBYTES = args.imagebytes
+    READOUT_MS = args.readout_ms
     SLEW_SECONDS = args.slew_seconds
     SLEW_ROTATES = args.slew_rotates
     SLEW_SMEAR = args.slew_smear
@@ -638,5 +660,6 @@ if __name__ == "__main__":
     print(f"fake-alpaca: serving camera+telescope 0 on {args.host}:{args.port}"
           f" (rotation {ROTATE_DEG_PER_SEC} deg/s about {POLE}, dec drift {DEC_DRIFT_PX_PER_MIN} px/min,"
           f" slew {SLEW_SECONDS} s rotates={SLEW_ROTATES} smear={SLEW_SMEAR}, {W}x{H}, {len(STARS)} stars"
-          f"{', imagebytes' if IMAGEBYTES else ''})", flush=True)
+          f"{', imagebytes' if IMAGEBYTES else ''}{f', readout {READOUT_MS:g} ms' if READOUT_MS > 0 else ''})",
+          flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
