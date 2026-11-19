@@ -47,6 +47,20 @@ class RpcClient:
                 return msg
         raise RuntimeError(f"timeout waiting for response to {method}")
 
+    def raw_request(self, line: str, match, timeout_s: float = 5.0):
+        """Send one raw request line and return the first message match(msg) accepts."""
+        self._file.write((line + "\n").encode("utf-8"))
+
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            resp = self._file.readline()
+            if not resp:
+                raise RuntimeError(f"socket closed while waiting for a reply to {line}")
+            msg = json.loads(resp.decode("utf-8", errors="replace").strip())
+            if match(msg):
+                return msg
+        raise RuntimeError(f"timeout waiting for a reply to {line}")
+
 
 def main():
     ap = argparse.ArgumentParser(description="PHD2 JSON-RPC smoke test for PINS/NINA compatibility methods")
@@ -87,6 +101,30 @@ def main():
             if message_contains and message_contains.lower() not in str(err.get("message", "")).lower():
                 failures.append((name, f"error message missing '{message_contains}': {err}"))
                 print(f"FAIL {name}: error message missing '{message_contains}'")
+                return
+            print(f"PASS {name}: {err}")
+        except Exception as e:
+            failures.append((name, str(e)))
+            print(f"FAIL {name}: {e}")
+
+    def expect_raw_error(name, line, req_id, code):
+        # #118: a request refused before dispatch must be answered with its own id
+        nonlocal checks
+        checks += 1
+        try:
+            if req_id is None:
+                match = lambda m: isinstance(m, dict) and "Event" not in m and "error" in m and m.get("id") is None
+            else:
+                match = lambda m: isinstance(m, dict) and "Event" not in m and m.get("id") == req_id
+            msg = cli.raw_request(line, match)
+            err = msg.get("error")
+            if not err:
+                failures.append((name, f"expected error, got success: {msg.get('result')}"))
+                print(f"FAIL {name}: expected error, got success")
+                return
+            if err.get("code") != code:
+                failures.append((name, f"expected code {code}, got {err.get('code')}"))
+                print(f"FAIL {name}: expected code {code}, got {err.get('code')}")
                 return
             print(f"PASS {name}: {err}")
         except Exception as e:
@@ -194,6 +232,32 @@ def main():
             params={"camera": "__NOT_A_REAL_CAMERA__"},
             code=-32602,
         )
+
+        # params that are not an array or object are refused before the method
+        # runs, so none of these touches the equipment (#118)
+        for method in ("set_exposure", "guide", "set_connected", "get_app_state"):
+            for label, params in (("number", "2000"), ("string", '"2000"'), ("null", "null")):
+                req_id = cli._next_id()
+                expect_raw_error(
+                    f"{method}_{label}_params_returns_invalid_params_with_id",
+                    f'{{"jsonrpc":"2.0","method":"{method}","params":{params},"id":{req_id}}}',
+                    req_id,
+                    -32602,
+                )
+        expect_raw_error(
+            "string_id_is_echoed_on_invalid_params",
+            '{"jsonrpc":"2.0","method":"set_exposure","params":2000,"id":"smoke-118"}',
+            "smoke-118",
+            -32602,
+        )
+        req_id = cli._next_id()
+        expect_raw_error(
+            "missing_method_returns_invalid_request_with_id",
+            f'{{"jsonrpc":"2.0","params":[],"id":{req_id}}}',
+            req_id,
+            -32600,
+        )
+        expect_raw_error("empty_batch_returns_invalid_request", "[]", None, -32600)
 
         is_connected = run_check("get_connected (final)", lambda: cli.call("get_connected"))
         if is_connected and isinstance(camera_choice, str):

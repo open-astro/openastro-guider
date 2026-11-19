@@ -240,6 +240,31 @@ TEST(JsonRpcSchema, ResponseEnvelopeError)
     expect_string_field(err, "message");
 }
 
+TEST(JsonRpcSchema, ResponseEnvelopeInvalidParamsEchoesTheId)
+{
+    // #118: params that are not an array or object (here 2000 instead of
+    // [2000]) are refused before dispatch with -32602 and the request's own
+    // id, not "id":null, so a client matching replies by id sees it.
+    const char *fixture = "{\"jsonrpc\":\"2.0\","
+                          "\"error\":{\"code\":-32602,\"message\":\"invalid params - params must be an array or object\"},"
+                          "\"id\":42}";
+    JsonParser p;
+    ASSERT_TRUE(p.Parse(std::string(fixture)));
+    const json_value *err = child(p.Root(), "error");
+    ASSERT_NE(err, nullptr);
+    EXPECT_EQ(err->type, JSON_OBJECT);
+    EXPECT_EQ(child(p.Root(), "result"), nullptr);
+    const json_value *code = child(err, "code");
+    ASSERT_NE(code, nullptr);
+    ASSERT_EQ(code->type, JSON_INT);
+    EXPECT_EQ(code->int_value, -32602);
+    expect_string_field(err, "message");
+    const json_value *id = child(p.Root(), "id");
+    ASSERT_NE(id, nullptr);
+    ASSERT_EQ(id->type, JSON_INT);
+    EXPECT_EQ(id->int_value, 42);
+}
+
 // ---------------------------------------------------------------------------
 // get_profiles result shape (event_server.cpp ~line 668-681)
 // ---------------------------------------------------------------------------

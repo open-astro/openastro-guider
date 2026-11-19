@@ -40,6 +40,7 @@
 #include "guiding_assistant.h"
 #include "imaging_gear_alpaca.h"
 #include "webui_rpc_guard.h"
+#include "jsonrpc_request.h"
 #include "connect_request.h"
 #include "connect_retry.h"
 #include "restore_calibration.h"
@@ -684,6 +685,9 @@ enum
     JSONRPC_SERVER_ERROR = -32000,
 };
 
+static_assert(JSONRPC_INVALID_REQUEST == JsonRpcRequest::kInvalidRequest, "jsonrpc_request.h code mismatch");
+static_assert(JSONRPC_INVALID_PARAMS == JsonRpcRequest::kInvalidParams, "jsonrpc_request.h code mismatch");
+
 static NV jrpc_error(int code, const wxString& msg)
 {
     JObj err;
@@ -717,27 +721,6 @@ static wxString parser_error(const JsonParser& parser)
 {
     return wxString::Format("invalid JSON request: %s on line %d at \"%.12s...\"", parser.ErrorDesc(), parser.ErrorLine(),
                             parser.ErrorPos());
-}
-
-static void parse_request(const json_value *req, const json_value **pmethod, const json_value **pparams, const json_value **pid)
-{
-    *pmethod = *pparams = *pid = 0;
-
-    if (req)
-    {
-        json_for_each(t, req)
-        {
-            if (t->name)
-            {
-                if (t->type == JSON_STRING && strcmp(t->name, "method") == 0)
-                    *pmethod = t;
-                else if (strcmp(t->name, "params") == 0)
-                    *pparams = t;
-                else if (strcmp(t->name, "id") == 0)
-                    *pid = t;
-            }
-        }
-    }
 }
 
 // paranoia
@@ -7435,23 +7418,18 @@ static bool dispatch_rpc_method(const char *name, JObj& response, const json_val
 
 static bool handle_request(JRpcCall& call)
 {
-    const json_value *params;
-    const json_value *id;
-
     dump_request(call);
 
-    parse_request(call.req, &call.method, &params, &id);
+    const JsonRpcRequestCheck chk = CheckJsonRpcRequest(call.req);
+    call.method = chk.method;
+    const json_value *const params = chk.params;
+    const json_value *const id = chk.id;
 
-    if (!call.method)
+    // a request refused before dispatch is always answered, with its own id
+    // when it has one, so a client matching replies by id sees the error (#118)
+    if (chk.error)
     {
-        call.response << jrpc_error(JSONRPC_INVALID_REQUEST, "invalid request - missing method") << jrpc_id(0);
-        return true;
-    }
-
-    if (params && !(params->type == JSON_ARRAY || params->type == JSON_OBJECT))
-    {
-        call.response << jrpc_error(JSONRPC_INVALID_REQUEST, "invalid request - params must be an array or object")
-                      << jrpc_id(0);
+        call.response << jrpc_error(chk.error, chk.message) << jrpc_id(id);
         return true;
     }
 
@@ -7511,6 +7489,15 @@ static void handle_cli_input_complete(wxSocketClient *cli, char *input)
         {
             JRpcCall call(cli, nullptr);
             call.response << jrpc_error(JSONRPC_INVALID_REQUEST, "batch request exceeds 100 calls") << jrpc_id(0);
+            dump_response(call);
+            do_notify1(cli, call.response);
+            return;
+        }
+        if (batchCount == 0)
+        {
+            // JSON-RPC 2.0: an empty batch gets one invalid-request error, not silence (#118)
+            JRpcCall call(cli, nullptr);
+            call.response << jrpc_error(JSONRPC_INVALID_REQUEST, "invalid request - empty batch") << jrpc_id(0);
             dump_response(call);
             do_notify1(cli, call.response);
             return;

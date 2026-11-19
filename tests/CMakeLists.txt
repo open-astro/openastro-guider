@@ -274,6 +274,20 @@ set_property(TARGET test_webui_rpc_guard PROPERTY FOLDER "Unit tests")
 add_test(NAME test_webui_rpc_guard COMMAND test_webui_rpc_guard)
 
 ############################################################################
+# test_jsonrpc_request  --  jsonrpc_request.cpp: the checks an event-server
+# JSON-RPC request gets before dispatch, and the id its error echoes (#118).
+# std-only.
+############################################################################
+add_executable(test_jsonrpc_request
+  ${PHD_TESTS_DIR}/event_server/test_jsonrpc_request.cpp
+  ${phd_src_dir}/jsonrpc_request.cpp
+  ${phd_src_dir}/json_parser.cpp
+)
+target_link_libraries(test_jsonrpc_request PRIVATE phd_test_common)
+set_property(TARGET test_jsonrpc_request PROPERTY FOLDER "Unit tests")
+add_test(NAME test_jsonrpc_request COMMAND test_jsonrpc_request)
+
+############################################################################
 # test_alpaca_gain  --  alpaca_gain.cpp: the GainMin/GainMax support
 # decision and the 0-100 % -> raw gain mapping CameraAlpaca uses. std-only.
 ############################################################################
