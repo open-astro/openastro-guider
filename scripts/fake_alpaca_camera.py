@@ -88,6 +88,13 @@ small control endpoint and is off until used, so the default behaviour is unchan
         accepts the connection, then stalls); ms=0 clears it.
     GET /fake/state    the injections, the unplugged flags and the stalls, as JSON.
 
+Setup checks (#117: set_profile_setup must reach the live mount and camera objects):
+
+    GET /fake/pulses[?clear=1]
+        The telescope pulseguide requests since the last clear (the latest 1000), as
+        {"pulses": [{"direction": 0-3 (N S E W), "duration": ms}, ...]}; clear=1
+        returns them and empties the list.
+
     e.g. curl -X PUT -d 'call=imageready&error=1280&count=3&message=acq failed' \
              http://127.0.0.1:11111/fake/inject
 
@@ -103,6 +110,7 @@ Then point the guider at it:
 Requires numpy (frame synthesis only).
 """
 import argparse
+import collections
 import json
 import math
 import re
@@ -128,6 +136,8 @@ GUIDE_RATE_DEG_S = 15.0 / 3600.0  # 1x sidereal
 IMAGE_SCALE = 7.73  # arcsec/px the pulses are converted with
 DEC_DRIFT_PX_PER_MIN = 0.0
 scope = {"connected": False, "ra": 12.0, "dec": 30.0, "pulse_x": 0.0, "pulse_y": 0.0}
+# the pulseguide requests received, latest last (see GET /fake/pulses)
+pulses = collections.deque(maxlen=1000)
 
 # Slew simulation (off by default; see --slew-seconds / --slew-rotates / --slew-smear)
 SLEW_SECONDS = 0.0
@@ -351,6 +361,7 @@ def apply_pulse(direction, duration_ms):
     """Alpaca GuideDirections: 0=N 1=S 2=E 3=W. Shift the field accordingly."""
     px = GUIDE_RATE_DEG_S * (duration_ms / 1000.0) * 3600.0 / IMAGE_SCALE
     with state_lock:
+        pulses.append({"direction": direction, "duration": duration_ms})
         if direction == 0:
             scope["pulse_y"] -= px
         elif direction == 1:
@@ -401,9 +412,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def control(self, method, body):
         """The /fake/* error-injection control endpoint."""
-        params = {k: v[-1] for k, v in parse_qs(body, keep_blank_values=True).items()}
-        name = self.path.split("?", 1)[0]
+        name, _, query = self.path.partition("?")
+        params = {k: v[-1] for k, v in parse_qs(query if method == "GET" else body, keep_blank_values=True).items()}
         with state_lock:
+            if method == "GET" and name == "/fake/pulses":
+                body = json.dumps({"pulses": list(pulses)}).encode()
+                if params.get("clear", "0").lower() in ("1", "true"):
+                    pulses.clear()
+                return self.send_body(body, "application/json")
             if method == "PUT" and name == "/fake/inject":
                 call = params.get("call", "")
                 if call not in INJECTABLE_CALLS:

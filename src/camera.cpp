@@ -79,12 +79,20 @@ GuideCamera::GuideCamera() : FrameSize(UNDEFINED_FRAME_SIZE)
     m_timeoutMs = pConfig->Profile.GetInt("/camera/TimeoutMs", DefaultGuideCameraTimeoutMs);
     m_saturationADU = (unsigned short) wxMin(pConfig->Profile.GetInt("/camera/SaturationADU", 0), 65535);
     m_saturationByADU = pConfig->Profile.GetBoolean("/camera/SaturationByADU", true);
-    m_pixelSize = GetProfilePixelSize();
     MaxHwBinning = 1;
-    HwBinning = pConfig->Profile.GetInt("/camera/binning", 1);
-    SwBinning = wxClip(pConfig->Profile.GetInt("/camera/SoftwareBinning", 1), 1, (int) GuideCamera::MAX_SOFTWARE_BINNING);
+    LoadProfileSetup();
     CurrentDarkFrame = nullptr;
     CurrentDefectMap = nullptr;
+}
+
+void GuideCamera::LoadProfileSetup()
+{
+    // Not SetBinning(), which clips to MaxHwBinning (1 before the first connect), nor SetCameraPixelSize(), which
+    // updates the stats window: connect clamps HwBinning to the device and takes the pixel size the driver
+    // reports, as it does for the values the constructor reads (#117).
+    m_pixelSize = GetProfilePixelSize();
+    HwBinning = pConfig->Profile.GetInt("/camera/binning", 1);
+    SwBinning = wxClip(pConfig->Profile.GetInt("/camera/SoftwareBinning", 1), 1, (int) GuideCamera::MAX_SOFTWARE_BINNING);
 }
 
 GuideCamera::~GuideCamera()

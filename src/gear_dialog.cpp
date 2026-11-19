@@ -1460,14 +1460,19 @@ void GearDialog::OnProfileChoice(wxCommandEvent& event)
     if (selection != prev)
         m_flushConfig = true;
     pConfig->SetCurrentProfile(selection);
-    // another profile: its devices start over, even one chosen under the same name (#104)
-    for (GearDevice dev : { GearDevice::Camera, GearDevice::Mount, GearDevice::Rotator })
-        ForgetDevice(dev);
-    LoadGearChoices();
+    ReloadProfileGear();
     pFrame->LoadProfileSettings();
     pFrame->pGuider->LoadProfileSettings();
     pFrame->UpdateTitle();
     pFrame->pGraphLog->ResetData();
+}
+
+void GearDialog::ReloadProfileGear()
+{
+    // another profile: its devices start over, even one chosen under the same name (#104)
+    for (GearDevice dev : { GearDevice::Camera, GearDevice::Mount, GearDevice::Rotator })
+        ForgetDevice(dev);
+    LoadGearChoices();
 }
 
 bool GearDialog::SetProfile(int profileId, wxString *error)

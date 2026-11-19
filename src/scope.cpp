@@ -78,11 +78,7 @@ Scope::Scope()
     m_CalDetailsValidated = false;
 
     wxString prefix = "/" + GetMountClassName();
-    int calibrationDuration = pConfig->Profile.GetInt(prefix + "/CalibrationDuration", DefaultCalibrationDuration);
-    SetCalibrationDuration(calibrationDuration);
-
-    int calibrationDistance = pConfig->Profile.GetInt(prefix + "/CalibrationDistance", CalstepDialog::DEFAULT_DISTANCE);
-    SetCalibrationDistance(calibrationDistance);
+    LoadProfileSetup();
 
     int maxRaDuration = pConfig->Profile.GetInt(prefix + "/MaxRaDuration", DefaultMaxRaDuration);
     SetMaxRaDuration(maxRaDuration);
@@ -108,9 +104,17 @@ Scope::Scope()
     val = pConfig->Profile.GetBoolean(prefix + "/UseDecComp", true);
     EnableDecCompensation(val);
 
-    m_hasHPEncoders = pConfig->Profile.GetBoolean("/scope/HiResEncoders", false);
-
     m_backlashComp = new BacklashComp(this);
+}
+
+void Scope::LoadProfileSetup()
+{
+    // The constructor reads these too. set_profile_setup changes them while the mount object lives, and the
+    // mount object is rebuilt only on a mount or profile change, so set_profile_setup calls this too (#117).
+    // GetMountClassName() is "scope" for every mount, and the setters write "/scope/...".
+    SetCalibrationDuration(pConfig->Profile.GetInt("/scope/CalibrationDuration", DefaultCalibrationDuration));
+    SetCalibrationDistance(pConfig->Profile.GetInt("/scope/CalibrationDistance", CalstepDialog::DEFAULT_DISTANCE));
+    m_hasHPEncoders = pConfig->Profile.GetBoolean("/scope/HiResEncoders", false);
 }
 
 Scope::~Scope()

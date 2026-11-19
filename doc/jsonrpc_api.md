@@ -122,6 +122,8 @@ Application/runtime errors:
     - optional `delete_dark_files` (bool, default true)
   - precondition: no equipment connected
   - result: `{"deleted_id":int,"deleted_name":string,"current_profile":{"id":int,"name":string}}`
+  - deleting the current profile makes another profile current and loads its camera, mount and rotator selections
+    and settings, as `set_profile` does
 
 - `get_profile_setup`
   - result fields:
@@ -149,6 +151,17 @@ Application/runtime errors:
     - `calibration_duration`: `50..60000`
     - `calibration_distance`: `5..200`
   - result: full setup object (same shape as `get_profile_setup`)
+  - every field applies at once, with no restart: the next connect and the next calibration use the new values
+    (before #117, `calibration_duration`, `calibration_distance`, `high_res_encoders`, `pixel_size`,
+    `camera_binning` and `software_binning` reached the selected mount and camera only after a guider restart or
+    a profile or device change). What the equipment and calibration may still change afterwards:
+    - at connect, a camera that reports its pixel size replaces `pixel_size` with it (and saves it in the profile),
+      a hardware binning above the camera's maximum is lowered to it, and a binning the camera cannot offer at all is
+      reset to 1, with `calibration_duration` divided by the old binning
+    - at the start of a calibration (PHD2 behaviour), when the binning differs from the one the saved calibration
+      was made with (1 when there is none), `calibration_distance` is recomputed for the new binning; with a saved
+      calibration, `calibration_duration` is recomputed too, and also when the mount's guide speed differs by more
+      than 5% from the saved calibration's
 
 - `get_connected`
   - result: bool
@@ -944,9 +957,9 @@ This section is normative for integrator behavior. Each method entry describes:
 | `create_profile` | `name`; optional `copy_from` or `copy_from_id`; optional `select:bool` | none; if `select=true`, guider context required | `{id,name,selected}` | `-32602` invalid/mutually-exclusive source args; `1` creation/select failure | new profile persisted; may become active |
 | `clone_profile` | source via `source_id` or `source_name`; `dest_name`; optional `select:bool` | none; if `select=true`, guider context required | `{id,name,selected}` | `-32602` invalid source/destination args; `1` clone/select failure | new profile persisted; may become active |
 | `rename_profile` | target via `id` or `name`; `new_name` | no equipment connected | `{id,name,selected}` or `0` if unchanged | `-32602` invalid profile args/name collision; `1` cannot rename while connected or rename failure | profile name updated; title updates when active profile renamed |
-| `delete_profile` | target via `id` or `name`; optional `delete_dark_files:bool` | no equipment connected | `{deleted_id,deleted_name,current_profile:{id,name}}` | `-32602` invalid selector/boolean; `1` cannot delete while connected | profile removed; if deleting current profile, runtime profile settings are reloaded |
+| `delete_profile` | target via `id` or `name`; optional `delete_dark_files:bool` | no equipment connected | `{deleted_id,deleted_name,current_profile:{id,name}}` | `-32602` invalid selector/boolean; `1` cannot delete while connected | profile removed; if deleting current profile, the new current profile's gear and settings are loaded |
 | `get_profile_setup` | none | none | setup object with 11 fields | none expected | none |
-| `set_profile_setup` | object with any subset of setup fields | no equipment connected | full setup object (post-apply) | `-32602` type/range violations; `1` blocked while connected | profile settings flushed; runtime setup reloaded |
+| `set_profile_setup` | object with any subset of setup fields | no equipment connected | full setup object (post-apply) | `-32602` type/range violations; `1` blocked while connected | profile settings flushed; runtime setup reloaded, including the selected mount and camera |
 | `get_connected` | none | none | `bool` | none expected | none |
 | `set_connected` | `connected:bool` | guider context must exist | `0` | `-32602` invalid boolean; `1` connect/disconnect failure (a connect failure ends with ` (<reason>)` when the driver has one) | device connection state changes; corresponding events may follow. Headless (#104): a failed connect is retried in the background (15/30/60 s, then every 60 s) until it connects; `connected:false` stops that for the devices it covers; `EquipmentReconnected` when a failed device connects |
 | `shutdown` | none | none | `0` | none in normal path | app termination requested. Semantics: the daemon exits CLEANLY (exit code 0) — under systemd `Restart=on-failure` this is a deliberate stop and the unit is NOT restarted; use `Restart=always` if a supervisor should bring it back |
