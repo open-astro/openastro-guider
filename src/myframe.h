@@ -214,6 +214,10 @@ private:
     // #97: set by a capture failure just before it stops capturing, so FinishStop fails a pending guide or
     // dither request with the camera's reason rather than "Stopped capturing". One-shot: FinishStop clears it.
     wxString m_captureFailureStopReason;
+    // #116: times the current calibration step's frame has been exposed again after a transient capture
+    // failure (CaptureFailures::ShouldRetryCalibrationFrame). A good frame, a terminal failure and a
+    // camera reconnect start a new count.
+    int m_calibrationFrameRetries;
 
 public:
     MyFrame();

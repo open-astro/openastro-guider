@@ -172,3 +172,93 @@ TEST(AlertWithReason, EmptyReasonKeepsAlert)
 {
     EXPECT_EQ(CaptureFailures::AlertWithReason("Error reading image.", ""), "Error reading image.");
 }
+
+// Retrying a calibration frame after a transient failure (open-astro/openastro-guider#116).
+//
+// One failed exposure (Alpaca 1280 after the driver's SDK retries, on RC51) ended a calibration
+// that had been going well for minutes: every frame error was terminal. A transient failure is
+// now exposed again, up to kCalibrationFrameRetries times per step, while disconnects and other
+// errors fail the calibration at once as before.
+
+TEST(CalibrationFrameRetry, Alpaca1280IsTransient)
+{
+    EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(
+        Err(CallError::Kind::Alpaca, 200, 1280, "ZWO image acquisition failed: camera exposure failed after SDK retries"))));
+    EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Alpaca, 200, 1280, ""))));
+    // the image payload's own 1280, with a driver alert noted too
+    Failure f = FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "acquisition failed"));
+    CaptureFailures::NoteDriverAlert(f, "Error reading image");
+    EXPECT_TRUE(CaptureFailures::IsTransient(f));
+}
+
+TEST(CalibrationFrameRetry, TimeoutIsTransient)
+{
+    EXPECT_STREQ(CaptureFailures::kCurlTimeoutText, "Timeout was reached");
+    EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached"))));
+}
+
+TEST(CalibrationFrameRetry, OtherFailuresAreNotTransient)
+{
+    // a disconnect reconnects the camera (#103) instead
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Alpaca, 200, 1031, "Camera not connected"))));
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Alpaca, 200, 1024, "Not implemented"))));
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Alpaca, 200, 1025, "Duration out of range"))));
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Http, 400, 0, "Bad request"))));
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Http, 500, 0, "Internal error"))));
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Parse, 200, 0, "unexpected token"))));
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Couldn't connect to server"))));
+    // a 1280 number carried by an HTTP status is not an Alpaca error
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Http, 1280, 0, ""))));
+    // a driver alert alone: the capture watchdog's timeout, which reconnects the camera itself
+    EXPECT_FALSE(CaptureFailures::IsTransient(
+        FromAlert("After 17.0 sec the camera has not completed a 2.0 sec exposure, so it has been disconnected")));
+    // an aborted or interrupted exposure records nothing
+    EXPECT_FALSE(CaptureFailures::IsTransient(Failure()));
+}
+
+TEST(CalibrationFrameRetry, RetriesUpToTheBudget)
+{
+    Failure f = FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "acquisition failed"));
+    EXPECT_EQ(CaptureFailures::kCalibrationFrameRetries, 2);
+    EXPECT_TRUE(CaptureFailures::ShouldRetryCalibrationFrame(f, 0, true, true, true));
+    EXPECT_TRUE(CaptureFailures::ShouldRetryCalibrationFrame(f, 1, true, true, true));
+    EXPECT_FALSE(CaptureFailures::ShouldRetryCalibrationFrame(f, 2, true, true, true));
+    EXPECT_FALSE(CaptureFailures::ShouldRetryCalibrationFrame(f, 3, true, true, true));
+
+    Failure timeout = FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached"));
+    EXPECT_TRUE(CaptureFailures::ShouldRetryCalibrationFrame(timeout, 0, true, true, true));
+}
+
+TEST(CalibrationFrameRetry, TheReconnectStaysReachable)
+{
+    // the first frame plus every retry fails with 1280 before the #103 tracker reconnects
+    EXPECT_EQ(1 + CaptureFailures::kCalibrationFrameRetries, AlpacaErrors::kAcquisitionFailuresBeforeReconnect);
+
+    AlpacaErrors::CaptureFailureTracker tracker;
+    Failure f = FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "acquisition failed"));
+    int retries = 0;
+    // frame and retries: each 1280 keeps the alert and is exposed again
+    while (CaptureFailures::ShouldRetryCalibrationFrame(f, retries, true, true, true))
+    {
+        EXPECT_EQ(tracker.OnFailure(1280), AlpacaErrors::CaptureFailureAction::Alert);
+        ++retries;
+    }
+    EXPECT_EQ(retries, CaptureFailures::kCalibrationFrameRetries);
+    // the next 1280 in a row is the one that reconnects
+    EXPECT_EQ(tracker.OnFailure(1280), AlpacaErrors::CaptureFailureAction::Reconnect);
+}
+
+TEST(CalibrationFrameRetry, NoRetryOutsideACalibrationOrWhenStopping)
+{
+    Failure f = FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "acquisition failed"));
+    // looping or guiding: unchanged, the frame fails
+    EXPECT_FALSE(CaptureFailures::ShouldRetryCalibrationFrame(f, 0, false, true, true));
+    // a stop was requested
+    EXPECT_FALSE(CaptureFailures::ShouldRetryCalibrationFrame(f, 0, true, false, true));
+    // the camera is disconnected (a failed reconnect, the throttle)
+    EXPECT_FALSE(CaptureFailures::ShouldRetryCalibrationFrame(f, 0, true, true, false));
+    // a disconnect while calibrating
+    EXPECT_FALSE(CaptureFailures::ShouldRetryCalibrationFrame(
+        FromCall(Err(CallError::Kind::Alpaca, 200, 1031, "Camera not connected")), 0, true, true, true));
+    EXPECT_FALSE(CaptureFailures::ShouldRetryCalibrationFrame(Failure(), 0, true, true, true));
+}
