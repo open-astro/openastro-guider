@@ -354,6 +354,18 @@ set_property(TARGET test_connect_retry PROPERTY FOLDER "Unit tests")
 add_test(NAME test_connect_retry COMMAND test_connect_retry)
 
 ############################################################################
+# test_pulse_wait  --  pulse_wait.cpp: how long ScopeAlpaca::Guide waits
+# for an Alpaca PulseGuide, timed from the request (#119). std-only.
+############################################################################
+add_executable(test_pulse_wait
+  ${PHD_TESTS_DIR}/equipment/test_pulse_wait.cpp
+  ${phd_src_dir}/pulse_wait.cpp
+)
+target_link_libraries(test_pulse_wait PRIVATE phd_test_common)
+set_property(TARGET test_pulse_wait PROPERTY FOLDER "Unit tests")
+add_test(NAME test_pulse_wait COMMAND test_pulse_wait)
+
+############################################################################
 # test_capture_cleanup  --  capture_cleanup.cpp: pruning of the
 # save_image_XXXXXX frames the daemon names itself (#93). std-only.
 ############################################################################

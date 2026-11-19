@@ -8677,6 +8677,11 @@ void EventServer::NotifyGuideStep(const GuideStepInfo& step)
     {
         ev << NV("Pos", step.aoPos);
     }
+    else
+    {
+        // openastro-guider addition (#119): how long the mount move took
+        ev << NV("MoveTime", step.moveTimeMs);
+    }
 
     ev << NV("StarMass", step.starMass, 0) << NV("SNR", step.starSNR, 2) << NV("HFD", step.starHFD, 2)
        << NV("AvgDist", step.avgDist, 2);

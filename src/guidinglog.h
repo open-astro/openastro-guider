@@ -84,6 +84,7 @@ struct GuideStepInfo
     double starHFD;
     double avgDist;
     int starError;
+    int moveTimeMs; // wall-clock ms Mount::MoveOffset spent sending the pulses and waiting for them to complete
 };
 
 struct FrameDroppedInfo

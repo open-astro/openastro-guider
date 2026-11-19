@@ -411,3 +411,6 @@ On connect the server sends `Version` then `AppState`, then events as they occur
 `GuidingAssistantProgress`, `GuidingAssistantDone` (see *Guiding Assistant (headless)* for their fields).
 
 (See PHD2's *EventMonitoring* docs for the full per-event field shapes; the fork preserves them.)
+
+`GuideStep` also carries `MoveTime` (fork addition, #119): integer ms spent sending the step's pulses and waiting
+for the mount to report them complete, which the next exposure waits for; absent for AO steps. See `doc/jsonrpc_api.md`.
