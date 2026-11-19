@@ -51,15 +51,19 @@ For positional arrays, names map in declared handler order. Example:
 
 - `set_lock_position` declares `(x, y, exact)`, so `[120, 240, true]` maps to those fields.
 
+`params` must be an array or an object, or be left out. Anything else (a number, a string, a bool, or `null`) is refused before the method runs with `-32602` "invalid params - params must be an array or object", for example `{"method":"set_exposure","params":2000,"id":42}` (instead of `[2000]`) gets `{"jsonrpc":"2.0","error":{"code":-32602,"message":"invalid params - params must be an array or object"},"id":42}`. JSON-RPC 2.0 would also allow `-32600` here (upstream PHD2 used it); this fork uses `-32602` so a client can tell bad params from a malformed request.
+
 ## Error Codes
 
 Standard JSON-RPC codes:
 
-- `-32700` parse error
-- `-32600` invalid request
+- `-32700` parse error (including a line that is not a JSON object or array)
+- `-32600` invalid request (no string `method`, a batch element that is not an object, an empty batch `[]`, a batch of more than 100 calls)
 - `-32601` method not found
-- `-32602` invalid params
-- `-32603` internal error
+- `-32602` invalid params (including `params` that is not an array or object)
+- `-32603` internal error (including a request line too long to read)
+
+An error reply carries the request's `id`, including the errors raised before the method runs (missing method, bad `params`), so a client that matches replies by `id` sees it. The `id` is `null` only when none can be read: a parse error, a batch element that is not an object, an empty or oversized batch, a line too long to read, or a request sent without an `id`. A request without an `id` (a notification) gets no reply once its method runs, but one refused before that is still answered, with `"id":null`.
 
 Application/runtime errors:
 
