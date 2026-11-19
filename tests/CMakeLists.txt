@@ -368,7 +368,8 @@ add_test(NAME test_capture_cleanup COMMAND test_capture_cleanup)
 ############################################################################
 # test_capture_failure  --  capture_failure.cpp: the reason a failed capture
 # reports to clients (SingleFrameComplete / SettleDone / dark-build error /
-# Alert), built from the failed Alpaca call or the driver's alert (#97).
+# Alert), built from the failed Alpaca call or the driver's alert (#97), and
+# whether a failed calibration frame is exposed again (#116).
 # std-only.
 ############################################################################
 add_executable(test_capture_failure

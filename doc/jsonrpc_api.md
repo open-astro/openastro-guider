@@ -794,9 +794,12 @@ Payload notes for downstream clients:
   the reconnect itself start a new count), or a memory error. For the two Alpaca triggers `reason` carries the
   server's message: `"The Alpaca server reports the camera as not connected: <message>"` and
   `"The camera failed 3 image acquisitions in a row (Alpaca error 1280: <message>)"` (without `: <message>` when
-  the server sent none). A single 1280, and any other capture error, only raises `Alert`; like every capture error
-  it fails the frame, which stops looping and guiding (`LoopingExposuresStopped`), so 3 consecutive 1280s are reached
-  when the client restarts after each failure. `reconnecting: true` means the daemon WILL ATTEMPT automatic
+  the server sent none). A single 1280, and any other capture error, only raises `Alert`. While looping or guiding,
+  like every capture error it fails the frame, which stops looping and guiding (`LoopingExposuresStopped`), so 3
+  consecutive 1280s are reached when the client restarts after each failure. While calibrating, a 1280 frame is
+  taken again (#116, see Capture failure reasons below), so 3 consecutive 1280s are reached within one calibration,
+  with no client restart: `EquipmentDisconnected` can then arrive mid-calibration, and once the camera is back the
+  calibration carries on. `reconnecting: true` means the daemon WILL ATTEMPT automatic
   reconnection — best-effort, throttled to 3 attempts per minute (a memory error sends `reconnecting: false`). The
   disconnect state machine is fully observable: `reconnecting: true` is always followed by either
   `EquipmentReconnected` (recovered) or `EquipmentReconnectFailed` (the reconnect failed or the throttle gave up —
@@ -848,6 +851,19 @@ Payload notes for downstream clients:
     Treat `SettleDone` as the end of the request and a `LoopingExposuresStopped` around it as part of the same stop.
   - `CalibrationFailed` of a calibration a capture failure interrupted: `Reason` is the same text instead of
     `"Calibration manually stopped"`.
+
+    A transient failure does not interrupt a calibration at once (#116). While calibrating, a frame that fails with
+    Alpaca error 1280 (the driver's image acquisition failed) or with no response because the call timed out
+    (`"no response from the Alpaca server (Timeout was reached)"`) is taken again, up to 2 times in a row for the
+    same calibration step, before the calibration fails with that frame's reason as above. Each failed frame still
+    raises its `Alert`; the retry is written to the debug log and sends no other event, and the mount is not moved
+    again for the retried frame. A good frame starts a new count. Since a 3rd 1280 in a row reconnects the camera
+    (see `EquipmentDisconnected`), 3 consecutive 1280s during a calibration send `EquipmentDisconnected{reconnecting:
+    true}`, and the calibration resumes after `EquipmentReconnected` (or fails after `EquipmentReconnectFailed`).
+    The first such reconnect in a run of failed frames also starts a new count; a second one does not, so a camera
+    that keeps failing every frame fails the calibration after at most 2 reconnects instead of retrying for ever. Every other failure (1031, any other Alpaca error, an HTTP status, an invalid
+    response, another transport failure, the capture timeout), a failure after `stop_capture`, and every failure
+    while looping or guiding behave as before.
   - The `build_dark_library` / `build_defect_map_darks` error and `DarkLibraryBuildFailed` /
     `DefectMapBuildFailed` `error`: `"failed to capture dark frame <i>/<n>: <reason>"` (without `: <reason>` when
     there is none).

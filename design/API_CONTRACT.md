@@ -433,3 +433,27 @@ schedule, per-device state, gates, probe sequence and texts are in the wx-free
 ARA: does not parse "all equipment must be connected first" or "equipment failed to connect";
 its `EquipmentReconnected` handler resolves only a camera-drop fault and ignores other device
 types and unsolicited events (`GuiderService.FaultReaction.cs`, `AffectsGuiding`).
+
+## 2026-11-19 — calibration frame retry (#116)
+
+One failed exposure ended a calibration that was otherwise going well (RC51: four calibrations in a
+row lost after up to 4 minutes of good steps to a single Alpaca 1280). The decision is in the wx-free
+`src/capture_failure.cpp` (`IsTransient`, `ShouldRetryCalibrationFrame`, unit-tested by
+`test_capture_failure`); `MyFrame::OnExposeComplete` applies it.
+
+- While calibrating, a frame that fails with Alpaca 1280 or a timed-out call ("no response from the
+  Alpaca server (Timeout was reached)") is exposed again, up to 2 times in a row per calibration
+  step, without moving the mount again, before `CalibrationFailed` with the #97 reason as before.
+  Each failed frame still raises its `Alert`; the retry itself is in the debug log only. A good
+  frame starts a new count, and so does the first camera reconnect in a run of failed frames (not a
+  second one, so a camera that fails every frame ends the calibration after at most 2 reconnects).
+- A 3rd 1280 in a row still reconnects the camera (#103), so `EquipmentDisconnected{reconnecting:
+  true}` can now arrive mid-calibration with no client restart; the calibration resumes after
+  `EquipmentReconnected`.
+- Unchanged: 1031 and every other failure, a failure after `stop_capture`, and every failure
+  while looping or guiding.
+
+ARA: no code change. `CalibrationFailed.Reason` and the event order are unchanged, and the
+`Alert` of a retried frame is not consumed. A 3rd consecutive 1280 during a calibration now
+reaches its `EquipmentDisconnected` handler (`PHD2Guider.cs`, the `on_guider_lost` policy, default
+`pause_and_retry`), which before this was reached mid-calibration only by a 1031.

@@ -552,10 +552,28 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
 
             delete pNewFrame;
 
+            CaptureFailures::Failure captureFailure = pCamera ? pCamera->TakeCaptureFailure() : CaptureFailures::Failure();
+
+            // #116: a calibration step's frame that failed with a transient error (Alpaca 1280, a timeout) is
+            // exposed again instead of failing the calibration. The step's move finished before its exposure
+            // started, so skipping UpdateGuideState repeats that step's frame without moving the mount again.
+            // The camera already raised its alert, and the #103 tracker keeps counting, so a 3rd 1280 in a row
+            // reconnects the camera instead. Guider::IsCalibrating excludes STATE_CALIBRATED: that state lasts
+            // past a frame only when guiding starts on an existing calibration, where no step is repeated.
+            if (m_calibrationFrameRetries.OnFailedFrame(captureFailure, pGuider->IsCalibrating(),
+                                                        m_continueCapturing && !m_singleExposure.enabled,
+                                                        pCamera && pCamera->Connected))
+            {
+                Debug.Write(wxString::Format("OnExposeComplete: calibration frame failed (%s), retrying exposure %d of %d\n",
+                                             wxString::FromUTF8(CaptureFailures::Text(captureFailure).c_str()),
+                                             m_calibrationFrameRetries.Count(), CaptureFailures::kCalibrationFrameRetries));
+                ScheduleExposure();
+                return;
+            }
+
             // #97: the camera's reason for this failure, built once for every report of it:
             // "camera error: <reason>", or "camera error -- see debug log" when it gave none
-            wxString failure = wxString::FromUTF8(
-                CaptureFailures::Text(pCamera ? pCamera->TakeCaptureFailure() : CaptureFailures::Failure()).c_str());
+            wxString failure = wxString::FromUTF8(CaptureFailures::Text(captureFailure).c_str());
             if (failure.empty())
                 failure = CaptureFailures::kFallback;
             Debug.Write(wxString::Format("OnExposeComplete: %s\n", failure));
@@ -589,6 +607,7 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
         }
 
         pNewFrame->FrameNum = ++m_frameCounter;
+        m_calibrationFrameRetries.OnGoodFrame(); // #116: the retry budget is per step, for consecutive failures
 
         if (m_rawImageMode && !m_rawImageModeWarningDone)
         {

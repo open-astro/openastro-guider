@@ -52,4 +52,52 @@ std::string AlertWithReason(const std::string& alert, const std::string& reason)
         return reason;
     return prefix + ": " + reason;
 }
+
+const char kCurlTimeoutText[] = "Timeout was reached";
+
+bool IsTransient(const Failure& failure)
+{
+    switch (failure.call.kind)
+    {
+    case AlpacaErrors::CallError::Kind::Alpaca:
+        return failure.call.alpacaError == AlpacaErrors::kUnspecifiedError;
+    case AlpacaErrors::CallError::Kind::Transport:
+        return failure.call.message == kCurlTimeoutText;
+    default:
+        return false;
+    }
+}
+
+bool ShouldRetryCalibrationFrame(const Failure& failure, int retriesSoFar, bool calibrating, bool continuing,
+                                 bool cameraConnected)
+{
+    return calibrating && continuing && cameraConnected && retriesSoFar < kCalibrationFrameRetries && IsTransient(failure);
+}
+
+bool CalibrationFrameRetries::OnFailedFrame(const Failure& failure, bool calibrating, bool continuing, bool cameraConnected)
+{
+    if (ShouldRetryCalibrationFrame(failure, m_retries, calibrating, continuing, cameraConnected))
+    {
+        ++m_retries;
+        return true;
+    }
+    m_retries = 0;
+    m_refilled = false;
+    return false;
+}
+
+void CalibrationFrameRetries::OnGoodFrame()
+{
+    m_retries = 0;
+    m_refilled = false;
+}
+
+void CalibrationFrameRetries::OnReconnect()
+{
+    if (m_retries > 0 && !m_refilled)
+    {
+        m_retries = 0;
+        m_refilled = true;
+    }
+}
 }
