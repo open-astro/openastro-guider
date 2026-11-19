@@ -2444,6 +2444,9 @@ static void delete_profile(JObj& response, const json_value *params)
 
     if (deletedCurrent)
     {
+        // another profile is current now: rebuild its gear, as set_profile does. A set_profile to it afterwards
+        // returns at once and would leave the deleted profile's camera and mount in place (#117).
+        pFrame->pGearDialog->ReloadProfileGear();
         pFrame->LoadProfileSettings();
         pFrame->pGuider->LoadProfileSettings();
         pFrame->UpdateTitle();
@@ -2625,6 +2628,11 @@ static void set_profile_setup(JObj& response, const json_value *params)
     // keep runtime objects synchronized with updated profile settings
     pFrame->LoadProfileSettings();
     pFrame->pGuider->LoadProfileSettings();
+    // the mount and camera objects read their setup fields only when they are created (#117)
+    if (TheScope())
+        TheScope()->LoadProfileSetup();
+    if (pCamera)
+        pCamera->LoadProfileSetup();
 
     get_profile_setup(response, nullptr);
 }

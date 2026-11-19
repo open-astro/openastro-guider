@@ -4,6 +4,8 @@ import json
 import socket
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 
 class RpcClient:
@@ -62,11 +64,153 @@ class RpcClient:
         raise RuntimeError(f"timeout waiting for a reply to {line}")
 
 
+class FakeAlpaca:
+    """The control endpoints of scripts/fake_alpaca_camera.py."""
+
+    def __init__(self, url: str):
+        self.url = url.rstrip("/")
+        parsed = urllib.parse.urlparse(self.url)
+        self.host, self.port = parsed.hostname, parsed.port or 80
+
+    def get(self, path: str):
+        with urllib.request.urlopen(self.url + path, timeout=5) as r:
+            return json.loads(r.read().decode())
+
+    def pulses(self, clear=False):
+        return self.get("/fake/pulses" + ("?clear=1" if clear else ""))["pulses"]
+
+
+def profile_setup_live_checks(cli, fake, run_check):
+    """#117: set_profile_setup values reach the live mount and camera objects, with no restart.
+
+    Runs in temporary profiles (no saved calibration, binning 1, so BeginCalibration keeps the step it is given)
+    against scripts/fake_alpaca_camera.py, and needs the equipment disconnected. Restores the current profile."""
+    base = cli.call("get_profile")
+    stamp = int(time.time())
+    temp_name, other_name = f"rpc_smoke_setup_{stamp}", f"rpc_smoke_setup_{stamp}_other"
+    cam_choice = f"Alpaca Camera [{fake.host}:{fake.port}/0]"
+    mount_choice = f"Alpaca Mount [{fake.host}:{fake.port}/0]"
+
+    def expect(cond, msg):
+        if not cond:
+            raise RuntimeError(msg)
+
+    def connect():
+        cli.call("set_connected", {"connected": True}, timeout_s=30)
+        expect(cli.call("get_connected") is True, "equipment did not connect")
+
+    def disconnect():
+        cli.call("set_connected", {"connected": False}, timeout_s=30)
+
+    def wait_stopped():
+        """stop_capture returns before the capture loop has ended."""
+        deadline = time.time() + 30
+        while cli.call("get_app_state") != "Stopped":
+            if time.time() > deadline:
+                raise RuntimeError(f"capture still {cli.call('get_app_state')} 30 s after stop_capture")
+            time.sleep(0.25)
+
+    def calibration_pulses(want):
+        """Start a forced calibration and return the first `want` pulses the mount received."""
+        fake.pulses(clear=True)
+        cli.call("guide", {"settle": {"pixels": 1.5, "time": 1, "timeout": 60}, "recalibrate": True}, timeout_s=30)
+        try:
+            deadline = time.time() + 90
+            while time.time() < deadline:
+                got = fake.pulses()
+                if len(got) >= want:
+                    return got[:want]
+                time.sleep(0.5)
+            raise RuntimeError(f"no calibration pulses within 90 s (got {fake.pulses()})")
+        finally:
+            cli.call("stop_capture")
+            wait_stopped()
+
+    def step_check(duration, distance):
+        cli.call("set_profile_setup", {"calibration_duration": duration, "calibration_distance": distance})
+        try:
+            connect()
+            got = calibration_pulses(2)
+        finally:
+            disconnect()
+        # Alpaca GuideDirections: 3 = West, the first calibration leg
+        expect(all(p["direction"] == 3 and p["duration"] == duration for p in got),
+               f"expected West pulses of {duration} ms, got {got}")
+        return got
+
+    def scale_check(pixel_size, focal_length):
+        # while disconnected: at connect the Alpaca camera's own pixel size replaces the profile's
+        cli.call("set_profile_setup", {"pixel_size": pixel_size, "focal_length": focal_length})
+        scale = cli.call("get_pixel_scale")
+        want = 206.265 * pixel_size / focal_length
+        expect(isinstance(scale, (int, float)) and abs(scale - want) < 0.01,
+               f"pixel scale {scale}, expected {want:.3f} for {pixel_size} um at {focal_length} mm")
+        return scale
+
+    def binning_check(software_binning):
+        cli.call("set_profile_setup", {"software_binning": software_binning})
+        try:
+            connect()
+            binning = cli.call("get_camera_binning")
+        finally:
+            disconnect()
+        expect(binning == software_binning, f"camera binning {binning}, expected {software_binning}")
+        return binning
+
+    try:
+        cli.call("create_profile", {"name": temp_name, "select": True})
+        cli.call("set_alpaca_server", {"host": fake.host, "port": fake.port, "camera_device": 0, "telescope_device": 0})
+        cli.call("set_selected_camera", {"camera": cam_choice})
+        cli.call("set_selected_mount", {"mount": mount_choice})
+        cli.call("set_exposure", {"exposure": 500})
+
+        run_check("#117 calibration step 750 ms", lambda: step_check(750, 25))
+        run_check("#117 calibration step 1500 ms without restart", lambda: step_check(1500, 30))
+
+        run_check("#117 pixel size 2.4 um", lambda: scale_check(2.4, 400))
+        run_check("#117 pixel size 5.0 um without restart", lambda: scale_check(5.0, 400))
+
+        run_check("#117 software binning 2 without restart", lambda: binning_check(2))
+        run_check("#117 software binning 1 without restart", lambda: binning_check(1))
+
+        # delete_profile of the current profile rebuilds the gear of the profile that is current after it, as a
+        # profile switch does (set_profile to that id returns at once, so it could not)
+        def delete_current_check():
+            cli.call("delete_profile", {"name": temp_name, "delete_dark_files": True})
+            after_delete = cli.call("get_current_equipment")
+            current = cli.call("get_profile")
+            cli.call("create_profile", {"name": other_name, "select": True})
+            cli.call("set_profile", {"id": current["id"]})
+            after_switch = cli.call("get_current_equipment")
+            cli.call("delete_profile", {"name": other_name, "delete_dark_files": True})
+            expect(after_delete == after_switch,
+                   f"gear after deleting the current profile {after_delete} != after a switch {after_switch}")
+            return after_delete
+
+        run_check("#117 delete_profile of the current profile rebuilds the gear", delete_current_check)
+    finally:
+        try:
+            cli.call("stop_capture")
+            wait_stopped()
+            cli.call("set_connected", {"connected": False}, timeout_s=30)
+            cli.call("set_profile", {"id": base["id"]})
+            names = [p.get("name") for p in cli.call("get_profiles") or []]
+            for name in (temp_name, other_name):
+                if name in names:
+                    cli.call("delete_profile", {"name": name, "delete_dark_files": True})
+        except Exception as e:
+            print(f"WARN #117 cleanup: {e}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="PHD2 JSON-RPC smoke test for PINS/NINA compatibility methods")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=4400)
     ap.add_argument("--timeout", type=float, default=5.0)
+    ap.add_argument("--fake-alpaca-url", metavar="URL",
+                    help="also check that set_profile_setup reaches the live mount and camera (#117) against "
+                         "scripts/fake_alpaca_camera.py at URL (e.g. http://127.0.0.1:11111); needs the equipment "
+                         "disconnected")
     args = ap.parse_args()
 
     failures = []
@@ -302,6 +446,13 @@ def main():
             run_check("delete_profile renamed", lambda: cli.call("delete_profile", {"name": test_name2, "delete_dark_files": False}))
             if isinstance(base_id, int) and base_id > 0:
                 run_check("restore_profile", lambda: cli.call("set_profile", {"id": base_id}))
+
+        if args.fake_alpaca_url:
+            if cli.call("get_connected"):
+                failures.append(("#117 profile setup checks", "equipment is connected; disconnect it first"))
+                print("FAIL #117 profile setup checks: equipment is connected; disconnect it first")
+            else:
+                profile_setup_live_checks(cli, FakeAlpaca(args.fake_alpaca_url), run_check)
 
     finally:
         cli.close()

@@ -250,6 +250,10 @@ public:
     virtual wxSize DarkFrameSize() { return FrameSize; }
 
     static double GetProfilePixelSize();
+    // Re-read the pixel size and the hardware and software binning from the profile. set_profile_setup changes
+    // these while the camera object lives (#117). Call it only while disconnected: connect clamps the binning to
+    // the device and replaces the pixel size with the one the driver reports.
+    void LoadProfileSetup();
 
     unsigned short GetSaturationADU() const;
     bool IsSaturationByADU() const;

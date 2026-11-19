@@ -202,6 +202,9 @@ protected:
     GUIDE_ALGORITHM DefaultYGuideAlgorithm() const override;
 
 public:
+    // Re-read the calibration step, calibration distance and high-res encoders setting from the profile.
+    // set_profile_setup changes these while the mount object lives (#117).
+    void LoadProfileSetup();
     int GetCalibrationDuration() const; // calibration step size, ms
     bool SetCalibrationDuration(int calibrationDuration);
     int GetCalibrationDistance() const; // calibration distance, px

@@ -116,6 +116,9 @@ public:
     void ShowProfileWizard();
     void ShowProfileWizard(wxCommandEvent& evt);
     bool SetProfile(int profileId, wxString *error);
+    // The current profile changed without a profile choice (delete_profile of the current profile): rebuild the
+    // camera, mount and rotator from the new current profile, as a profile choice does (#117).
+    void ReloadProfileGear();
     bool ConnectAll(wxString *error);
     bool DisconnectAll(wxString *error);
     // one device, or all with GearDevice::All; returns true on error, like ConnectAll
