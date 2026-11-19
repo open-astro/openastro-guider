@@ -363,7 +363,6 @@ MyFrame::MyFrame()
     m_continueCapturing = false;
     CaptureActive = false;
     m_exposurePending = false;
-    m_calibrationFrameRetries = 0;
 
     m_mgr.GetArtProvider()->SetColour(wxAUI_DOCKART_BACKGROUND_COLOUR, *wxBLACK);
     m_mgr.GetArtProvider()->SetMetric(wxAUI_DOCKART_GRADIENT_TYPE, wxAUI_GRADIENT_VERTICAL);
@@ -1392,9 +1391,10 @@ void MyFrame::DoTryReconnect()
         {
             m_exposurePending = false; // exposure no longer pending
             // #116: the reconnected camera starts a new count of 1280s (Connect resets the #103 tracker), so a
-            // calibration frame retried before the reconnect gets its full retry budget again. Bounded: the
-            // 3-per-minute throttle above ends in OnExposeComplete(0, true) with the camera disconnected.
-            m_calibrationFrameRetries = 0;
+            // calibration frame retried before the reconnect gets its full retry budget again, once per run of
+            // failed frames: the throttle above does not bound a camera that fails every frame when its 3 failed
+            // frames take longer than 20 s, so without the limit the calibration would never end.
+            m_calibrationFrameRetries.OnReconnect();
             ScheduleExposure();
         }
     }

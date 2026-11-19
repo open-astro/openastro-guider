@@ -857,10 +857,11 @@ Payload notes for downstream clients:
     (`"no response from the Alpaca server (Timeout was reached)"`) is taken again, up to 2 times in a row for the
     same calibration step, before the calibration fails with that frame's reason as above. Each failed frame still
     raises its `Alert`; the retry is written to the debug log and sends no other event, and the mount is not moved
-    again for the retried frame. A good frame, and a camera reconnect, start a new count. Since a 3rd 1280 in a row
-    reconnects the camera (see `EquipmentDisconnected`), 3 consecutive 1280s during a calibration send
-    `EquipmentDisconnected{reconnecting: true}`, and the calibration resumes after `EquipmentReconnected` (or fails
-    after `EquipmentReconnectFailed`). Every other failure (1031, any other Alpaca error, an HTTP status, an invalid
+    again for the retried frame. A good frame starts a new count. Since a 3rd 1280 in a row reconnects the camera
+    (see `EquipmentDisconnected`), 3 consecutive 1280s during a calibration send `EquipmentDisconnected{reconnecting:
+    true}`, and the calibration resumes after `EquipmentReconnected` (or fails after `EquipmentReconnectFailed`).
+    The first such reconnect in a run of failed frames also starts a new count; a second one does not, so a camera
+    that keeps failing every frame fails the calibration after at most 2 reconnects instead of retrying for ever. Every other failure (1031, any other Alpaca error, an HTTP status, an invalid
     response, another transport failure, the capture timeout), a failure after `stop_capture`, and every failure
     while looping or guiding behave as before.
   - The `build_dark_library` / `build_defect_map_darks` error and `DarkLibraryBuildFailed` /

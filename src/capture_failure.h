@@ -69,6 +69,31 @@ bool IsTransient(const Failure& failure);
 // failure, and fewer than kCalibrationFrameRetries retries of this step's frame so far.
 bool ShouldRetryCalibrationFrame(const Failure& failure, int retriesSoFar, bool calibrating, bool continuing,
                                  bool cameraConnected);
+
+// The retry count of the calibration step being exposed (#116), kept by MyFrame. A good frame and a
+// failure that is not retried start a new count. A camera reconnect (#103, which resets the camera's
+// own count of 1280s) also starts one, but only once per run of failed frames: a camera that fails
+// every frame would otherwise go round "2 retries, a 3rd 1280 reconnects, a fresh count" for ever
+// whenever such a round takes longer than the reconnect throttle's window (3 reconnects a minute),
+// and the calibration would never end. With the one refill, a run of failures ends the calibration
+// after at most 2 reconnects.
+class CalibrationFrameRetries
+{
+public:
+    // Whether this failed frame is exposed again (ShouldRetryCalibrationFrame). Counts the retry when
+    // it is; starts a new count when it is not.
+    bool OnFailedFrame(const Failure& failure, bool calibrating, bool continuing, bool cameraConnected);
+    // A good frame ends the run of failed frames.
+    void OnGoodFrame();
+    // The camera reconnected and the exposure resumes: a new count, once per run of failed frames.
+    void OnReconnect();
+    // Retries of this step's frame so far
+    int Count() const { return m_retries; }
+
+private:
+    int m_retries = 0;
+    bool m_refilled = false; // a reconnect already started a new count in this run of failed frames
+};
 }
 
 #endif

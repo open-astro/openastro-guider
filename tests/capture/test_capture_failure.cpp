@@ -262,3 +262,84 @@ TEST(CalibrationFrameRetry, NoRetryOutsideACalibrationOrWhenStopping)
         FromCall(Err(CallError::Kind::Alpaca, 200, 1031, "Camera not connected")), 0, true, true, true));
     EXPECT_FALSE(CaptureFailures::ShouldRetryCalibrationFrame(Failure(), 0, true, true, true));
 }
+
+TEST(CalibrationFrameRetry, BudgetCountsAndResets)
+{
+    Failure f = FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "acquisition failed"));
+    CaptureFailures::CalibrationFrameRetries budget;
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    EXPECT_EQ(budget.Count(), 1);
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    EXPECT_EQ(budget.Count(), 2);
+    EXPECT_FALSE(budget.OnFailedFrame(f, true, true, true)); // the calibration fails, and a new count starts
+    EXPECT_EQ(budget.Count(), 0);
+
+    // a good frame ends the run: the next step gets the full budget
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    budget.OnGoodFrame();
+    EXPECT_EQ(budget.Count(), 0);
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+
+    // a failure that is not retried starts a new count too
+    CaptureFailures::CalibrationFrameRetries other;
+    EXPECT_TRUE(other.OnFailedFrame(f, true, true, true));
+    EXPECT_FALSE(other.OnFailedFrame(f, false, true, true)); // no longer calibrating
+    EXPECT_EQ(other.Count(), 0);
+}
+
+TEST(CalibrationFrameRetry, AReconnectRefillsOncePerRunOfFailures)
+{
+    Failure f = FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "acquisition failed"));
+    CaptureFailures::CalibrationFrameRetries budget;
+
+    // a reconnect with no retry used (a 1031) changes nothing and does not use up the refill
+    budget.OnReconnect();
+    EXPECT_EQ(budget.Count(), 0);
+
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    budget.OnReconnect(); // the 3rd 1280 reconnected the camera
+    EXPECT_EQ(budget.Count(), 0);
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    budget.OnReconnect(); // a second reconnect in the same run gives no new count
+    EXPECT_EQ(budget.Count(), 2);
+    EXPECT_FALSE(budget.OnFailedFrame(f, true, true, true));
+
+    // a good frame makes the refill available again
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    budget.OnGoodFrame();
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    EXPECT_TRUE(budget.OnFailedFrame(f, true, true, true));
+    budget.OnReconnect();
+    EXPECT_EQ(budget.Count(), 0);
+}
+
+TEST(CalibrationFrameRetry, ACameraThatFailsEveryFrameEndsTheCalibration)
+{
+    // Every frame fails with 1280 and every reconnect succeeds, slowly enough that the reconnect throttle
+    // never stops it: MyFrame's sequence of OnExposeComplete, the #103 tracker and DoTryReconnect. The
+    // calibration must still fail, after a bounded number of frames.
+    Failure f = FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "acquisition failed"));
+    AlpacaErrors::CaptureFailureTracker tracker;
+    CaptureFailures::CalibrationFrameRetries budget;
+    int frames = 0, reconnects = 0;
+    bool failed = false;
+    while (!failed && frames < 100)
+    {
+        ++frames;
+        if (tracker.OnFailure(1280) == AlpacaErrors::CaptureFailureAction::Reconnect)
+        {
+            // the worker skips the expose-complete; the reconnect succeeds and resumes the exposure
+            ++reconnects;
+            tracker.Reset();
+            budget.OnReconnect();
+            continue;
+        }
+        failed = !budget.OnFailedFrame(f, true, true, true);
+    }
+    EXPECT_TRUE(failed);
+    EXPECT_EQ(reconnects, 2);
+    EXPECT_EQ(frames, 7);
+}

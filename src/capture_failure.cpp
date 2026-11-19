@@ -73,4 +73,31 @@ bool ShouldRetryCalibrationFrame(const Failure& failure, int retriesSoFar, bool 
 {
     return calibrating && continuing && cameraConnected && retriesSoFar < kCalibrationFrameRetries && IsTransient(failure);
 }
+
+bool CalibrationFrameRetries::OnFailedFrame(const Failure& failure, bool calibrating, bool continuing, bool cameraConnected)
+{
+    if (ShouldRetryCalibrationFrame(failure, m_retries, calibrating, continuing, cameraConnected))
+    {
+        ++m_retries;
+        return true;
+    }
+    m_retries = 0;
+    m_refilled = false;
+    return false;
+}
+
+void CalibrationFrameRetries::OnGoodFrame()
+{
+    m_retries = 0;
+    m_refilled = false;
+}
+
+void CalibrationFrameRetries::OnReconnect()
+{
+    if (m_retries > 0 && !m_refilled)
+    {
+        m_retries = 0;
+        m_refilled = true;
+    }
+}
 }

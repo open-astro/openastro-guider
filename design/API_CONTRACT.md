@@ -445,7 +445,8 @@ row lost after up to 4 minutes of good steps to a single Alpaca 1280). The decis
   Alpaca server (Timeout was reached)") is exposed again, up to 2 times in a row per calibration
   step, without moving the mount again, before `CalibrationFailed` with the #97 reason as before.
   Each failed frame still raises its `Alert`; the retry itself is in the debug log only. A good
-  frame and a camera reconnect start a new count.
+  frame starts a new count, and so does the first camera reconnect in a run of failed frames (not a
+  second one, so a camera that fails every frame ends the calibration after at most 2 reconnects).
 - A 3rd 1280 in a row still reconnects the camera (#103), so `EquipmentDisconnected{reconnecting:
   true}` can now arrive mid-calibration with no client restart; the calibration resumes after
   `EquipmentReconnected`.

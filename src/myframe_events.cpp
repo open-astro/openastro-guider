@@ -560,18 +560,16 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             // The camera already raised its alert, and the #103 tracker keeps counting, so a 3rd 1280 in a row
             // reconnects the camera instead. Guider::IsCalibrating excludes STATE_CALIBRATED: that state lasts
             // past a frame only when guiding starts on an existing calibration, where no step is repeated.
-            if (CaptureFailures::ShouldRetryCalibrationFrame(
-                    captureFailure, m_calibrationFrameRetries, pGuider->IsCalibrating(),
-                    m_continueCapturing && !m_singleExposure.enabled, pCamera && pCamera->Connected))
+            if (m_calibrationFrameRetries.OnFailedFrame(captureFailure, pGuider->IsCalibrating(),
+                                                        m_continueCapturing && !m_singleExposure.enabled,
+                                                        pCamera && pCamera->Connected))
             {
-                ++m_calibrationFrameRetries;
                 Debug.Write(wxString::Format("OnExposeComplete: calibration frame failed (%s), retrying exposure %d of %d\n",
                                              wxString::FromUTF8(CaptureFailures::Text(captureFailure).c_str()),
-                                             m_calibrationFrameRetries, CaptureFailures::kCalibrationFrameRetries));
+                                             m_calibrationFrameRetries.Count(), CaptureFailures::kCalibrationFrameRetries));
                 ScheduleExposure();
                 return;
             }
-            m_calibrationFrameRetries = 0;
 
             // #97: the camera's reason for this failure, built once for every report of it:
             // "camera error: <reason>", or "camera error -- see debug log" when it gave none
@@ -609,7 +607,7 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
         }
 
         pNewFrame->FrameNum = ++m_frameCounter;
-        m_calibrationFrameRetries = 0; // #116: the retry budget is per step, for consecutive failures
+        m_calibrationFrameRetries.OnGoodFrame(); // #116: the retry budget is per step, for consecutive failures
 
         if (m_rawImageMode && !m_rawImageModeWarningDone)
         {
