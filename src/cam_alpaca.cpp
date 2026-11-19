@@ -40,6 +40,7 @@
 # include "config_alpaca.h"
 # include "alpaca_client.h"
 # include "alpaca_errors.h"
+# include "alpaca_poll.h"
 # include "connect_retry.h"
 # include "image_math.h"
 # include <wx/stopwatch.h>
@@ -949,7 +950,10 @@ bool CameraAlpaca::Capture(usImage& img, const CaptureParams& captureParams)
 
     while (true) // wait for image to finish and d/l
     {
-        wxMilliSleep(20);
+        // 20 ms until the exposure is due, then backing off to at most 250 ms
+        // during the readout (#120). The watchdog started when startexposure
+        // succeeded, so its time is the time since the exposure began.
+        wxMilliSleep(AlpacaPoll::ImageReadyIntervalMs(watchdog.Time() - duration));
         bool ready = false;
         wxString imageReadyEndpoint = wxString::Format("camera/%ld/imageready", m_deviceNumber);
         if (!m_client->GetBool(imageReadyEndpoint, &ready, &errorCode, nullptr, &callError))

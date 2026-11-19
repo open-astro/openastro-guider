@@ -300,6 +300,18 @@ set_property(TARGET test_alpaca_gain PROPERTY FOLDER "Unit tests")
 add_test(NAME test_alpaca_gain COMMAND test_alpaca_gain)
 
 ############################################################################
+# test_alpaca_poll  --  alpaca_poll.cpp: the ImageReady poll interval
+# CameraAlpaca waits between polls during the readout (#120). std-only.
+############################################################################
+add_executable(test_alpaca_poll
+  ${PHD_TESTS_DIR}/camera/test_alpaca_poll.cpp
+  ${phd_src_dir}/alpaca_poll.cpp
+)
+target_link_libraries(test_alpaca_poll PRIVATE phd_test_common)
+set_property(TARGET test_alpaca_poll PROPERTY FOLDER "Unit tests")
+add_test(NAME test_alpaca_poll COMMAND test_alpaca_poll)
+
+############################################################################
 # test_alpaca_errors  --  alpaca_errors.cpp: which Alpaca capture errors
 # disconnect the camera with reconnect (1031 at once, 1280 three in a row)
 # and reading an Alpaca error out of a JSON response (#103). std-only.
