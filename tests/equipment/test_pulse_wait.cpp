@@ -1,0 +1,52 @@
+// pulse_wait (#119).
+//
+// ScopeAlpaca::Guide times an Alpaca PulseGuide from just before the request
+// is sent, so a request that blocks while the pulse runs (AlpacaBridge's
+// iOptron driver blocks about 300 ms) is not followed by a second wait for
+// the whole pulse. The rules live in pulse_wait.cpp.
+
+#include <gtest/gtest.h>
+
+#include "pulse_wait.h"
+
+using PulseWait::CompletionTimedOut;
+using PulseWait::SleepBeforeFirstPollMs;
+
+TEST(PulseWait, BlockingCallLongerThanThePulseNeedsNoSleep)
+{
+    // RC51: a 117 ms pulse whose PulseGuide request took 302 ms
+    EXPECT_EQ(SleepBeforeFirstPollMs(117, 302), 0);
+}
+
+TEST(PulseWait, FastCallSleepsForWhatIsLeftOfThePulse)
+{
+    EXPECT_EQ(SleepBeforeFirstPollMs(117, 5), 122);
+}
+
+TEST(PulseWait, CallEndingWithThePulseNeedsNoSleep)
+{
+    EXPECT_EQ(SleepBeforeFirstPollMs(117, 117), 0);
+    EXPECT_EQ(SleepBeforeFirstPollMs(117, 116), 11);
+}
+
+TEST(PulseWait, InstantCallSleepsTheWholePulsePlusMargin)
+{
+    EXPECT_EQ(SleepBeforeFirstPollMs(117, 0), 127);
+    EXPECT_EQ(SleepBeforeFirstPollMs(0, 0), 0);
+}
+
+TEST(PulseWait, LongPulseStillWaitsForItsRemainder)
+{
+    EXPECT_EQ(SleepBeforeFirstPollMs(3000, 302), 2708);
+}
+
+TEST(PulseWait, CompletionTimesOutTwoSecondsAfterThePulse)
+{
+    EXPECT_FALSE(CompletionTimedOut(117, 117));
+    EXPECT_FALSE(CompletionTimedOut(117, 2117));
+    EXPECT_TRUE(CompletionTimedOut(117, 2118));
+    // AlpacaBridge's iOptron driver reports IsPulseGuiding for pulse + 500 ms and its
+    // SynScan/Sky-Watcher drivers for pulse + 1000 ms, both well inside the window
+    EXPECT_FALSE(CompletionTimedOut(117, 117 + 500 + 40));
+    EXPECT_FALSE(CompletionTimedOut(117, 117 + 1000 + 40));
+}

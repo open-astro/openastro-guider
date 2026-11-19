@@ -40,6 +40,7 @@
 # include "config_alpaca.h"
 # include "connect_retry.h"
 # include "alpaca_client.h"
+# include "pulse_wait.h"
 # include <wx/stopwatch.h>
 
 ScopeAlpaca::ScopeAlpaca() : m_client(nullptr), m_host(pConfig->Profile.GetString("/alpaca/host", _T("localhost")))
@@ -471,6 +472,9 @@ Mount::MOVE_RESULT ScopeAlpaca::Guide(GUIDE_DIRECTION direction, int duration)
         wxString params = wxString::Format("Direction=%d&Duration=%d", alpacaDirection, duration);
 
         long errorCode = 0;
+        // Started before the request, as upstream ScopeASCOM does: a PulseGuide that blocks
+        // while the pulse runs has already spent that time, and it must not be waited for again.
+        wxStopWatch swatch;
         if (!m_client->PutAction(endpoint, "PulseGuide", params, &errorCode))
         {
             Debug.Write(wxString::Format("pulseguide: HTTP %ld\n", errorCode));
@@ -487,17 +491,17 @@ Mount::MOVE_RESULT ScopeAlpaca::Guide(GUIDE_DIRECTION direction, int duration)
             throw ERROR_INFO("Alpaca Mount: pulseguide command failed, HTTP " + wxString::Format("%ld", errorCode));
         }
 
-        wxStopWatch swatch;
+        long callMs = swatch.Time();
+        Debug.Write(wxString::Format("PulseGuide call took %ld ms\n", callMs));
 
         // Alpaca pulseguide is asynchronous, so we need to wait for it to complete
         // Wait at least the duration, then check if still guiding
-        if (swatch.Time() < (long) duration)
+        long sleepMs = PulseWait::SleepBeforeFirstPollMs((long) duration, callMs);
+        if (sleepMs > 0)
         {
-            unsigned long rem = (unsigned long) ((long) duration - swatch.Time());
+            Debug.Write(wxString::Format("PulseGuide returned control before completion, sleep %ld\n", sleepMs));
 
-            Debug.Write(wxString::Format("PulseGuide returned control before completion, sleep %lu\n", rem + 10));
-
-            if (WorkerThread::MilliSleep(rem + 10))
+            if (WorkerThread::MilliSleep(sleepMs))
                 throw ERROR_INFO("Alpaca Mount: thread terminate requested");
         }
 
@@ -505,13 +509,7 @@ Mount::MOVE_RESULT ScopeAlpaca::Guide(GUIDE_DIRECTION direction, int duration)
         {
             Debug.Write("scope still moving after pulse duration time elapsed\n");
 
-            // try waiting a little longer. If scope does not stop moving after 1 second, bail out with an error
-            enum
-            {
-                GRACE_PERIOD_MS = 1000,
-                TIMEOUT_MS = GRACE_PERIOD_MS + 1000,
-            };
-
+            // try waiting a little longer. If scope does not stop moving after 2 seconds, bail out with an error
             bool timeoutExceeded = false;
 
             while (true)
@@ -530,9 +528,7 @@ Mount::MOVE_RESULT ScopeAlpaca::Guide(GUIDE_DIRECTION direction, int duration)
                     break;
                 }
 
-                long now = swatch.Time();
-
-                if (now > duration + TIMEOUT_MS)
+                if (PulseWait::CompletionTimedOut((long) duration, swatch.Time()))
                 {
                     timeoutExceeded = true;
                     break;

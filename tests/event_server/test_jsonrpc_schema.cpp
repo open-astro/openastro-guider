@@ -206,6 +206,48 @@ TEST(JsonRpcSchema, SettlingEvent)
 }
 
 // ---------------------------------------------------------------------------
+// GuideStep event
+// ---------------------------------------------------------------------------
+TEST(JsonRpcSchema, GuideStepEvent)
+{
+    // event_server.cpp NotifyGuideStep. Consumer-side fixture: it pins the
+    // documented names, it does not run the emitter. MoveTime (#119) is the
+    // fork's addition: the ms the guider spent sending the step's pulses and
+    // waiting for the mount to report them complete; absent for AO steps.
+    {
+        const char *fixture = "{\"Event\":\"GuideStep\",\"Timestamp\":1.0,\"Host\":\"h\",\"Inst\":1,"
+                              "\"Frame\":12,\"Time\":21.204,\"Mount\":\"Alpaca Mount\",\"dx\":0.512,\"dy\":-0.204,"
+                              "\"RADistanceRaw\":0.433,\"DECDistanceRaw\":-0.311,\"RADistanceGuide\":0.433,"
+                              "\"DECDistanceGuide\":0.0,\"RADuration\":117,\"RADirection\":\"West\","
+                              "\"MoveTime\":641,\"StarMass\":12034,\"SNR\":41.25,\"HFD\":2.71,\"AvgDist\":0.38}";
+        JsonParser p;
+        ASSERT_TRUE(p.Parse(std::string(fixture)));
+        for (const char *name : { "Frame", "Time", "dx", "dy", "RADistanceRaw", "DECDistanceRaw", "RADistanceGuide",
+                                  "DECDistanceGuide", "RADuration", "MoveTime", "StarMass", "SNR", "HFD", "AvgDist" })
+        {
+            expect_numeric_field(p.Root(), name);
+        }
+        expect_string_field(p.Root(), "Mount");
+        expect_string_field(p.Root(), "RADirection");
+        const json_value *moveTime = child(p.Root(), "MoveTime");
+        ASSERT_EQ(moveTime->type, JSON_INT);
+        EXPECT_EQ(moveTime->int_value, 641);
+    }
+    {
+        // AO step: Pos instead of MoveTime
+        const char *fixture = "{\"Event\":\"GuideStep\",\"Timestamp\":1.0,\"Host\":\"h\",\"Inst\":1,"
+                              "\"Frame\":12,\"Time\":21.204,\"Mount\":\"AO\",\"dx\":0.512,\"dy\":-0.204,"
+                              "\"RADistanceRaw\":0.433,\"DECDistanceRaw\":-0.311,\"RADistanceGuide\":0.433,"
+                              "\"DECDistanceGuide\":0.0,\"Pos\":[3,-2],"
+                              "\"StarMass\":12034,\"SNR\":41.25,\"HFD\":2.71,\"AvgDist\":0.38}";
+        JsonParser p;
+        ASSERT_TRUE(p.Parse(std::string(fixture)));
+        ASSERT_NE(child(p.Root(), "Pos"), nullptr);
+        EXPECT_EQ(child(p.Root(), "MoveTime"), nullptr);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // JSON-RPC response envelope (JRpcResponse, ~line 607-624)
 // ---------------------------------------------------------------------------
 TEST(JsonRpcSchema, ResponseEnvelopeSuccess)

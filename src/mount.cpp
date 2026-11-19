@@ -1029,7 +1029,10 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
 
         int requestedXAmount = ROUND(fabs(xDistance / m_xRate));
         MoveResultInfo xMoveResult;
+        // Time the moves: the worker starts the next exposure only after they return (#119)
+        wxStopWatch moveWatch;
         result = MoveAxis(xDirection, requestedXAmount, moveOptions, &xMoveResult);
+        long raMoveMs = moveWatch.Time();
 
         MoveResultInfo yMoveResult;
         if (result != MOVE_ERROR_SLEWING && result != MOVE_ERROR_AO_LIMIT_REACHED)
@@ -1041,6 +1044,10 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
 
             result = MoveAxis(yDirection, requestedYAmount, moveOptions, &yMoveResult);
         }
+
+        long moveMs = moveWatch.Time();
+        Debug.Write(
+            wxString::Format("guide step move time %ld ms (RA %ld ms, Dec %ld ms)\n", moveMs, raMoveMs, moveMs - raMoveMs));
 
         // Record the info about the guide step. The info will be picked up back in the main UI thread.
         // We don't want to do anything with the info here in the worker thread since UI operations are
@@ -1061,6 +1068,7 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
         info.directionDec = yDirection;
         info.raLimited = xMoveResult.limited;
         info.decLimited = yMoveResult.limited;
+        info.moveTimeMs = (int) moveMs;
         info.aoPos = GetAoPos();
         const Star& star = pFrame->pGuider->PrimaryStar();
         info.starMass = star.Mass;

@@ -795,6 +795,12 @@ Payload notes for downstream clients:
     *groups*, the defect-map build between *frames* of its single group, so one field name never carries two
     units. Clients keying off "partial progress" should read whichever key matches the event (`DarkLibrary*` →
     `partial_groups_completed`; `DefectMap*` → `partial_frames_completed`).
+- `GuideStep` — PHD2's fields, plus `MoveTime` (fork addition, #119): the milliseconds, as an integer, the guider
+  spent sending this step's guide pulses (RA, then Dec) and waiting for the mount to report them complete. A mount
+  guide step is sent before the next exposure starts, so on a rig without an AO this is the time the correction added
+  to the guide cycle; on an Alpaca mount it includes the driver's `IsPulseGuiding` tail after the pulse
+  (AlpacaBridge's iOptron driver reports a pulse as running for 500 ms after it ends). Absent for AO steps; on an AO
+  rig the scope's bump moves carry it but run beside the exposures. The guide log CSV is unchanged.
 - `LoopingExposures` — `{ Frame }`, plus `StarMass`, `SNR`, `HFD` when a star was measured, `ErrorCode` when the
   star was not found and `Status` when there is a reason to show. While a Static PA auto-mode RA step is moving, the
   frame is not measured: the event carries `Frame` and `Status: "Static PA: waiting for the RA step to finish"`
