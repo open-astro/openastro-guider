@@ -226,6 +226,12 @@ int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad)
     return std::max(stepMs, (int) scaled);
 }
 
+double BacklashClearingStepPx(double xRate, int stepMs, std::optional<double> declinationRad)
+{
+    (void) declinationRad;
+    return xRate * stepMs * 0.6;
+}
+
 // #154. Two unit vectors exactly antiparallel have a cosine of -1, but the
 // rounded direction cosines and products can put it a hair past -1 (or past
 // +1 for parallel ones), where acos gives NaN and the nudge would stop as

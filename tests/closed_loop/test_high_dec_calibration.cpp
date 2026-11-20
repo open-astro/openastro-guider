@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <optional>
 #include <string>
@@ -421,4 +422,169 @@ TEST(HighDec, Pole)
         EXPECT_EQ(o.fail, Fail::RaDidNotMove);
         EXPECT_EQ(o.Moves(Dir::West), std::vector<int>(61, 4 * kStepMs));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Backlash clearing (#156)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+// The Debug line backlash clearing starts with: the step it looks for
+std::string LookingFor(const CalOutcome& o)
+{
+    for (const Event& e : o.events)
+        if (e.kind == Event::Debug && e.text.rfind("Backlash: Looking for ", 0) == 0)
+            return e.text;
+    return std::string();
+}
+
+// The clearing moves accepted for a North pulse the Dec backlash took up
+// whole: what such a move measured was centroid noise. The sim's Dec gear
+// starts engaged for South, so the first backlashMs of North pulses move nothing.
+int AcceptedWhileAbsorbed(const CalOutcome& o, double backlashMs)
+{
+    int northMs = 0; // North pulse time sent on earlier frames
+    int lastPulseMs = 0;
+    int accepted = 0;
+    int frame = -2;
+    for (const Event& e : o.events)
+    {
+        if (e.frame != frame)
+        {
+            frame = e.frame;
+            northMs += lastPulseMs;
+            lastPulseMs = 0;
+        }
+        if (e.kind == Event::Debug && e.text.rfind("Backlash: Accepted clearing move", 0) == 0 && northMs > 0 &&
+            northMs <= backlashMs)
+            accepted++;
+        if (e.kind == Event::Move && e.dir == Dir::North)
+            lastPulseMs = e.ms;
+    }
+    return accepted;
+}
+
+} // namespace
+
+TEST(BacklashClearingStepPx, IsTheDecLegsMoveForAKnownDec)
+{
+    // xRate is the RA image rate at the Dec, cos(Dec) times the equator's; a
+    // Dec pulse moves the star as far at every Dec. A known Dec divides the
+    // cos(Dec) back out: 0.6 of the Dec leg's move a step, 1.28 px here
+    const double atEquator = kRate * kStepMs * 0.6;
+    for (int dec : { 30, 45, 60, 75, 80, 85, 87, -80 })
+    {
+        double xRate = kRate * std::cos(Radians(dec));
+        EXPECT_NEAR(cr::BacklashClearingStepPx(xRate, kStepMs, Radians(dec)), atEquator, 1e-12) << dec;
+    }
+    // Dec 0 is the RA-rate step exactly
+    EXPECT_EQ(cr::BacklashClearingStepPx(kRate, kStepMs, 0.), atEquator);
+}
+
+TEST(BacklashClearingStepPx, AnUnknownOrNonFiniteDecKeepsTheRaRateStep)
+{
+    // the step before #156, bit for bit: what the twin computes
+    const double xRate = kRate * std::cos(Radians(60.));
+    const double before = xRate * kStepMs * 0.6;
+    EXPECT_EQ(cr::BacklashClearingStepPx(xRate, kStepMs, std::nullopt), before);
+    EXPECT_EQ(cr::BacklashClearingStepPx(xRate, kStepMs, std::nan("")), before);
+    EXPECT_EQ(cr::BacklashClearingStepPx(xRate, kStepMs, INFINITY), before);
+}
+
+TEST(BacklashClearingStepPx, PoleIsFinite)
+{
+    // cos(+-90 deg) is about 6e-17: the floor, not the division, gives the step
+    EXPECT_DOUBLE_EQ(cr::BACKLASH_MIN_COS_DEC, 0.01);
+    const double xRate = 0.0001;
+    for (double dec : { M_PI / 2, -M_PI / 2, Radians(89.9) })
+    {
+        double step = cr::BacklashClearingStepPx(xRate, kStepMs, dec);
+        EXPECT_TRUE(std::isfinite(step));
+        EXPECT_DOUBLE_EQ(step, xRate / cr::BACKLASH_MIN_COS_DEC * kStepMs * 0.6);
+    }
+    // cos(180 deg) = -1: magnitude 1
+    EXPECT_DOUBLE_EQ(cr::BacklashClearingStepPx(xRate, kStepMs, M_PI), xRate * kStepMs * 0.6);
+}
+
+TEST(HighDecBacklash, LooksForTheDecLegsMoveAtEveryDec)
+{
+    // #156: before, clearing looked for 0.6 of the RA leg's move, 1.3 px at
+    // the equator but 0.2 px at 80 deg. With the mount's Dec it looks for 0.6
+    // of the Dec leg's move at every Dec; max(8, 60000 / 550) attempts
+    for (int dec : { 0, 60, 80, 85, -80 })
+    {
+        CalOutcome o = Calibrate<ExtractedRun>(ProfileMount(dec));
+        SCOPED_TRACE("dec " + std::to_string(dec));
+        ASSERT_EQ(o.outcome, Outcome::Complete);
+        EXPECT_EQ(LookingFor(o), "Backlash: Looking for 3 moves of 1.3 px, max attempts = 109\n");
+    }
+
+    // the Dec guide rate half the RA rate: half the Dec move, as before
+    SimMountConfig half = ProfileMount(80.);
+    half.decGuideDegPerSec = half.raGuideDegPerSec / 2;
+    half.decPxPerMs = kRate / 2;
+    CalOutcome h = Calibrate<ExtractedRun>(half);
+    ASSERT_EQ(h.outcome, Outcome::Complete);
+    EXPECT_EQ(LookingFor(h), "Backlash: Looking for 3 moves of 0.6 px, max attempts = 109\n");
+
+    // no Dec from the mount: the RA-rate step, as the twin looks for it
+    SimMountConfig unknown = ProfileMount(60.);
+    unknown.reportDec = false;
+    CalOutcome legacy = Calibrate<LegacyTwinRun>(unknown);
+    CalOutcome extracted = Calibrate<ExtractedRun>(unknown);
+    ASSERT_EQ(extracted.outcome, Outcome::Complete);
+    EXPECT_EQ(LookingFor(extracted), "Backlash: Looking for 3 moves of 0.6 px, max attempts = 109\n");
+    EXPECT_EQ(LookingFor(extracted), LookingFor(legacy));
+}
+
+TEST(HighDecBacklash, ClearingAtDec80KeepsTheBacklashOutOfTheDecRate)
+{
+    // #156: Dec 80 with 2500 ms of Dec backlash, so the first four 550 ms
+    // clearing pulses move nothing, and 0.2 px of centroid noise. Looking
+    // for 0.2 px moves, clearing accepted noise between two frames as a move
+    // and could end with backlash left, which the North leg then measured:
+    // yRate up to 17 % low. Looking for the Dec leg's 1.3 px, it waits the
+    // backlash out at every seed.
+    for (int seed = 1; seed <= 20; seed++)
+    {
+        SimMountConfig c = ProfileMount(80.);
+        c.decBacklashMs = 2500.;
+        c.noiseSigmaPx = 0.2;
+        c.seed = (uint64_t) seed;
+        CalOutcome o = Calibrate<ExtractedRun>(c);
+        SCOPED_TRACE("seed " + std::to_string(seed));
+        ASSERT_EQ(o.outcome, Outcome::Complete);
+        EXPECT_TRUE(o.HasDebug("Backlash: Got 3 acceptable moves"));
+        EXPECT_EQ(AcceptedWhileAbsorbed(o, c.decBacklashMs), 0);
+        // backlash measured into the North leg makes yRate low; the noise alone moves it up to about 3.5 %
+        EXPECT_GT(o.measured.yRate, 0.97 * kRate);
+        EXPECT_LT(o.measured.yRate, 1.05 * kRate);
+
+        // at Dec 0 the RA-rate step is the Dec leg's, and the twin waited it out too
+        c.trueDecDeg = 0.;
+        CalOutcome equator = Calibrate<LegacyTwinRun>(c);
+        ASSERT_EQ(equator.outcome, Outcome::Complete);
+        EXPECT_EQ(AcceptedWhileAbsorbed(equator, c.decBacklashMs), 0);
+        EXPECT_GT(equator.measured.yRate, 0.97 * kRate);
+        EXPECT_LT(equator.measured.yRate, 1.05 * kRate);
+    }
+}
+
+TEST(HighDecBacklash, WrongDecReadingLooksForTooBigAMoveAndGoesOn)
+{
+    // a mount that reports 85 deg while it points at the equator: clearing
+    // looks for 11.5x the Dec leg's move (14.7 px), accepts none, and goes on
+    // once the star has moved the calibration distance, as for a mount whose
+    // moves are all too small; the calibration completes with the true Dec rate
+    SimMountConfig c = ProfileMount(0.);
+    c.reportedDecDeg = 85.;
+    c.decBacklashMs = 1500.;
+    CalOutcome o = Calibrate<ExtractedRun>(c);
+    ASSERT_EQ(o.outcome, Outcome::Complete);
+    EXPECT_EQ(LookingFor(o), "Backlash: Looking for 3 moves of 14.7 px, max attempts = 109\n");
+    EXPECT_FALSE(o.HasDebug("Backlash: Accepted clearing move"));
+    EXPECT_TRUE(o.HasDebug("Backlash: Reached clearing limit but total displacement > 3px - proceeding"));
+    EXPECT_NEAR(o.measured.yRate, kRate, 0.02 * kRate);
 }
