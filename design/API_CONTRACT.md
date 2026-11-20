@@ -605,3 +605,22 @@ response; `ClearCalibration` (mediator) returns false.
   refused with error `1` (the period goes back to its default).
 
 ARA: no code change. It always sends a numeric `value` and does not set `periodLength`.
+
+## 2026-11-20 — pixel-scale change acted on once per request (#139)
+
+A camera connect that reads a pixel size 1% or more off the profile's makes the guider adjust for
+the new image scale (PHD2 behaviour): it recomputes `/scope/CalibrationDuration`, sets both axes'
+`minMove` to `SmartDefaultMinMove`, clears the calibration and raises the "Binning or camera pixel
+size changed unexpectedly" `Alert`. The Gear dialog reset what triggers it only when the dialog
+opened, which the headless daemon never does, so after one such connect every later
+`set_connected` (one device or all, connect or disconnect, the #104 retry and `guide`'s connect
+included) and `set_profile` did it again, wiping the `calibration_duration` and `minMove` the client
+had set since, and a connect of all equipment raised the `Alert` twice.
+
+- Each gear request (`set_connected`, `set_profile`) now begins afresh, as a run of the dialog
+  does, and the adjustment is made once, by the request whose camera connect saw the change.
+- The latch is the wx-free `CameraChangeLatch` in `src/connect_request.cpp`, unit-tested by
+  `test_connect_request`.
+
+ARA: no code change. Its `set_profile_setup` `pixel_size` and its `set_algo_param` `minMove`
+now survive later connects and the #104 automatic reconnects.
