@@ -6,7 +6,9 @@
 // above about 79 deg on the audit profile. CalibrationRun sizes the West and
 // East pulses for the Dec Scope reads when the calibration begins
 // (RaCalibrationStepMs, up to RA_STEP_MAX_SCALE times the step); the Dec leg,
-// backlash clearing and the South nudge keep the step.
+// backlash clearing and the South nudge keep the step. Backlash clearing
+// looks for the Dec leg's move estimated for that Dec (#156), where the RA
+// rate made it shrink with cos(Dec).
 //
 // These run the extracted CalibrationRun as Scope drives it (extracted_run.h)
 // on a SimMount whose RA image rate follows cos(true Dec), and compare it with

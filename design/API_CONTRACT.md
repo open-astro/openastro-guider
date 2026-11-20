@@ -720,3 +720,23 @@ reported Dec moved by a driver's rounding.
 
 ARA: no code change. It recalibrates on every new target, so the `Alert` it showed after a fresh
 high-Dec calibration goes away; it still appears for a calibration reused after a real Dec move.
+
+## 2026-11-20 — backlash clearing at high Dec (#156)
+
+No API change. Before the Dec leg, backlash clearing pulses North until three pulses in a row each
+move the star at least 0.6 of a pulse's expected move. That move came from the RA rate the West
+leg measured, which shrinks with cos(Dec) while a Dec pulse does not: 1.3 px at the equator on the
+FL 400 mm / 3.75 µm / 0.5x profile, 0.2 px at Dec 80°, where centroid noise passed for a move and
+the Dec rate could be measured with backlash still in it.
+
+- With the Dec the guider reads from the mount at the start of the calibration (#141), clearing
+  now expects the Dec leg's move at every Dec (the RA rate divided by cos(Dec), times the Dec/RA
+  guide-rate ratio as before). An unknown Dec keeps the old step.
+- A client may see more `Calibrating` steps with `dir` "Backlash" at high Dec, while the backlash
+  is taken up; clearing still sends at most max(8, 60000 / step) pulses and still goes on once the
+  star has moved the calibration distance. A wrong Dec reading (85° reported at the equator) makes
+  clearing accept no move and go on after the calibration distance; the calibration completes.
+- Not changed: the clearing pulse (the calibration step), the `Calibrating` event fields and their
+  order, the `CalibrationFailed` reasons, `get_calibration_data`.
+
+ARA: no code change.
