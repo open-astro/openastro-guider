@@ -453,6 +453,13 @@ jobs:
       - name: Build phd2.bin
         run: cmake --build build-asan --target phd2 --parallel "$(nproc)"
 
+      - name: Limit mmap ASLR entropy for ASan
+        # Ubuntu 24.04 kernels raise vm.mmap_rnd_bits, and ASan runtimes older than the kernel can
+        # then hang or crash at startup on a mapping that lands in their shadow range (GitHub set
+        # 28 on its x64 24.04 image for this, actions/runner-images#9491). 28 is within arm64's
+        # range; set it here so the run does not depend on what the arm image ships.
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
       - name: Run the daemon scenarios
         # Fails on a failed check, on the daemon crashing or exiting non-zero, and on any
         # sanitizer report. halt_on_error makes the first report fatal; the script adds the
