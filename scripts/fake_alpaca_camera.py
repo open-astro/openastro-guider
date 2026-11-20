@@ -89,6 +89,11 @@ small control endpoint and is off until used, so the default behaviour is unchan
         accepts the connection, then stalls); ms=0 clears it.
     GET /fake/state    the injections, the unplugged flags and the stalls, as JSON.
 
+Alpaca management (#155, for the guider's query_alpaca_devices):
+
+    GET /management/v1/configureddevices
+        The camera and the telescope at device 0, as an Alpaca server lists them.
+
 Setup checks (#117: set_profile_setup must reach the live mount and camera objects):
 
     GET /fake/pulses[?clear=1]
@@ -493,6 +498,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/fake/"):
             return self.control("GET", "")
+        if self.path.partition("?")[0] == "/management/v1/configureddevices":
+            return self.reply([
+                {"DeviceName": PROPS["name"], "DeviceType": "Camera", "DeviceNumber": 0, "UniqueID": "fake-camera-0"},
+                {"DeviceName": SCOPE_PROPS["name"], "DeviceType": "Telescope", "DeviceNumber": 0,
+                 "UniqueID": "fake-telescope-0"},
+            ])
         sprop = self.scope_prop_name()
         if sprop is not None:
             self.stall("telescope")
