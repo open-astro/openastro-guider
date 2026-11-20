@@ -349,15 +349,20 @@ TEST(HighDec, UnknownDecIsLegacy)
 {
     // a mount that reports no Dec (or fails the read) keeps the step for every
     // leg: the extracted run makes exactly the calls the code before #141 made,
-    // including its failure at 80 deg. A little noise: a noiseless run ends
-    // its North leg exactly antiparallel to the nudge, where rounding decides
-    // whether the twin's unclamped acos gives NaN (#154)
+    // including its failure at 80 deg. Noiseless, except at Dec 0: there a
+    // noiseless run ends its North leg exactly antiparallel to the nudge, and
+    // on this build the cosine rounds past -1, where the twin's unclamped acos
+    // gives NaN and the run's clamped one pi (#154; the parity test covers that
+    // difference). A little noise keeps the Dec 0 comparison exact.
     for (int dec : { 0, 45, 75, 80, -80 })
     {
         SimMountConfig c = ProfileMount(dec);
         c.reportDec = false;
-        c.noiseSigmaPx = 0.02;
-        c.seed = 3;
+        if (dec == 0)
+        {
+            c.noiseSigmaPx = 0.02;
+            c.seed = 3;
+        }
         CalOutcome legacy = Calibrate<LegacyTwinRun>(c);
         CalOutcome extracted = Calibrate<ExtractedRun>(c);
         SCOPED_TRACE("dec " + std::to_string(dec));
@@ -368,7 +373,7 @@ TEST(HighDec, UnknownDecIsLegacy)
         ASSERT_NE(d, nullptr);
         EXPECT_EQ(d->text, "RA calibration step 550 ms for Dec Unknown (Dec step 550 ms)\n");
     }
-    // and so does a mount at Dec 0
+    // and so does a mount at Dec 0 (with the same noise, for the same reason)
     SimMountConfig c = ProfileMount(0.);
     c.noiseSigmaPx = 0.02;
     c.seed = 3;
