@@ -806,9 +806,9 @@ bool ScopeAlpaca::GetCoordinates(double *ra, double *dec, double *siderealTime)
         }
 
         // PHD2's GetCoordinates convention is (hours, degrees, hours) — see
-        // ScopeManualPointing::GetCoordinates and the callers (drift tool,
-        // calibration assistant) which compute hour angles as
-        // lst - ra. Alpaca already reports hours/degrees, so pass through.
+        // ScopeManualPointing::GetCoordinates and the drift tool caller, which
+        // computes hour angles as lst - ra. Alpaca already reports hours/degrees,
+        // so pass through.
         if (ra)
             *ra = raHours;
         if (dec)
@@ -929,8 +929,8 @@ bool ScopeAlpaca::SlewToCoordinates(double ra, double dec)
         }
 
         // ra is hours, dec is degrees (the PHD2-wide SlewToCoordinates
-        // convention; see the drift tool / calibration assistant
-        // callers) — the same units Alpaca expects, so pass through
+        // convention; see the drift tool caller) — the same units Alpaca expects,
+        // so pass through
         wxString endpoint = wxString::Format("telescope/%ld/slewtocoordinates", m_deviceNumber);
         wxString params = wxString::Format("RightAscension=%.6f&Declination=%.6f", ra, dec);
 

@@ -32,8 +32,6 @@
  *
  */
 #include "phd.h"
-#include "nudge_lock.h"
-#include "comet_tool.h"
 #include "polardrift_tool.h"
 #include "guiding_assistant.h"
 
@@ -764,7 +762,6 @@ void Guider::InvalidateLockPosition()
     if (m_lockPosition.IsValid())
         EvtServer.NotifyLockPositionLost();
     m_lockPosition.Invalidate();
-    NudgeLockTool::UpdateNudgeLockControls();
 }
 
 bool Guider::SetLockPosition(const PHD_Point& position)
@@ -801,7 +798,6 @@ bool Guider::SetLockPosition(const PHD_Point& position)
                 pMount->NotifyGuidingDithered(position.X - m_lockPosition.X, position.Y - m_lockPosition.Y, false);
                 GuideLog.NotifySetLockPosition(this);
             }
-            NudgeLockTool::UpdateNudgeLockControls();
         }
 
         m_lockPosition.SetXY(x, y);
@@ -1301,7 +1297,6 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
                 pFrame->Alert(_("Shifted lock position outside allowable area. Lock Position Shift disabled."));
                 EnableLockPosShift(false);
             }
-            NudgeLockTool::UpdateNudgeLockControls();
         }
 
         GuiderOffset ofs;
@@ -1552,7 +1547,7 @@ bool Guider::ShiftLockPosition()
     return !isValid;
 }
 
-void Guider::SetLockPosShiftRate(const PHD_Point& rate, GRAPH_UNITS units, bool isMountCoords, bool updateToolWin)
+void Guider::SetLockPosShiftRate(const PHD_Point& rate, GRAPH_UNITS units, bool isMountCoords)
 {
     Debug.Write(wxString::Format("SetLockPosShiftRate: rate = %.2f,%.2f units = %d isMountCoords = %d\n", rate.X, rate.Y, units,
                                  isMountCoords));
@@ -1560,8 +1555,6 @@ void Guider::SetLockPosShiftRate(const PHD_Point& rate, GRAPH_UNITS units, bool 
     m_lockPosShift.shiftRate = rate;
     m_lockPosShift.shiftUnits = units;
     m_lockPosShift.shiftIsMountCoords = isMountCoords;
-
-    CometTool::UpdateCometToolControls(updateToolWin);
 
     if (m_state == STATE_CALIBRATED || m_state == STATE_GUIDING)
     {
@@ -1595,8 +1588,6 @@ void Guider::EnableLockPosShift(bool enable)
         {
             GuideLog.NotifyLockShiftParams(m_lockPosShift, m_lockPosition.ShiftRate());
         }
-
-        CometTool::UpdateCometToolControls(false);
     }
 }
 

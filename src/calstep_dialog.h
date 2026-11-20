@@ -36,61 +36,20 @@
 #ifndef CalstepDialog_h_included
 #define CalstepDialog_h_included
 
-class CalstepDialog : public wxDialog
+// Calibration step-size math. The calculator dialog this class used to be is gone; the name stays until
+// the calibration code is reorganized.
+class CalstepDialog
 {
-private:
-    // wx UI controls
-    wxBoxSizer *m_pVSizer;
-    wxFlexGridSizer *m_pInputTableSizer;
-    wxFlexGridSizer *m_pOutputTableSizer;
-    wxStaticBoxSizer *m_pInputGroupBox;
-    wxStaticBoxSizer *m_pOutputGroupBox;
-    wxTextCtrl *m_pFocalLength;
-    wxSpinCtrlDouble *m_pPixelSize;
-    wxChoice *m_binningChoice;
-    wxSpinCtrlDouble *m_pGuideSpeed;
-    wxSpinCtrlDouble *m_pNumSteps;
-    wxSpinCtrlDouble *m_pDistance;
-    wxSpinCtrlDouble *m_pDeclination;
-    wxStaticText *m_status;
-    wxTextCtrl *m_pRslt;
-    wxTextCtrl *m_pImageScale;
-    // numeric values from fields, populated by validators
-    double m_fPixelSize;
-    wxString m_sPixelSize;
-    int m_iFocalLength;
-    double m_fGuideSpeed;
-    int m_iNumSteps;
-    int m_binning;
-    double m_fImageScale;
-    int m_iStepSize;
-    bool m_bValidResult;
-    double m_dDeclination;
-    int m_calibrationDistance;
-
-    void OnReset(wxCommandEvent& evt);
-
 public:
     enum
     {
         DEFAULT_STEPS = 12,
         DEFAULT_DISTANCE = 25
     };
-    static const double DEFAULT_GUIDESPEED;
-
-    CalstepDialog(wxWindow *parent, int focalLength, double pixelSize, int binning);
-    ~CalstepDialog(void);
-    bool GetResults(int *focalLength, double *pixelSize, int *binning, int *stepSize, int *distance);
 
     static int GetCalibrationDistance(int focalLength, double pixelSize, int binning);
     static void GetCalibrationStepSize(int focalLength, double pixelSize, int binning, double guideSpeed, int desiredSteps,
                                        double declination, int distance, double *imageScale, int *stepSize);
-
-private:
-    void OnText(wxCommandEvent& evt);
-    void OnSpinCtrlDouble(wxSpinDoubleEvent& evt);
-    void AddTableEntry(wxFlexGridSizer *pTable, const wxString& label, wxWindow *pControl, const wxString& toolTip);
-    void DoRecalc(void);
 };
 
 #endif

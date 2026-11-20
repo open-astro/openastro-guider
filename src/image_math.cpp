@@ -1197,42 +1197,6 @@ wxString DefectMap::DefectMapFileName(int profileId)
         wxString::Format("PHD2_defect_map%s_%d.txt", inst > 1 ? wxString::Format("_%d", inst) : wxString(), profileId);
 }
 
-bool DefectMap::ImportFromProfile(int srcId, int destId)
-{
-    wxString sourceName;
-    wxString destName;
-    int rslt;
-
-    sourceName = DefectMapFileName(srcId);
-    destName = DefectMapFileName(destId);
-    rslt = wxCopyFile(sourceName, destName, true);
-    if (rslt != 1)
-    {
-        Debug.Write(
-            wxString::Format("DefectMap::ImportFromProfile failed on defect map copy of %s to %s\n", sourceName, destName));
-        return false;
-    }
-    sourceName = DefectMapMasterPath(srcId);
-    destName = DefectMapMasterPath(destId);
-    rslt = wxCopyFile(sourceName, destName, true);
-    if (rslt != 1)
-    {
-        Debug.Write(wxString::Format("DefectMap::ImportFromProfile failed on defect map master dark copy of %s to %s\n",
-                                     sourceName, destName));
-        return false;
-    }
-    sourceName = DefectMapFilterPath(srcId);
-    destName = DefectMapFilterPath(destId);
-    rslt = wxCopyFile(sourceName, destName, true);
-    if (rslt != 1)
-    {
-        Debug.Write(wxString::Format(
-            "DefectMap::ImportFromProfile failed on defect map master filtered dark copy of %s to %s\n", sourceName, destName));
-        return false;
-    }
-    return true;
-}
-
 bool DefectMap::DefectMapExists(int profileId, bool showAlert)
 {
     bool bOk = false;

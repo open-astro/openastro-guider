@@ -462,7 +462,7 @@ Alpaca discovery/query:
   - params: none
   - result: `{"camera":string,"pixel_size":number,"source":string}`
   - notes:
-    - matches desktop wizard behavior: uses selected camera/ID, connects driver if needed, and queries driver-reported pixel size
+    - uses selected camera/ID, connects driver if needed, and queries driver-reported pixel size
     - `source` values include `driver`, `connected_camera_device`, `connected_camera_profile`, or `profile`
 
 - `set_selected_alpaca_device`

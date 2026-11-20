@@ -46,7 +46,6 @@
 #include <wx/fileconf.h>
 #include <wx/graphics.h>
 #include <wx/grid.h>
-#include <wx/html/helpctrl.h>
 #include <wx/image.h>
 #include <wx/infobar.h>
 #include <wx/intl.h>
@@ -86,7 +85,6 @@ WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 #define PATHSEPSTR _T("/")
 
 #define DEGREES_SYMBOL "\u00B0"
-#define MICRONS_SYMBOL "\u00B5m"
 
 // #define TEST_TRANSFORMS
 
@@ -136,7 +134,6 @@ WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 #include "stepguiders.h"
 #include "rotators.h"
 #include "image_math.h"
-#include "testguide.h"
 #include "advanced_dialog.h"
 #include "gear_dialog.h"
 #include "myframe.h"

@@ -628,8 +628,7 @@ bool GuideStar::AutoFind(const usImage& image, int extraEdgeAllowance, int searc
     if (pCamera->IsSaturationByADU())
     {
         // Known saturation level, either specified by user or we
-        // make an informed guess to complete
-        // the wizard profile creation process
+        // set it when the profile was set up
         unsigned short satADU = pCamera->GetSaturationADU();
         if (satADU == 0)
         {

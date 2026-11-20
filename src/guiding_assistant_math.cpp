@@ -274,7 +274,7 @@ MinMoveRecs ComputeMinMoveRecs(const AxisStats& decAxis, const MinMoveInputs& in
     }
     else
     {
-        // Just reiterate the estimates made in the new-profile-wiz
+        // Fall back to the smart default min-move for this image scale
         r.dec = in.smartDefaultDecMinMove;
         r.seeingBased = false;
     }

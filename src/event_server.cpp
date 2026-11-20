@@ -3945,7 +3945,7 @@ static void set_lock_shift_params(JObj& response, const json_value *params)
 
     VERIFY_GUIDER(response);
 
-    pFrame->pGuider->SetLockPosShiftRate(shift.shiftRate, shift.shiftUnits, shift.shiftIsMountCoords, true);
+    pFrame->pGuider->SetLockPosShiftRate(shift.shiftRate, shift.shiftUnits, shift.shiftIsMountCoords);
 
     response << jrpc_result(0);
 }
@@ -4596,7 +4596,7 @@ static void rebuild_defect_map(JObj& response, const json_value *params)
 {
     VERIFY_NO_DARK_BUILD(response);
     Params p("aggressiveness_hot", "aggressiveness_cold", "save", "load_after", params);
-    // 75 is the GUI's default aggressiveness (DefDMSigmaX in Refine_DefMap.cpp)
+    // 75 is the default aggressiveness the removed Refine Bad-pixel Map dialog used
     long aggrHot = pConfig->Profile.GetInt("/camera/dmap_hot_factor", 75);
     long aggrCold = pConfig->Profile.GetInt("/camera/dmap_cold_factor", 75);
     bool save = true;

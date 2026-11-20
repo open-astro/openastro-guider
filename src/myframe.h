@@ -39,7 +39,6 @@
 
 class WorkerThread;
 class MyFrame;
-class RefineDefMap;
 struct alert_params;
 class PHDStatusBar;
 
@@ -239,11 +238,7 @@ public:
     wxMenuItem *m_autoSelectStarMenuItem;
     wxMenuItem *m_takeDarksMenuItem;
     wxMenuItem *m_useDarksMenuItem;
-    wxMenuItem *m_refineDefMapMenuItem;
     wxMenuItem *m_useDefectMapMenuItem;
-    wxMenuItem *m_calibrationMenuItem;
-    wxMenuItem *m_importCamCalMenuItem;
-    wxMenuItem *m_upgradeMenuItem;
     wxAuiToolBar *MainToolbar;
     wxInfoBar *m_infoBar;
     wxComboBox *Dur_Choice;
@@ -258,16 +253,7 @@ public:
     TargetWindow *pTarget;
     wxWindow *pDriftTool;
     wxWindow *pPolarDriftTool;
-    wxWindow *pManualGuide;
-    wxDialog *pStarCrossDlg;
-    wxWindow *pNudgeLock;
-    wxWindow *pCometTool;
     wxWindow *pGuidingAssistant;
-    wxWindow *pierFlipToolWin;
-    RefineDefMap *pRefineDefMap;
-    wxDialog *pCalSanityCheckDlg;
-    wxDialog *pCalReviewDlg;
-    wxDialog *pCalibrationAssistant;
     bool CaptureActive; // Is camera looping captures?
     bool m_exposurePending; // exposure scheduled and not completed
     double Stretch_gamma;
@@ -287,14 +273,8 @@ public:
     void OnAnyMenuClose(wxMenuEvent& evt);
     void OnQuit(wxCommandEvent& evt);
     void OnClose(wxCloseEvent& evt);
-    void OnAbout(wxCommandEvent& evt);
     void OnOverlay(wxCommandEvent& evt);
     void OnOverlaySlitCoords(wxCommandEvent& evt);
-    void OnUpgrade(wxCommandEvent& evt);
-    void OnHelpOnline(wxCommandEvent& evt);
-    void OnHelpLogFolder(wxCommandEvent& evt);
-    void OnHelpUploadLogs(wxCommandEvent& evt);
-    void OnInstructions(wxCommandEvent& evt);
     void OnSave(wxCommandEvent& evt);
     void OnSettings(wxCommandEvent& evt);
     void OnSelectGear(wxCommandEvent& evt);
@@ -308,14 +288,9 @@ public:
     void OnButtonGuide(wxCommandEvent& evt);
     void OnAdvanced(wxCommandEvent& evt);
     void OnIdle(wxIdleEvent& evt);
-    void OnTestGuide(wxCommandEvent& evt);
-    void OnStarCrossTest(wxCommandEvent& evt);
-    void OnPierFlipTool(wxCommandEvent& evt);
     void OnEEGG(wxCommandEvent& evt);
     void OnDriftTool(wxCommandEvent& evt);
     void OnPolarDriftTool(wxCommandEvent& evt);
-    void OnCalibrationAssistant(wxCommandEvent& evt);
-    void OnCometTool(wxCommandEvent& evt);
     void OnGuidingAssistant(wxCommandEvent& evt);
     void OnSetupCamera(wxCommandEvent& evt);
     void OnExposureDurationSelected(wxCommandEvent& evt);
@@ -328,10 +303,6 @@ public:
     void OnTextControlSetFocus(wxFocusEvent& evt);
     void OnTextControlKillFocus(wxFocusEvent& evt);
     void OnPanelClose(wxAuiManagerEvent& evt);
-#if defined(V4L_CAMERA)
-    void OnSaveSettings(wxCommandEvent& evt);
-    void OnRestoreSettings(wxCommandEvent& evt);
-#endif
     void OnGraph(wxCommandEvent& evt);
     void OnStats(wxCommandEvent& evt);
     void OnToolBar(wxCommandEvent& evt);
@@ -344,8 +315,6 @@ public:
     void OnBookmarksSetAtLockPos(wxCommandEvent& evt);
     void OnBookmarksSetAtCurPos(wxCommandEvent& evt);
     void OnBookmarksClearAll(wxCommandEvent& evt);
-    void OnRefineDefMap(wxCommandEvent& evt);
-    void OnImportCamCal(wxCommandEvent& evt);
 
     void OnExposeComplete(wxThreadEvent& evt);
     void OnExposeComplete(usImage *image, bool err);
@@ -373,9 +342,7 @@ public:
     bool SetDitherRaOnly(bool ditherRaOnly);
     static double GetDitherAmount(int ditherType);
     Star::FindMode GetStarFindMode() const;
-    Star::FindMode SetStarFindMode(Star::FindMode mode);
     bool GetRawImageMode() const;
-    bool SetRawImageMode(bool force);
 
     bool StartServer(bool state);
     bool FlipCalibrationData();
@@ -447,7 +414,6 @@ public:
                bool showHelpButton = false, int flags = wxICON_EXCLAMATION);
     void SuppressibleAlert(const wxString& configPropKey, const wxString& msg, alert_fn *dontShowFn, intptr_t arg,
                            bool showHelpButton = false, int flags = wxICON_EXCLAMATION);
-    void ClearAlert();
     void StatusMsg(const wxString& text);
     void StatusMsgNoTimeout(const wxString& text);
     wxString GetSettingsSummary() const;
@@ -475,8 +441,6 @@ public:
     void NotifyGuidingParam(const wxString& name, const wxString& val, bool ForceLog);
 
     void NotifyExposureChanged();
-
-    void NotifyUpdaterStateChanged();
 
     // Following 2 functions are used by clients that need to size the spin control based on the max text width
     wxSpinCtrl *MakeSpinCtrl(wxWindow *parent, wxWindowID id = -1, const wxString& value = wxEmptyString,
@@ -514,7 +478,6 @@ private:
     void OnAlertFromThread(wxThreadEvent& event);
     void OnReconnectCameraFromThread(wxThreadEvent& event);
     void OnStatusBarTimerEvent(wxTimerEvent& evt);
-    void OnUpdaterStateChanged(wxThreadEvent& event);
     void OnMessageBoxProxy(wxCommandEvent& evt);
     void SetupMenuBar();
     void SetupStatusBar();
@@ -573,7 +536,6 @@ enum
     GEAR_PROFILE_RENAME,
     GEAR_PROFILE_LOAD,
     GEAR_PROFILE_SAVE,
-    GEAR_PROFILE_WIZARD,
 
     GEAR_CHOICE_CAMERA,
     GEAR_BUTTON_SELECT_CAMERA,
@@ -612,7 +574,6 @@ enum
     MENU_STOP,
     MENU_BRAIN,
     MENU_CAM_SETTINGS,
-    MENU_MANGUIDE,
     MENU_XHAIR0,
     MENU_XHAIR1,
     MENU_XHAIR2,
@@ -632,18 +593,13 @@ enum
     MENU_AUTOSTAR,
     MENU_DRIFTTOOL,
     MENU_POLARDRIFTTOOL,
-    MENU_COMETTOOL,
     MENU_GUIDING_ASSISTANT,
     MENU_SAVESETTINGS,
     MENU_LOADSETTINGS,
     MENU_LOADDARK,
     MENU_LOADDEFECTMAP,
-    MENU_REFINEDEFECTMAP,
-    MENU_IMPORTCAMCAL,
     MENU_INDICONFIG,
     MENU_INDIDIALOG,
-    MENU_V4LSAVESETTINGS,
-    MENU_V4LRESTORESETTINGS,
     BUTTON_GRAPH_LENGTH,
     BUTTON_GRAPH_HEIGHT,
     BUTTON_GRAPH_SETTINGS,
@@ -667,28 +623,13 @@ enum
     CHECKBOX_GRAPH_CORRECTIONS,
     BUTTON_GRAPH_ZOOMIN,
     BUTTON_GRAPH_ZOOMOUT,
-    ABOUT_LINK,
-    MENU_CALIBRATIONASSIST,
-    EEGG_RESTORECAL,
-    EEGG_MANUALCAL,
-    EEGG_CLEARCAL,
-    EEGG_REVIEWCAL,
-    EEGG_MANUALLOCK,
-    EEGG_COMET_TOOL,
     EEGG_STICKY_LOCK,
-    EEGG_FLIPCAL,
     STAR_MASS_ENABLE,
     MULTI_STAR_ENABLE,
     MENU_BOOKMARKS_SHOW,
     MENU_BOOKMARKS_SET_AT_LOCK,
     MENU_BOOKMARKS_SET_AT_STAR,
     MENU_BOOKMARKS_CLEAR_ALL,
-    MENU_STARCROSS_TEST,
-    MENU_PIERFLIP_TOOL,
-    MENU_HELP_UPGRADE,
-    MENU_HELP_ONLINE,
-    MENU_HELP_UPLOAD_LOGS,
-    MENU_HELP_LOG_FOLDER,
     GA_REVIEW_BUTTON,
     GA_REVIEW_ITEMS_BASE,
     GA_REVIEW_ITEMS_LIMIT = GA_REVIEW_ITEMS_BASE + 4,

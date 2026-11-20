@@ -258,26 +258,14 @@ set(guiding_SRC
 source_group(Guiding FILES ${guiding_SRC})
 
 set(phd2_SRC
-  ${phd_src_dir}/about_dialog.cpp
-  ${phd_src_dir}/about_dialog.h
   ${phd_src_dir}/advanced_dialog.cpp
   ${phd_src_dir}/advanced_dialog.h
   ${phd_src_dir}/aui_controls.cpp
   ${phd_src_dir}/aui_controls.h
 
-  ${phd_src_dir}/calreview_dialog.cpp
-  ${phd_src_dir}/calreview_dialog.h
-  ${phd_src_dir}/calibration_assistant.cpp
-  ${phd_src_dir}/calibration_assistant.h
-
   ${phd_src_dir}/calstep_dialog.cpp
   ${phd_src_dir}/calstep_dialog.h
-  ${phd_src_dir}/camcal_import_dialog.cpp
-  ${phd_src_dir}/camcal_import_dialog.h
   ${phd_src_dir}/circbuf.h
-
-  ${phd_src_dir}/comet_tool.cpp
-  ${phd_src_dir}/comet_tool.h
 
   ${phd_src_dir}/configdialog.cpp
   ${phd_src_dir}/configdialog.h
@@ -320,17 +308,11 @@ set(phd2_SRC
   ${phd_src_dir}/json_parser.h
   ${phd_src_dir}/logger.cpp
   ${phd_src_dir}/logger.h
-  ${phd_src_dir}/log_uploader.cpp
-  ${phd_src_dir}/log_uploader.h
-  ${phd_src_dir}/manualcal_dialog.cpp
-  ${phd_src_dir}/manualcal_dialog.h
   ${phd_src_dir}/messagebox_proxy.cpp
   ${phd_src_dir}/messagebox_proxy.h
   ${phd_src_dir}/myframe.cpp
   ${phd_src_dir}/myframe.h
   ${phd_src_dir}/myframe_events.cpp
-  ${phd_src_dir}/nudge_lock.cpp
-  ${phd_src_dir}/nudge_lock.h
   ${phd_src_dir}/optionsbutton.cpp
   ${phd_src_dir}/optionsbutton.h
   ${phd_src_dir}/phd.cpp
@@ -339,18 +321,10 @@ set(phd2_SRC
   ${phd_src_dir}/phdconfig.h
   ${phd_src_dir}/phdcontrol.cpp
   ${phd_src_dir}/phdcontrol.h
-  ${phd_src_dir}/phdupdate.cpp
-  ${phd_src_dir}/phdupdate.h
-  ${phd_src_dir}/pierflip_tool.cpp
-  ${phd_src_dir}/pierflip_tool.h
   ${phd_src_dir}/polardrift_tool.h
   ${phd_src_dir}/polardrift_toolwin.h
   ${phd_src_dir}/polardrift_toolwin.cpp
-  ${phd_src_dir}/profile_wizard.h
-  ${phd_src_dir}/profile_wizard.cpp
   ${phd_src_dir}/point.h
-  ${phd_src_dir}/Refine_DefMap.cpp
-  ${phd_src_dir}/Refine_DefMap.h
 
   # rotators
   ${phd_src_dir}/rotators.h
@@ -372,12 +346,8 @@ set(phd2_SRC
   ${phd_src_dir}/serialport_posix.cpp
   ${phd_src_dir}/serialport_posix.h
   ${phd_src_dir}/serialports.h
-  ${phd_src_dir}/sha1.cpp
-  ${phd_src_dir}/sha1.h
   ${phd_src_dir}/socket_server.cpp
   ${phd_src_dir}/socket_server.h
-  ${phd_src_dir}/starcross_test.cpp
-  ${phd_src_dir}/starcross_test.h
   ${phd_src_dir}/statswindow.cpp
   ${phd_src_dir}/statswindow.h
 
@@ -389,8 +359,6 @@ set(phd2_SRC
   ${phd_src_dir}/star_profile.h
   ${phd_src_dir}/target.cpp
   ${phd_src_dir}/target.h
-  ${phd_src_dir}/testguide.cpp
-  ${phd_src_dir}/testguide.h
   ${phd_src_dir}/usImage.cpp
   ${phd_src_dir}/usImage.h
   ${phd_src_dir}/worker_thread.cpp
