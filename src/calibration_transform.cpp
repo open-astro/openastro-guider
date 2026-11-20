@@ -36,6 +36,7 @@
 
 #include "calibration_transform.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -95,6 +96,35 @@ double YAngleError(double calXAngle, double calYAngle)
     double const range = M_PI - start;
     double const ofs = val - start;
     return val - std::floor(ofs / range) * range;
+}
+
+DecComp DecideDecComp(std::optional<double> calDecRad, std::optional<double> newDecRad, double compLimitRad)
+{
+    if (!calDecRad || !newDecRad || !std::isfinite(*calDecRad) || !std::isfinite(*newDecRad))
+        return DecComp::None;
+
+    // A reading that moved by a driver's rounding or the calibration's residual has not moved (#157).
+    // Before, any difference in the doubles acted.
+    double const cal = *calDecRad;
+    double const now = *newDecRad;
+    if (std::fabs(now - cal) <= DEC_COMP_MIN_MOVE_DEG * M_PI / 180.)
+        return DecComp::None;
+
+    if (std::fabs(cal) <= compLimitRad)
+        return DecComp::Compensate;
+
+    // |cos(now) / cos(cal) - 1| > tolerance, without dividing by a cos(cal) near 0
+    double const cosCal = std::fabs(std::cos(cal));
+    if (std::fabs(std::fabs(std::cos(now)) - cosCal) > DEC_COMP_RATE_TOLERANCE * cosCal)
+        return DecComp::Alert;
+    return DecComp::None;
+}
+
+double CompensatedRaRate(double calXRate, double calDecRad, double newDecRad)
+{
+    double const limit = 89. * M_PI / 180.;
+    newDecRad = std::max(-limit, std::min(limit, newDecRad));
+    return calXRate / std::cos(calDecRad) * std::cos(newDecRad);
 }
 
 } // namespace calibration_transform

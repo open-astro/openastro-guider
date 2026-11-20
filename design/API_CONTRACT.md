@@ -696,3 +696,27 @@ whatever length they were computed, so one computed with a rate of 0 asked the m
   `-60000..60000`) are not capped.
 
 ARA: no code change.
+
+## 2026-11-20 — "Calibration was too far from equator" Alert on Dec jitter (#157)
+
+No API change. Every entry to `Guiding` (each `guide`, after its calibration when one runs)
+checks the Dec the mount reports against the calibration's Dec. For a calibration above Dec 60°,
+any difference at all raised an `Alert` "Calibration was too far from equator, recalibration is
+needed.", so a calibration that had just completed at Dec 70° or 80° alerted as soon as the
+reported Dec moved by a driver's rounding.
+
+- A Dec within 0.02° (72") of the calibration's is now unchanged. Above 60° the `Alert` is raised
+  only when the Dec moved enough to change the RA rate by more than 5%,
+  |cos(Dec now) / cos(calibration Dec) − 1| > 0.05: about 0.5° at Dec 80°, and a move from 70° to
+  75° still raises it. A smaller move raises no `Alert`, and the guider guides with the
+  calibration's RA rate as measured, as it did when the Dec had not changed.
+- Below 60° a Dec that moved more than 0.02° scales the RA rate by cos(Dec now) / cos(calibration
+  Dec) when Dec compensation is on, as before; a smaller move keeps the calibration's RA rate
+  (under 0.07% different).
+- A Dec that is not finite is treated like an unknown Dec: no `Alert` and no scaling.
+- Not changed: the `Alert` text, the 60° limit, `get_calibration_data`, the `Guiding`/`GuideStep`
+  events, and every other `Alert` of the same check (guide speeds, side of pier, pixel size,
+  rotator).
+
+ARA: no code change. It recalibrates on every new target, so the `Alert` it showed after a fresh
+high-Dec calibration goes away; it still appears for a calibration reused after a real Dec move.
