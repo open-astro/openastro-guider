@@ -39,6 +39,7 @@
 
 #include "calibration_transform.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -195,9 +196,29 @@ void CalibrationRun::Debug(Sink& sink, const char *format, ...)
     sink.Emit(e);
 }
 
-int RaCalibrationStepMs(int stepMs, std::optional<double>)
+// #141. The step is sized for the equator (the calibration step calculator,
+// or the user). At Dec d a pulse moves the star cos(d) as far in RA, so the
+// West leg needs 1/cos(d) as many pulses: 46 at 75 deg for the 12 a 550 ms
+// step takes at the equator, and over the 61 it may send above about 79 deg.
+// Growing the RA pulse by 1/cos(d) keeps the leg near its equator count;
+// the total pulse time, and so the time the leg takes, stays the same.
+//
+// The cap. CalstepDialog::GetCalibrationStepSize limits its own Dec
+// adjustment to 2x (MaxPulse keeps MIN_STEPS steps), because there one step
+// serves both axes and a longer one would cut the Dec leg below MIN_STEPS.
+// Only the RA leg scales here, so that reason does not apply; the cap only
+// bounds the harm of a wrong Dec reading. At 4x a mount that reports 85 deg
+// while it points at the equator moves the star 4 * 2.13 = 8.5 px a pulse on
+// the audit profile, under the default 15 px search region, and the
+// calibration still completes in 3 steps (with the too-few-steps advisory).
+// A 2x cap would still fail at 85 deg (68 pulses); 4x calibrates to about
+// 87 deg.
+int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad)
 {
-    return stepMs;
+    if (!declinationRad || !std::isfinite(*declinationRad))
+        return stepMs;
+    double c = std::max(std::fabs(std::cos(*declinationRad)), 1.0 / RA_STEP_MAX_SCALE);
+    return std::max(stepMs, (int) std::ceil(stepMs / c));
 }
 
 void CalibrationRun::Begin(const Pt& initialLocation, std::optional<double> declinationRad)

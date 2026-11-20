@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import math
 import socket
 import sys
 import time
@@ -79,6 +80,16 @@ class FakeAlpaca:
     def pulses(self, clear=False):
         return self.get("/fake/pulses" + ("?clear=1" if clear else ""))["pulses"]
 
+    def declination(self):
+        """The fake mount's Dec, degrees, as the guider reads it."""
+        return self.get("/api/v1/telescope/0/declination")["Value"]
+
+
+def ra_calibration_step_ms(step_ms, dec_deg):
+    """#141: the West/East calibration pulse for a step at a Dec (calibration_run.cpp RaCalibrationStepMs)."""
+    c = max(abs(math.cos(math.radians(dec_deg))), 1.0 / 4.0)
+    return max(step_ms, math.ceil(step_ms / c))
+
 
 def profile_setup_live_checks(cli, fake, run_check):
     """#117: set_profile_setup values reach the live mount and camera objects, with no restart.
@@ -133,9 +144,10 @@ def profile_setup_live_checks(cli, fake, run_check):
             got = calibration_pulses(2)
         finally:
             disconnect()
-        # Alpaca GuideDirections: 3 = West, the first calibration leg
-        expect(all(p["direction"] == 3 and p["duration"] == duration for p in got),
-               f"expected West pulses of {duration} ms, got {got}")
+        # Alpaca GuideDirections: 3 = West, the first calibration leg, which pulses the step sized for the Dec (#141)
+        want = ra_calibration_step_ms(duration, fake.declination())
+        expect(all(p["direction"] == 3 and p["duration"] == want for p in got),
+               f"expected West pulses of {want} ms (step {duration} ms), got {got}")
         return got
 
     def scale_check(pixel_size, focal_length):

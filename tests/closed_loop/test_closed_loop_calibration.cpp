@@ -7,7 +7,10 @@
 // (legacy/), and on the extracted calibration_run::CalibrationRun driven as
 // Scope drives it (extracted_run.h). They pin what the calibration does,
 // quirks included, and hold for both, so the extraction changed none of it;
-// test_calibration_run_parity.cpp compares the two effect by effect.
+// test_calibration_run_parity.cpp compares the two effect by effect. The one
+// behaviour the run has added since is the RA step sized for the Dec (#141):
+// at Dec 0 it is the step, the high-Dec tests here leave the Dec unknown, and
+// test_high_dec_calibration.cpp covers a known Dec.
 //
 // Every test starts a fresh calibration with Begin: nothing here restores,
 // reuses or skips a calibration.
@@ -905,18 +908,21 @@ TYPED_TEST(Calibration, ClearedWhileCalibratingFailsWithoutAnAlert)
 }
 
 // ---------------------------------------------------------------------------
-// High declination, TODAY (#141). The RA step does not grow with 1/cos(Dec), so
-// the West leg needs more steps as the star's RA motion shrinks, and fails once
-// it needs more than 61. PR-D flips these pins.
+// High declination with the Dec unknown (#141). The run pulses the step on the
+// West leg when it has no Dec, as the code before #141 did at every Dec: the
+// leg needs more steps as the star's RA motion shrinks, and fails once it
+// needs more than 61. With a known Dec the RA step grows with 1/cos(Dec)
+// instead; test_high_dec_calibration.cpp covers that.
 // ---------------------------------------------------------------------------
 
-TYPED_TEST(Calibration, HighDecRaStepsTodayGrowWithOneOverCosDec)
+TYPED_TEST(Calibration, HighDecRaStepsGrowWithOneOverCosDecWhenTheDecIsUnknown)
 {
     const int cases[][2] = { { 0, 12 }, { 45, 17 }, { 60, 24 }, { 70, 35 }, { 75, 46 }, { 78, 57 }, { -78, 57 } };
     for (const auto& tc : cases)
     {
         SimMountConfig c = ProfileMount();
         c.trueDecDeg = tc[0];
+        c.reportDec = false;
         SimMount sim(c);
         CalOutcome o = RunCalibration<TypeParam>(sim, ProfileSettings());
         SCOPED_TRACE("dec " + std::to_string(tc[0]));
@@ -929,12 +935,13 @@ TYPED_TEST(Calibration, HighDecRaStepsTodayGrowWithOneOverCosDec)
     }
 }
 
-TYPED_TEST(Calibration, HighDecTodayFailsAt79DegreesAndAbove)
+TYPED_TEST(Calibration, HighDecFailsAt79DegreesAndAboveWhenTheDecIsUnknown)
 {
     for (int dec : { 79, 80, 85, -80 })
     {
         SimMountConfig c = ProfileMount();
         c.trueDecDeg = dec;
+        c.reportDec = false;
         CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings());
         SCOPED_TRACE("dec " + std::to_string(dec));
         ASSERT_EQ(o.outcome, Outcome::Failed);
@@ -943,18 +950,19 @@ TYPED_TEST(Calibration, HighDecTodayFailsAt79DegreesAndAbove)
     }
 }
 
-TYPED_TEST(Calibration, HighDecTodayIgnoresTheReportedDec)
+TEST(LegacyTwin, HighDecIgnoredTheReportedDec)
 {
-    // the twin never reads the Dec before or during the legs; a missing or wrong
-    // reading changes nothing but the Dec stored with the result
+    // before #141 the calibration never read the Dec before or during the legs;
+    // a missing or wrong reading changed nothing but the Dec stored with the
+    // result. The extracted run now reads it at Begin (test_high_dec_calibration.cpp).
     SimMountConfig c = ProfileMount();
     c.trueDecDeg = 75.;
-    CalOutcome reported = Calibrate<TypeParam>(c, ProfileSettings());
+    CalOutcome reported = Calibrate<LegacyTwinRun>(c, ProfileSettings());
     c.reportDec = false;
-    CalOutcome unknown = Calibrate<TypeParam>(c, ProfileSettings());
+    CalOutcome unknown = Calibrate<LegacyTwinRun>(c, ProfileSettings());
     c.reportDec = true;
     c.reportedDecDeg = 0.;
-    CalOutcome wrong = Calibrate<TypeParam>(c, ProfileSettings());
+    CalOutcome wrong = Calibrate<LegacyTwinRun>(c, ProfileSettings());
     for (const CalOutcome *o : { &unknown, &wrong })
     {
         ASSERT_EQ(o->events.size(), reported.events.size());

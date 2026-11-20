@@ -884,7 +884,18 @@ bool Scope::BeginCalibration(const PHD_Point& currentLocation)
 
         CheckCalibrationDuration(m_calibrationDuration); // Make sure guide speeds or binning haven't changed underneath us
         ClearCalibration();
-        m_calRun.Begin(calibration_run::Pt::At(currentLocation.X, currentLocation.Y), std::nullopt);
+
+        // Size the West/East pulses for the Dec, read once here (#141). Not stored: m_calibrationDuration
+        // and the profile keep the Dec 0 step, and the Dec leg uses it. An unknown Dec keeps the step.
+        double declination = pPointingSource->GetDeclinationRadians();
+        std::optional<double> decRad;
+        if (declination != UNKNOWN_DECLINATION)
+            decRad = declination;
+        Debug.Write(wxString::Format("RA calibration step %d ms for Dec %s (Dec step %d ms)\n",
+                                     calibration_run::RaCalibrationStepMs(m_calibrationDuration, decRad),
+                                     DeclinationStr(declination), m_calibrationDuration));
+
+        m_calRun.Begin(calibration_run::Pt::At(currentLocation.X, currentLocation.Y), decRad);
         m_calibrationDetails.raSteps.clear();
         m_calibrationDetails.decSteps.clear();
         m_calibrationDetails.lastIssue = CI_None;

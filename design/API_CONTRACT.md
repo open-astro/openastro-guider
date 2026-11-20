@@ -631,3 +631,22 @@ had set since, and a connect of all equipment raised the `Alert` twice.
 
 ARA: no code change. Its `set_profile_setup` `pixel_size` and its `set_algo_param` `minMove`
 now survive later connects and the #104 automatic reconnects.
+
+## 2026-11-20 — high-Dec calibration RA step (#141)
+
+No API change. A calibration above about Dec 79° failed with `CalibrationFailed` "RA Calibration
+Failed: star did not move enough": the West leg pulsed the Dec 0 step, which moves the star only
+cos(Dec) as far, and ran out of its 61 pulses.
+
+- The West and East legs now pulse `ceil(step / max(|cos(Dec)|, 1/4))` ms, for the Dec the guider
+  reads from the mount once at the start of each calibration. The Dec leg, backlash clearing and the
+  South nudge keep the step. An unknown Dec (no coordinates, a failed read) keeps the step for every
+  leg, as before.
+- Not changed: `calibration_duration` (`get_profile_setup`/`set_profile_setup`, the profile's
+  `/scope/CalibrationDuration`), the guide-log header's "Calibration Step", the `Calibrating` event
+  fields and their order, the `CalibrationFailed` reasons, `get_calibration_data`. The RA leg takes
+  as long as before in fewer `Calibrating` events (RA pulses up to 4x the step, 2.2 s for a 550 ms
+  step), so a client's calibration timeout is not affected.
+- Every calibration still starts from scratch; the scaled step is not stored anywhere.
+
+ARA: no code change.
