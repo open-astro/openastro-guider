@@ -35,13 +35,7 @@
 #ifndef PHDCONTROL_H
 #define PHDCONTROL_H
 
-struct SettleParams
-{
-    double tolerancePx; // settle threshold, pixels
-    int settleTimeSec; // time to be within tolerance
-    int timeoutSec; // timeout value
-    int frames; // number of frames
-};
+#include "settle_frame.h" // struct SettleParams
 
 enum ControlGuideOptions
 {
@@ -59,7 +53,8 @@ public:
     static bool DitherCompat(double pixels, wxString *error);
 
     static void AbortController(const wxString& reason);
-    static void UpdateControllerState();
+    // frameDropped (#136): the frame failed and was dropped while guiding; a settle counts it as a dropped frame
+    static void UpdateControllerState(bool frameDropped = false);
     static void OnAppInit();
     static void OnAppExit();
 

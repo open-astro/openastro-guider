@@ -344,7 +344,8 @@ add_test(NAME test_capture_cleanup COMMAND test_capture_cleanup)
 # test_capture_failure  --  capture_failure.cpp: the reason a failed capture
 # reports to clients (SingleFrameComplete / SettleDone / dark-build error /
 # Alert), built from the failed Alpaca call or the driver's alert (#97), and
-# whether a failed calibration frame is exposed again (#116).
+# whether a failed calibration frame is exposed again (#116) or a failed
+# guiding frame is dropped (#136), and the phase of each guider state.
 # std-only.
 ############################################################################
 add_executable(test_capture_failure
@@ -358,6 +359,19 @@ set_property(TARGET test_capture_failure PROPERTY FOLDER "Unit tests")
 add_test(NAME test_capture_failure COMMAND test_capture_failure)
 
 ############################################################################
+# test_settle_frame  --  settle_frame.cpp: what one guide frame does to a
+# guide or dither settle, including a frame dropped after a transient
+# capture failure (#136). std-only.
+############################################################################
+add_executable(test_settle_frame
+  ${PHD_TESTS_DIR}/guiding/test_settle_frame.cpp
+  ${phd_src_dir}/settle_frame.cpp
+)
+target_link_libraries(test_settle_frame PRIVATE phd_test_common)
+set_property(TARGET test_settle_frame PROPERTY FOLDER "Unit tests")
+add_test(NAME test_settle_frame COMMAND test_settle_frame)
+
+############################################################################
 # test_restore_calibration  --  restore_calibration.cpp: when
 # restore_calibration is refused, returns false or ends a stale guide
 # request before restoring (#102). std-only.
@@ -369,3 +383,15 @@ add_executable(test_restore_calibration
 target_link_libraries(test_restore_calibration PRIVATE phd_test_common)
 set_property(TARGET test_restore_calibration PROPERTY FOLDER "Unit tests")
 add_test(NAME test_restore_calibration COMMAND test_restore_calibration)
+
+############################################################################
+# test_instance_lock  --  instance_lock.cpp: where the single-instance lock
+# goes, $RUNTIME_DIRECTORY under systemd or wx's default (#135). std-only.
+############################################################################
+add_executable(test_instance_lock
+  ${PHD_TESTS_DIR}/startup/test_instance_lock.cpp
+  ${phd_src_dir}/instance_lock.cpp
+)
+target_link_libraries(test_instance_lock PRIVATE phd_test_common)
+set_property(TARGET test_instance_lock PROPERTY FOLDER "Unit tests")
+add_test(NAME test_instance_lock COMMAND test_instance_lock)

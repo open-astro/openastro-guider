@@ -439,7 +439,7 @@ types and unsolicited events (`GuiderService.FaultReaction.cs`, `AffectsGuiding`
 
 One failed exposure ended a calibration that was otherwise going well (RC51: four calibrations in a
 row lost after up to 4 minutes of good steps to a single Alpaca 1280). The decision is in the wx-free
-`src/capture_failure.cpp` (`IsTransient`, `ShouldRetryCalibrationFrame`, unit-tested by
+`src/capture_failure.cpp` (`IsTransient`, `ShouldRetryFrame`, unit-tested by
 `test_capture_failure`); `MyFrame::OnExposeComplete` applies it.
 
 - While calibrating, a frame that fails with Alpaca 1280 or a timed-out call ("no response from the
@@ -452,12 +452,60 @@ row lost after up to 4 minutes of good steps to a single Alpaca 1280). The decis
   true}` can now arrive mid-calibration with no client restart; the calibration resumes after
   `EquipmentReconnected`.
 - Unchanged: 1031 and every other failure, a failure after `stop_capture`, and every failure
-  while looping or guiding.
+  while looping (guiding: see #136 below).
 
 ARA: no code change. `CalibrationFailed.Reason` and the event order are unchanged, and the
 `Alert` of a retried frame is not consumed. A 3rd consecutive 1280 during a calibration now
 reaches its `EquipmentDisconnected` handler (`PHD2Guider.cs`, the `on_guider_lost` policy, default
 `pause_and_retry`), which before this was reached mid-calibration only by a 1031.
+
+## 2026-11-20 — drop transient guiding frames (#136)
+
+One failed exposure stopped guiding: while guiding or settling, any failed frame ran
+`StopCapturing` and failed the `guide` / `dither` request. RC51's ASI120 fails 10-30% of its
+exposures through AlpacaBridge, so guiding stopped every few minutes and the sub was lost. The
+decision is #116's (`ShouldRetryFrame` in `src/capture_failure.cpp`, unit-tested by
+`test_capture_failure`), now also applied while guiding.
+
+- While guiding (guider state `Guiding`, including a guide or dither settle and a paused
+  guider), a frame that fails with Alpaca 1280 or a timed-out call is dropped, up to 2 in a row,
+  with the same count as a calibration step: a good frame, a failure that is not dropped and the
+  first camera reconnect in a run of failed frames start a new count.
+- A dropped frame sends `StarLost` with a new `Frame` number (the next `GuideStep` numbers show
+  the gap), `Time`, `AvgDist`, `StarMass`/`SNR`/`HFD` 0, no `ErrorCode`, and `Status` the #97
+  text, e.g. `"camera error: ZWO image acquisition failed: … (Alpaca 1280)"`, the same string
+  `SettleDone.Error` carries. The camera's `Alert` for it goes out as before, and the guide log
+  gets a `DROP` line. No `GuidingStopped`, `LoopingExposuresStopped` or `SettleDone` error.
+- No guide pulse and no deduced (dead-reckoning) move for a dropped frame; the star, the lock
+  position and `get_app_state` (`Guiding`) are untouched, and the next exposure starts at once.
+- A settle in progress counts a dropped frame like a lost-star frame (`TotalFrames` and
+  `DroppedFrames` both go up, and a `Settling` event follows with `StarLocked` false). The settle
+  timeout keeps running and is checked on that frame too. A dropped frame does not end a run of
+  in-range frames, nor complete one: the next in-range frame measures the settle time from the
+  first in-range frame. The settle rule is in the wx-free `src/settle_frame.cpp`, unit-tested by
+  `test_settle_frame`.
+- A 3rd 1280 in a row now reaches the #103 camera reconnect mid-guide:
+  `EquipmentDisconnected{reconnecting: true}`, `EquipmentReconnected`, then guiding resumes on
+  the next exposure (a slow reconnect can time a settle out, which fails the request while
+  guiding continues).
+- Unchanged: a 1031 is not dropped. It reconnects the camera at once (#103,
+  `EquipmentDisconnected{reconnecting: true}`) and, when the reconnect succeeds,
+  `EquipmentReconnected` follows and guiding resumes on the next exposure with no
+  `GuidingStopped`; guiding stops only when that reconnect fails or is throttled
+  (`EquipmentReconnectFailed`).
+- Unchanged, guiding stops as before (`GuidingStopped`, `SettleDone{Error: "camera error: …"}`
+  when a request is settling, `LoopingExposuresStopped`): every non-transient failure that does
+  not reconnect the camera (another Alpaca error, an HTTP status, a transport or parse failure),
+  a 1280 or timeout once the count is used up (a camera that fails every frame stops guiding at
+  the 7th, after 2 reconnects), a camera reconnect that fails or is throttled, and any failure
+  after `stop_capture`. Every failure while looping, with a star selected (including a `guide`
+  request still selecting its star) or in `STATE_CALIBRATED` stops capture as before.
+
+ARA: no code change. `StarLost` already raises a `star_lost` marker and sets the local state to
+`LostLock` until the next `GuideStep`; `Dither` and `StartGuiding` read `get_app_state` over
+RPC, which stays `Guiding`, so a dither is not skipped and guiding is not restarted. With guiding
+no longer stopped by a single 1280, the `on_guider_lost` policy (default `pause_and_retry`) can
+now run mid-guide, on the `EquipmentDisconnected{reconnecting: true}` of a 3rd 1280 in a row.
 
 ## 2026-11-19 — HTTP port is data-only (#114)
 
