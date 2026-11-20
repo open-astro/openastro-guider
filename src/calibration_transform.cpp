@@ -36,6 +36,7 @@
 
 #include "calibration_transform.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -95,6 +96,21 @@ double YAngleError(double calXAngle, double calYAngle)
     double const range = M_PI - start;
     double const ofs = val - start;
     return val - std::floor(ofs / range) * range;
+}
+
+DecComp DecideDecComp(std::optional<double> calDecRad, std::optional<double> newDecRad, double compLimitRad)
+{
+    // Mount::AdjustCalibrationForScopePointing's rule today: any difference acts.
+    if (!calDecRad || !newDecRad || *newDecRad == *calDecRad)
+        return DecComp::None;
+    return std::fabs(*calDecRad) > compLimitRad ? DecComp::Alert : DecComp::Compensate;
+}
+
+double CompensatedRaRate(double calXRate, double calDecRad, double newDecRad)
+{
+    double const limit = 89. * M_PI / 180.;
+    newDecRad = std::max(-limit, std::min(limit, newDecRad));
+    return calXRate / std::cos(calDecRad) * std::cos(newDecRad);
 }
 
 } // namespace calibration_transform

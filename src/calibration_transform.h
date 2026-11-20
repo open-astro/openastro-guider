@@ -41,6 +41,8 @@
 #ifndef CALIBRATION_TRANSFORM_H_INCLUDED
 #define CALIBRATION_TRANSFORM_H_INCLUDED
 
+#include <optional>
+
 namespace calibration_transform
 {
 
@@ -83,6 +85,37 @@ MountToCam MountToCamera(double mountX, double mountY, double calXAngle, double 
 // when a North pulse moves the star at the angle of a West pulse's motion minus pi/2, about pi
 // when the Dec axis is mirrored. Mount::SetCalibration stores it as m_yAngleError.
 double YAngleError(double calXAngle, double calYAngle);
+
+// What Mount::AdjustCalibrationForScopePointing does with the RA rate when guiding starts (#157).
+enum class DecComp
+{
+    None, // guide with the calibration's RA rate as measured
+    Compensate, // scale the RA rate by cos(Dec now) / cos(calibration Dec), when Dec comp is enabled
+    Alert, // calibrated above the Dec comp limit and the RA rate has changed: recalibration is needed
+};
+
+// A Dec reading within this of the calibration Dec has not moved: 72", above one 1' step of a
+// low-precision LX200 Dec and the arc-second rounding of ASCOM and Alpaca drivers. Ignoring a
+// smaller change below the 60 deg limit changes the RA rate by tan(Dec) * 0.02 deg, at most 0.06%.
+constexpr double DEC_COMP_MIN_MOVE_DEG = 0.02;
+
+// Above the Dec comp limit the calibration's RA rate is used as measured, and the alert asks for
+// a new calibration only when the move changed the RA rate by more than this fraction,
+// |cos(Dec now) / cos(calibration Dec) - 1|: the 5% the same function allows a mount guide
+// speed to drift from the calibration's before it alerts. At Dec 80 that is a move of about 0.5 deg.
+constexpr double DEC_COMP_RATE_TOLERANCE = 0.05;
+
+// Decides the Dec compensation for a calibration made at calDecRad, guiding at newDecRad
+// (radians; nullopt or non-finite when unknown) with the Dec comp limit compLimitRad
+// (Scope::DEC_COMP_LIMIT). An unknown Dec, or one that moved no more than DEC_COMP_MIN_MOVE_DEG,
+// is None. Otherwise a calibration within the limit is Compensate; one beyond it is Alert when
+// the RA rate changed by more than DEC_COMP_RATE_TOLERANCE, else None.
+DecComp DecideDecComp(std::optional<double> calDecRad, std::optional<double> newDecRad, double compLimitRad);
+
+// The RA rate for guiding at newDecRad from a calibration of calXRate at calDecRad:
+// calXRate / cos(calDecRad) * cos(newDecRad), with newDecRad held within +-89 deg so the rate
+// does not grow huge near the pole.
+double CompensatedRaRate(double calXRate, double calDecRad, double newDecRad);
 
 } // namespace calibration_transform
 
