@@ -122,6 +122,21 @@ set_property(TARGET test_guiding_stats PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guiding_stats COMMAND test_guiding_stats)
 
 ############################################################################
+# test_guide_history  --  links the REAL production guide_history.cpp (the
+# guide-step history and summary stats behind get_guide_history, moved out
+# of the History graph window in #115 step 2) against the REAL
+# guiding_stats.cpp. No wx coupling.
+############################################################################
+add_executable(test_guide_history
+  ${PHD_TESTS_DIR}/guide_history/test_guide_history.cpp
+  ${phd_src_dir}/guide_history.cpp
+  ${phd_src_dir}/guiding_stats.cpp
+)
+target_link_libraries(test_guide_history PRIVATE phd_test_common)
+set_property(TARGET test_guide_history PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guide_history COMMAND test_guide_history)
+
+############################################################################
 # test_zfilter  --  links the REAL production zfilterfactory.cpp (pure DSP
 # math, no wx coupling). Verifies filter-design invariants plus an
 # end-to-end recurrence proving unity-DC-gain low-pass behaviour.
