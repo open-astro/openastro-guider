@@ -51,3 +51,28 @@ JsonRpcRequestCheck CheckJsonRpcRequest(const json_value *req)
 
     return chk;
 }
+
+bool JsonRpcFloatParam(const json_value *v, double *val)
+{
+    if (!v)
+        return false;
+    if (v->type == JSON_INT)
+    {
+        *val = (double) v->int_value;
+        return true;
+    }
+    if (v->type == JSON_FLOAT)
+    {
+        *val = v->float_value;
+        return true;
+    }
+    return false;
+}
+
+bool JsonRpcBoolParam(const json_value *v, bool *val)
+{
+    if (!v || (v->type != JSON_BOOL && v->type != JSON_INT))
+        return false;
+    *val = v->int_value != 0;
+    return true;
+}

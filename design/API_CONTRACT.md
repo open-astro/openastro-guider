@@ -587,3 +587,14 @@ built with asserts, aborted) or, with `NDEBUG`, left the guider in `Calibrating`
 
 ARA: no code change. `ClearCalibrationAsync` (the live clear button) already throws on an error
 response; `ClearCalibration` (mediator) returns false.
+
+## 2026-11-20 — set_algo_param value check (#138)
+
+- `set_algo_param` without `value` crashed the guider (the missing param was dereferenced). A
+  missing or non-numeric `value` (a string, a bool, `null`) now gets JSON-RPC `-32602` "expected
+  numeric value param"; a non-numeric one got error `1` "expected param value param" before. A bad
+  axis or name and a failed set keep error `1`. The other handlers already checked their params
+  before reading them; the readers they share (`float_param`, `bool_param`) now refuse a missing
+  param themselves too, in the wx-free `src/jsonrpc_request.cpp`.
+
+ARA: no code change. It always sends a numeric `value`.

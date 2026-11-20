@@ -42,4 +42,13 @@ struct JsonRpcRequestCheck
 //  - otherwise error 0
 JsonRpcRequestCheck CheckJsonRpcRequest(const json_value *req);
 
+// The number and bool readers the method handlers use for one param (#138).
+// Each takes what Params::param() returned, which is null when the param is
+// absent, and returns false for a missing param as for one of the wrong type,
+// so a handler that reads a param it did not check for gets an error, not a
+// null dereference. A number is an int or a float; a bool is a bool or an int
+// (non-zero is true), as upstream PHD2 read them. *val is set only on true.
+bool JsonRpcFloatParam(const json_value *v, double *val);
+bool JsonRpcBoolParam(const json_value *v, bool *val);
+
 #endif
