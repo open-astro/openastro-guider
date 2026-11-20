@@ -405,7 +405,8 @@ def scenario_frame_drops(cli, fake, args):
 
 def run_smoke(args, fake, work):
     cmd = [sys.executable, os.path.join(REPO, "scripts", "phd2_rpc_smoke.py"), "--port", str(args.rpc_port),
-           "--timeout", "30", "--fake-alpaca-url", fake.url]
+           "--timeout", "30", "--calibration-timeout", str(args.calibration_timeout),
+           "--fake-alpaca-url", fake.url]
     print(f"e2e: running {' '.join(cmd)}", flush=True)
     with open(os.path.join(work, "smoke.out"), "wb") as out:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=args.smoke_timeout,
@@ -455,9 +456,11 @@ def main():
     ap.add_argument("--fake-port", type=int, default=11150, help="the fake Alpaca server's port")
     ap.add_argument("--display", default="110", help="X display number for xvfb-run, or auto (xvfb-run -a)")
     ap.add_argument("--work-dir", required=True, help="the scratch HOME and every log go here (emptied first)")
-    ap.add_argument("--timeout", type=float, default=1200, help="the whole run, seconds")
-    ap.add_argument("--smoke-timeout", type=float, default=600)
-    ap.add_argument("--calibration-timeout", type=float, default=240, help="seconds to CalibrationComplete")
+    ap.add_argument("--timeout", type=float, default=2400, help="the whole run, seconds")
+    ap.add_argument("--smoke-timeout", type=float, default=1200)
+    ap.add_argument("--calibration-timeout", type=float, default=600,
+                    help="seconds to CalibrationComplete, here and in the smoke script's #137 check; a calibration "
+                         "took about 270 s under ASan on the ubuntu-24.04-arm runner")
     ap.add_argument("--guide-steps", type=int, default=10, help="GuideSteps to see after each SettleDone")
     ap.add_argument("--skip-smoke", action="store_true")
     args = ap.parse_args()

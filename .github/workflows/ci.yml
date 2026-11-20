@@ -410,7 +410,7 @@ jobs:
     # its own build dir, so the GTest job above is unchanged and the two run in parallel.
     name: Daemon e2e (arm64, ASan/UBSan)
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -466,8 +466,10 @@ jobs:
         # known, reported UBSan findings in scripts/e2e_ubsan.supp. detect_leaks=0:
         # LeakSanitizer's exit-time check reports the wxWidgets/GTK and PHD2 singletons that are
         # never freed by design, which is not a bug; the memory-error and UB checks stay on.
-        # The script has its own whole-run timeout (--timeout) under the step's.
-        timeout-minutes: 25
+        # The script has its own whole-run timeout (--timeout) under the step's. Under ASan the
+        # ubuntu-24.04-arm runner is about 3x slower than a local run: a calibration takes about
+        # 270 s and the whole run about 15 min.
+        timeout-minutes: 45
         env:
           ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0:print_stacktrace=1
           UBSAN_OPTIONS: halt_on_error=1:abort_on_error=1:print_stacktrace=1
@@ -477,7 +479,7 @@ jobs:
             --instance 10 \
             --fake-port 11150 \
             --display 110 \
-            --timeout 1200 \
+            --timeout 2400 \
             --work-dir "$RUNNER_TEMP/e2e"
 
       - name: Upload the daemon and fake logs

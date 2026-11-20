@@ -252,7 +252,7 @@ def profile_setup_live_checks(cli, fake, run_check):
             print(f"WARN #117 cleanup: {e}")
 
 
-def clear_calibration_live_checks(cli, fake, run_check):
+def clear_calibration_live_checks(cli, fake, run_check, calibration_timeout=180.0):
     """#137: clear_calibration is refused while calibrating and the calibration goes on; allowed while guiding.
 
     On main the clear went through, and the calibration it cleared never finished (an assert abort with asserts
@@ -281,7 +281,7 @@ def clear_calibration_live_checks(cli, fake, run_check):
         err = cli.request("clear_calibration").get("error")
         expect(err and err.get("code") == 1, f"clear_calibration while calibrating: expected error 1, got {err}")
         expect(cli.call("get_app_state") == "Calibrating", "the refused clear_calibration ended the calibration")
-        wait_state("Guiding", 180)
+        wait_state("Guiding", calibration_timeout)
         expect(cli.call("get_calibrated") is True, "not calibrated after the calibration completed")
         return err
 
@@ -322,6 +322,8 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=4400)
     ap.add_argument("--timeout", type=float, default=5.0)
+    ap.add_argument("--calibration-timeout", type=float, default=180.0,
+                    help="seconds a calibration in the --fake-alpaca-url checks may take (raise it for a sanitizer build)")
     ap.add_argument("--fake-alpaca-url", metavar="URL",
                     help="also check query_alpaca_devices (#155), that set_profile_setup reaches the live mount and "
                          "camera (#117), and clear_calibration during a calibration (#137), against "
@@ -625,7 +627,7 @@ def main():
             else:
                 alpaca_query_live_check(cli, FakeAlpaca(args.fake_alpaca_url), run_check)
                 profile_setup_live_checks(cli, FakeAlpaca(args.fake_alpaca_url), run_check)
-                clear_calibration_live_checks(cli, FakeAlpaca(args.fake_alpaca_url), run_check)
+                clear_calibration_live_checks(cli, FakeAlpaca(args.fake_alpaca_url), run_check, args.calibration_timeout)
 
     finally:
         cli.close()
