@@ -90,6 +90,40 @@ python3 scripts/e2e_guide_scenarios.py --phd2 build-asan/phd2.bin \
     --instance 10 --fake-port 11150 --display 110 --work-dir /tmp/e2e
 ```
 
+### Settings persistence
+
+The same job then runs `scripts/e2e_persistence.py` (#142), which needs no
+calibration. RC51 gets its power cut in the field, so a setting changed over
+JSON-RPC has to survive both a clean stop (SIGTERM, what `systemctl stop`
+sends) and a hard kill (SIGKILL, the stand-in for a power cut). Two passes run
+at once, one per signal, each with its own instance, fake port and display:
+
+| Step | Checks |
+|---|---|
+| set | a distinctive non-default value through each method below, read back at once. The SIGKILL pass also requires the config file on disk to have changed by the time each call returns, so a later call that writes the file cannot hide one that does not |
+| stop | SIGTERM or SIGKILL to `phd2.bin` itself; after SIGTERM it must exit 0 |
+| restart | the same scratch `HOME` and instance, connect again, read every value back; each one that did not survive is reported with its method name |
+| config write | the first daemon of each pass runs under `strace -ff`: every rename onto the config file must be of a file fsynced first, the config file must never be deleted, and its directory must be fsynced after the rename, so a power cut at any point leaves the old or the new file whole |
+
+Methods checked: before connecting, `create_profile`, `clone_profile`,
+`rename_profile`, `delete_profile`, `set_profile_by_name` and `set_profile`,
+`set_alpaca_server`, `set_selected_camera`, `set_selected_mount`,
+`set_camera_bitdepth`, `set_profile_setup`, `set_dark_auto_load`,
+`set_dither_settings`, `set_star_detection`, `set_auto_exposure`,
+`set_noise_reduction`, `set_guider_options`, `set_variable_delay_settings`;
+connected, `set_algo`, `set_algo_param`, `set_exposure`, `set_dec_guide_mode`,
+`set_guide_limits`, `set_dec_comp`, `set_mount_options`, `set_backlash_comp`,
+`set_camera_gain`, `set_camera_timeout`, `set_use_subframes`,
+`set_camera_saturation`. The script's docstring lists the methods left out
+and why (session state, hardware the fake lacks, or a calibration, Guiding
+Assistant run or dark frames needed first). A pass takes a few seconds
+locally. Locally (it needs `strace`):
+
+```bash
+python3 scripts/e2e_persistence.py --phd2 build-asan/phd2.bin \
+    --instance 11 --fake-port 11151 --display 111 --work-dir /tmp/e2e-persistence
+```
+
 ## How the build infra works (and why)
 
 Almost every production `.cpp` opens with `#include "phd.h"`, which transitively

@@ -406,8 +406,9 @@ jobs:
     # UndefinedBehaviorSanitizer, run headless under xvfb-run against scripts/fake_alpaca_camera.py,
     # and driven over JSON-RPC by scripts/e2e_guide_scenarios.py the way Ara drives it: the RPC
     # smoke script, calibrate and guide (with the event order Ara consumes), recalibration on a
-    # new target, and dropped frames while guiding. A separate job beside the Release build, in
-    # its own build dir, so the GTest job above is unchanged and the two run in parallel.
+    # new target, and dropped frames while guiding; then scripts/e2e_persistence.py checks that
+    # settings survive SIGTERM and SIGKILL. A separate job beside the Release build, in its own
+    # build dir, so the GTest job above is unchanged and the two run in parallel.
     name: Daemon e2e (arm64, ASan/UBSan)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
@@ -418,8 +419,8 @@ jobs:
           persist-credentials: false
 
       - name: Install build and run dependencies
-        # The build job's list, plus what the run needs: xvfb + xauth for xvfb-run, and numpy
-        # for the fake camera's frames.
+        # The build job's list, plus what the run needs: xvfb + xauth for xvfb-run, numpy for the
+        # fake camera's frames, and strace for the persistence check's config-write check.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -436,7 +437,8 @@ jobs:
             libnova-dev \
             xvfb \
             xauth \
-            python3-numpy
+            python3-numpy \
+            strace
 
       - name: Configure (ASan + UBSan)
         # RelWithDebInfo: optimised with NDEBUG like the shipped .deb, plus line numbers for the
@@ -451,6 +453,7 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
 
       - name: Build phd2.bin
+        id: build-phd2
         run: cmake --build build-asan --target phd2 --parallel "$(nproc)"
 
       - name: Limit mmap ASLR entropy for ASan
@@ -458,6 +461,7 @@ jobs:
         # then hang or crash at startup on a mapping that lands in their shadow range (GitHub set
         # 28 on its x64 24.04 image for this, actions/runner-images#9491). 28 is within arm64's
         # range; set it here so the run does not depend on what the arm image ships.
+        id: mmap-bits
         run: sudo sysctl -w vm.mmap_rnd_bits=28
 
       - name: Run the daemon scenarios
@@ -482,10 +486,35 @@ jobs:
             --timeout 2400 \
             --work-dir "$RUNNER_TEMP/e2e"
 
+      - name: Check settings persistence (SIGTERM, SIGKILL)
+        # #142 Tier 1. Sets a value through each settings method, stops phd2.bin with SIGTERM (what
+        # `systemctl stop` sends) in one pass and SIGKILL (the stand-in for a power cut on RC51) in
+        # another, starts it again on the same HOME and reads every value back; under strace it also
+        # checks that each config write fsyncs the new file before the rename and the directory
+        # after. No calibration, so it is quick: about 5 s locally under ASan, so well under a
+        # minute here. Runs after a failed scenario step too, so one run shows both; the two passes
+        # use instances 11 and 12, fake ports 11151 and 11152 and displays :111 and :112, apart from
+        # the scenarios'.
+        if: ${{ !cancelled() && steps.build-phd2.outcome == 'success' && steps.mmap-bits.outcome == 'success' }}
+        timeout-minutes: 15
+        env:
+          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0:print_stacktrace=1
+          UBSAN_OPTIONS: halt_on_error=1:abort_on_error=1:print_stacktrace=1
+        run: |
+          python3 scripts/e2e_persistence.py \
+            --phd2 build-asan/phd2.bin \
+            --instance 11 \
+            --fake-port 11151 \
+            --display 111 \
+            --timeout 600 \
+            --work-dir "$RUNNER_TEMP/e2e-persistence"
+
       - name: Upload the daemon and fake logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: daemon-e2e-logs
-          path: ${{ runner.temp }}/e2e/
+          path: |
+            ${{ runner.temp }}/e2e/
+            ${{ runner.temp }}/e2e-persistence/
           if-no-files-found: warn

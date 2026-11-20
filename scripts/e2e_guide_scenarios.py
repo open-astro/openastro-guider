@@ -74,17 +74,18 @@ def expect(cond, msg):
 class Daemon:
     """The daemon under xvfb-run, with its output in a file."""
 
-    def __init__(self, args, work):
+    def __init__(self, args, work, log_name="phd2.out", wrap=()):
+        """`log_name` is the output file in `work`; `wrap` goes in front of the daemon's command line (strace)."""
         self.home = os.path.join(work, "home")
         os.makedirs(self.home, exist_ok=True)
-        self.log_path = os.path.join(work, "phd2.out")
+        self.log_path = os.path.join(work, log_name)
         env = dict(os.environ, HOME=self.home)
         for k, v in SANITIZER_ENV.items():
             env.setdefault(k, v)
         env["UBSAN_OPTIONS"] += f":suppressions={UBSAN_SUPPRESSIONS}"
         cmd = ["xvfb-run"]
         cmd += ["-a"] if args.display == "auto" else ["-n", args.display]
-        cmd += ["-s", "-screen 0 1280x1024x24", os.path.abspath(args.phd2), "-i", str(args.instance)]
+        cmd += ["-s", "-screen 0 1280x1024x24", *wrap, os.path.abspath(args.phd2), "-i", str(args.instance)]
         self.log = open(self.log_path, "wb")
         print(f"e2e: starting {' '.join(cmd)} (HOME={self.home})", flush=True)
         self.proc = subprocess.Popen(cmd, env=env, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True)
