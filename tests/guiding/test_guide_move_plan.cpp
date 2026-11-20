@@ -235,7 +235,7 @@ TEST(PlanAxis, CappedGuideStepsAreCountedLikeClampedOnes)
     PlanAxis(Dir::West, INT_MAX, GUIDE_STEP, Policy(DecMode::Auto, 1000000), ra, dec);
     PlanAxis(Dir::West, INT_MAX, GUIDE_STEP, Policy(DecMode::Auto, 1000000), ra, dec);
     EXPECT_EQ(ra.lastLimited, Dir::West);
-    EXPECT_EQ(ra.count, 1);
+    EXPECT_EQ(ra.count, 2);
 }
 
 TEST(PlanAxis, CappedRecoveryMoveLeavesTheTrackersAlone)
@@ -243,12 +243,12 @@ TEST(PlanAxis, CappedRecoveryMoveLeavesTheTrackersAlone)
     LimitTracker ra, dec;
     PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
     PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
-    ASSERT_EQ(ra.count, 1);
+    ASSERT_EQ(ra.count, 2);
 
     EXPECT_TRUE(PlanAxis(Dir::West, INT_MAX, RECOVERY_MOVE, Policy(), ra, dec).capped);
     EXPECT_TRUE(PlanAxis(Dir::North, INT_MAX, AO_BUMP, Policy(), ra, dec).capped);
     EXPECT_EQ(ra.lastLimited, Dir::West);
-    EXPECT_EQ(ra.count, 1);
+    EXPECT_EQ(ra.count, 2);
     EXPECT_EQ(dec.lastLimited, Dir::None);
     EXPECT_EQ(dec.count, 0);
 }
@@ -410,29 +410,30 @@ TEST(PlanAxis, RefusedMoveLeavesTheTrackersAlone)
     PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
     PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
     ASSERT_EQ(ra.lastLimited, Dir::West);
-    ASSERT_EQ(ra.count, 1);
+    ASSERT_EQ(ra.count, 2);
 
     PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(DecMode::Auto, 2500, 2500, false), ra, dec);
     EXPECT_EQ(ra.lastLimited, Dir::West);
-    EXPECT_EQ(ra.count, 1);
+    EXPECT_EQ(ra.count, 2);
 }
 
 // --- PlanAxis: limit-reached count ---
 
-TEST(PlanAxis, SixthClampInARowInOneDirectionRaisesTheAlert)
+TEST(PlanAxis, FifthClampInARowInOneDirectionRaisesTheAlert)
 {
-    // The first clamp only records the direction; each later one in the same direction counts,
-    // and the count reaching LIMIT_REACHED_WARN_COUNT (5) alerts, so the 6th clamp in a row is
-    // the first to alert. Scope::AlertLimitReached shows it at most every 30 s.
+    // The count is the clamped guide steps in a row in one direction, the first included, and
+    // it reaching LIMIT_REACHED_WARN_COUNT (5) alerts, so the 5th clamp in a row is the first to
+    // alert (#153; it was the 6th). Scope::AlertLimitReached shows it at most every 30 s.
     LimitTracker ra, dec;
-    for (int i = 1; i <= 5; i++)
+    for (int i = 1; i <= 4; i++)
     {
         AxisPlan plan = PlanAxis(Dir::North, 4000, GUIDE_STEP, Policy(), ra, dec);
         EXPECT_TRUE(plan.limited);
         EXPECT_FALSE(plan.alert) << "clamp " << i;
-        EXPECT_EQ(dec.count, i - 1);
+        EXPECT_EQ(dec.count, i);
         EXPECT_EQ(dec.lastLimited, Dir::North);
     }
+    EXPECT_EQ(LIMIT_REACHED_WARN_COUNT, 5);
     EXPECT_TRUE(PlanAxis(Dir::North, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
     EXPECT_TRUE(PlanAxis(Dir::North, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
     EXPECT_EQ(ra.lastLimited, Dir::None);
@@ -442,21 +443,26 @@ TEST(PlanAxis, SixthClampInARowInOneDirectionRaisesTheAlert)
 TEST(PlanAxis, ClampInTheOtherDirectionRestartsTheCount)
 {
     LimitTracker ra, dec;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
         PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
     ASSERT_EQ(ra.count, 4);
 
     AxisPlan east = PlanAxis(Dir::East, 4000, GUIDE_STEP, Policy(), ra, dec);
     EXPECT_TRUE(east.limited);
     EXPECT_FALSE(east.alert);
-    EXPECT_EQ(ra.count, 0);
+    EXPECT_EQ(ra.count, 1);
     EXPECT_EQ(ra.lastLimited, Dir::East);
+
+    // the East clamp is the first of a new run, so the 5th East clamp alerts
+    for (int i = 2; i <= 4; i++)
+        EXPECT_FALSE(PlanAxis(Dir::East, 4000, GUIDE_STEP, Policy(), ra, dec).alert) << "clamp " << i;
+    EXPECT_TRUE(PlanAxis(Dir::East, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
 }
 
 TEST(PlanAxis, UnclampedGuideStepRestartsTheCount)
 {
     LimitTracker ra, dec;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
         PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec);
     ASSERT_EQ(dec.count, 4);
 
@@ -465,17 +471,19 @@ TEST(PlanAxis, UnclampedGuideStepRestartsTheCount)
     EXPECT_EQ(dec.count, 0);
     EXPECT_EQ(dec.lastLimited, Dir::None);
 
-    // so the next five clamps do not alert
-    for (int i = 0; i < 5; i++)
+    // so the next four clamps do not alert, and the fifth does
+    for (int i = 0; i < 4; i++)
         EXPECT_FALSE(PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
+    EXPECT_TRUE(PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
 }
 
 TEST(PlanAxis, StepZeroedByDecModeRestartsTheCount)
 {
     LimitTracker ra, dec;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
         PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec);
-    PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(DecMode::North), ra, dec);
+    AxisPlan zeroed = PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(DecMode::North), ra, dec);
+    EXPECT_FALSE(zeroed.alert);
     EXPECT_EQ(dec.count, 0);
     EXPECT_EQ(dec.lastLimited, Dir::None);
 }
@@ -483,7 +491,7 @@ TEST(PlanAxis, StepZeroedByDecModeRestartsTheCount)
 TEST(PlanAxis, MovesThatAreNotGuideStepsDoNotTouchTheCount)
 {
     LimitTracker ra, dec;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
     {
         PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
         PlanAxis(Dir::West, 100, RECOVERY_MOVE, Policy(), ra, dec);
@@ -501,8 +509,8 @@ TEST(PlanAxis, RaAndDecCountSeparately)
     {
         AxisPlan r = PlanAxis(Dir::East, 4000, GUIDE_STEP, Policy(), ra, dec);
         AxisPlan d = PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec);
-        EXPECT_EQ(r.alert, i == 6);
-        EXPECT_EQ(d.alert, i == 6);
+        EXPECT_EQ(r.alert, i >= 5);
+        EXPECT_EQ(d.alert, i >= 5);
     }
     EXPECT_EQ(ra.lastLimited, Dir::East);
     EXPECT_EQ(dec.lastLimited, Dir::South);
@@ -513,7 +521,7 @@ TEST(PlanAxis, RaAndDecCountSeparately)
 TEST(PlanOffsetAndAxis, ZeroRateGuideStepIsClampedAndAlerts)
 {
     // A zero RA rate asks for an INT_MAX pulse: a guide step is clamped to maxRa, counted, and
-    // alerts on the 6th step, like any runaway
+    // alerts from the 5th step, like any runaway
     LimitTracker ra, dec;
     for (int i = 1; i <= 6; i++)
     {
@@ -522,7 +530,7 @@ TEST(PlanOffsetAndAxis, ZeroRateGuideStepIsClampedAndAlerts)
         AxisPlan plan = PlanAxis(offset.raDir, offset.raMs, GUIDE_STEP, Policy(DecMode::Auto, 2500), ra, dec);
         EXPECT_EQ(plan.ms, 2500);
         EXPECT_TRUE(plan.limited);
-        EXPECT_EQ(plan.alert, i == 6);
+        EXPECT_EQ(plan.alert, i >= 5);
     }
 }
 
