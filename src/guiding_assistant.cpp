@@ -37,7 +37,6 @@
 #include "backlash_comp.h"
 #include "guiding_stats.h"
 #include "guiding_assistant_math.h"
-#include "optionsbutton.h"
 
 #include <wx/textwrapper.h>
 #include <wx/tokenzr.h>
@@ -609,7 +608,7 @@ struct GuidingAsstWin : public wxDialog
 
     wxButton *m_start;
     wxButton *m_stop;
-    OptionsButton *btnReviewPrev;
+    wxButton *btnReviewPrev;
     wxTextCtrl *m_report;
     wxStaticText *m_instructions;
     wxGrid *m_statusgrid;
@@ -978,7 +977,7 @@ GuidingAsstWin::GuidingAsstWin()
     btnSizer->Add(m_start, 0, wxALL, 5);
     m_start->Enable(false);
 
-    btnReviewPrev = new OptionsButton(this, GA_REVIEW_BUTTON, _("Review previous"), wxDefaultPosition, wxDefaultSize, 0);
+    btnReviewPrev = new wxButton(this, GA_REVIEW_BUTTON, _("Review previous"), wxDefaultPosition, wxDefaultSize, 0);
     btnReviewPrev->SetToolTip(_("Review previous Guiding Assistant results"));
     btnReviewPrev->Enable(GetGAHistoryCount() > 0);
     btnSizer->Add(btnReviewPrev, 0, wxALL, 5);

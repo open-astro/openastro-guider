@@ -66,7 +66,7 @@ class GearDialog : public wxDialog
     wxGridBagSizer *m_gearSizer;
 
     wxChoice *m_profiles;
-    OptionsButton *m_btnProfileManage;
+    wxButton *m_btnProfileManage;
     wxMenu *m_menuProfileManage;
 
     wxChoice *m_pCameras;

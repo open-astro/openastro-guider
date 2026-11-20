@@ -307,8 +307,6 @@ set(phd2_SRC
   ${phd_src_dir}/myframe.cpp
   ${phd_src_dir}/myframe.h
   ${phd_src_dir}/myframe_events.cpp
-  ${phd_src_dir}/optionsbutton.cpp
-  ${phd_src_dir}/optionsbutton.h
   ${phd_src_dir}/phd.cpp
   ${phd_src_dir}/phd.h
   ${phd_src_dir}/phdconfig.cpp
@@ -348,8 +346,6 @@ set(phd2_SRC
   ${phd_src_dir}/usImage.h
   ${phd_src_dir}/worker_thread.cpp
   ${phd_src_dir}/worker_thread.h
-  ${phd_src_dir}/wxled.cpp
-  ${phd_src_dir}/wxled.h
 )
 
 source_group(src FILES ${phd2_SRC})
