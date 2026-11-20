@@ -480,7 +480,7 @@ Alpaca discovery/query:
 
 - `clear_calibration`
   - params: optional `which` = `mount|ao|both` (default both)
-  - error `1` "cannot clear calibration while calibrating" (nothing changed): a calibration is running (`AppState` `Calibrating`). Allowed while guiding, as in PHD2: guiding goes on with the calibration it started with, and the next `guide` calibrates again
+  - error `1` "cannot clear calibration while calibrating" (nothing changed): a calibration is running (`AppState` `Calibrating`). Allowed while guiding, as in PHD2: guide corrections go on with the calibration guiding started with, but `dither` (and `flip_calibration`) fail with error 1 until the next `guide` calibrates again
 
 - `flip_calibration`
   - flips calibration data for pier-side style inversion

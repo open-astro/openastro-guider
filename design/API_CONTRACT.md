@@ -572,15 +572,17 @@ so the next frame hit `assert(false)` in `Scope::UpdateCalibrationState` (the pa
 built with asserts, aborted) or, with `NDEBUG`, left the guider in `Calibrating` forever.
 
 - `clear_calibration` → error 1 "cannot clear calibration while calibrating", nothing changed,
-  while the guider is calibrating. Still allowed while guiding, as in PHD2 (guiding keeps the
-  calibration it started with; the next `guide` calibrates again). The rule is in the wx-free
+  while the guider is calibrating. Still allowed while guiding, as in PHD2: guide corrections keep
+  the calibration guiding started with, but `dither` and `flip_calibration` fail until the next
+  `guide` calibrates again. The rule is in the wx-free
   `src/restore_calibration.cpp` (`test_restore_calibration`).
 - A calibration cleared some other way while it runs (the legacy socket server's CLEARCAL) now
   ends as a failed calibration: `CalibrationFailed` with `Reason` "Calibration failed: the
   calibration was cleared while calibrating" ("AO calibration failed: ..." for an AO), and the
   guider goes back to looping, as after any calibration failure.
 - `guide_pulse` refuses an `amount` outside `-60000..60000` with `-32602` before the sign flip;
-  `-2147483648` used to pass the cap as a negative duration.
+  `-2147483648` used to pass the cap as a negative duration (a no-op that returned `0`; for an
+  AO, an abort on `assert(steps >= 0)` in the packaged guider).
 - The `.deb` is now built as Release (`NDEBUG`), like CI and dev builds.
 
 ARA: no code change. `ClearCalibrationAsync` (the live clear button) already throws on an error

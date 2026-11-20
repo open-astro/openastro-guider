@@ -47,8 +47,8 @@ RestoreCalibrationDecision DecideRestoreCalibration(const RestoreCalibrationStat
 
 // clear_calibration (#137): nullptr when the calibration can be cleared now, else the error (code 1).
 // Refused while calibrating: the running calibration would lose its state and never finish. Allowed
-// while guiding, as in PHD2: guiding keeps the calibration it started with, and the next guide start
-// calibrates again.
+// while guiding, as in PHD2: guide corrections keep using the calibration guiding started with, but
+// dither (and flip_calibration) fail until the next guide start calibrates again.
 const char *ClearCalibrationRefusal(bool calibrating);
 
 #endif

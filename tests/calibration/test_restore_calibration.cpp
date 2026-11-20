@@ -170,7 +170,7 @@ TEST(ClearCalibration, RefusedWhileCalibrating)
 
 TEST(ClearCalibration, AllowedOtherwiseIncludingWhileGuiding)
 {
-    // not calibrating: stopped, looping, star selected, or guiding (as in PHD2, guiding keeps the
-    // calibration it started with and the next guide start calibrates again)
+    // not calibrating: stopped, looping, star selected, or guiding (as in PHD2, guide corrections keep
+    // the calibration guiding started with; dither fails until the next guide start calibrates again)
     EXPECT_EQ(ClearCalibrationRefusal(false), nullptr);
 }

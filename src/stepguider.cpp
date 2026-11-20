@@ -924,7 +924,7 @@ Mount::MOVE_RESULT StepGuider::MoveAxis(GUIDE_DIRECTION direction, int steps, un
         }
 
         // Actually do the guide
-        // #137: a guard, not an assert: a negative count would step the other way past the limit check
+        // #137: a guard, not an assert: a negative count was a silent no-op without asserts and an abort with them
         if (steps < 0)
         {
             throw ERROR_INFO("StepGuider::MoveAxis(): negative step count");

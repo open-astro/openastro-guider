@@ -6317,8 +6317,9 @@ static void guide_pulse(JObj& response, const json_value *params)
 
     // cap well above any legitimate manual/calibration pulse so a bogus
     // request cannot command a multi-hour slew. Checked before the sign flip:
-    // -INT_MIN overflows and stays negative, and the negative duration or
-    // step count went on to the mount or AO driver (#137)
+    // -INT_MIN overflows and stays negative, so -2147483648 passed the cap and
+    // was accepted as a no-op (nothing moved), or for an AO hit StepGuider's
+    // assert(steps >= 0) and aborted a build with asserts (#137)
     enum
     {
         MAX_GUIDE_PULSE_MS = 60000
