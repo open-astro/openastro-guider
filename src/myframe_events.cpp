@@ -820,34 +820,6 @@ void MyFrame::OnToolBar(wxCommandEvent& evt)
     m_mgr.Update();
 }
 
-void MyFrame::OnGraph(wxCommandEvent& evt)
-{
-    if (evt.IsChecked())
-    {
-        m_mgr.GetPane(_T("GraphLog")).Show().Bottom().Position(0).MinSize(-1, 240);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("GraphLog")).Hide();
-    }
-    pGraphLog->SetState(evt.IsChecked());
-    m_mgr.Update();
-}
-
-void MyFrame::OnStats(wxCommandEvent& evt)
-{
-    if (evt.IsChecked())
-    {
-        m_mgr.GetPane(_T("Stats")).Show().Bottom().Position(0).MinSize(-1, 240);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("Stats")).Hide();
-    }
-    pStatsWin->SetState(evt.IsChecked());
-    m_mgr.Update();
-}
-
 // Re-dock windows and restore main window to size/position where everything should be readily accessible
 void MyFrame::OnRestoreWindows(wxCommandEvent& evt)
 {
@@ -915,7 +887,6 @@ void MyFrame::OnAdvanced(wxCommandEvent& WXUNUSED(event))
     {
         Debug.Write("User exited setup dialog with 'ok'\n");
         pAdvancedDialog->UnloadValues();
-        pGraphLog->UpdateControls();
         pConfig->Flush();
     }
     else
@@ -1027,16 +998,6 @@ void MyFrame::OnPanelClose(wxAuiManagerEvent& evt)
     if (p->name == _T("MainToolBar"))
     {
         Menubar->Check(MENU_TOOLBAR, false);
-    }
-    if (p->name == _T("GraphLog"))
-    {
-        Menubar->Check(MENU_GRAPH, false);
-        pGraphLog->SetState(false);
-    }
-    if (p->name == _T("Stats"))
-    {
-        Menubar->Check(MENU_STATS, false);
-        pStatsWin->SetState(false);
     }
 }
 

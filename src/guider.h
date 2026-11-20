@@ -96,6 +96,12 @@ enum PauseType
     PAUSE_FULL, // pause guide corrections and pause looping exposures
 };
 
+enum GRAPH_UNITS
+{
+    UNIT_PIXELS,
+    UNIT_ARCSEC,
+};
+
 struct LockPosShiftParams
 {
     bool shiftEnabled;

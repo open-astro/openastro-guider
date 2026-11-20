@@ -68,23 +68,6 @@ protected:
         void EnableDecControls(bool enable) override;
     };
 
-    class GuideAlgorithmResistSwitchGraphControlPane : public GraphControlPane
-    {
-    public:
-        GuideAlgorithmResistSwitchGraphControlPane(wxWindow *pParent, GuideAlgorithmResistSwitch *pGuideAlgorithm,
-                                                   const wxString& label);
-        ~GuideAlgorithmResistSwitchGraphControlPane();
-        void EnableDecControls(bool enable) override;
-
-    private:
-        GuideAlgorithmResistSwitch *m_pGuideAlgorithm;
-        wxSpinCtrlDouble *m_pMinMove;
-        wxSpinCtrl *m_pAggression;
-
-        void OnMinMoveSpinCtrlDouble(wxSpinDoubleEvent& evt);
-        void OnAggressionSpinCtrl(wxSpinEvent& evt);
-    };
-
     double GetMinMove() const override;
     bool SetMinMove(double minMove) override;
     double GetAggression() const;
@@ -102,7 +85,6 @@ public:
     void reset() override;
     double result(double input) override;
     ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
-    GraphControlPane *GetGraphControlPane(wxWindow *pParent, const wxString& label) override;
     wxString GetSettingsSummary() const override;
     wxString GetGuideAlgorithmClassName() const override { return "ResistSwitch"; }
     void GetParamNames(wxArrayString& names) const override;

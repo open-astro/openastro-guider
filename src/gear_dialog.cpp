@@ -441,7 +441,6 @@ void GearDialog::EndModal(int retCode)
     assert(pSecondaryMount == nullptr);
 
     pFrame->UpdateButtonsStatus();
-    pFrame->pGraphLog->UpdateControls();
 
     if (pFrame->GetAutoLoadCalibration() && !m_camChanged) // ok to reload calibration
     {
@@ -1019,7 +1018,6 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
         GuidingAssistant::NotifyGearConnected();
 
         pFrame->UpdateStatusBarStateLabels();
-        pFrame->pStatsWin->UpdateCooler();
     }
     catch (const wxString& Msg)
     {
@@ -1085,8 +1083,6 @@ void GearDialog::OnButtonDisconnectCamera(wxCommandEvent& event)
 
         pFrame->StatusMsg(_("Camera Disconnected"));
         pFrame->UpdateStatusBarStateLabels();
-        pFrame->pStatsWin->UpdateCooler();
-        pFrame->pStatsWin->ResetImageSize();
     }
     catch (const wxString& Msg)
     {
@@ -1383,7 +1379,7 @@ void GearDialog::OnProfileChoice(wxCommandEvent& event)
     pFrame->LoadProfileSettings();
     pFrame->pGuider->LoadProfileSettings();
     pFrame->UpdateTitle();
-    pFrame->pGraphLog->ResetData();
+    pFrame->pGuideHistory->ResetData();
 }
 
 void GearDialog::ReloadProfileGear()

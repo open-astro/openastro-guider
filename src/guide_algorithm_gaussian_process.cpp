@@ -223,75 +223,6 @@ void GuideAlgorithmGaussianProcess::GPExpertDialog::UnloadExpertValues(GuideAlgo
     hyperParams[SE1KSignalVariance] = m_pSE1KSignalVariance->GetValue();
 }
 
-GuideAlgorithmGaussianProcess::GuideAlgorithmGPGraphControlPane::GuideAlgorithmGPGraphControlPane(
-    wxWindow *pParent, GuideAlgorithmGaussianProcess *pAlgorithm, const wxString& label)
-    : GraphControlPane(pParent, label)
-{
-    int width;
-
-    m_pGuideAlgorithm = pAlgorithm;
-
-    // Prediction Weight
-    width = StringWidth(_T("000"));
-    m_pWeight = pFrame->MakeSpinCtrl(this, wxID_ANY, _T(""), wxDefaultPosition, wxSize(width, -1),
-                                     wxSP_ARROW_KEYS | wxALIGN_RIGHT, 0, 100, 0, _T("Prediction Weight"));
-    m_pWeight->SetToolTip(wxString::Format(_("What percent of the predictive guide correction should be applied? "
-                                             "Default = %.f%%, increase to rely more on the predictions"),
-                                           100 * DefaultPredictionGain));
-    m_pWeight->Bind(wxEVT_COMMAND_SPINCTRL_UPDATED,
-                    &GuideAlgorithmGaussianProcess::GuideAlgorithmGPGraphControlPane::OnWeightSpinCtrl, this);
-    DoAdd(m_pWeight, _("PredWt"));
-
-    // Reactive Weight
-    width = StringWidth(_T("000"));
-    m_pAggressiveness = pFrame->MakeSpinCtrl(this, wxID_ANY, _T(""), wxDefaultPosition, wxSize(width, -1),
-                                             wxSP_ARROW_KEYS | wxALIGN_RIGHT, 0, 100, 0, _T("Reactive Weight"));
-    m_pAggressiveness->SetToolTip(wxString::Format(_("What percent of the reactive guide correction should be applied? "
-                                                     "Default = %.f%%, adjust if responding too much or too slowly"),
-                                                   100 * DefaultControlGain));
-    m_pAggressiveness->Bind(wxEVT_COMMAND_SPINCTRL_UPDATED,
-                            &GuideAlgorithmGaussianProcess::GuideAlgorithmGPGraphControlPane::OnAggressivenessSpinCtrl, this);
-    DoAdd(m_pAggressiveness, _("ReactWt"));
-
-    // Min move
-    width = StringWidth(_T("00.00"));
-    m_pMinMove = pFrame->MakeSpinCtrlDouble(this, wxID_ANY, _T(""), wxPoint(-1, -1), wxSize(width, -1), wxSP_ARROW_KEYS, 0.0,
-                                            20.0, 0.0, 0.01, _T("MinMove"));
-    m_pMinMove->SetDigits(2);
-    m_pMinMove->SetToolTip(
-        wxString::Format(_("How many (fractional) pixels must the star move to trigger a reactive guide correction? "
-                           "If camera is binned, this is a fraction of the binned pixel size. Note this has no effect "
-                           "on the predictive guide correction. Default = %.2f"),
-                         DefaultMinMove));
-    m_pMinMove->Bind(wxEVT_COMMAND_SPINCTRLDOUBLE_UPDATED,
-                     &GuideAlgorithmGaussianProcess::GuideAlgorithmGPGraphControlPane::OnMinMoveSpinCtrlDouble, this);
-    DoAdd(m_pMinMove, _("MnMo"));
-
-    m_pWeight->SetValue(100.0 * m_pGuideAlgorithm->GetPredictionGain());
-    m_pAggressiveness->SetValue(100.0 * m_pGuideAlgorithm->GetControlGain());
-    m_pMinMove->SetValue(m_pGuideAlgorithm->GetMinMove());
-}
-
-GuideAlgorithmGaussianProcess::GuideAlgorithmGPGraphControlPane::~GuideAlgorithmGPGraphControlPane() { }
-
-void GuideAlgorithmGaussianProcess::GuideAlgorithmGPGraphControlPane::OnWeightSpinCtrl(wxSpinEvent& WXUNUSED(evt))
-{
-    m_pGuideAlgorithm->SetPredictionGain(m_pWeight->GetValue() / 100.0);
-    pFrame->NotifyGuidingParam(m_pGuideAlgorithm->GetAxis() + " PPEC prediction weight", m_pWeight->GetValue());
-}
-
-void GuideAlgorithmGaussianProcess::GuideAlgorithmGPGraphControlPane::OnAggressivenessSpinCtrl(wxSpinEvent& WXUNUSED(evt))
-{
-    m_pGuideAlgorithm->SetControlGain(m_pAggressiveness->GetValue() / 100.0);
-    pFrame->NotifyGuidingParam(m_pGuideAlgorithm->GetAxis() + " PPEC aggressiveness", m_pAggressiveness->GetValue());
-}
-
-void GuideAlgorithmGaussianProcess::GuideAlgorithmGPGraphControlPane::OnMinMoveSpinCtrlDouble(wxSpinDoubleEvent& WXUNUSED(evt))
-{
-    m_pGuideAlgorithm->SetMinMove(m_pMinMove->GetValue());
-    pFrame->NotifyGuidingParam(m_pGuideAlgorithm->GetAxis() + " PPEC minimum move", m_pMinMove->GetValue());
-}
-
 static double GetRetainModelPct(const GuideAlgorithm *algo)
 {
     return pConfig->Profile.GetDouble(algo->GetConfigPath() + "/noreset_max_pct_period", DefaultNoresetMaxPctPeriod);
@@ -523,11 +454,6 @@ GuideAlgorithmGaussianProcess::~GuideAlgorithmGaussianProcess()
 ConfigDialogPane *GuideAlgorithmGaussianProcess::GetConfigDialogPane(wxWindow *pParent)
 {
     return new GuideAlgorithmGaussianProcessDialogPane(pParent, this);
-}
-
-GraphControlPane *GuideAlgorithmGaussianProcess::GetGraphControlPane(wxWindow *pParent, const wxString& label)
-{
-    return new GuideAlgorithmGaussianProcess::GuideAlgorithmGPGraphControlPane(pParent, this, label);
 }
 
 void GuideAlgorithmGaussianProcess::GetParamNames(wxArrayString& names) const

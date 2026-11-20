@@ -99,8 +99,6 @@ EVT_MENU(MENU_BOOKMARKS_CLEAR_ALL, MyFrame::OnBookmarksClearAll)
 EVT_CHAR_HOOK(MyFrame::OnCharHook)
 
 EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
-EVT_MENU(MENU_GRAPH, MyFrame::OnGraph)
-EVT_MENU(MENU_STATS, MyFrame::OnStats)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
 EVT_MENU(MENU_RESTORE_WINDOWS, MyFrame::OnRestoreWindows)
 EVT_MENU(MENU_AUTOSTAR, MyFrame::OnAutoStar)
@@ -170,10 +168,35 @@ struct FileDropTarget : public wxFileDropTarget
     }
 };
 
+// The guide-step history behind get_guide_history, sized from the /graph/* keys the
+// History graph used (the key names are kept so existing configs still apply).
+static GuideHistory *NewGuideHistory()
+{
+    int cfgMinLength = pConfig->Global.GetInt("/graph/minLength", GuideHistory::DefaultMinLength);
+    int cfgMaxLength = pConfig->Global.GetInt("/graph/maxLength", GuideHistory::DefaultMaxLength);
+    unsigned int minLength = GuideHistory::ValidMinLength(cfgMinLength);
+    unsigned int length = pConfig->Global.GetInt("/graph/length", minLength * 2);
+
+    GuideHistory *history = new GuideHistory(cfgMinLength, cfgMaxLength, length, ::wxGetUTCTimeMillis().GetValue());
+
+    if (history->MinLength() != (unsigned int) cfgMinLength)
+        Debug.Write(
+            wxString::Format("GuideHistory: /graph/minLength %d invalid, using %u\n", cfgMinLength, history->MinLength()));
+    if (history->Capacity() != (unsigned int) cfgMaxLength)
+        Debug.Write(
+            wxString::Format("GuideHistory: /graph/maxLength %d invalid, using %u\n", cfgMaxLength, history->Capacity()));
+
+    pConfig->Global.SetInt("/graph/minLength", history->MinLength());
+    pConfig->Global.SetInt("/graph/maxLength", history->Capacity());
+    Debug.Write(wxString::Format("GraphStats window size = %d\n", (int) history->Length()));
+
+    return history;
+}
+
 // ---------------------- Main Frame -------------------------------------
 // frame constructor
 MyFrame::MyFrame()
-    : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pStatsWin(nullptr)
+    : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pGuideHistory(nullptr)
 {
     m_mgr.SetManagedWindow(this);
 
@@ -271,11 +294,7 @@ MyFrame::MyFrame()
     m_mgr.AddPane(guiderWin,
                   wxAuiPaneInfo().Name(_T("Guider")).Caption(_T("Guider")).CenterPane().MinSize(wxSize(XWinSize, YWinSize)));
 
-    pGraphLog = new GraphLogWindow(this);
-    m_mgr.AddPane(pGraphLog, wxAuiPaneInfo().Name(_T("GraphLog")).Caption(_("History")).Hide());
-
-    pStatsWin = new StatsWindow(this);
-    m_mgr.AddPane(pStatsWin, wxAuiPaneInfo().Name(_T("Stats")).Caption(_("Guide Stats")).Hide());
+    pGuideHistory = NewGuideHistory();
 
     pAdvancedDialog = new AdvancedDialog(this);
 
@@ -317,8 +336,6 @@ MyFrame::MyFrame()
         m_mgr.LoadPerspective(perspective);
         m_mgr.GetPane(_T("MainToolBar")).Caption(_T("Main tool bar"));
         m_mgr.GetPane(_T("Guider")).Caption(_T("Guider"));
-        m_mgr.GetPane(_T("GraphLog")).Caption(_("History"));
-        m_mgr.GetPane(_T("Stats")).Caption(_("Guide Stats"));
         m_mgr.GetPane(_T("Guider")).PaneBorder(false);
     }
 
@@ -326,14 +343,6 @@ MyFrame::MyFrame()
 
     panel_state = m_mgr.GetPane(_T("MainToolBar")).IsShown();
     Menubar->Check(MENU_TOOLBAR, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("GraphLog")).IsShown();
-    pGraphLog->SetState(panel_state);
-    Menubar->Check(MENU_GRAPH, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("Stats")).IsShown();
-    pStatsWin->SetState(panel_state);
-    Menubar->Check(MENU_STATS, panel_state);
 
     m_mgr.Update();
 
@@ -349,6 +358,9 @@ MyFrame::~MyFrame()
     pAdvancedDialog->Destroy();
 
     m_mgr.UnInit();
+
+    delete pGuideHistory;
+    pGuideHistory = nullptr;
 
     delete m_showBookmarksAccel;
     delete m_bookmarkLockPosAccel;
@@ -393,8 +405,6 @@ void MyFrame::SetupMenuBar()
 
     view_menu = new wxMenu();
     view_menu->AppendCheckItem(MENU_TOOLBAR, _("Display Toolbar"), _("Enable / disable tool bar"));
-    view_menu->AppendCheckItem(MENU_GRAPH, _("Display &Graph"), _("Enable / disable graph"));
-    view_menu->AppendCheckItem(MENU_STATS, _("Display &Stats"), _("Enable / disable guide stats"));
     (void) view_menu->AppendSeparator();
     view_menu->AppendRadioItem(MENU_XHAIR0, _("&No Overlay"), _("No additional crosshairs"));
     view_menu->AppendRadioItem(MENU_XHAIR1, _("&Bullseye"), _("Centered bullseye overlay"));
@@ -1299,19 +1309,10 @@ void MyFrame::UpdateStatusBarCalibrationStatus()
     if (wxThread::IsMain())
     {
         m_statusbar->UpdateStates();
-        UpdateStatsWindowScopePointing();
     }
     else
     {
         QueueStatusBarUpdateMsg(this, THR_SB_CALIBRATION);
-    }
-}
-
-void MyFrame::UpdateStatsWindowScopePointing()
-{
-    if (pStatsWin)
-    {
-        pStatsWin->UpdateScopePointing();
     }
 }
 
@@ -1874,7 +1875,7 @@ bool MyFrame::Dither(double amount, bool raOnly)
         info.timestamp = ::wxGetUTCTimeMillis().GetValue();
         info.dRa = dRa;
         info.dDec = dDec;
-        pGraphLog->AppendData(info);
+        pGuideHistory->AppendData(info);
 
         if (pMount->IsStepGuider())
         {
@@ -2564,8 +2565,6 @@ bool MyFrame::SetFocalLength(int focalLength)
         }
 
         m_focalLength = focalLength;
-        if (pStatsWin)
-            pStatsWin->ResetImageSize();
     }
     catch (const wxString& Msg)
     {
@@ -2679,12 +2678,8 @@ void MyFrame::HandleImageScaleChange()
         pFrame->pAdvancedDialog->MakeImageScaleAdjustments();
     }
 
-    wxCommandEvent dummyEvt;
-    if (pGraphLog)
-    {
-        pGraphLog->OnButtonClear(dummyEvt);
-        pGraphLog->UpdateControls();
-    }
+    if (pGuideHistory)
+        pGuideHistory->ResetData();
 
     Alert(_("Binning or camera pixel size changed unexpectedly. "
             "You should use separate profiles for different image scales."));

@@ -1,7 +1,7 @@
 // Math-twin tests for the simple guide algorithms.
 //
 // The production GuideAlgorithm subclasses sit on top of pConfig, Debug,
-// pFrame, Mount, ConfigDialogPane, GraphControlPane and the rest of the
+// pFrame, Mount, ConfigDialogPane and the rest of the
 // wxWidgets/PHD2 globals universe. Standing up the full link surface for
 // a unit test is a significant infrastructure project; instead, this file
 // reimplements each algorithm's pure math/state machine here, alongside

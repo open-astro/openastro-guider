@@ -286,8 +286,8 @@ set(phd2_SRC
   ${phd_src_dir}/gear_dialog.h
   ${phd_src_dir}/gear_simulator.h
   ${phd_src_dir}/gear_simulator.cpp
-  ${phd_src_dir}/graph.cpp
-  ${phd_src_dir}/graph.h
+  ${phd_src_dir}/guide_history.cpp
+  ${phd_src_dir}/guide_history.h
   ${phd_src_dir}/guiding_assistant.cpp
   ${phd_src_dir}/guiding_assistant.h
   ${phd_src_dir}/guiding_assistant_math.cpp
@@ -341,8 +341,6 @@ set(phd2_SRC
   ${phd_src_dir}/serialports.h
   ${phd_src_dir}/socket_server.cpp
   ${phd_src_dir}/socket_server.h
-  ${phd_src_dir}/statswindow.cpp
-  ${phd_src_dir}/statswindow.h
 
   ${phd_src_dir}/star.cpp
   ${phd_src_dir}/star.h

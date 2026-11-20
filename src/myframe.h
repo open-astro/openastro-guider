@@ -245,8 +245,7 @@ public:
     wxCheckBox *HotPixel_Checkbox;
     wxSlider *Gamma_Slider;
     AdvancedDialog *pAdvancedDialog;
-    GraphLogWindow *pGraphLog;
-    StatsWindow *pStatsWin;
+    GuideHistory *pGuideHistory;
     GearDialog *pGearDialog;
     wxWindow *pGuidingAssistant;
     bool CaptureActive; // Is camera looping captures?
@@ -296,8 +295,6 @@ public:
     void OnTextControlSetFocus(wxFocusEvent& evt);
     void OnTextControlKillFocus(wxFocusEvent& evt);
     void OnPanelClose(wxAuiManagerEvent& evt);
-    void OnGraph(wxCommandEvent& evt);
-    void OnStats(wxCommandEvent& evt);
     void OnToolBar(wxCommandEvent& evt);
     void OnRestoreWindows(wxCommandEvent& evt);
     void OnAutoStar(wxCommandEvent& evt);
@@ -357,7 +354,6 @@ public:
     void UpdateStatusBarStarInfo(double SNR, bool Saturated);
     void UpdateStatusBarGuiderInfo(const GuideStepInfo& info);
     void ClearStatusBarGuiderInfo();
-    void UpdateStatsWindowScopePointing();
     static void PlaceWindowOnScreen(wxWindow *window, int x, int y);
     bool GetBeepForLostStar();
     void SetBeepForLostStar(bool beep);
@@ -574,8 +570,6 @@ enum
     MENU_TAKEDARKS,
     MENU_SERVER,
     MENU_TOOLBAR,
-    MENU_GRAPH,
-    MENU_STATS,
     MENU_RESTORE_WINDOWS,
     MENU_AUTOSTAR,
     MENU_GUIDING_ASSISTANT,
@@ -585,25 +579,6 @@ enum
     MENU_LOADDEFECTMAP,
     MENU_INDICONFIG,
     MENU_INDIDIALOG,
-    BUTTON_GRAPH_LENGTH,
-    BUTTON_GRAPH_HEIGHT,
-    BUTTON_GRAPH_SETTINGS,
-    GRAPH_RADEC,
-    GRAPH_DXDY,
-    GRAPH_ARCSECS,
-    GRAPH_PIXELS,
-    GRAPH_STAR_MASS,
-    GRAPH_STAR_SNR,
-    GRAPH_RADX_COLOR,
-    GRAPH_DECDY_COLOR,
-    GRAPH_SCALE_CORR,
-    BUTTON_GRAPH_CLEAR,
-    MENU_LENGTH_BEGIN, // a range of ids for history size selection popup menus
-    MENU_LENGTH_END = MENU_LENGTH_BEGIN + 10,
-    MENU_HEIGHT_BEGIN, // a range of ids for height size selection popup menus
-    MENU_HEIGHT_END = MENU_HEIGHT_BEGIN + 10,
-    CHECKBOX_GRAPH_TRENDLINES,
-    CHECKBOX_GRAPH_CORRECTIONS,
     EEGG_STICKY_LOCK,
     STAR_MASS_ENABLE,
     MULTI_STAR_ENABLE,

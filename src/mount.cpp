@@ -949,6 +949,25 @@ bool Mount::FlipCalibration()
     return bError;
 }
 
+static S_HISTORY GuideHistoryEntry(const GuideStepInfo& step)
+{
+    S_HISTORY h;
+    h.timestamp = ::wxGetUTCTimeMillis().GetValue();
+    h.dx = step.cameraOffset.X;
+    h.dy = step.cameraOffset.Y;
+    h.ra = step.mountOffset.X;
+    h.dec = step.mountOffset.Y;
+    h.starSNR = step.starSNR;
+    h.starMass = step.starMass;
+    h.raDur = step.durationRA;
+    h.decDur = step.durationDec;
+    h.raDir = step.directionRA;
+    h.decDir = step.directionDec;
+    h.raLimited = step.raLimited;
+    h.decLimited = step.decLimited;
+    return h;
+}
+
 void Mount::LogGuideStepInfo()
 {
     if (m_lastStep.frameNumber < 0)
@@ -960,7 +979,7 @@ void Mount::LogGuideStepInfo()
 
     if (m_lastStep.moveOptions & MOVEOPT_GRAPH)
     {
-        pFrame->pGraphLog->AppendData(m_lastStep);
+        pFrame->pGuideHistory->AppendData(GuideHistoryEntry(m_lastStep), PhdController::IsSettling());
         GuidingAssistant::NotifyGuideStep(m_lastStep);
     }
 
@@ -1209,21 +1228,6 @@ bool Mount::TransformMountCoordinatesToCameraCoordinates(const PHD_Point& mountV
 
     return bError;
 }
-
-GraphControlPane *Mount::GetXGuideAlgorithmControlPane(wxWindow *pParent)
-{
-    return m_pXGuideAlgorithm->GetGraphControlPane(pParent, _("RA:"));
-}
-
-GraphControlPane *Mount::GetYGuideAlgorithmControlPane(wxWindow *pParent)
-{
-    return m_pYGuideAlgorithm->GetGraphControlPane(pParent, _("DEC:"));
-}
-
-GraphControlPane *Mount::GetGraphControlPane(wxWindow *pParent, const wxString& label)
-{
-    return nullptr;
-};
 
 bool Mount::DecCompensationEnabled() const
 {

@@ -478,7 +478,6 @@ static bool ApplyGAMinMove(GuideAlgorithm *algo, double minMove, const wxString&
         if (!algo->SetMinMove(minMove))
         {
             Debug.Write(wxString::Format("GuideAssistant changed %s to %0.2f\n", debugName, minMove));
-            pFrame->pGraphLog->UpdateControls();
             pFrame->NotifyGuidingParam(axisName + " " + algo->GetGuideAlgorithmClassName() + " MinMove ", minMove);
             return true;
         }
@@ -506,7 +505,6 @@ static bool ConfigureGADecLowpass2(double decMinMove)
     decAlgo->SetParam("minMove", decMinMove);
     Debug.Write(
         wxString::Format("GuideAssistant set Lowpass2 aggressiveness = %0.2f, min-move = %0.2f\n", newAggr, decMinMove));
-    pFrame->pGraphLog->UpdateControls();
     pFrame->NotifyGuidingParam("Declination algorithm", wxString("Lowpass2"));
     pFrame->NotifyGuidingParam("Declination Lowpass2 aggressivness", newAggr);
     pFrame->NotifyGuidingParam("Declination Lowpass2 MinMove", decMinMove);
@@ -2607,8 +2605,6 @@ bool GuidingAssistant::ApiApply(const std::vector<wxString>& which, std::vector<
             break;
         case ApplyItem::DecGuideMode:
             TheScope()->SetDecGuideMode(r.singleDirection == ga_math::DecDirection::South ? DEC_SOUTH : DEC_NORTH);
-            if (pFrame->pGraphLog)
-                pFrame->pGraphLog->UpdateControls();
             break;
         }
 

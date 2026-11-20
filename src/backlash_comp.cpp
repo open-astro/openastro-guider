@@ -615,7 +615,7 @@ wxBitmap BacklashGraph::CreateGraph(int bmpWidth, int bmpHeight, const std::vect
 {
     wxMemoryDC dc;
     wxBitmap bmp(bmpWidth, bmpHeight, -1);
-    wxColour decColor = pFrame->pGraphLog->GetDecOrDyColor();
+    wxColour decColor(255, 0, 0);
     wxColour idealColor("WHITE");
     wxPen axisPen("GREY", 3, wxPENSTYLE_CROSS_HATCH);
     wxPen decPen(decColor, 3, wxPENSTYLE_SOLID);

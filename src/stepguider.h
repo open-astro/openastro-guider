@@ -163,7 +163,6 @@ protected:
     GUIDE_ALGORITHM DefaultXGuideAlgorithm() const override;
     GUIDE_ALGORITHM DefaultYGuideAlgorithm() const override;
 
-    friend class GraphLogWindow;
     friend class StepGuiderConfigDialogCtrlSet;
     friend class AOConfigDialogCtrlSet;
 
