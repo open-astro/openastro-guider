@@ -260,6 +260,15 @@ Application/runtime errors:
       `EquipmentReconnected` before the calibration or guiding events; a device connected for the first time (never
       tried since the daemon started without `--auto-connect`, or forgotten by another selection) sends none. A
       rotator does not gate `guide`.
+    - a star `guide` selects itself (capture not running, or looping with no star selected) is kept the search
+      region plus the calibration distance (with an AO, the larger of the mount's and the AO's 25 px) away from
+      the frame edge when the mount will calibrate: it is not calibrated, or `recalibrate` is true (#140; the old
+      calibration is cleared only after the star is selected). Otherwise (a calibrated mount and no
+      `recalibrate`), the search region alone, as `find_star` does on a calibrated mount. With `recalibrate`
+      true, a star already selected while looping (`find_star` on a calibrated mount) that is closer to the edge
+      than that is dropped and `guide` selects a star again on the next full frame (`LockPositionLost`, then a
+      new `StarSelected`); one far enough from the edge is kept. A star already being calibrated or guided on is
+      recalibrated as it is.
 
 - `dither`
   - params:
