@@ -468,6 +468,31 @@ int AcceptedWhileAbsorbed(const CalOutcome& o, double backlashMs)
     return accepted;
 }
 
+// A calibration run that also records how far the star's true position got
+// from the lock on any frame
+struct TrackedRun
+{
+    CalOutcome o;
+    double furthestPx = 0.;
+
+    double FinalPx() const { return std::hypot(o.finalTrue.x - o.lock.x, o.finalTrue.y - o.lock.y); }
+};
+
+TrackedRun CalibrateTracked(const SimMountConfig& c)
+{
+    SimMount sim(c);
+    const Pt lock = sim.TruePosition();
+    TrackedRun t;
+    FrameHook<ExtractedRun> hook = [&t, lock](int, Settings&, SimMount& m, ExtractedRun&)
+    {
+        Pt p = m.TruePosition();
+        t.furthestPx = std::max(t.furthestPx, std::hypot(p.x - lock.x, p.y - lock.y));
+    };
+    t.o = RunCalibration<ExtractedRun>(sim, ProfileSettings(), 2000, hook);
+    t.furthestPx = std::max(t.furthestPx, t.FinalPx());
+    return t;
+}
+
 } // namespace
 
 TEST(BacklashClearingStepPx, IsTheDecLegsMoveForAKnownDec)
@@ -583,10 +608,49 @@ TEST(HighDecBacklash, WrongDecReadingLooksForTooBigAMoveAndGoesOn)
     SimMountConfig c = ProfileMount(0.);
     c.reportedDecDeg = 85.;
     c.decBacklashMs = 1500.;
-    CalOutcome o = Calibrate<ExtractedRun>(c);
+    TrackedRun t = CalibrateTracked(c);
+    const CalOutcome& o = t.o;
     ASSERT_EQ(o.outcome, Outcome::Complete);
     EXPECT_EQ(LookingFor(o), "Backlash: Looking for 3 moves of 14.7 px, max attempts = 109\n");
     EXPECT_FALSE(o.HasDebug("Backlash: Accepted clearing move"));
     EXPECT_TRUE(o.HasDebug("Backlash: Reached clearing limit but total displacement > 3px - proceeding"));
     EXPECT_NEAR(o.measured.yRate, kRate, 0.02 * kRate);
+
+    // What that costs. With the right reading clearing goes on after 3 moves
+    // of the 2.1 px a pulse makes, the North leg goes the calibration distance,
+    // the South leg sends back the North leg's pulses and the nudge brings the
+    // star to about 2 px from the lock. With a reading whose cos(Dec) is under
+    // 0.6 of the true one (55 deg at the equator already), clearing uses up the
+    // calibration distance before the North leg starts: the star goes about
+    // twice the calibration distance North, more than #140's edge margin
+    // (calibration distance plus search region), and since the South leg only
+    // sends back the North leg and the nudge is at most 4 pulses of a step, it
+    // ends about one calibration distance from the lock. The calibration still
+    // completes with the true rates; the guider then guides the star back.
+    SimMountConfig right = c;
+    right.reportedDecDeg = 0.;
+    TrackedRun r = CalibrateTracked(right);
+    ASSERT_EQ(r.o.outcome, Outcome::Complete);
+    EXPECT_EQ(r.o.MoveTotal(Dir::North), 9350);
+    EXPECT_EQ(r.o.MoveTotal(Dir::South), 8800);
+    EXPECT_LT(r.FinalPx(), 2.5);
+    EXPECT_NEAR(r.furthestPx, 30.4, 0.5);
+    EXPECT_LT(r.furthestPx, 1.5 * kDistancePx);
+
+    for (int reported : { 55, 60, 85, 90 })
+    {
+        SimMountConfig w = c;
+        w.reportedDecDeg = reported;
+        TrackedRun wt = CalibrateTracked(w);
+        SCOPED_TRACE("reported dec " + std::to_string(reported));
+        ASSERT_EQ(wt.o.outcome, Outcome::Complete);
+        EXPECT_NEAR(wt.o.measured.yRate, kRate, 0.02 * kRate);
+        EXPECT_FALSE(wt.o.HasDebug("Backlash: Accepted clearing move"));
+        EXPECT_EQ(wt.o.MoveTotal(Dir::North), 14850);
+        EXPECT_EQ(wt.o.MoveTotal(Dir::South), 8800);
+        EXPECT_NEAR(wt.FinalPx(), 23.5, 0.5);
+        EXPECT_GT(wt.FinalPx(), 0.9 * kDistancePx);
+        EXPECT_NEAR(wt.furthestPx, 51.8, 0.5);
+        EXPECT_GT(wt.furthestPx, 2 * kDistancePx);
+    }
 }

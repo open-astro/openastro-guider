@@ -239,10 +239,15 @@ int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad)
 // move is accepted, and clearing goes on once the star has moved the
 // calibration distance (more than BL_MIN_CLEARING_DISTANCE), as for a mount
 // whose moves are all too small. That is also what a wrong Dec reading
-// costs: 85 deg reported at the equator looks for 11.5x the move. A cap would
-// only bring the near-pole step back toward noise. BACKLASH_MIN_COS_DEC
-// keeps a Dec read at the pole finite. An unknown or non-finite Dec keeps the
-// RA-rate step, bit for bit.
+// costs: 85 deg reported at the equator looks for 11.5x the move, and any
+// reading whose cos is under 0.6 of the true one accepts none. Clearing then
+// uses up the calibration distance before the North leg, the star goes about
+// twice that distance North, and as the South leg only sends back the North
+// leg and the nudge is at most MAX_NUDGES + 1 pulses of a step, it ends about
+// one calibration distance from the lock. A cap would only bring the
+// near-pole step back toward noise. BACKLASH_MIN_COS_DEC keeps a Dec read at
+// the pole finite. An unknown or non-finite Dec keeps the RA-rate step, bit
+// for bit.
 double BacklashClearingStepPx(double xRate, int stepMs, std::optional<double> declinationRad)
 {
     double rate = xRate;

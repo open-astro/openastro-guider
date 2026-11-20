@@ -736,6 +736,14 @@ the Dec rate could be measured with backlash still in it.
   is taken up; clearing still sends at most max(8, 60000 / step) pulses and still goes on once the
   star has moved the calibration distance. A wrong Dec reading (85° reported at the equator) makes
   clearing accept no move and go on after the calibration distance; the calibration completes.
+- What a wrong Dec reading costs: one whose cos(Dec) is under 0.6 of the true one (55° reported at
+  the equator already, or a mount in a false Home that reports 90°) makes clearing use up the
+  calibration distance North before the North leg starts. The star then travels up to about twice
+  the calibration distance North, beyond the edge margin auto-select keeps (#140: the calibration
+  distance plus the search region), so a star picked near that margin can be lost and the
+  calibration fail. The South leg sends back only the North leg's pulses and the nudge is at most 4
+  pulses of one step, so a completed calibration leaves the star about one calibration distance from
+  the lock instead of about 2 px; the `Calibrating` steps show it, and guiding brings it back.
 - Not changed: the clearing pulse (the calibration step), the `Calibrating` event fields and their
   order, the `CalibrationFailed` reasons, `get_calibration_data`.
 
