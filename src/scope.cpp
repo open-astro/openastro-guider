@@ -884,7 +884,7 @@ bool Scope::BeginCalibration(const PHD_Point& currentLocation)
 
         CheckCalibrationDuration(m_calibrationDuration); // Make sure guide speeds or binning haven't changed underneath us
         ClearCalibration();
-        m_calRun.Begin(calibration_run::Pt::At(currentLocation.X, currentLocation.Y));
+        m_calRun.Begin(calibration_run::Pt::At(currentLocation.X, currentLocation.Y), std::nullopt);
         m_calibrationDetails.raSteps.clear();
         m_calibrationDetails.decSteps.clear();
         m_calibrationDetails.lastIssue = CI_None;

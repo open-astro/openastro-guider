@@ -195,8 +195,14 @@ void CalibrationRun::Debug(Sink& sink, const char *format, ...)
     sink.Emit(e);
 }
 
-void CalibrationRun::Begin(const Pt& initialLocation)
+int RaCalibrationStepMs(int stepMs, std::optional<double>)
 {
+    return stepMs;
+}
+
+void CalibrationRun::Begin(const Pt& initialLocation, std::optional<double> declinationRad)
+{
+    m_declinationRad = declinationRad;
     m_calibrationSteps = 0;
     m_calibrationInitialLocation = initialLocation;
     m_calibrationStartingLocation.valid = false;
@@ -232,6 +238,8 @@ FrameResult CalibrationRun::OnFrame(const Pt& currentLocation, const Settings& s
     double dY = DY(m_calibrationStartingLocation, currentLocation);
     double dist = Distance(m_calibrationStartingLocation, currentLocation);
     double dist_crit = s.distancePx;
+    // the West and East legs pulse for the Dec (#141); the Dec leg, backlash clearing and nudge use s.stepMs
+    int raStepMs = RaCalibrationStepMs(s.stepMs, m_declinationRad);
     double blDelta;
     double blCumDelta;
     double nudge_amt;
@@ -262,14 +270,14 @@ FrameResult CalibrationRun::OnFrame(const Pt& currentLocation, const Settings& s
             if (m_calibrationSteps++ > MAX_CALIBRATION_STEPS)
                 return Failed(Fail::RaDidNotMove);
             Status(sink, info, Message::WestStep, m_calibrationSteps);
-            Move(sink, Dir::West, s.stepMs);
+            Move(sink, Dir::West, raStepMs);
             return result;
         }
 
         // West calibration complete
 
         m_measured.xAngle = Angle(m_calibrationStartingLocation, currentLocation);
-        m_measured.xRate = dist / (m_calibrationSteps * s.stepMs);
+        m_measured.xRate = dist / (m_calibrationSteps * raStepMs);
 
         m_measured.raParity = Parity::Unknown;
         if (m_calibrationStartingCoords.valid)
@@ -298,18 +306,18 @@ FrameResult CalibrationRun::OnFrame(const Pt& currentLocation, const Settings& s
         // Choose the largest pulse size that will not lose the guide star or exceed
         // the user-specified max pulse
 
-        m_recenterRemaining = m_calibrationSteps * s.stepMs;
+        m_recenterRemaining = m_calibrationSteps * raStepMs;
 
         if (s.fastRecenter)
         {
             m_recenterDuration = (int) std::floor((double) s.maxMovePx / m_measured.xRate);
             if (m_recenterDuration > s.maxRaMs)
                 m_recenterDuration = s.maxRaMs;
-            if (m_recenterDuration < s.stepMs)
-                m_recenterDuration = s.stepMs;
+            if (m_recenterDuration < raStepMs)
+                m_recenterDuration = raStepMs;
         }
         else
-            m_recenterDuration = s.stepMs;
+            m_recenterDuration = raStepMs;
 
         m_calibrationSteps = DivRoundUp(m_recenterRemaining, m_recenterDuration);
         m_state = State::GoEast;

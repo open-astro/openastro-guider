@@ -4,7 +4,9 @@
 // It plays Scope's part around the extracted run the way src/scope.cpp does
 // after the extraction, and records the same Events the legacy twin's
 // recorders do:
-//   - Begin is Scope::BeginCalibration: clear the calibration, Begin the run;
+//   - Begin is Scope::BeginCalibration: clear the calibration, read the
+//     mount's Dec once and write the RA step it gives to Debug (#141), Begin
+//     the run with that Dec;
 //   - OnFrame is Scope::UpdateCalibrationState: build the Settings, run one
 //     frame with the SimMount as the Probe, replay each Effect as the call
 //     Scope makes for it (guide-log row, status message and Calibrating
@@ -27,7 +29,10 @@ namespace closed_loop
 class ExtractedRun
 {
 public:
-    explicit ExtractedRun(SimMount& sim) : m_sim(sim) { }
+    // readDeclination false: the Dec read at Begin fails (UNKNOWN_DECLINATION), so
+    // the run keeps the step for every leg, as the code before #141 did. The Dec
+    // the completion stores is still the mount's.
+    explicit ExtractedRun(SimMount& sim, bool readDeclination = true) : m_sim(sim), m_readDeclination(readDeclination) { }
     ExtractedRun(const ExtractedRun&) = delete;
     ExtractedRun& operator=(const ExtractedRun&) = delete;
 
@@ -54,6 +59,7 @@ private:
     bool IsCalibrated() const;
 
     SimMount& m_sim;
+    bool m_readDeclination;
     calibration_run::CalibrationRun m_run;
     std::vector<Event> m_events;
     int m_frame = -1; // the frame being recorded, -1 for Begin/Clear
@@ -65,6 +71,15 @@ private:
     bool m_calibrated = false; // Mount::m_calibrated
     Cal m_calibration; // Scope::m_calibration
 };
+
+// The two records of the Dec read at Begin (#141): the read and the Debug line
+// with the RA step it gave. The legacy twin has no counterpart for them.
+inline bool IsBeginDecRead(const Event& e)
+{
+    return e.frame == -1 &&
+        ((e.kind == Event::Probe && e.text == "Declination") ||
+         (e.kind == Event::Debug && e.text.rfind("RA calibration step ", 0) == 0));
+}
 
 } // namespace closed_loop
 

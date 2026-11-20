@@ -1,0 +1,391 @@
+// High-declination calibration (#141), closed loop.
+//
+// A star's RA motion per ms of guide pulse shrinks with cos(Dec). With one
+// step for both axes, the West leg needs 1/cos(Dec) as many pulses as at the
+// equator and fails once it needs more than MAX_CALIBRATION_STEPS + 1 (61):
+// above about 79 deg on the audit profile. CalibrationRun sizes the West and
+// East pulses for the Dec Scope reads when the calibration begins
+// (RaCalibrationStepMs, up to RA_STEP_MAX_SCALE times the step); the Dec leg,
+// backlash clearing and the South nudge keep the step.
+//
+// These run the extracted CalibrationRun as Scope drives it (extracted_run.h)
+// on a SimMount whose RA image rate follows cos(true Dec), and compare it with
+// the frozen legacy twin where the Dec is not known. Every test starts a
+// fresh calibration with Begin: nothing here restores, reuses or skips one.
+//
+// The profile is the audit's: FL 400 mm, 3.75 um pixels, bin 1, 0.5x sidereal,
+// so 0.003878 px/ms at Dec 0, a 550 ms step and a 25 px distance.
+
+#include <gtest/gtest.h>
+
+#include "calibration_run.h"
+#include "extracted_run.h"
+#include "harness.h"
+#include "legacy/legacy_twin.h"
+#include "sim_mount.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <optional>
+#include <string>
+#include <vector>
+
+using namespace closed_loop;
+
+namespace
+{
+
+namespace cr = calibration_run;
+
+constexpr double kRate = 0.003878; // px/ms at Dec 0, the audit profile
+constexpr int kStepMs = 550;
+constexpr int kDistancePx = 25;
+constexpr int kRaStepBudget = 40; // West steps a calibration may take at any Dec up to 85
+
+SimMountConfig ProfileMount(double trueDecDeg)
+{
+    SimMountConfig c;
+    c.raPxPerMsAtEquator = kRate;
+    c.decPxPerMs = kRate;
+    c.trueDecDeg = trueDecDeg;
+    return c;
+}
+
+Settings ProfileSettings()
+{
+    Settings s;
+    s.stepMs = kStepMs;
+    s.distancePx = kDistancePx;
+    return s;
+}
+
+template<class Run>
+CalOutcome Calibrate(const SimMountConfig& cfg, const Settings& s = ProfileSettings())
+{
+    SimMount sim(cfg);
+    return RunCalibration<Run>(sim, s);
+}
+
+// The star's displacement from the lock along the West direction, px
+double RaOffset(const CalOutcome& o, const SimMountConfig& c)
+{
+    double w = Radians(c.westAngleDeg);
+    return (o.finalTrue.x - o.lock.x) * std::cos(w) + (o.finalTrue.y - o.lock.y) * std::sin(w);
+}
+
+// The two runs made the same calls on the same frames, leaving out the Dec read at Begin
+::testing::AssertionResult SameCalls(const CalOutcome& legacy, const CalOutcome& extracted)
+{
+    std::vector<Event> b;
+    for (const Event& e : extracted.events)
+        if (!IsBeginDecRead(e))
+            b.push_back(e);
+    const std::vector<Event>& a = legacy.events;
+    if (a.size() != b.size())
+        return ::testing::AssertionFailure() << "event count " << a.size() << "/" << b.size();
+    for (size_t i = 0; i < a.size(); i++)
+    {
+        const Event& x = a[i];
+        const Event& y = b[i];
+        if (x.kind != y.kind || x.frame != y.frame || x.text != y.text || x.dir != y.dir || x.ms != y.ms || x.step != y.step ||
+            x.dx != y.dx || x.dy != y.dy || x.dist != y.dist || x.angle != y.angle || x.rate != y.rate ||
+            x.yAngle != y.yAngle || x.yRate != y.yRate)
+            return ::testing::AssertionFailure() << "event " << i << " differs: kind " << x.kind << "/" << y.kind << " text '"
+                                                 << x.text << "'/'" << y.text << "' ms " << x.ms << "/" << y.ms;
+    }
+    if (legacy.outcome != extracted.outcome || legacy.fail != extracted.fail || legacy.frames != extracted.frames)
+        return ::testing::AssertionFailure() << "outcome differs";
+    return ::testing::AssertionSuccess();
+}
+
+// The South pulses the nudge sent, in order
+std::vector<int> NudgePulses(const CalOutcome& o)
+{
+    std::vector<int> v;
+    bool nudging = false;
+    for (const Event& e : o.events)
+    {
+        if (e.kind == Event::Status)
+            nudging = e.text.rfind("Nudge South", 0) == 0;
+        else if (e.kind == Event::Move && nudging)
+        {
+            v.push_back(e.ms);
+            nudging = false;
+        }
+    }
+    return v;
+}
+
+const Event *BeginDebug(const CalOutcome& o)
+{
+    for (const Event& e : o.events)
+        if (e.frame == -1 && e.kind == Event::Debug && e.text.rfind("RA calibration step ", 0) == 0)
+            return &e;
+    return nullptr;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// RaCalibrationStepMs
+// ---------------------------------------------------------------------------
+
+TEST(RaCalibrationStepMs, ScalesWithOneOverCosDecUpToFourTimesTheStep)
+{
+    auto at = [](int stepMs, double decDeg) { return cr::RaCalibrationStepMs(stepMs, Radians(decDeg)); };
+    // no Dec: the step, as before #141
+    EXPECT_EQ(cr::RaCalibrationStepMs(550, std::nullopt), 550);
+    // Dec 0 is exactly the step, and the step grows smoothly (rounded up) with 1/cos(Dec)
+    EXPECT_EQ(at(550, 0.), 550);
+    EXPECT_EQ(at(550, 30.), 636); // 635.09
+    EXPECT_EQ(at(550, -30.), 636);
+    EXPECT_EQ(at(550, 45.), 778); // 777.82
+    EXPECT_EQ(at(550, 60.), 1100); // 1099.9999999999998: cos(60 deg) is a hair over 0.5
+    EXPECT_EQ(at(550, 70.), 1609); // 1608.09
+    EXPECT_EQ(at(550, 75.), 2126); // 2125.04
+    // capped at RA_STEP_MAX_SCALE times the step from acos(1/4) = 75.52 deg up
+    EXPECT_EQ(at(550, 76.), 2200);
+    EXPECT_EQ(at(550, 80.), 2200);
+    EXPECT_EQ(at(550, -80.), 2200);
+    EXPECT_EQ(at(550, 85.), 2200);
+    EXPECT_EQ(at(750, 85.), 3000);
+    EXPECT_EQ(at(750, 60.), 1500);
+    EXPECT_EQ(at(100, 89.9), 400);
+    EXPECT_DOUBLE_EQ(cr::RA_STEP_MAX_SCALE, 4.0);
+}
+
+TEST(RaCalibrationStepMs, PoleIsCappedAndFinite)
+{
+    // cos(+-90 deg) is about 6e-17, not 0: the cap, not the division, gives the step
+    EXPECT_EQ(cr::RaCalibrationStepMs(550, M_PI / 2), 4 * 550);
+    EXPECT_EQ(cr::RaCalibrationStepMs(550, -M_PI / 2), 4 * 550);
+    EXPECT_EQ(cr::RaCalibrationStepMs(550, M_PI), 550); // cos(180 deg) = -1: magnitude 1
+}
+
+TEST(RaCalibrationStepMs, NeverShrinksTheStep)
+{
+    for (int deg = -180; deg <= 180; deg++)
+        for (int stepMs : { 1, 100, 550, 750, 2000, 5000 })
+        {
+            int ms = cr::RaCalibrationStepMs(stepMs, Radians(deg));
+            EXPECT_GE(ms, stepMs) << deg << " " << stepMs;
+            EXPECT_LE(ms, 4 * stepMs) << deg << " " << stepMs;
+        }
+}
+
+TEST(RaCalibrationStepMs, ANonFiniteDecKeepsTheStep)
+{
+    EXPECT_EQ(cr::RaCalibrationStepMs(550, std::nan("")), 550);
+    EXPECT_EQ(cr::RaCalibrationStepMs(550, INFINITY), 550);
+}
+
+// ---------------------------------------------------------------------------
+// The RA step budget over Dec
+// ---------------------------------------------------------------------------
+
+class HighDecStepBudget : public ::testing::TestWithParam<int>
+{
+};
+
+TEST_P(HighDecStepBudget, CompletesWithinFortyRaSteps)
+{
+    // the West leg completes in at most 40 pulses at every Dec to 85; before
+    // #141 it took 46 at 75 and failed RaDidNotMove at 79 and above
+    const int dec = GetParam();
+    SimMountConfig c = ProfileMount(dec);
+    SimMount sim(c);
+    CalOutcome o = RunCalibration<ExtractedRun>(sim, ProfileSettings());
+    ASSERT_EQ(o.outcome, Outcome::Complete);
+    EXPECT_LE(o.measured.raStepCount, kRaStepBudget);
+    EXPECT_GE(o.measured.raStepCount, 1);
+    // every West pulse is the Dec's RA step
+    int raStep = cr::RaCalibrationStepMs(kStepMs, Radians(dec));
+    EXPECT_EQ(o.Moves(Dir::West), std::vector<int>((size_t) o.measured.raStepCount, raStep));
+    EXPECT_NEAR(o.measured.xRate, sim.RaPxPerMs(), 0.02 * sim.RaPxPerMs());
+    EXPECT_NEAR(o.measured.yRate, kRate, 0.02 * kRate);
+}
+
+INSTANTIATE_TEST_SUITE_P(HighDec, HighDecStepBudget, ::testing::Values(0, 45, 60, 70, 75, 80, 85, -80),
+                         [](const ::testing::TestParamInfo<int>& info) {
+                             return info.param < 0 ? "Dec_minus" + std::to_string(-info.param)
+                                                   : "Dec" + std::to_string(info.param);
+                         });
+
+TEST(HighDec, StepCountsOverDec)
+{
+    // the pulses the West leg needs: about distance / (rate * cos(Dec) * raStep)
+    const int cases[][3] = {
+        { 0, 550, 12 },   { 45, 778, 12 },  { 60, 1100, 12 }, { 70, 1609, 12 },
+        { 75, 2126, 12 }, { 80, 2200, 17 }, { 85, 2200, 34 }, { -85, 2200, 34 },
+    };
+    for (const auto& tc : cases)
+    {
+        CalOutcome o = Calibrate<ExtractedRun>(ProfileMount(tc[0]));
+        SCOPED_TRACE("dec " + std::to_string(tc[0]));
+        ASSERT_EQ(o.outcome, Outcome::Complete);
+        EXPECT_EQ(o.measured.raStepCount, tc[2]);
+        EXPECT_EQ(o.Moves(Dir::West), std::vector<int>((size_t) tc[2], tc[1]));
+        // Scope logs the RA step it chose, with the Dec and the step
+        const Event *d = BeginDebug(o);
+        ASSERT_NE(d, nullptr);
+        char expected[128];
+        std::snprintf(expected, sizeof(expected), "RA calibration step %d ms for Dec %.1f (Dec step %d ms)\n", tc[1],
+                      (double) tc[0], kStepMs);
+        EXPECT_EQ(d->text, expected);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// What the RA leg measures and sends back
+// ---------------------------------------------------------------------------
+
+TEST(HighDec, XRateMatchesTruth)
+{
+    // xRate is the distance over the time pulsed: an xRate divided by the step
+    // instead of the RA step would be 4x too high at 80 deg, and the guider
+    // would then send a quarter of the RA correction it needs
+    for (int dec : { 60, 75, 80, 85, -80 })
+    {
+        SimMountConfig c = ProfileMount(dec);
+        SimMount sim(c);
+        CalOutcome o = RunCalibration<ExtractedRun>(sim, ProfileSettings());
+        SCOPED_TRACE("dec " + std::to_string(dec));
+        ASSERT_EQ(o.outcome, Outcome::Complete);
+        double truth = kRate * std::cos(Radians(dec));
+        EXPECT_NEAR(o.measured.xRate, truth, 0.02 * truth);
+        EXPECT_NEAR(o.measured.xRate, sim.RaPxPerMs(), 0.02 * sim.RaPxPerMs());
+        // the West row of the guide log carries the same rate
+        ASSERT_FALSE(o.Of(Event::DirectComplete).empty());
+        EXPECT_EQ(o.Of(Event::DirectComplete)[0].text, "West");
+        EXPECT_EQ(o.Of(Event::DirectComplete)[0].rate, o.measured.xRate);
+    }
+}
+
+TEST(HighDec, EastReturnsWest)
+{
+    // the East leg sends back all the West leg sent: had it counted the West
+    // pulses at the step instead of the RA step, it would leave the star about
+    // 75% of the way out at 80 deg
+    for (int fast = 0; fast < 2; fast++)
+        for (int dec : { 70, 80, 85, -80 })
+        {
+            SimMountConfig c = ProfileMount(dec);
+            Settings s = ProfileSettings();
+            s.fastRecenter = fast != 0;
+            CalOutcome o = Calibrate<ExtractedRun>(c, s);
+            SCOPED_TRACE("dec " + std::to_string(dec) + " fast " + std::to_string(fast));
+            ASSERT_EQ(o.outcome, Outcome::Complete);
+            EXPECT_EQ(o.MoveTotal(Dir::East), o.MoveTotal(Dir::West));
+            EXPECT_LT(std::fabs(RaOffset(o, c)), 0.5);
+            int raStep = cr::RaCalibrationStepMs(kStepMs, Radians(dec));
+            std::vector<int> east = o.Moves(Dir::East);
+            ASSERT_FALSE(east.empty());
+            // without fast recenter East pulses the RA step; with it, never less than the RA step
+            // (2500 ms, the max RA duration, here)
+            for (size_t i = 0; i + 1 < east.size(); i++)
+                EXPECT_EQ(east[i], fast ? std::max(raStep, 2500) : raStep);
+        }
+}
+
+// ---------------------------------------------------------------------------
+// What does not change
+// ---------------------------------------------------------------------------
+
+TEST(HighDec, DecLegUnchanged)
+{
+    // backlash clearing, the North leg and the nudge pulse the step at every Dec;
+    // the South recenter returns the North leg in pulses of at least the step
+    for (int dec : { 0, 60, 80, 85 })
+    {
+        SimMountConfig c = ProfileMount(dec);
+        c.decBacklashMs = 1500.;
+        c.noiseSigmaPx = 0.02;
+        c.seed = 3;
+        SimMount sim(c);
+        CalOutcome o = RunCalibration<ExtractedRun>(sim, ProfileSettings());
+        SCOPED_TRACE("dec " + std::to_string(dec));
+        ASSERT_EQ(o.outcome, Outcome::Complete);
+        std::vector<int> north = o.Moves(Dir::North);
+        ASSERT_FALSE(north.empty());
+        EXPECT_EQ(north, std::vector<int>(north.size(), kStepMs));
+        EXPECT_NEAR(o.measured.yRate, kRate, 0.02 * kRate);
+        // South returns every North step, and each nudge after it is at most a step
+        std::vector<int> nudges = NudgePulses(o);
+        int nudgeTotal = 0;
+        for (int ms : nudges)
+        {
+            EXPECT_LE(ms, kStepMs);
+            nudgeTotal += ms;
+        }
+        EXPECT_EQ(o.MoveTotal(Dir::South) - nudgeTotal, o.measured.decStepCount * kStepMs);
+        EXPECT_TRUE(o.HasDebug("Backlash: Starting north clearing using pulse width of 550\n"));
+    }
+}
+
+TEST(HighDec, UnknownDecIsLegacy)
+{
+    // a mount that reports no Dec (or fails the read) keeps the step for every
+    // leg: the extracted run makes exactly the calls the code before #141 made,
+    // including its failure at 80 deg
+    for (int dec : { 0, 45, 75, 80, -80 })
+    {
+        SimMountConfig c = ProfileMount(dec);
+        c.reportDec = false;
+        CalOutcome legacy = Calibrate<LegacyTwinRun>(c);
+        CalOutcome extracted = Calibrate<ExtractedRun>(c);
+        SCOPED_TRACE("dec " + std::to_string(dec));
+        EXPECT_TRUE(SameCalls(legacy, extracted));
+        for (int ms : extracted.Moves(Dir::West))
+            EXPECT_EQ(ms, kStepMs);
+        const Event *d = BeginDebug(extracted);
+        ASSERT_NE(d, nullptr);
+        EXPECT_EQ(d->text, "RA calibration step 550 ms for Dec Unknown (Dec step 550 ms)\n");
+    }
+    // and so does a mount at Dec 0
+    SimMountConfig c = ProfileMount(0.);
+    EXPECT_TRUE(SameCalls(Calibrate<LegacyTwinRun>(c), Calibrate<ExtractedRun>(c)));
+}
+
+TEST(HighDec, WrongDecReading)
+{
+    // a mount that reports 85 deg while it points at the equator: the RA step is
+    // 4x too long, so each West pulse moves the star 8.5 px, which stays inside
+    // the 15 px search region, and the calibration completes in 3 steps (Scope's
+    // sanity check then raises its too-few-steps advisory)
+    SimMountConfig c = ProfileMount(0.);
+    c.reportedDecDeg = 85.;
+    SimMount sim(c);
+    CalOutcome o = RunCalibration<ExtractedRun>(sim, ProfileSettings());
+    ASSERT_EQ(o.outcome, Outcome::Complete);
+    EXPECT_GE(o.measured.raStepCount, 3);
+    for (int ms : o.Moves(Dir::West))
+    {
+        EXPECT_EQ(ms, 4 * kStepMs);
+        EXPECT_LE(ms * sim.RaPxPerMs(), 9.0);
+    }
+    EXPECT_NEAR(o.measured.xRate, kRate, 0.02 * kRate);
+    EXPECT_EQ(o.MoveTotal(Dir::East), o.MoveTotal(Dir::West));
+
+    // the other way round, 0 reported at 75 deg, is today's calibration
+    SimMountConfig low = ProfileMount(75.);
+    low.reportedDecDeg = 0.;
+    CalOutcome l = Calibrate<ExtractedRun>(low);
+    ASSERT_EQ(l.outcome, Outcome::Complete);
+    EXPECT_EQ(l.measured.raStepCount, 46);
+    EXPECT_EQ(l.Moves(Dir::West), std::vector<int>(46, kStepMs));
+}
+
+TEST(HighDec, Pole)
+{
+    // at +-90 the RA step is 4x the step, finite; the star cannot move in RA, so
+    // the West leg still ends in RaDidNotMove after 61 pulses
+    for (int dec : { 90, -90 })
+    {
+        CalOutcome o = Calibrate<ExtractedRun>(ProfileMount(dec));
+        SCOPED_TRACE("dec " + std::to_string(dec));
+        ASSERT_EQ(o.outcome, Outcome::Failed);
+        EXPECT_EQ(o.fail, Fail::RaDidNotMove);
+        EXPECT_EQ(o.Moves(Dir::West), std::vector<int>(61, 4 * kStepMs));
+    }
+}
