@@ -20,6 +20,14 @@ WorkingDirectory=/var/lib/openastro-guider
 ExecStart=/usr/bin/xvfb-run -a /usr/bin/openastro-guider --auto-connect
 Restart=on-failure
 RestartSec=3
+# The single-instance lock (openastro-guider.<instance>, holding the PID) goes
+# in /run/openastro-guider, which systemd passes as $RUNTIME_DIRECTORY (#135).
+# /run is a tmpfs and systemd removes the directory whenever the service
+# stops, so a lock left by a power loss or a crash can't survive to name a PID
+# that another process (Xvfb, on RC51) reuses on the next boot and keep the
+# guider from starting. Without $RUNTIME_DIRECTORY the lock stays in $HOME.
+RuntimeDirectory=openastro-guider
+RuntimeDirectoryMode=0700
 
 # Sandboxing. The daemon only needs network access (Alpaca + its own JSON-RPC
 # servers) and write access to its state dir; equipment is reached over HTTP,

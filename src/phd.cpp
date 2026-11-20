@@ -34,8 +34,11 @@
 
 #include "phd.h"
 
+#include "instance_lock.h"
+
 #include <curl/curl.h>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <wx/cmdline.h>
@@ -111,13 +114,24 @@ PhdApp::PhdApp()
     Bind(EXEC_IN_MAIN_THREAD_EVENT, [](ExecFuncThreadEvent& evt) { evt.func(); });
 };
 
+// The single-instance lock for this instance. Under systemd it goes in the
+// unit's RuntimeDirectory (#135): /run is a tmpfs and systemd removes the
+// directory whenever the service stops, so a lock left by a power loss can't
+// name a PID that a process of the next boot has reused. Elsewhere it stays
+// where wx puts it by default, the home directory. OnInit and HandleRestart
+// must both use this so the restart helper waits on the same lock.
+wxSingleInstanceChecker *PhdApp::CreateInstanceChecker() const
+{
+    wxString dir(InstanceLock::LockDir(getenv("RUNTIME_DIRECTORY")));
+    return new wxSingleInstanceChecker(wxString::Format("%s.%ld", GetAppName(), m_instanceNumber), dir);
+}
+
 void PhdApp::HandleRestart()
 {
     // wait until prev instance (parent) terminates
     while (true)
     {
-        std::unique_ptr<wxSingleInstanceChecker> si(
-            new wxSingleInstanceChecker(wxString::Format("%s.%ld", GetAppName(), m_instanceNumber)));
+        std::unique_ptr<wxSingleInstanceChecker> si(CreateInstanceChecker());
         if (!si->IsAnotherRunning())
             break;
         wxMilliSleep(200);
@@ -298,6 +312,27 @@ struct EarlyLogger : public wxLog
 
         m_closed = true;
     }
+    // Startup failed (#135): send the deferred messages to stderr, which the
+    // journal captures under systemd, instead of the default GUI target.
+    // wxEntryCleanup flushes the active target, and wxLogGui flushes into a
+    // modal message box that nobody can dismiss on the daemon's Xvfb display,
+    // so the process would hang instead of exiting for Restart=on-failure.
+    void CloseToStderr()
+    {
+        if (m_closed)
+            return;
+        // A target that existed before OnInit; anything it still holds is
+        // dropped rather than shown in a modal box.
+        delete m_prev;
+        m_prev = new wxLogStderr();
+        // m_buf already has each message's "Error: " prefix; passing it back
+        // through wxLogError would print a second one.
+        wxString buf;
+        buf.swap(m_buf);
+        Close();
+        if (!buf.empty())
+            wxMessageOutputStderr().Output(buf);
+    }
     void DoLogText(const wxString& msg) override
     {
         if (!m_buf.empty() && *m_buf.rbegin() != '\n')
@@ -312,14 +347,6 @@ bool PhdApp::OnInit()
     // capture wx error messages until the debug log has been opened
     EarlyLogger logger;
 
-    if (argc > 1 && argv[1] == _T("restart"))
-        HandleRestart(); // exits
-
-    if (!wxApp::OnInit())
-    {
-        return false;
-    }
-
     // Vendor + app name determine wxConfig + wxStandardPaths locations and the
     // wxSingleInstanceChecker lock name below. Pre-2.0.0 this fork wrote to
     // upstream PHD2's location (StarkLabs / PHD2|phd2), which meant running
@@ -332,12 +359,22 @@ bool PhdApp::OnInit()
     // GetAppName() falls back to the executable basename if SetAppName hasn't
     // been called yet. If the basename collides with upstream PHD2's, both apps
     // end up taking the lock named "phd2.1" — the second one to launch hits
-    // "PHD2 instance 1 is already running".
+    // "PHD2 instance 1 is already running". HandleRestart's checker must name
+    // the same lock as ours, so they are set before it too.
     SetVendorName(_T("OpenAstro"));
     // use SetAppName() to ensure the local data directory is found even if the name of the executable is changed
     SetAppName(_T("openastro-guider"));
 
-    m_instanceChecker = new wxSingleInstanceChecker(wxString::Format("%s.%ld", GetAppName(), m_instanceNumber));
+    if (argc > 1 && argv[1] == _T("restart"))
+        HandleRestart(); // exits
+
+    if (!wxApp::OnInit())
+    {
+        logger.CloseToStderr();
+        return false;
+    }
+
+    m_instanceChecker = CreateInstanceChecker();
     if (m_instanceChecker->IsAnotherRunning())
     {
         wxLogError(wxString::Format(_("PHD2 instance %ld is already running. Use the "
@@ -345,6 +382,7 @@ bool PhdApp::OnInit()
                                     m_instanceNumber));
         delete m_instanceChecker; // OnExit() won't be called if we return false
         m_instanceChecker = 0;
+        logger.CloseToStderr();
         return false;
     }
 
