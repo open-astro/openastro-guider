@@ -95,33 +95,48 @@ set_property(TARGET test_discovery_logic PROPERTY FOLDER "Unit tests")
 add_test(NAME test_discovery_logic COMMAND test_discovery_logic)
 
 ############################################################################
-# test_guide_algorithm_math  --  math-twin tests for the simple guide
-# algorithms (identity, hysteresis, resistswitch). Each algorithm's
-# formula is reimplemented in the test file alongside the production line
-# numbers; the test pins the input/output curve. Lowpass / Lowpass2 /
-# ZFilter need WindowedAxisStats / ZFilterFactory and are deferred.
+# test_guide_algorithm_math  --  links the REAL guide_algorithm_kernels.cpp:
+# the Hysteresis and ResistSwitch math on fixed scenarios, the ResistSwitch
+# overshoot veto pinned explicitly (#142). Identity's one-line result() is
+# still mirrored in the test.
 ############################################################################
 add_executable(test_guide_algorithm_math
   ${PHD_TESTS_DIR}/algorithms/test_guide_algorithm_math.cpp
+  ${phd_src_dir}/guide_algorithm_kernels.cpp
 )
 target_link_libraries(test_guide_algorithm_math PRIVATE phd_test_common)
 set_property(TARGET test_guide_algorithm_math PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_algorithm_math COMMAND test_guide_algorithm_math)
 
 ############################################################################
-# test_guide_algorithm_kernels  --  characterization of the Hysteresis and
-# ResistSwitch guide algorithms (#142), the RA and Dec defaults. Every test
-# is a typed test that runs on a frozen copy of the production result(),
-# reset() and setters (tests/algorithms/legacy, compiled against mechanical
-# wx stand-ins; check_twin.sh diffs it against the source).
+# test_guide_algorithm_kernels  --  links the REAL guide_algorithm_kernels.cpp,
+# the per-frame math of the Hysteresis and ResistSwitch guide algorithms
+# (#142), the RA and Dec defaults. Every characterization test is a typed
+# test that runs on a frozen copy of the production result(), reset() and
+# setters before the extraction (tests/algorithms/legacy, compiled against
+# mechanical wx stand-ins; check_twin.sh diffs it against the source) and on
+# production as it now is over the kernel (extracted_algorithms.cpp); a
+# differential test drives both with seeded call sequences and requires
+# identical results, state and Debug lines, doubles bit for bit.
 ############################################################################
 add_executable(test_guide_algorithm_kernels
   ${PHD_TESTS_DIR}/algorithms/test_algorithm_characterization.cpp
+  ${PHD_TESTS_DIR}/algorithms/test_algorithm_parity.cpp
+  ${PHD_TESTS_DIR}/algorithms/extracted_algorithms.cpp
   ${PHD_TESTS_DIR}/algorithms/legacy/algorithm_twin.cpp
   ${PHD_TESTS_DIR}/algorithms/legacy/hysteresis_legacy.cpp
   ${PHD_TESTS_DIR}/algorithms/legacy/resistswitch_legacy.cpp
+  ${phd_src_dir}/guide_algorithm_kernels.cpp
 )
 target_link_libraries(test_guide_algorithm_kernels PRIVATE phd_test_common)
+# GCC in GNU mode (gnu++20) and Clang contract a * b + c * d into an FMA, and which product
+# they fuse depends on the code around it: the frozen twin's copy of the Hysteresis blend is
+# fused on the other product than production's result() was, so the two would differ by an
+# ulp for reasons that are not in the source. With contraction off, both sides compute the
+# source arithmetic exactly and the differential compares that, bit for bit.
+if(NOT MSVC)
+  target_compile_options(test_guide_algorithm_kernels PRIVATE -ffp-contract=off)
+endif()
 set_property(TARGET test_guide_algorithm_kernels PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_algorithm_kernels COMMAND test_guide_algorithm_kernels)
 

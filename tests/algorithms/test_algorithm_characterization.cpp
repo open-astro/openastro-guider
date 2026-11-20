@@ -1,8 +1,9 @@
 // Characterization of the Hysteresis (RA default) and ResistSwitch (Dec default) guide
 // algorithms (#142).
 //
-// Every test is a typed test that runs on each implementation in algorithm_impls.h, starting
-// with the frozen copy of the production code (the twin). The tests pin what the guider does
+// Every test is a typed test that runs on each implementation in algorithm_impls.h: the frozen
+// copy of the production code before the extraction (the twin), and production as it is now
+// over the real guide_algorithm_kernels.cpp. The tests pin what the guider does
 // today, quirks included, so the move of the math into a wx-free kernel can be held to it:
 // the defaults, the minMove gate (exclusive for the gate, and ResistSwitch counts only entries
 // strictly above it), the hysteresis blend and the setters' ranges and fallbacks; ResistSwitch's
@@ -65,7 +66,7 @@ class HysteresisCharacterization : public testing::Test
 {
 };
 
-using HysteresisImpls = testing::Types<TwinHysteresis>;
+using HysteresisImpls = testing::Types<TwinHysteresis, ExtractedHysteresis>;
 TYPED_TEST_SUITE(HysteresisCharacterization, HysteresisImpls);
 
 TYPED_TEST(HysteresisCharacterization, ConstructorDefaults)
@@ -249,7 +250,7 @@ class ResistSwitchCharacterization : public testing::Test
 {
 };
 
-using ResistSwitchImpls = testing::Types<TwinResistSwitch>;
+using ResistSwitchImpls = testing::Types<TwinResistSwitch, ExtractedResistSwitch>;
 TYPED_TEST_SUITE(ResistSwitchCharacterization, ResistSwitchImpls);
 
 TYPED_TEST(ResistSwitchCharacterization, ConstructorDefaults)
