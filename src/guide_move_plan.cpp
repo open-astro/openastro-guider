@@ -53,13 +53,16 @@ static void LimitAxis(Dir dir, int maxMs, AxisPlan& plan, LimitTracker& tracker)
     }
     CapPulse(plan);
 
-    if (plan.limited && dir == tracker.lastLimited)
-    {
-        if (++tracker.count >= LIMIT_REACHED_WARN_COUNT)
-            plan.alert = true;
-    }
-    else
+    // count the clamped steps in a row in one direction, this one included (#153)
+    if (!plan.limited)
         tracker.count = 0;
+    else if (dir == tracker.lastLimited)
+        ++tracker.count;
+    else
+        tracker.count = 1;
+
+    if (tracker.count >= LIMIT_REACHED_WARN_COUNT)
+        plan.alert = true;
 
     tracker.lastLimited = plan.limited ? dir : Dir::None;
 }
