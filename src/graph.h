@@ -176,7 +176,7 @@ public:
     bool GetPolarAlignmentError(double *errArcmin, double *decDriftArcsecPerMin) const;
 
     // read-only access to the guide-step history for the JSON-RPC
-    // get_guide_history readout (the web UI's guide graph)
+    // get_guide_history readout (Ara's guide graph)
     const circular_buffer<S_HISTORY>& History() const { return m_history; }
 
 private:

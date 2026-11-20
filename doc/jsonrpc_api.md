@@ -11,6 +11,7 @@ It is intended for automation clients and headless integrations.
   - parameter shapes, aliases, and validation behavior
   - runtime preconditions/state constraints
   - asynchronous event stream behavior
+  - the HTTP data endpoints (see "HTTP Data Endpoints")
 
 ## Transport
 
@@ -1195,115 +1196,24 @@ This section is normative for integrator behavior. Each method entry describes:
 }
 ```
 
-## Embedded Web API (HTTP)
+## HTTP Data Endpoints
 
-When PHD2 server mode is enabled, PHD2 also exposes a local HTTP API on `127.0.0.1` port `8080 + instance - 1`.
+When server mode is enabled, the daemon also listens for HTTP on all interfaces (`0.0.0.0`), port `8080 + instance - 1`. That is always the JSON-RPC port plus `3680`, so instance 1 uses `4400` and `8080`, and instance 2 uses `4401` and `8081`. Clients may derive the HTTP port from the JSON-RPC port. If the HTTP port cannot be bound, server mode does not start.
 
-- `GET /` or `GET /index.html`: web portal UI
-- `GET /assets/*`: static web assets
-- `GET /api/frame.jpg`: current guide frame as JPEG (display-stretched; supports `ETag`/`If-None-Match`)
-- `GET /api/capture/<filename>`: raw FITS bytes of a file saved by `capture_single_frame` (served only from the capture directory; `404` on traversal attempts)
-- `GET /api/setup`: consolidated setup payload used by the web wizard
-- `GET /api/discover/alpaca?num_queries=&timeout_seconds=`: Alpaca UDP discovery proxy
-- `POST /api/rpc`: JSON body with `{ "method": "...", "params": { ... }, "timeout_s": n }`
+The HTTP port carries image data only. Everything else, including setup, discovery and control, goes over JSON-RPC.
 
-### `GET /api/setup` Response Schema
+- `GET /api/capture/<filename>`: raw FITS bytes of a file saved by `capture_single_frame` (see "Single Frame Capture With Save"). `<filename>` is the `Filename` field of the `SingleFrameComplete` event, URL-encoded. Files are served only from the capture directory; an empty name, `..`, a leading `/` or `\`, or a symlink that resolves outside the capture directory returns `404`. Response: `200` with `Content-Type: application/fits`.
+- `GET /api/frame.jpg`: the current guide frame as a JPEG, display-stretched the same way the guider display stretches it. The response carries an `ETag` taken from the frame number; a request whose `If-None-Match` matches it gets `304 Not Modified` without re-encoding the frame. When there is no frame yet it returns `404` with the body `no image available`.
 
-```json
-{
-  "ok": true,
-  "setup": {
-    "profiles": [{"id": 1, "name": "My Equipment", "selected": true}],
-    "profile": {"id": 1, "name": "My Equipment"},
-    "connected": false,
-    "current_equipment": {
-      "camera": {"name": "CameraName", "connected": false},
-      "mount": {"name": "MountName", "connected": false},
-      "aux_mount": {"name": "AuxMountName", "connected": false},
-      "AO": {"name": "AOName", "connected": false},
-      "rotator": {"name": "RotatorName", "connected": false}
-    },
-    "equipment_choices": {
-      "camera": ["Simulator", "Alpaca Camera"],
-      "mount": ["None", "Alpaca Mount"],
-      "aux_mount": ["None"],
-      "AO": ["None"],
-      "rotator": ["None", "Alpaca Rotator"]
-    },
-    "selected_camera": "Alpaca Camera",
-    "selected_mount": "Alpaca Mount",
-    "selected_aux_mount": "None",
-    "selected_ao": "None",
-    "selected_rotator": "Alpaca Rotator",
-    "selected_camera_id": "",
-    "alpaca_server": {
-      "host": "192.168.1.100",
-      "port": 6800,
-      "camera_device": 0,
-      "telescope_device": 0,
-      "rotator_device": 0
-    },
-    "profile_setup": {
-      "focal_length": 400,
-      "pixel_size": 3.76,
-      "camera_binning": 1,
-      "software_binning": 1,
-      "guide_speed": 0.5,
-      "calibration_duration": 750,
-      "calibration_distance": 25,
-      "high_res_encoders": false,
-      "auto_restore_calibration": false,
-      "multistar_enabled": true
-    },
-    "dark_status": {
-      "profile_id": 1,
-      "dark_library_path": "/path/to/darks.fits",
-      "defect_map_path": "/path/to/defectmap.fit",
-      "dark_library_exists": true,
-      "defect_map_exists": false,
-      "dark_library_compatible": true,
-      "defect_map_compatible": false,
-      "dark_library_loaded": true,
-      "defect_map_loaded": false,
-      "auto_load_darks": true,
-      "auto_load_defect_map": true,
-      "dark_count_loaded": 8,
-      "dark_min_exposure_seconds_loaded": 1.0,
-      "dark_max_exposure_seconds_loaded": 5.0
-    }
-  }
-}
-```
+Every response sets `Connection: close`. Every response except the `304` also sets `Cache-Control: no-store`.
 
-`/api/rpc` returns:
+### HTTP Status Codes
 
-```json
-{"ok": true, "result": ...}
-```
-
-or
-
-```json
-{"ok": false, "error": "message"}
-```
-
-Notes:
-- `timeout_s` is accepted for request-shape compatibility with web clients.
-- Method execution is delegated to the same internal JSON-RPC handlers used by the event server socket.
-
-### Embedded HTTP Status & Error Semantics
-
-- `200 OK`: successful route handling (`/`, `/assets/*`, `/api/setup`, `/api/discover/alpaca`, `/api/rpc`).
-- `400 Bad Request`: malformed request body/shape (for example invalid JSON or missing required fields on `/api/rpc`).
-- `404 Not Found`: unknown path or missing asset.
-- `405 Method Not Allowed`: route exists but unsupported HTTP method.
-- `500 Internal Server Error`: runtime/API failure while handling request.
-
-For API endpoints, errors use:
-
-```json
-{"ok": false, "error": "message"}
-```
+- `200 OK`: the file or frame is in the body.
+- `304 Not Modified`: `GET /api/frame.jpg` with an `If-None-Match` that matches the current frame.
+- `400 Bad Request`: the request could not be parsed, or it was larger than 1 MB.
+- `404 Not Found`: any other method or path, a capture file that is missing or outside the capture directory, or no guide frame yet.
+- `500 Internal Server Error`: the guide frame could not be encoded as JPEG.
 
 ## Error Semantics By Category
 

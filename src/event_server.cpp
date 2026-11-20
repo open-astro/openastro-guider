@@ -39,7 +39,6 @@
 #include "drift_tool.h"
 #include "guiding_assistant.h"
 #include "imaging_gear_alpaca.h"
-#include "webui_rpc_guard.h"
 #include "jsonrpc_request.h"
 #include "connect_request.h"
 #include "connect_retry.h"
@@ -328,8 +327,8 @@ static NV NVMount(const Mount *mount)
     return NV("Mount", mount->Name());
 }
 
-// The last calibration step, for HTTP clients (the web UI) that have no event
-// stream; :4400 clients get it as the Calibrating event. Written and read on
+// The last calibration step, for clients that poll instead of reading the
+// event stream; they also get it as the Calibrating event. Written and read on
 // the main thread only (the event and HTTP servers run on the wx event loop).
 struct LastCalibrationStep
 {
@@ -1193,7 +1192,7 @@ inline static wxMutex *http_client_wrlock(wxSocketClient *cli)
 // sendbuf; OnHttpServerClientEvent drains the queue on wxSOCKET_OUTPUT
 // events. A single Write silently drops whatever exceeds the kernel send
 // buffer (~140 KB on a real NIC), which truncated every large response —
-// the web app's frame JPEGs — for any client not on loopback.
+// the live-view frame JPEGs — for any client not on loopback.
 static void send_buf_http(wxSocketClient *client, const std::string& buf)
 {
     HttpClientData *cd = (HttpClientData *) client->GetClientData();
@@ -3906,9 +3905,9 @@ static void get_calibration_progress(JObj& response, const json_value *params)
 
 static void get_version(JObj& response, const json_value *params)
 {
-    // Same fields the :4400 stream's Version event carries, for HTTP
-    // clients (the web app's header version pill) that have no event
-    // stream. "version" is the user-facing FULLVER from version.md.
+    // Same fields the :4400 stream's Version event carries, for clients
+    // that ask instead of waiting for the event. "version" is the
+    // user-facing FULLVER from version.md.
     // ARA integration (PHD2-GAP gap 3): overlap_support mirrors the Version
     // event and fork identifies this daemon vs stock PHD2 for a synchronous
     // "connect, check version, decide" handshake.
@@ -7597,58 +7596,6 @@ static void handle_cli_input(wxSocketClient *cli)
     }
 }
 
-static const json_value *json_object_get(const json_value *obj, const char *name)
-{
-    if (!obj || obj->type != JSON_OBJECT)
-        return nullptr;
-    json_for_each(jv, obj)
-    {
-        if (jv->name && strcmp(jv->name, name) == 0)
-            return jv;
-    }
-    return nullptr;
-}
-
-static bool call_rpc_result_raw(const wxString& method, const json_value *params, wxString *resultRaw, wxString *errorMessage)
-{
-    JRpcResponse response;
-    if (!dispatch_rpc_method(method.ToUTF8().data(), response, params))
-    {
-        *errorMessage = wxString::Format("method not found: %s", method);
-        return false;
-    }
-
-    wxCharBuffer buf = response.str().ToUTF8();
-    JsonParser parser;
-    if (!parser.Parse(buf.data()))
-    {
-        *errorMessage = parser_error(parser);
-        return false;
-    }
-
-    const json_value *root = parser.Root();
-    const json_value *err = json_object_get(root, "error");
-    if (err)
-    {
-        const json_value *msg = json_object_get(err, "message");
-        if (msg && msg->type == JSON_STRING)
-            *errorMessage = msg->string_value;
-        else
-            *errorMessage = json_format(err);
-        return false;
-    }
-
-    const json_value *result = json_object_get(root, "result");
-    if (!result)
-    {
-        *errorMessage = "missing result";
-        return false;
-    }
-
-    *resultRaw = json_format(result);
-    return true;
-}
-
 static wxString http_status_text(int code)
 {
     switch (code)
@@ -7657,14 +7604,8 @@ static wxString http_status_text(int code)
         return "OK";
     case 400:
         return "Bad Request";
-    case 403:
-        return "Forbidden";
     case 404:
         return "Not Found";
-    case 405:
-        return "Method Not Allowed";
-    case 409:
-        return "Conflict";
     case 500:
         return "Internal Server Error";
     default:
@@ -7683,34 +7624,6 @@ static std::string http_response(int code, const wxString& contentType, const wx
     std::string resp(hdr.ToUTF8().data());
     resp.append(bodyUtf8.data(), bodyUtf8.length());
     return resp;
-}
-
-static std::string http_json_response(int code, const JObj& obj)
-{
-    return http_response(code, "application/json; charset=utf-8", JObj(obj).str());
-}
-
-static wxString mime_type_for_path(const wxString& path)
-{
-    wxFileName fn(path);
-    wxString ext = fn.GetExt().Lower();
-    if (ext == "html" || ext == "htm")
-        return "text/html; charset=utf-8";
-    if (ext == "css")
-        return "text/css; charset=utf-8";
-    if (ext == "js")
-        return "application/javascript; charset=utf-8";
-    if (ext == "json")
-        return "application/json; charset=utf-8";
-    if (ext == "png")
-        return "image/png";
-    if (ext == "jpg" || ext == "jpeg")
-        return "image/jpeg";
-    if (ext == "svg")
-        return "image/svg+xml";
-    if (ext == "ico")
-        return "image/x-icon";
-    return "application/octet-stream";
 }
 
 static bool read_file_utf8_or_binary(const wxString& path, std::string *data)
@@ -7762,26 +7675,6 @@ static wxString url_decode(const std::string& s)
         {
             out << c;
         }
-    }
-    return out;
-}
-
-static std::map<std::string, wxString> parse_query(const std::string& qs)
-{
-    std::map<std::string, wxString> out;
-    size_t pos = 0;
-    while (pos < qs.size())
-    {
-        size_t amp = qs.find('&', pos);
-        if (amp == std::string::npos)
-            amp = qs.size();
-        std::string part = qs.substr(pos, amp - pos);
-        size_t eq = part.find('=');
-        std::string key = eq == std::string::npos ? part : part.substr(0, eq);
-        std::string val = eq == std::string::npos ? "" : part.substr(eq + 1);
-        if (!key.empty())
-            out[key] = url_decode(val);
-        pos = amp + 1;
     }
     return out;
 }
@@ -7880,13 +7773,6 @@ static bool parse_http_request(const std::string& buf, HttpRequest *req, size_t 
     return true;
 }
 
-static std::string json_error_response_body(const wxString& msg)
-{
-    JObj obj;
-    obj << NV("ok", false) << NV("error", msg);
-    return http_json_response(500, obj);
-}
-
 static wxString normalize_path(const wxString& p)
 {
     wxFileName fn(p);
@@ -7903,76 +7789,16 @@ static bool path_is_under(const wxString& child, const wxString& parent)
     return c.StartsWith(p);
 }
 
-static bool call_rpc_result_raw_json(const wxString& method, const wxString& paramsJson, wxString *resultRaw,
-                                     wxString *errorMessage)
-{
-    JsonParser parser;
-    wxCharBuffer cbuf = paramsJson.ToUTF8();
-    if (!parser.Parse(cbuf.data()))
-    {
-        *errorMessage = parser_error(parser);
-        return false;
-    }
-    return call_rpc_result_raw(method, parser.Root(), resultRaw, errorMessage);
-}
-
-static wxString event_server_web_root()
-{
-    wxString primary = wxGetApp().GetPHDResourcesDir() + PATHSEPSTR + "webui";
-    if (wxDirExists(primary) && wxFileExists(primary + PATHSEPSTR + "index.html"))
-        return primary;
-
-    wxString devRoot = wxGetCwd() + PATHSEPSTR + "scripts" + PATHSEPSTR + "webui";
-    if (wxDirExists(devRoot) && wxFileExists(devRoot + PATHSEPSTR + "index.html"))
-        return devRoot;
-
-    return primary;
-}
-
 static std::string http_not_found()
 {
     return http_response(404, "text/plain; charset=utf-8", "Not found");
 }
 
-static std::string handle_http_request(EventServer *server, const HttpRequest& req)
+// The HTTP port carries data only, for clients that cannot take it over the
+// JSON-RPC socket: saved capture frames and the live guide frame. Control
+// goes over JSON-RPC. Anything other than these two GET routes is a 404.
+static std::string handle_http_request(const HttpRequest& req)
 {
-    if (req.method != "GET" && req.method != "POST")
-        return http_response(405, "text/plain; charset=utf-8", "Method not allowed");
-
-    if (req.method == "GET" && (req.path == "/" || req.path == "/index.html"))
-    {
-        wxString path = server->GetHttpWebRoot() + PATHSEPSTR + "index.html";
-        std::string data;
-        if (!read_file_utf8_or_binary(path, &data))
-            return http_not_found();
-        wxString body = wxString::FromUTF8(data.data(), data.size());
-        return http_response(200, "text/html; charset=utf-8", body);
-    }
-
-    if (req.method == "GET" && req.path.starts_with("/assets/"))
-    {
-        wxString rel = url_decode(req.path.substr(strlen("/assets/")));
-        if (rel.Contains("..") || rel.StartsWith("/") || rel.StartsWith("\\"))
-            return http_not_found();
-
-        wxString assetsRoot = server->GetHttpWebRoot() + PATHSEPSTR + "assets";
-        wxString fullPath = assetsRoot + PATHSEPSTR + rel;
-        if (!path_is_under(fullPath, assetsRoot) || !wxFileExists(fullPath))
-            return http_not_found();
-
-        std::string data;
-        if (!read_file_utf8_or_binary(fullPath, &data))
-            return http_not_found();
-
-        wxString hdr =
-            wxString::Format("HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Type: %s\r\n"
-                             "Content-Length: %u\r\n\r\n",
-                             mime_type_for_path(fullPath), (unsigned int) data.size());
-        std::string resp(hdr.ToUTF8().data());
-        resp.append(data);
-        return resp;
-    }
-
     if (req.method == "GET" && req.path.starts_with("/api/capture/"))
     {
         // retrieve a FITS file saved by capture_single_frame; this is how a
@@ -8012,13 +7838,13 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
     if (req.method == "GET" && req.path == "/api/frame.jpg")
     {
         // current guide frame, stretched for display the same way the GUI
-        // stretches it (FiltMin/FiltMax + gamma); the web UI polls this for
-        // its live view
+        // stretches it (FiltMin/FiltMax + gamma); Ara polls this for its
+        // live view
         usImage *img = pFrame && pFrame->pGuider ? pFrame->pGuider->CurrentImage() : nullptr;
         if (!img || !img->ImageData)
             return http_response(404, "text/plain", "no image available");
 
-        // ETag from the frame counter so the web UI can poll fast: an
+        // ETag from the frame counter so a client can poll fast: an
         // unchanged frame answers 304 without paying the JPEG encode.
         std::string etag(wxString::Format("\"f%u\"", img->FrameNum).ToUTF8().data());
         auto inm = req.headers.find("if-none-match");
@@ -8046,146 +7872,6 @@ static std::string handle_http_request(EventServer *server, const HttpRequest& r
         return resp;
     }
 
-    if (req.method == "GET" && req.path == "/api/setup")
-    {
-        static const char *methods[][2] = {
-            { "profiles", "get_profiles" },
-            { "profile", "get_profile" },
-            { "connected", "get_connected" },
-            { "current_equipment", "get_current_equipment" },
-            { "equipment_choices", "get_equipment_choices" },
-            { "selected_camera", "get_selected_camera" },
-            { "selected_mount", "get_selected_mount" },
-            { "selected_aux_mount", "get_selected_aux_mount" },
-            { "selected_ao", "get_selected_ao" },
-            { "selected_rotator", "get_selected_rotator" },
-            { "selected_camera_id", "get_selected_camera_id" },
-            { "alpaca_server", "get_alpaca_server" },
-            { "profile_setup", "get_profile_setup" },
-            { "dark_status", "get_calibration_files_status" },
-        };
-
-        JObj setup;
-        for (unsigned int i = 0; i < WXSIZEOF(methods); i++)
-        {
-            wxString resultRaw;
-            wxString err;
-            if (!call_rpc_result_raw(methods[i][1], nullptr, &resultRaw, &err))
-                return json_error_response_body(err);
-            setup << NVRaw(methods[i][0], resultRaw);
-        }
-
-        JObj out;
-        out << NV("ok", true) << NV("setup", setup);
-        return http_json_response(200, out);
-    }
-
-    if (req.method == "GET" && req.path == "/api/discover/alpaca")
-    {
-        auto qs = parse_query(req.query);
-        long numQueries = 2;
-        long timeoutSeconds = 2;
-        auto nq = qs.find("num_queries");
-        if (nq != qs.end())
-            nq->second.ToLong(&numQueries);
-        auto ts = qs.find("timeout_seconds");
-        if (ts != qs.end())
-            ts->second.ToLong(&timeoutSeconds);
-        if (numQueries < 1)
-            numQueries = 1;
-        else if (numQueries > 20)
-            numQueries = 20;
-        if (timeoutSeconds < 1)
-            timeoutSeconds = 1;
-        else if (timeoutSeconds > 30)
-            timeoutSeconds = 30;
-
-        wxString params = wxString::Format("{\"num_queries\":%ld,\"timeout_seconds\":%ld}", numQueries, timeoutSeconds);
-        wxString resultRaw;
-        wxString err;
-        if (!call_rpc_result_raw_json("discover_alpaca_servers", params, &resultRaw, &err))
-            return json_error_response_body(err);
-
-        JObj out;
-        out << NV("ok", true) << NVRaw("servers", resultRaw);
-        return http_json_response(200, out);
-    }
-
-    if (req.method == "POST" && req.path == "/api/rpc")
-    {
-        // CSRF guard: browsers attach an Origin header to cross-origin POSTs.
-        // Reject when it doesn't match the Host this request was addressed to,
-        // so a malicious page in the user's browser can't drive the mount via
-        // http://<guider>:8080. Non-browser clients (ARA, curl — no Origin
-        // header) and the web app itself (same-origin) are unaffected.
-        auto oi = req.headers.find("origin");
-        if (oi != req.headers.end())
-        {
-            auto hi = req.headers.find("host");
-            const std::string& origin = oi->second;
-            std::string host = hi != req.headers.end() ? hi->second : std::string();
-            if (host.empty() || (origin != "http://" + host && origin != "https://" + host))
-            {
-                JObj out;
-                out << NV("ok", false) << NV("error", "cross-origin request rejected");
-                return http_json_response(403, out);
-            }
-        }
-
-        JsonParser parser;
-        if (!parser.Parse(req.body))
-        {
-            JObj out;
-            out << NV("ok", false) << NV("error", parser_error(parser));
-            return http_json_response(400, out);
-        }
-
-        const json_value *root = parser.Root();
-        if (!root || root->type != JSON_OBJECT)
-        {
-            JObj out;
-            out << NV("ok", false) << NV("error", "request body must be an object");
-            return http_json_response(400, out);
-        }
-
-        const json_value *method = json_object_get(root, "method");
-        const json_value *params = json_object_get(root, "params");
-        if (!method || method->type != JSON_STRING || !method->string_value || !*method->string_value)
-        {
-            JObj out;
-            out << NV("ok", false) << NV("error", "method is required");
-            return http_json_response(400, out);
-        }
-
-        // Web UI calls never reach dump_request(); log the ones that change
-        // something (not the web app's polling reads) so they show in the debug log.
-        if (!WebUiRpcIsRead(method->string_value))
-            Debug.Write(wxString::Format("httpsrv: rpc %s\n", method->string_value));
-
-        // A Save in the web UI must not disturb a calibration or guiding run (#81).
-        if (pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding() && !WebUiRpcAllowedWhileBusy(method->string_value))
-        {
-            Debug.Write(wxString::Format("httpsrv: rpc %s refused while calibrating or guiding\n", method->string_value));
-            JObj out;
-            out << NV("ok", false) << NV("error", "stop guiding before changing settings");
-            return http_json_response(409, out);
-        }
-
-        wxString resultRaw;
-        wxString err;
-        if (!call_rpc_result_raw(method->string_value, params, &resultRaw, &err))
-        {
-            Debug.Write(wxString::Format("httpsrv: rpc %s failed: %s\n", method->string_value, err));
-            JObj out;
-            out << NV("ok", false) << NV("error", err);
-            return http_json_response(500, out);
-        }
-
-        JObj out;
-        out << NV("ok", true) << NVRaw("result", resultRaw);
-        return http_json_response(200, out);
-    }
-
     return http_not_found();
 }
 
@@ -8195,7 +7881,7 @@ static void destroy_http_client(wxSocketClient *cli)
     buf->RemoveRef();
 }
 
-static bool handle_http_cli_input(EventServer *server, wxSocketClient *cli)
+static bool handle_http_cli_input(wxSocketClient *cli)
 {
     HttpClientDataGuard clidata(cli);
     wxSocketInputStream sis(*cli);
@@ -8224,7 +7910,7 @@ static bool handle_http_cli_input(EventServer *server, wxSocketClient *cli)
     if (needMore)
         return false;
 
-    std::string resp = handle_http_request(server, req);
+    std::string resp = handle_http_request(req);
     send_buf_http(cli, resp);
     return true;
 }
@@ -8292,8 +7978,7 @@ bool EventServer::EventServerStart(unsigned int instanceId)
     m_httpServerSocket->SetEventHandler(*this, HTTP_SERVER_ID);
     m_httpServerSocket->SetNotify(wxSOCKET_CONNECTION_FLAG);
     m_httpServerSocket->Notify(true);
-    m_httpWebRoot = event_server_web_root();
-    Debug.Write(wxString::Format("HTTP server started, listening on 0.0.0.0:%u (web root: %s)\n", m_httpPort, m_httpWebRoot));
+    Debug.Write(wxString::Format("HTTP server started, listening on 0.0.0.0:%u\n", m_httpPort));
 
     return false;
 }
@@ -8314,7 +7999,6 @@ void EventServer::EventServerStop()
         delete m_httpServerSocket;
         m_httpServerSocket = nullptr;
     }
-    m_httpWebRoot.clear();
     m_httpPort = 0;
 
     for (CliSockSet::const_iterator it = m_eventServerClients.begin(); it != m_eventServerClients.end(); ++it)
@@ -8330,13 +8014,6 @@ void EventServer::EventServerStop()
     m_configEventDebouncer = nullptr;
 
     Debug.AddLine("event server stopped");
-}
-
-wxString EventServer::GetHttpBaseUrl() const
-{
-    if (!m_httpServerSocket || m_httpPort == 0)
-        return wxEmptyString;
-    return wxString::Format("http://127.0.0.1:%u/", m_httpPort);
 }
 
 void EventServer::OnEventServerEvent(wxSocketEvent& event)
@@ -8431,7 +8108,7 @@ void EventServer::OnHttpServerClientEvent(wxSocketEvent& event)
 
     if (event.GetSocketEvent() == wxSOCKET_INPUT)
     {
-        bool closeConn = handle_http_cli_input(this, cli);
+        bool closeConn = handle_http_cli_input(cli);
         if (closeConn)
         {
             HttpClientData *cd = (HttpClientData *) cli->GetClientData();

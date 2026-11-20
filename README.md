@@ -122,7 +122,7 @@ network, or wxWidgets. They cover:
 
 - the JSON parser behind every Alpaca response and inbound event-server RPC;
 - the event-server JSON-RPC message schema downstream consumers depend on
-  (NINA / KStars / web UI);
+  (NINA / KStars / Ara);
 - the Alpaca client/discovery JSON contracts;
 - the shared `host:port` parsing and dedupe model used by discovery;
 - math-twin pinning of the simple guide algorithms;

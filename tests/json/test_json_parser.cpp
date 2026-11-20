@@ -2,7 +2,7 @@
 //
 // json_parser is the deserializer used by every Alpaca response and by the
 // event-server's JSON-RPC inbound path. A regression here breaks every
-// downstream consumer (NINA, KStars, web UI), so we pin the contract.
+// downstream consumer (NINA, KStars, Ara), so we pin the contract.
 
 #include <gtest/gtest.h>
 
