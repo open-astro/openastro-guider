@@ -159,6 +159,15 @@ Application/runtime errors:
     - at connect, a camera that reports its pixel size replaces `pixel_size` with it (and saves it in the profile),
       a hardware binning above the camera's maximum is lowered to it, and a binning the camera cannot offer at all is
       reset to 1, with `calibration_duration` divided by the old binning
+    - when that pixel size differs from the profile's by 1% or more, the request that connected the camera
+      (`set_connected`, `guide`'s connect, the #104 automatic retry or `--auto-connect`) recomputes
+      `calibration_duration`, sets both axes' `minMove` to the default for the new image scale and raises one `Alert`
+      ("Binning or camera pixel size changed unexpectedly..."). Only that request: a later connect, disconnect or
+      `set_profile` keeps the `calibration_duration` and `minMove` a client set since (#139; before, every later
+      `set_connected` in the process reset them and raised the `Alert` again, and a connect of all equipment raised
+      it twice). The mount's calibration is cleared once, by that request or, when the mount is not connected yet,
+      by the first later request that connects it; the calibration saved in the profile is not restored automatically
+      for the rest of the process, since it was made at the old image scale (a new calibration is kept)
     - at the start of a calibration (PHD2 behaviour), when the binning differs from the one the saved calibration
       was made with (1 when there is none), `calibration_distance` is recomputed for the new binning; with a saved
       calibration, `calibration_duration` is recomputed too, and also when the mount's guide speed differs by more

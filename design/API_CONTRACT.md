@@ -605,3 +605,29 @@ response; `ClearCalibration` (mediator) returns false.
   refused with error `1` (the period goes back to its default).
 
 ARA: no code change. It always sends a numeric `value` and does not set `periodLength`.
+
+## 2026-11-20 — pixel-scale change acted on once per request (#139)
+
+A camera connect that reads a pixel size 1% or more off the profile's makes the guider adjust for
+the new image scale (PHD2 behaviour): it recomputes `/scope/CalibrationDuration`, sets both axes'
+`minMove` to `SmartDefaultMinMove`, clears the calibration and raises the "Binning or camera pixel
+size changed unexpectedly" `Alert`. The Gear dialog reset what triggers it only when the dialog
+opened, which the headless daemon never does, so after one such connect every later
+`set_connected` (one device or all, connect or disconnect, the #104 retry and `guide`'s connect
+included) and `set_profile` did it again, wiping the `calibration_duration` and `minMove` the client
+had set since, and a connect of all equipment raised the `Alert` twice.
+
+- Each gear request (`set_connected`, `set_profile`, and the #104 retry and `guide` connects) now
+  begins afresh, as a run of the dialog does, and the adjustment is made once, by the request whose
+  camera connect saw the change.
+- The camera change itself carries over to later requests: the mount's calibration is cleared once,
+  by the first request that has the mount connected (the camera's own, or a later one when the mount
+  was off), and the calibration saved in the profile is not auto-loaded for the rest of the process,
+  as before, because it was made at the old image scale. A calibration made since is kept.
+- A request refused because the GUI's Connect Equipment dialog is open leaves the dialog's latch alone.
+- The latch is the wx-free `CameraChangeLatch` in `src/connect_request.cpp`, unit-tested by
+  `test_connect_request`; that the gear requests drive it is checked live against the fake Alpaca
+  camera.
+
+ARA: no code change. Its `set_profile_setup` `pixel_size` and its `set_algo_param` `minMove`
+now survive later connects and the #104 automatic reconnects.

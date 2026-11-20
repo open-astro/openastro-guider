@@ -275,7 +275,8 @@ add_test(NAME test_alpaca_errors COMMAND test_alpaca_errors)
 
 ############################################################################
 # test_connect_request  --  connect_request.cpp: device names and the
-# refuse-while-busy rules for per-device set_connected (#84). std-only.
+# refuse-while-busy rules for per-device set_connected (#84), and the
+# per-request camera-change latch (#139). std-only.
 ############################################################################
 add_executable(test_connect_request
   ${PHD_TESTS_DIR}/equipment/test_connect_request.cpp
