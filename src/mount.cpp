@@ -961,7 +961,6 @@ void Mount::LogGuideStepInfo()
     if (m_lastStep.moveOptions & MOVEOPT_GRAPH)
     {
         pFrame->pGraphLog->AppendData(m_lastStep);
-        pFrame->pTarget->AppendData(m_lastStep);
         GuidingAssistant::NotifyGuideStep(m_lastStep);
     }
 

@@ -101,10 +101,7 @@ EVT_CHAR_HOOK(MyFrame::OnCharHook)
 EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
 EVT_MENU(MENU_GRAPH, MyFrame::OnGraph)
 EVT_MENU(MENU_STATS, MyFrame::OnStats)
-EVT_MENU(MENU_AO_GRAPH, MyFrame::OnAoGraph)
-EVT_MENU(MENU_TARGET, MyFrame::OnTarget)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
-EVT_MENU(MENU_STARPROFILE, MyFrame::OnStarProfile)
 EVT_MENU(MENU_RESTORE_WINDOWS, MyFrame::OnRestoreWindows)
 EVT_MENU(MENU_AUTOSTAR, MyFrame::OnAutoStar)
 EVT_TOOL(BUTTON_GEAR, MyFrame::OnSelectGear)
@@ -280,15 +277,6 @@ MyFrame::MyFrame()
     pStatsWin = new StatsWindow(this);
     m_mgr.AddPane(pStatsWin, wxAuiPaneInfo().Name(_T("Stats")).Caption(_("Guide Stats")).Hide());
 
-    pStepGuiderGraph = new GraphStepguiderWindow(this);
-    m_mgr.AddPane(pStepGuiderGraph, wxAuiPaneInfo().Name(_T("AOPosition")).Caption(_("AO Position")).Hide());
-
-    pProfile = new ProfileWindow(this);
-    m_mgr.AddPane(pProfile, wxAuiPaneInfo().Name(_T("Profile")).Caption(_("Star Profile")).Hide());
-
-    pTarget = new TargetWindow(this);
-    m_mgr.AddPane(pTarget, wxAuiPaneInfo().Name(_T("Target")).Caption(_("Target")).Hide());
-
     pAdvancedDialog = new AdvancedDialog(this);
 
     pGearDialog = new GearDialog(this);
@@ -331,9 +319,6 @@ MyFrame::MyFrame()
         m_mgr.GetPane(_T("Guider")).Caption(_T("Guider"));
         m_mgr.GetPane(_T("GraphLog")).Caption(_("History"));
         m_mgr.GetPane(_T("Stats")).Caption(_("Guide Stats"));
-        m_mgr.GetPane(_T("AOPosition")).Caption(_("AO Position"));
-        m_mgr.GetPane(_T("Profile")).Caption(_("Star Profile"));
-        m_mgr.GetPane(_T("Target")).Caption(_("Target"));
         m_mgr.GetPane(_T("Guider")).PaneBorder(false);
     }
 
@@ -349,18 +334,6 @@ MyFrame::MyFrame()
     panel_state = m_mgr.GetPane(_T("Stats")).IsShown();
     pStatsWin->SetState(panel_state);
     Menubar->Check(MENU_STATS, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("AOPosition")).IsShown();
-    pStepGuiderGraph->SetState(panel_state);
-    Menubar->Check(MENU_AO_GRAPH, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("Profile")).IsShown();
-    pProfile->SetState(panel_state);
-    Menubar->Check(MENU_STARPROFILE, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("Target")).IsShown();
-    pTarget->SetState(panel_state);
-    Menubar->Check(MENU_TARGET, panel_state);
 
     m_mgr.Update();
 
@@ -422,9 +395,6 @@ void MyFrame::SetupMenuBar()
     view_menu->AppendCheckItem(MENU_TOOLBAR, _("Display Toolbar"), _("Enable / disable tool bar"));
     view_menu->AppendCheckItem(MENU_GRAPH, _("Display &Graph"), _("Enable / disable graph"));
     view_menu->AppendCheckItem(MENU_STATS, _("Display &Stats"), _("Enable / disable guide stats"));
-    view_menu->AppendCheckItem(MENU_AO_GRAPH, _("Display &AO Graph"), _("Enable / disable AO graph"));
-    view_menu->AppendCheckItem(MENU_TARGET, _("Display &Target"), _("Enable / disable target"));
-    view_menu->AppendCheckItem(MENU_STARPROFILE, _("Display Star &Profile"), _("Enable / disable star profile view"));
     (void) view_menu->AppendSeparator();
     view_menu->AppendRadioItem(MENU_XHAIR0, _("&No Overlay"), _("No additional crosshairs"));
     view_menu->AppendRadioItem(MENU_XHAIR1, _("&Bullseye"), _("Centered bullseye overlay"));
@@ -2714,16 +2684,6 @@ void MyFrame::HandleImageScaleChange()
     {
         pGraphLog->OnButtonClear(dummyEvt);
         pGraphLog->UpdateControls();
-    }
-
-    // Give the image-scale dependent windows a chance to reset
-    if (pStepGuiderGraph)
-        pStepGuiderGraph->OnButtonClear(dummyEvt);
-
-    if (pTarget)
-    {
-        pTarget->OnButtonClear(dummyEvt);
-        pTarget->UpdateControls();
     }
 
     Alert(_("Binning or camera pixel size changed unexpectedly. "

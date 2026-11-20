@@ -286,8 +286,6 @@ set(phd2_SRC
   ${phd_src_dir}/gear_dialog.h
   ${phd_src_dir}/gear_simulator.h
   ${phd_src_dir}/gear_simulator.cpp
-  ${phd_src_dir}/graph-stepguider.cpp
-  ${phd_src_dir}/graph-stepguider.h
   ${phd_src_dir}/graph.cpp
   ${phd_src_dir}/graph.h
   ${phd_src_dir}/guiding_assistant.cpp
@@ -350,10 +348,6 @@ set(phd2_SRC
   ${phd_src_dir}/star.h
   ${phd_src_dir}/star_find_core.cpp
   ${phd_src_dir}/star_find_core.h
-  ${phd_src_dir}/star_profile.cpp
-  ${phd_src_dir}/star_profile.h
-  ${phd_src_dir}/target.cpp
-  ${phd_src_dir}/target.h
   ${phd_src_dir}/usImage.cpp
   ${phd_src_dir}/usImage.h
   ${phd_src_dir}/worker_thread.cpp

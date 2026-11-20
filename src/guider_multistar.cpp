@@ -509,7 +509,6 @@ bool GuiderMultiStar::AutoSelect(const wxRect& roi)
 
         pFrame->StatusMsg(wxString::Format(_("Auto-selected star at (%.1f, %.1f)"), m_primaryStar.X, m_primaryStar.Y));
         pFrame->UpdateStatusBarStarInfo(m_primaryStar.SNR, m_primaryStar.GetError() == Star::STAR_SATURATED);
-        pFrame->pProfile->UpdateData(image, m_primaryStar.X, m_primaryStar.Y);
     }
     catch (const wxString& Msg)
     {
@@ -1041,8 +1040,6 @@ bool GuiderMultiStar::UpdateCurrentPosition(const usImage *pImage, GuiderOffset 
             UpdateCurrentDistance(distance, distanceRA);
         }
 
-        pFrame->pProfile->UpdateData(pImage, m_primaryStar.X, m_primaryStar.Y);
-
         pFrame->AdjustAutoExposure(m_primaryStar.SNR);
         pFrame->UpdateStatusBarStarInfo(m_primaryStar.SNR, m_primaryStar.GetError() == Star::STAR_SATURATED);
         errorInfo->status = StarStatus(m_primaryStar);
@@ -1159,7 +1156,6 @@ void GuiderMultiStar::OnLClick(wxMouseEvent& mevent)
                 EvtServer.NotifyStarSelected(CurrentPosition());
                 SetState(STATE_SELECTED);
                 pFrame->UpdateButtonsStatus();
-                pFrame->pProfile->UpdateData(pImage, m_primaryStar.X, m_primaryStar.Y);
             }
 
             Refresh();

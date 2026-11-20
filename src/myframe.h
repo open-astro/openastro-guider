@@ -247,10 +247,7 @@ public:
     AdvancedDialog *pAdvancedDialog;
     GraphLogWindow *pGraphLog;
     StatsWindow *pStatsWin;
-    GraphStepguiderWindow *pStepGuiderGraph;
     GearDialog *pGearDialog;
-    ProfileWindow *pProfile;
-    TargetWindow *pTarget;
     wxWindow *pGuidingAssistant;
     bool CaptureActive; // Is camera looping captures?
     bool m_exposurePending; // exposure scheduled and not completed
@@ -302,9 +299,6 @@ public:
     void OnGraph(wxCommandEvent& evt);
     void OnStats(wxCommandEvent& evt);
     void OnToolBar(wxCommandEvent& evt);
-    void OnAoGraph(wxCommandEvent& evt);
-    void OnStarProfile(wxCommandEvent& evt);
-    void OnTarget(wxCommandEvent& evt);
     void OnRestoreWindows(wxCommandEvent& evt);
     void OnAutoStar(wxCommandEvent& evt);
     void OnBookmarksShow(wxCommandEvent& evt);
@@ -582,10 +576,7 @@ enum
     MENU_TOOLBAR,
     MENU_GRAPH,
     MENU_STATS,
-    MENU_AO_GRAPH,
-    MENU_STARPROFILE,
     MENU_RESTORE_WINDOWS,
-    MENU_TARGET,
     MENU_AUTOSTAR,
     MENU_GUIDING_ASSISTANT,
     MENU_SAVESETTINGS,
@@ -607,16 +598,12 @@ enum
     GRAPH_DECDY_COLOR,
     GRAPH_SCALE_CORR,
     BUTTON_GRAPH_CLEAR,
-    TARGET_ENABLE_REF_CIRCLE,
-    TARGET_REF_CIRCLE_RADIUS,
     MENU_LENGTH_BEGIN, // a range of ids for history size selection popup menus
     MENU_LENGTH_END = MENU_LENGTH_BEGIN + 10,
     MENU_HEIGHT_BEGIN, // a range of ids for height size selection popup menus
     MENU_HEIGHT_END = MENU_HEIGHT_BEGIN + 10,
     CHECKBOX_GRAPH_TRENDLINES,
     CHECKBOX_GRAPH_CORRECTIONS,
-    BUTTON_GRAPH_ZOOMIN,
-    BUTTON_GRAPH_ZOOMOUT,
     EEGG_STICKY_LOCK,
     STAR_MASS_ENABLE,
     MULTI_STAR_ENABLE,

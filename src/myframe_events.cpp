@@ -848,48 +848,6 @@ void MyFrame::OnStats(wxCommandEvent& evt)
     m_mgr.Update();
 }
 
-void MyFrame::OnAoGraph(wxCommandEvent& evt)
-{
-    if (pStepGuiderGraph->SetState(evt.IsChecked()))
-    {
-        m_mgr.GetPane(_T("AOPosition")).Show().Right().Position(1).MinSize(293, 208);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("AOPosition")).Hide();
-    }
-    m_mgr.Update();
-}
-
-void MyFrame::OnStarProfile(wxCommandEvent& evt)
-{
-    if (evt.IsChecked())
-    {
-        m_mgr.GetPane(_T("Profile")).Show().Right().Position(0).MinSize(115, 85);
-        // m_mgr.GetPane(_T("Profile")).Show().Bottom().Layer(1).Position(2).MinSize(115,85);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("Profile")).Hide();
-    }
-    pProfile->SetState(evt.IsChecked());
-    m_mgr.Update();
-}
-
-void MyFrame::OnTarget(wxCommandEvent& evt)
-{
-    if (evt.IsChecked())
-    {
-        m_mgr.GetPane(_T("Target")).Show().Right().Position(2).MinSize(293, 208);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("Target")).Hide();
-    }
-    pTarget->SetState(evt.IsChecked());
-    m_mgr.Update();
-}
-
 // Re-dock windows and restore main window to size/position where everything should be readily accessible
 void MyFrame::OnRestoreWindows(wxCommandEvent& evt)
 {
@@ -1079,21 +1037,6 @@ void MyFrame::OnPanelClose(wxAuiManagerEvent& evt)
     {
         Menubar->Check(MENU_STATS, false);
         pStatsWin->SetState(false);
-    }
-    if (p->name == _T("Profile"))
-    {
-        Menubar->Check(MENU_STARPROFILE, false);
-        pProfile->SetState(false);
-    }
-    if (p->name == _T("AOPosition"))
-    {
-        Menubar->Check(MENU_AO_GRAPH, false);
-        pStepGuiderGraph->SetState(false);
-    }
-    if (p->name == _T("Target"))
-    {
-        Menubar->Check(MENU_TARGET, false);
-        pTarget->SetState(false);
     }
 }
 

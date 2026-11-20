@@ -442,7 +442,6 @@ void GearDialog::EndModal(int retCode)
 
     pFrame->UpdateButtonsStatus();
     pFrame->pGraphLog->UpdateControls();
-    pFrame->pTarget->UpdateControls();
 
     if (pFrame->GetAutoLoadCalibration() && !m_camChanged) // ok to reload calibration
     {
