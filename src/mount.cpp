@@ -36,6 +36,7 @@
 #include "phd.h"
 #include "backlash_comp.h"
 #include "calibration_transform.h"
+#include "guide_move_plan.h"
 #include "guiding_assistant.h"
 #include "gaussian_process_guider.h"
 
@@ -1041,11 +1042,12 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
             }
         }
 
-        // Figure out the guide directions based on the (possibly) updated distances
-        GUIDE_DIRECTION xDirection = xDistance > 0.0 ? LEFT : RIGHT;
-        GUIDE_DIRECTION yDirection = yDistance > 0.0 ? DOWN : UP;
+        // Figure out the guide directions and durations based on the (possibly) updated distances
+        guide_move_plan::OffsetPlan plan = guide_move_plan::PlanOffset(xDistance, yDistance, m_xRate, m_cal.yRate);
+        GUIDE_DIRECTION xDirection = static_cast<GUIDE_DIRECTION>(plan.raDir);
+        GUIDE_DIRECTION yDirection = static_cast<GUIDE_DIRECTION>(plan.decDir);
 
-        int requestedXAmount = ROUND(fabs(xDistance / m_xRate));
+        int requestedXAmount = plan.raMs;
         MoveResultInfo xMoveResult;
         // Time the moves: the worker starts the next exposure only after they return (#119)
         wxStopWatch moveWatch;
@@ -1055,7 +1057,7 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
         MoveResultInfo yMoveResult;
         if (result != MOVE_ERROR_SLEWING && result != MOVE_ERROR_AO_LIMIT_REACHED)
         {
-            int requestedYAmount = ROUND(fabs(yDistance / m_cal.yRate));
+            int requestedYAmount = plan.decMs;
 
             if (m_backlashComp)
                 m_backlashComp->ApplyBacklashComp(moveOptions, yDistance, &requestedYAmount);
@@ -1559,7 +1561,7 @@ void Mount::SetCalibration(const Calibration& cal)
     // the angles are more difficult because we have to turn yAngle into a yError.
     m_cal.xAngle = cal.xAngle;
     m_cal.yAngle = cal.yAngle;
-    m_yAngleError = norm_angle(cal.xAngle - cal.yAngle + M_PI / 2.);
+    m_yAngleError = calibration_transform::YAngleError(cal.xAngle, cal.yAngle);
 
     Debug.AddLine(wxString::Format("Mount::SetCalibration (%s) -- sets m_xAngle=%.1f m_yAngleError=%.1f", GetMountClassName(),
                                    degrees(m_cal.xAngle), degrees(m_yAngleError)));
