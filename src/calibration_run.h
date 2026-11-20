@@ -122,6 +122,12 @@ enum class Fail
     RaDidNotMove, // "RA Calibration Failed: star did not move enough"
     BacklashClearingFailed, // "Backlash Clearing Failed: star did not move enough"
     DecDidNotMove, // "DEC Calibration Failed: star did not move enough"
+    // #148: the run skipped the Dec leg for Dec guide mode None, and the mode
+    // was Auto, North or South when it reached Complete. A calibration with no
+    // Dec rate cannot serve those modes, so nothing is stored and the run ends
+    // here instead of reporting Complete on every frame.
+    // "Calibration failed: the Dec guide mode was changed from Off during calibration"
+    DecModeChanged,
 };
 
 constexpr int MAX_CALIBRATION_STEPS = 60;

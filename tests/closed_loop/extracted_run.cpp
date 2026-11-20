@@ -273,6 +273,9 @@ FrameReport ExtractedRun::OnFrame(const Pt& star, const Settings& settings)
         case cr::Fail::DecDidNotMove:
             msg = "DEC Calibration Failed: star did not move enough";
             break;
+        case cr::Fail::DecModeChanged:
+            msg = "Calibration failed: the Dec guide mode was changed from Off during calibration";
+            break;
         }
         if (alert)
             Add(Event::Alert, msg);

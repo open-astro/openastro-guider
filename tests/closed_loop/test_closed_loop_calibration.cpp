@@ -7,10 +7,13 @@
 // (legacy/), and on the extracted calibration_run::CalibrationRun driven as
 // Scope drives it (extracted_run.h). They pin what the calibration does,
 // quirks included, and hold for both, so the extraction changed none of it;
-// test_calibration_run_parity.cpp compares the two effect by effect. The one
-// behaviour the run has added since is the RA step sized for the Dec (#141):
-// at Dec 0 it is the step, the high-Dec tests here leave the Dec unknown, and
-// test_high_dec_calibration.cpp covers a known Dec.
+// test_calibration_run_parity.cpp compares the two effect by effect. The
+// behaviours the run has changed since are the RA step sized for the Dec
+// (#141): at Dec 0 it is the step, the high-Dec tests here leave the Dec
+// unknown, and test_high_dec_calibration.cpp covers a known Dec; and a
+// DEC_NONE calibration that fails when the mode was switched to one that
+// guides Dec before it completed (#148), where the twin kept completing on
+// every frame. The LegacyTwin tests pin the twin's old behaviour of each.
 //
 // Every test starts a fresh calibration with Begin: nothing here restores,
 // reuses or skips a calibration.
@@ -570,30 +573,127 @@ TYPED_TEST(Calibration, DecNoneSkipsTheDecLegAndCompletesOnTheNextFrame)
     EXPECT_EQ(FirstDebugFrame(o, "Skipping Dec calibration"), lastEast + 1);
     ASSERT_EQ(o.Count(Event::LogComplete), 1);
     EXPECT_EQ(o.Of(Event::LogComplete)[0].frame, lastEast + 2);
+    // DEC_NONE throughout stores the RA-only calibration once and does not fail (#148)
+    EXPECT_EQ(o.Count(Event::SetCalibration), 1);
+    EXPECT_EQ(o.Count(Event::NotifyComplete), 1);
+    EXPECT_EQ(o.Count(Event::LogFailed), 0);
 }
 
-TYPED_TEST(Calibration, DecModeAutoAfterDecNoneSkipReentersCompleteEveryFrame)
+TYPED_TEST(Calibration, DecModeNoneAfterTheDecLegStillCompletes)
 {
-    // #148, pinned as today's behaviour: switching DEC_NONE to Auto after the
-    // Dec leg was skipped leaves yRate uncalibrated, so IsCalibrated() stays
-    // false and COMPLETE runs again on every frame
+    // switching Auto to None once the Dec leg has run, during the North leg or
+    // on the frame the run completes, keeps the measured Dec rate and completes
+    // once; DEC_NONE does not need the Dec rate, and it is there anyway
+    CalOutcome base = Calibrate<TypeParam>(WithLightNoise(ProfileMount()), ProfileSettings());
+    ASSERT_EQ(base.outcome, Outcome::Complete);
+    ASSERT_NE(base.measured.yRate, RATE_UNCALIBRATED);
+    int firstNorth = -1;
+    for (const Event& e : base.events)
+        if (firstNorth < 0 && e.kind == Event::LogStep && e.text == "North")
+            firstNorth = e.frame;
+    ASSERT_GE(firstNorth, 0);
+
+    for (int at : { firstNorth + 1, base.frames - 1 })
+    {
+        FrameHook<TypeParam> toNone = [at](int frame, Settings& st, SimMount&, TypeParam&)
+        {
+            if (frame == at)
+                st.decMode = DecMode::None;
+        };
+        CalOutcome o = Calibrate<TypeParam>(WithLightNoise(ProfileMount()), ProfileSettings(), 2000, toNone);
+        SCOPED_TRACE("None before frame " + std::to_string(at));
+        ASSERT_EQ(o.outcome, Outcome::Complete);
+        EXPECT_EQ(o.frames, base.frames);
+        EXPECT_EQ(o.measured.yRate, base.measured.yRate);
+        EXPECT_EQ(o.Count(Event::SetCalibration), 1);
+        EXPECT_EQ(o.Count(Event::LogComplete), 1);
+        EXPECT_EQ(o.Count(Event::NotifyComplete), 1);
+        EXPECT_EQ(o.Count(Event::LogFailed), 0);
+        EXPECT_EQ(o.Count(Event::NotifyFailed), 0);
+        EXPECT_FALSE(o.HasDebug("Skipping Dec calibration"));
+    }
+}
+
+TEST(LegacyTwin, DecModeAutoAfterDecNoneSkipReenteredCompleteEveryFrame)
+{
+    // #148, before the fix: switching DEC_NONE to Auto after the Dec leg was
+    // skipped left yRate uncalibrated, so IsCalibrated() stayed false and
+    // COMPLETE ran again on every frame, storing and reporting the RA-only
+    // calibration each time. The extracted run now fails instead
+    // (CalibrationRunDecMode below).
     Settings s = ProfileSettings();
     s.decMode = DecMode::None;
-    CalOutcome base = Calibrate<TypeParam>(ProfileMount(), s);
+    CalOutcome base = Calibrate<LegacyTwinRun>(ProfileMount(), s);
     ASSERT_EQ(base.outcome, Outcome::Complete);
     const int completeFrame = base.frames - 1;
 
-    FrameHook<TypeParam> toAuto = [&](int frame, Settings& st, SimMount&, TypeParam&)
+    FrameHook<LegacyTwinRun> toAuto = [&](int frame, Settings& st, SimMount&, LegacyTwinRun&)
     {
         if (frame == completeFrame)
             st.decMode = DecMode::Auto;
     };
-    CalOutcome o = Calibrate<TypeParam>(ProfileMount(), s, completeFrame + 10, toAuto);
+    CalOutcome o = Calibrate<LegacyTwinRun>(ProfileMount(), s, completeFrame + 10, toAuto);
     EXPECT_EQ(o.outcome, Outcome::Continue);
     EXPECT_EQ(o.Count(Event::LogComplete), 10);
     EXPECT_EQ(o.Count(Event::NotifyComplete), 10);
     EXPECT_EQ(o.Count(Event::SetCalibration), 10);
     EXPECT_EQ(LastMoveFrame(o), LastMoveFrame(base));
+}
+
+TEST(CalibrationRunDecMode, NoneToAutoNorthOrSouthAtTheCompleteFrameFailsOnce)
+{
+    // #148: a calibration that skipped the Dec leg for DEC_NONE, with the mode
+    // switched to one that guides Dec before the frame it completes on, has
+    // no Dec rate for that mode. It fails once on that frame, with an alert
+    // and one CalibrationFailed, and stores and reports nothing.
+    Settings s = ProfileSettings();
+    s.decMode = DecMode::None;
+    CalOutcome base = Calibrate<ExtractedRun>(ProfileMount(), s);
+    ASSERT_EQ(base.outcome, Outcome::Complete);
+    const int completeFrame = base.frames - 1;
+    ASSERT_EQ(FirstDebugFrame(base, "Skipping Dec calibration"), completeFrame - 1);
+
+    const std::string msg = "Calibration failed: the Dec guide mode was changed from Off during calibration";
+    for (DecMode to : { DecMode::Auto, DecMode::North, DecMode::South })
+    {
+        FrameHook<ExtractedRun> change = [&](int frame, Settings& st, SimMount&, ExtractedRun&)
+        {
+            if (frame == completeFrame)
+                st.decMode = to;
+        };
+        CalOutcome o = Calibrate<ExtractedRun>(ProfileMount(), s, completeFrame + 10, change);
+        SCOPED_TRACE("mode " + std::to_string((int) to));
+        ASSERT_EQ(o.outcome, Outcome::Failed);
+        EXPECT_EQ(o.fail, Fail::DecModeChanged);
+        EXPECT_EQ(o.frames, completeFrame + 1);
+
+        ASSERT_EQ(o.Count(Event::Alert), 1);
+        EXPECT_EQ(o.Of(Event::Alert)[0].text, msg);
+        EXPECT_EQ(o.Of(Event::Alert)[0].frame, completeFrame);
+        ASSERT_EQ(o.Count(Event::LogFailed), 1);
+        EXPECT_EQ(o.Of(Event::LogFailed)[0].text, msg);
+        EXPECT_EQ(o.Of(Event::LogFailed)[0].frame, completeFrame);
+        ASSERT_EQ(o.Count(Event::NotifyFailed), 1);
+        EXPECT_EQ(o.Of(Event::NotifyFailed)[0].text, msg);
+        EXPECT_EQ(o.Count(Event::SetCalibration), 0);
+        EXPECT_EQ(o.Count(Event::SanityCheck), 0);
+        EXPECT_EQ(o.Count(Event::LogComplete), 0);
+        EXPECT_EQ(o.Count(Event::NotifyComplete), 0);
+
+        // the failing frame does nothing but report the failure: no step, no move, no mount read
+        for (const Event& e : o.events)
+        {
+            if (e.frame == completeFrame)
+            {
+                EXPECT_TRUE(e.kind == Event::Alert || e.kind == Event::LogFailed || e.kind == Event::NotifyFailed)
+                    << "kind " << e.kind;
+            }
+        }
+        // everything before it is the DEC_NONE calibration's
+        EXPECT_EQ(LastMoveFrame(o), LastMoveFrame(base));
+        EXPECT_TRUE(o.Moves(Dir::North).empty());
+        EXPECT_TRUE(o.Moves(Dir::South).empty());
+    }
 }
 
 TYPED_TEST(Calibration, EastAndSouthRecenterSendBackWhatWestAndNorthSent)

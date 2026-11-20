@@ -19,7 +19,19 @@
 // state machine was taken.
 //
 // It also unit-tests CalibrationRun's own contract: Begin resets, Clear fails
-// the next frame, and a run in Complete reports Complete again (#148).
+// the next frame, a run in Complete reports Complete again if Scope enters it
+// again, and a DEC_NONE run that reaches Complete with the mode switched to
+// one that guides Dec fails with DecModeChanged (#148).
+//
+// That last one is where the run departs from the twin on purpose (#148). The
+// twin stored the RA-only calibration on that frame and, IsCalibrated() being
+// false, stored and reported it again on every frame after. A scenario that
+// reaches that point (the twin's first SetCalibration has no Dec rate while
+// the mode is Auto, North or South) must instead have the run fail with
+// DecModeChanged on that frame, report only the failure (alert,
+// CalibrationFailed log row and event) there, and match the twin exactly in
+// everything before it: every call, the mount reads, the pulses and what was
+// measured. Every other scenario must still match the twin exactly.
 //
 // Since #141 the extracted run sizes the RA step for the Dec it reads at Begin,
 // which the twin never did. The differential therefore runs it with that read
@@ -206,15 +218,96 @@ Pair RunBoth(const Scenario& sc)
     return ::testing::AssertionSuccess();
 }
 
+// The Dec guide mode a scenario's run has on a frame
+DecMode ModeOn(const Scenario& sc, int frame)
+{
+    return sc.plan.modeAt >= 0 && frame >= sc.plan.modeAt ? sc.plan.modeTo : sc.settings.decMode;
+}
+
+// #148: the frame on which the twin first stored a calibration with no Dec
+// rate while the Dec guide mode needed one, or -1 if it never did
+int DecModeChangedFrame(const Scenario& sc, const CalOutcome& legacy)
+{
+    for (const Event& e : legacy.events)
+        if (e.kind == Event::SetCalibration)
+            return e.yRate == RATE_UNCALIBRATED && ModeOn(sc, e.frame) != DecMode::None ? e.frame : -1;
+    return -1;
+}
+
+// A #148 scenario: the run fails with DecModeChanged on frame f, reporting only
+// that, and everything recorded before frame f is the twin's exactly
+::testing::AssertionResult IdenticalUntilDecModeChanged(const Scenario& sc, const Pair& p, int f)
+{
+    const CalOutcome& a = p.legacy;
+    const CalOutcome& b = p.extracted;
+    if (b.outcome != Outcome::Failed || b.fail != Fail::DecModeChanged || b.frames != f + 1)
+        return ::testing::AssertionFailure()
+            << "#148 at frame " << f << ": outcome " << (int) b.outcome << " fail " << (int) b.fail << " frames " << b.frames;
+    auto before = [f](const std::vector<Event>& ev)
+    {
+        size_t n = 0;
+        while (n < ev.size() && ev[n].frame < f)
+            n++;
+        return n;
+    };
+    size_t na = before(a.events);
+    size_t nb = before(b.events);
+    if (na != nb)
+        return ::testing::AssertionFailure() << "#148: events before frame " << f << " " << na << "/" << nb;
+    for (size_t i = 0; i < nb; i++)
+        if (!SameEvent(a.events[i], b.events[i]))
+            return ::testing::AssertionFailure() << "#148: event " << i << "\n  legacy:    " << Describe(a.events[i])
+                                                 << "\n  extracted: " << Describe(b.events[i]);
+    const std::string msg = "Calibration failed: the Dec guide mode was changed from Off during calibration";
+    const Event::Kind failure[] = { Event::Alert, Event::LogFailed, Event::NotifyFailed };
+    if (b.events.size() != nb + 3)
+        return ::testing::AssertionFailure() << "#148: " << b.events.size() - nb << " events on frame " << f;
+    for (size_t i = 0; i < 3; i++)
+    {
+        const Event& e = b.events[nb + i];
+        if (e.kind != failure[i] || e.frame != f || e.text != msg)
+            return ::testing::AssertionFailure() << "#148: failure event " << i << ": " << Describe(e);
+    }
+    // the twin's later frames in Complete read and pulse nothing
+    if (p.legacyProbes != p.extractedProbes)
+        return ::testing::AssertionFailure()
+            << "#148: mount reads differ: " << p.legacyProbes.size() << "/" << p.extractedProbes.size();
+    if (p.legacyPulses != p.extractedPulses)
+        return ::testing::AssertionFailure() << "#148: pulses differ";
+    const Measured& ma = a.measured;
+    const Measured& mb = b.measured;
+    if (!Same(ma.xAngle, mb.xAngle) || !Same(ma.xRate, mb.xRate) || !Same(ma.yAngle, mb.yAngle) || !Same(ma.yRate, mb.yRate) ||
+        ma.raParity != mb.raParity || ma.decParity != mb.decParity || ma.raStepCount != mb.raStepCount ||
+        ma.decStepCount != mb.decStepCount)
+        return ::testing::AssertionFailure() << "#148: measured calibration differs";
+    if (!SameSteps(ma.raSteps, mb.raSteps) || !SameSteps(ma.decSteps, mb.decSteps))
+        return ::testing::AssertionFailure() << "#148: measured steps differ";
+    // unless the scenario moves the star by hand on a frame the run never reached
+    if (sc.plan.bumpAt <= f && sc.plan.homeAt <= f &&
+        (!Same(a.finalTrue.x, b.finalTrue.x) || !Same(a.finalTrue.y, b.finalTrue.y)))
+        return ::testing::AssertionFailure() << "#148: final star position differs";
+    return ::testing::AssertionSuccess();
+}
+
+// The comparison a scenario gets: the twin exactly, except on the #148 path
+::testing::AssertionResult Matches(const Scenario& sc, const Pair& p)
+{
+    int f = DecModeChangedFrame(sc, p.legacy);
+    return f < 0 ? Identical(p) : IdenticalUntilDecModeChanged(sc, p, f);
+}
+
 // What the scenarios exercised, so a passing run cannot be a vacuous one
 struct Coverage
 {
-    int complete = 0, completeDecNone = 0, reentered = 0, raFail = 0, decFail = 0, backlashFail = 0, cleared = 0,
-        backlashProceed = 0, backlashAccepted = 0, nudges = 0, nudgeWrongWay = 0, eastAdvisory = 0, southAdvisory = 0,
-        assumeOrtho = 0, parityOdd = 0, noCoords = 0, ranOut = 0;
+    int complete = 0, completeDecNone = 0, reentered = 0, decModeChanged = 0, raFail = 0, decFail = 0, backlashFail = 0,
+        cleared = 0, backlashProceed = 0, backlashAccepted = 0, nudges = 0, nudgeWrongWay = 0, eastAdvisory = 0,
+        southAdvisory = 0, assumeOrtho = 0, parityOdd = 0, noCoords = 0, ranOut = 0;
 
-    void Add(const CalOutcome& o)
+    void Add(const Pair& p)
     {
+        const CalOutcome& o = p.legacy;
+        // the twin re-entered Complete (#148); the run failed on that frame instead
+        decModeChanged += p.extracted.fail == Fail::DecModeChanged;
         if (o.outcome == Outcome::Complete)
             complete++;
         if (o.outcome == Outcome::Continue)
@@ -242,9 +335,9 @@ struct Coverage
 void Check(const Scenario& sc, Coverage *cov = nullptr)
 {
     Pair p = RunBoth(sc);
-    EXPECT_TRUE(Identical(p)) << sc.name;
+    EXPECT_TRUE(Matches(sc, p)) << sc.name;
     if (cov)
-        cov->Add(p.legacy);
+        cov->Add(p);
 }
 
 SimMountConfig BaseMount()
@@ -550,6 +643,7 @@ TEST(CalibrationRunParity, ClearOrChangeASettingBeforeEveryFrame)
     }
     EXPECT_GT(cov.cleared, 0);
     EXPECT_GT(cov.reentered, 0);
+    EXPECT_GT(cov.decModeChanged, 0);
     EXPECT_GT(cov.ranOut, 0);
 }
 
@@ -560,11 +654,11 @@ TEST(CalibrationRunParity, RandomScenarios)
     {
         Scenario sc = RandomScenario(seed);
         Pair p = RunBoth(sc);
-        ::testing::AssertionResult same = Identical(p);
+        ::testing::AssertionResult same = Matches(sc, p);
         EXPECT_TRUE(same) << sc.name;
         if (!same)
             break; // one detailed report is enough
-        cov.Add(p.legacy);
+        cov.Add(p);
     }
     EXPECT_GT(cov.complete, 1000);
     EXPECT_GT(cov.completeDecNone, 0);
@@ -574,6 +668,7 @@ TEST(CalibrationRunParity, RandomScenarios)
     EXPECT_GT(cov.backlashProceed, 0);
     EXPECT_GT(cov.cleared, 0);
     EXPECT_GT(cov.reentered, 0);
+    EXPECT_GT(cov.decModeChanged, 0);
     EXPECT_GT(cov.nudges, 0);
     EXPECT_GT(cov.eastAdvisory, 0);
     EXPECT_GT(cov.southAdvisory, 0);
@@ -779,4 +874,83 @@ TEST(CalibrationRun, DecNoneCompletesOnTheFrameAfterTheEastLeg)
     r = Drive(run, sim, s, 1);
     EXPECT_EQ(r.outcome, cr::Outcome::Complete);
     EXPECT_TRUE(r.firstComplete);
+}
+
+TEST(CalibrationRun, DecModeChangedFromNoneFailsWithNoEffectsOrReads)
+{
+    // #148: the run skipped the Dec leg for DEC_NONE; the mode is Auto, North
+    // or South on the frame it reaches Complete
+    for (int to = (int) cr::DecMode::Auto; to <= (int) cr::DecMode::South; to++)
+    {
+        SimMount sim(BaseMount());
+        cr::CalibrationRun run;
+        cr::Settings s = RunSettings();
+        s.decMode = cr::DecMode::None;
+        run.Begin(ToRun(sim.Observe()), std::nullopt);
+        for (int i = 0; i < 400 && run.state() != cr::State::Complete; i++)
+            Drive(run, sim, s, 1);
+        ASSERT_EQ(run.state(), cr::State::Complete);
+        const cr::Measured skipped = run.measured();
+        ASSERT_EQ(skipped.yRate, cr::RATE_UNCALIBRATED);
+
+        s.decMode = static_cast<cr::DecMode>(to);
+        std::vector<ProbeKind> reads = sim.ProbeLog();
+        SimProbe probe(sim);
+        RecordingSink sink;
+        cr::FrameResult r = run.OnFrame(ToRun(sim.Observe()), s, probe, sink);
+        SCOPED_TRACE("mode " + std::to_string(to));
+        EXPECT_EQ(r.outcome, cr::Outcome::Failed);
+        EXPECT_EQ(r.fail, cr::Fail::DecModeChanged);
+        EXPECT_FALSE(r.firstComplete);
+        EXPECT_TRUE(sink.effects.empty());
+        EXPECT_EQ(sim.ProbeLog(), reads);
+        EXPECT_EQ(run.measured().xRate, skipped.xRate);
+        EXPECT_EQ(run.measured().yRate, cr::RATE_UNCALIBRATED);
+
+        // it does not report Complete again, whatever the mode is next
+        EXPECT_NE(run.state(), cr::State::Complete);
+        for (int next = (int) cr::DecMode::None; next <= (int) cr::DecMode::South; next++)
+        {
+            s.decMode = static_cast<cr::DecMode>(next);
+            RecordingSink later;
+            r = run.OnFrame(ToRun(sim.Observe()), s, probe, later);
+            EXPECT_NE(r.outcome, cr::Outcome::Complete) << next;
+            EXPECT_TRUE(later.effects.empty()) << next;
+        }
+
+        // the next calibration starts from Begin as always, and completes
+        s.decMode = cr::DecMode::None;
+        run.Begin(ToRun(sim.Observe()), std::nullopt);
+        r = Drive(run, sim, s, 400);
+        EXPECT_EQ(r.outcome, cr::Outcome::Complete);
+        EXPECT_TRUE(r.firstComplete);
+    }
+}
+
+TEST(CalibrationRun, DecNoneCompletesWhenTheModeIsStillNone)
+{
+    // #148's check needs both: a calibration with no Dec rate and a mode that
+    // guides Dec. A DEC_NONE run still completes when the mode is None, and an
+    // Auto run that measured the Dec rate completes when the mode is then None.
+    SimMount sim(BaseMount());
+    cr::CalibrationRun run;
+    cr::Settings s = RunSettings();
+    s.decMode = cr::DecMode::None;
+    run.Begin(ToRun(sim.Observe()), std::nullopt);
+    cr::FrameResult r = Drive(run, sim, s, 400);
+    EXPECT_EQ(r.outcome, cr::Outcome::Complete);
+    EXPECT_EQ(run.measured().yRate, cr::RATE_UNCALIBRATED);
+
+    SimMountConfig c = BaseMount();
+    c.noiseSigmaPx = 0.05;
+    SimMount sim2(c);
+    s.decMode = cr::DecMode::Auto;
+    run.Begin(ToRun(sim2.Observe()), std::nullopt);
+    for (int i = 0; i < 400 && run.state() != cr::State::NudgeSouth; i++)
+        Drive(run, sim2, s, 1);
+    ASSERT_EQ(run.state(), cr::State::NudgeSouth);
+    s.decMode = cr::DecMode::None;
+    r = Drive(run, sim2, s, 400);
+    EXPECT_EQ(r.outcome, cr::Outcome::Complete);
+    EXPECT_NE(run.measured().yRate, cr::RATE_UNCALIBRATED);
 }
