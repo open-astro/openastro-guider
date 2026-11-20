@@ -36,6 +36,11 @@ endif
 %:
 	dh $@ --buildsystem=$(BUILDSYSTEM)
 
+# Ship what CI tests (#137): CI and dev builds configure with no build type, which
+# cmake_modules/compiler_options.cmake turns into Release (-O3 -DNDEBUG). dh_auto_configure
+# passes -DCMAKE_BUILD_TYPE=None instead, which leaves assert() compiled in, so an inherited
+# PHD2 assert could abort the packaged guider on the rig. Release here matches CI; the -g from
+# dpkg-buildflags is still on the command line, so the -dbgsym package keeps its symbols.
 override_dh_auto_configure:
 	@set -e; \
 	VERSION="$$(grep -E '^[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9._-]*)[[:space:]]*$$' $(CURDIR)/version.md | head -1 | sed -E 's/^[[:space:]]*//; s/[[:space:]]*$$//')"; \
@@ -48,7 +53,7 @@ override_dh_auto_configure:
 		echo "Syncing debian/changelog version $$CHANGELOG_VERSION -> $$VERSION"; \
 		sed -i -E "1 s/^openastro-guider \\([^)]*\\) /openastro-guider ($$VERSION) /" $(CURDIR)/debian/changelog; \
 	fi
-	dh_auto_configure --buildsystem=$(BUILDSYSTEM) -- -DUSE_SYSTEM_GTEST=1 $(CCACHE_ARGS)
+	dh_auto_configure --buildsystem=$(BUILDSYSTEM) -- -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_GTEST=1 $(CCACHE_ARGS)
 
 # Force ctest to run even when DEB_BUILD_OPTIONS=nocheck is set. The fork
 # does not ship through Debian autobuilders, so honouring the standard

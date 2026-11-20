@@ -1540,11 +1540,17 @@ void MyFrame::SchedulePrimaryMove(Mount *mount, const GuiderOffset& ofs, unsigne
 
     assert(mount);
 
+    // #137: null once shutdown has stopped the thread; StopWorkerThread pumps the event loop, so an RPC can get here
+    if (!m_pPrimaryWorkerThread)
+    {
+        Debug.Write("SchedulePrimaryMove: no worker thread (shutting down), move dropped\n");
+        return;
+    }
+
     // Manual moves do not affect the request count for IsBusy()
     if ((moveOptions & MOVEOPT_MANUAL) == 0)
         mount->IncrementRequestCount();
 
-    assert(m_pPrimaryWorkerThread);
     m_pPrimaryWorkerThread->EnqueueWorkerThreadMoveRequest(mount, ofs, moveOptions);
 }
 
@@ -1565,10 +1571,16 @@ void MyFrame::ScheduleSecondaryMove(Mount *mount, const GuiderOffset& ofs, unsig
     }
     else
     {
+        // #137: null once shutdown has stopped the thread
+        if (!m_pSecondaryWorkerThread)
+        {
+            Debug.Write("ScheduleSecondaryMove: no worker thread (shutting down), move dropped\n");
+            return;
+        }
+
         if ((moveOptions & MOVEOPT_MANUAL) == 0)
             mount->IncrementRequestCount();
 
-        assert(m_pSecondaryWorkerThread);
         m_pSecondaryWorkerThread->EnqueueWorkerThreadMoveRequest(mount, ofs, moveOptions);
     }
 }
@@ -1579,10 +1591,16 @@ void MyFrame::ScheduleAxisMove(Mount *mount, const GUIDE_DIRECTION direction, in
 
     assert(mount);
 
+    // #137: null once shutdown has stopped the thread; StopWorkerThread pumps the event loop, so an RPC can get here
+    if (!m_pPrimaryWorkerThread)
+    {
+        Debug.Write("ScheduleAxisMove: no worker thread (shutting down), move dropped\n");
+        return;
+    }
+
     if ((moveOptions & MOVEOPT_MANUAL) == 0)
         mount->IncrementRequestCount();
 
-    assert(m_pPrimaryWorkerThread);
     m_pPrimaryWorkerThread->EnqueueWorkerThreadAxisMove(mount, direction, duration, moveOptions);
 }
 

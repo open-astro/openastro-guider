@@ -6314,22 +6314,25 @@ static void guide_pulse(JObj& response, const json_value *params)
     }
 
     int duration = amount->int_value;
-    if (duration < 0)
-    {
-        duration = -duration;
-        dir = opposite(dir);
-    }
 
     // cap well above any legitimate manual/calibration pulse so a bogus
-    // request cannot command a multi-hour slew
+    // request cannot command a multi-hour slew. Checked before the sign flip:
+    // -INT_MIN overflows and stays negative, and the negative duration or
+    // step count went on to the mount or AO driver (#137)
     enum
     {
         MAX_GUIDE_PULSE_MS = 60000
     };
-    if (duration > MAX_GUIDE_PULSE_MS)
+    if (duration > MAX_GUIDE_PULSE_MS || duration < -MAX_GUIDE_PULSE_MS)
     {
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "guide pulse amount exceeds 60000 ms");
         return;
+    }
+
+    if (duration < 0)
+    {
+        duration = -duration;
+        dir = opposite(dir);
     }
 
     pFrame->ScheduleManualMove(m, dir, duration);

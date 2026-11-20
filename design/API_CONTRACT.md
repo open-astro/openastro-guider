@@ -579,6 +579,9 @@ built with asserts, aborted) or, with `NDEBUG`, left the guider in `Calibrating`
   ends as a failed calibration: `CalibrationFailed` with `Reason` "Calibration failed: the
   calibration was cleared while calibrating" ("AO calibration failed: ..." for an AO), and the
   guider goes back to looping, as after any calibration failure.
+- `guide_pulse` refuses an `amount` outside `-60000..60000` with `-32602` before the sign flip;
+  `-2147483648` used to pass the cap as a negative duration.
+- The `.deb` is now built as Release (`NDEBUG`), like CI and dev builds.
 
 ARA: no code change. `ClearCalibrationAsync` (the live clear button) already throws on an error
 response; `ClearCalibration` (mediator) returns false.

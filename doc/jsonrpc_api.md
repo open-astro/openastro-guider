@@ -494,7 +494,7 @@ Alpaca discovery/query:
 
 - `guide_pulse`
   - params:
-    - `amount` (int ms; negative amount flips direction)
+    - `amount` (int ms, `-60000..60000`; negative amount flips direction; outside the range: `-32602` "guide pulse amount exceeds 60000 ms")
     - `direction` (`n|s|e|w|north|south|east|west|up|down|left|right`)
     - optional `which` (`mount|ao`, default mount)
   - restrictions:
@@ -959,7 +959,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `clear_calibration` | optional `which:string` (`mount|ao|both`) | not calibrating (allowed while guiding) | `0` | `-32602` invalid `which`; `1` calibrating | mount/AO calibration cleared |
 | `flip_calibration` | none | none | `0` | `1` flip failure | calibration parity/geometry flipped; `CalibrationDataFlipped` event |
 | `restore_calibration` | none | guider context must exist; not calibrating or guiding; mount (and AO, if used) connected; no guide/dither request in progress other than one waiting on a failed calibration | `true` restored and every mount calibrated; `false` some mount has no saved calibration (nothing changed) or the restored calibration is not usable with the current Dec guide mode (`get_calibrated` agrees) | `1` calibrating or guiding, mount/AO not connected, or a guide/dither request in progress | saved calibration loaded on every mount; a `guide` request still waiting on the failed calibration is ended first with `SettleDone` `Status:1`, `Error:"calibration failed; saved calibration restored"`, `TotalFrames:0`, `DroppedFrames:0`, and the sticky-lock setting it forced on for the calibration put back |
-| `guide_pulse` | `amount:int`, `direction:string`, optional `which` (`mount|ao`) | target device connected; guider must not be calibrating/guiding; target not busy | `0` | `1` invalid args, invalid `which`, not connected, busy/calibrating/guiding | manual pulse scheduled |
+| `guide_pulse` | `amount:int` (`-60000..60000`), `direction:string`, optional `which` (`mount|ao`) | target device connected; guider must not be calibrating/guiding; target not busy | `0` | `1` invalid args, invalid `which`, not connected, busy/calibrating/guiding; `-32602` `amount` out of range | manual pulse scheduled |
 | `get_calibration_data` | optional `which` (`mount|ao`) | selected device must be connected | `{calibrated,...}` | `1` invalid `which` or device not connected | none |
 
 ### G) Lock Shift, Delay, ROI Frame Limiting
