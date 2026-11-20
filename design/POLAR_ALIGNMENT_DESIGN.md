@@ -26,6 +26,9 @@ What landed in the guider (see §8/§4 and `API_REFERENCE.md`):
   (`ref_star_target` + `current_star`) and a `live_adjustment` alt/az decomposition without
   needing its plate-solve pipeline. Lease note: don't hold a `set_pa_session` lease while
   using it (the lease blocks `loop`, which the tool needs).
+- **Removed 2026-11-19 (#113):** ARA's own polar alignment replaced it, so the in-guider
+  Static PA tool, its `staticpa_*` methods and `src/staticpa_geometry.{h,cpp}` are gone
+  (the methods return "method not found"). References to them below are history.
 
 ---
 

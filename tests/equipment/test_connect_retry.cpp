@@ -406,12 +406,6 @@ TEST(ConnectRetry, AlignmentToolsThatBlockARetry)
 {
     EXPECT_FALSE(AlignmentToolBlocks(AlignmentTools()));
 
-    // Static PA blocks for as long as it is open, not only while it measures: between manual points and in the adjust
-    // phase a mount that connects would move the target the user is turning the bolts toward
-    AlignmentTools spa;
-    spa.staticPaOpen = true;
-    EXPECT_TRUE(AlignmentToolBlocks(spa));
-
     AlignmentTools pd;
     pd.polarDriftDrifting = true;
     EXPECT_TRUE(AlignmentToolBlocks(pd));
@@ -421,7 +415,7 @@ TEST(ConnectRetry, AlignmentToolsThatBlockARetry)
     EXPECT_TRUE(AlignmentToolBlocks(drift));
 
     Gates g;
-    g.alignmentTool = AlignmentToolBlocks(spa);
+    g.alignmentTool = AlignmentToolBlocks(pd);
     for (GearDevice d : kDevices)
         EXPECT_EQ(RetryBlocker(d, g), "polar or drift alignment in progress");
 }

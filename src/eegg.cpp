@@ -35,7 +35,6 @@
 #include "phd.h"
 #include "drift_tool.h"
 #include "polardrift_tool.h"
-#include "staticpa_tool.h"
 #include "manualcal_dialog.h"
 #include "calreview_dialog.h"
 #include "nudge_lock.h"
@@ -246,19 +245,6 @@ void MyFrame::OnCalibrationAssistant(wxCommandEvent& WXUNUSED(evt))
     if (!pCalibrationAssistant)
         pCalibrationAssistant = CalibrationAssistantFactory::MakeCalibrationAssistant();
     pCalibrationAssistant->Show();
-}
-
-void MyFrame::OnStaticPaTool(wxCommandEvent& WXUNUSED(evt))
-{
-    if (!pStaticPaTool)
-    {
-        pStaticPaTool = StaticPaTool::CreateStaticPaToolWindow();
-    }
-
-    if (pStaticPaTool)
-    {
-        pStaticPaTool->Show();
-    }
 }
 
 void MyFrame::OnCometTool(wxCommandEvent& WXUNUSED(evt))

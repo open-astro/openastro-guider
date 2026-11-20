@@ -132,10 +132,9 @@ void DeferCameraReconnectUntilDarkBuildEnds();
 // True while a set_pa_session lease is held. The background connect retry (#104) waits on it.
 bool PaSessionActive();
 
-// True while the static polar alignment tool is open (in any phase: aligning, between manual points or adjusting),
-// polar drift alignment is drifting or the drift-alignment tool is open. The background connect retry (#104) waits on
-// it: a connect runs GearDialog::EndModal, which can reload the calibration and the image scale under the routine,
-// and a mount that connects mid-run moves Static PA's target (ConnectRetry::AlignmentToolBlocks).
+// True while polar drift alignment is drifting or the drift-alignment tool is open. The background connect retry
+// (#104) waits on it: a connect runs GearDialog::EndModal, which can reload the calibration and the image scale under
+// the routine (ConnectRetry::AlignmentToolBlocks).
 bool AlignmentToolActive();
 
 #endif
