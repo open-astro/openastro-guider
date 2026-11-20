@@ -485,3 +485,22 @@ add_executable(test_guide_move_plan
 target_link_libraries(test_guide_move_plan PRIVATE phd_test_common)
 set_property(TARGET test_guide_move_plan PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_move_plan COMMAND test_guide_move_plan)
+
+############################################################################
+# test_guiding_rms_baseline  --  a seeded closed-loop guiding simulation
+# (#142): sinusoidal PE, drift, seeing, the mount's guide rate and the
+# camera's exposure cadence, guided through the REAL calibration_transform,
+# guide_algorithm_kernels (Hysteresis on RA, ResistSwitch on Dec, with the
+# production defaults) and guide_move_plan. Pins the guided RMS against a
+# measured baseline and the unguided RMS, and a flipped calibration
+# diverging. std-only.
+############################################################################
+add_executable(test_guiding_rms_baseline
+  ${PHD_TESTS_DIR}/guiding/test_guiding_rms_baseline.cpp
+  ${phd_src_dir}/guide_algorithm_kernels.cpp
+  ${phd_src_dir}/guide_move_plan.cpp
+  ${phd_src_dir}/calibration_transform.cpp
+)
+target_link_libraries(test_guiding_rms_baseline PRIVATE phd_test_common)
+set_property(TARGET test_guiding_rms_baseline PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guiding_rms_baseline COMMAND test_guiding_rms_baseline)
