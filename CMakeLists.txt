@@ -172,7 +172,6 @@ set(cam_SRC
   ${phd_src_dir}/imaging_gear_alpaca.h
   ${phd_src_dir}/imaging_gear_poller.cpp
   ${phd_src_dir}/imaging_gear_poller.h
-  ${phd_src_dir}/webui_rpc_guard.cpp
   ${phd_src_dir}/connect_request.cpp
   ${phd_src_dir}/connect_request.h
   ${phd_src_dir}/connect_retry.cpp
@@ -187,7 +186,6 @@ set(cam_SRC
   ${phd_src_dir}/capture_cleanup.h
   ${phd_src_dir}/capture_failure.cpp
   ${phd_src_dir}/capture_failure.h
-  ${phd_src_dir}/webui_rpc_guard.h
   ${phd_src_dir}/jsonrpc_request.cpp
   ${phd_src_dir}/jsonrpc_request.h
   ${phd_src_dir}/alpaca_gain.cpp
@@ -458,17 +456,6 @@ endforeach()
 target_link_libraries(phd2
                       GPGuider # GP Guider (pulls in MPIIS_GP and MPIIS_GP_TOOLS transitively)
                       ${PHD_LINK_EXTERNAL})
-
-## Bundle/install embedded web portal assets
-if(UNIX AND NOT APPLE)
-  add_custom_command(
-    TARGET phd2
-    POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E make_directory $<TARGET_FILE_DIR:phd2>/share/phd2/webui
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory ${PHD_PROJECT_ROOT_DIR}/scripts/webui $<TARGET_FILE_DIR:phd2>/share/phd2/webui
-  )
-  install(DIRECTORY ${PHD_PROJECT_ROOT_DIR}/scripts/webui/ DESTINATION ${CMAKE_INSTALL_PREFIX}/share/phd2/webui)
-endif()
 
 ################################################################
 #

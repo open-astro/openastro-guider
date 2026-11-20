@@ -6,7 +6,7 @@
 // live PHD2.
 //
 // What we CAN do: pin the documented schema from the consumer's
-// perspective. NINA, KStars, the web UI and other tools each parse a
+// perspective. NINA, KStars, Ara and other tools each parse a
 // well-known set of fields. If anyone in this repo renames a field on
 // either side (PHD2 emit OR these tests' fixtures), the diff makes the
 // breaking-change visible at PR time instead of at the user-Discord-thread

@@ -2,7 +2,8 @@
 
 Append-only design log for the control API that OpenAstro ARA uses to drive the headless
 guider. The transport is PHD2's **event server (JSON-RPC over TCP :4400)** plus its event
-stream, and the embedded **HTTP `/api/rpc`** bridge on `:8080` (same method table). One entry
+stream. The HTTP port `:8080` carries image data only (`GET /api/capture/<filename>`,
+`GET /api/frame.jpg`); its `/api/rpc` bridge was removed in #114. One entry
 per method ARA depends on or that we add during the port. Equipment (guide camera + mount) is
 reached separately via ASCOM Alpaca through AlpacaBridge.
 
@@ -457,3 +458,19 @@ ARA: no code change. `CalibrationFailed.Reason` and the event order are unchange
 `Alert` of a retried frame is not consumed. A 3rd consecutive 1280 during a calibration now
 reaches its `EquipmentDisconnected` handler (`PHD2Guider.cs`, the `on_guider_lost` policy, default
 `pause_and_retry`), which before this was reached mid-calibration only by a 1031.
+
+## 2026-11-19 — HTTP port is data-only (#114)
+
+ARA is the user interface, so the embedded web UI and its control routes are gone. The HTTP
+listener stays on `8080 + (instance − 1)` (the JSON-RPC port + 3680) and serves two routes,
+unchanged: `GET /api/capture/<filename>` and `GET /api/frame.jpg`. Every other method or path is
+`404`, including the old `405` for a method other than GET or POST.
+
+- Removed: `GET /` and `/index.html`, `GET /assets/*`, `GET /api/setup`, `GET /api/discover/alpaca`
+  and `POST /api/rpc`, with the `/api/rpc` busy guard (`src/webui_rpc_guard.cpp`, #81), the web
+  app (`scripts/webui/`, installed to `share/phd2/webui`) and `scripts/phd2_web_ui_server.py`.
+- Every method the removed routes reached is still on `:4400`, including
+  `discover_alpaca_servers`. The busy guard did not apply to `:4400` and still does not.
+
+ARA: no code change. It uses `:4400` for control and only the two kept routes on `:8080`
+(`PolarAlignFrameFetcher` / `PHD2Guider.CaptureFrameUri`, `PHD2Guider.LiveFrameUri`).

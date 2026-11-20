@@ -20,7 +20,7 @@
             <li>Easy-to-use, “push here dummy” guiding for beginners</li>
             <li>Sophisticated guiding and analysis tools for experienced users</li>
             <li>ASCOM Alpaca camera/mount/rotator support</li>
-            <li>Embedded web portal and headless mode</li>
+            <li>Headless mode, driven over the JSON-RPC API</li>
         </ul>
     </description>
 

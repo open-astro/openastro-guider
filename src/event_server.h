@@ -50,7 +50,6 @@ private:
     CliSockSet m_eventServerClients;
     CliSockSet m_httpServerClients;
     wxTimer *m_configEventDebouncer;
-    wxString m_httpWebRoot;
     unsigned int m_httpPort;
 
 public:
@@ -61,8 +60,6 @@ public:
     void EventServerStop();
     bool IsHttpServerRunning() const { return m_httpServerSocket != nullptr; }
     unsigned int GetHttpPort() const { return m_httpPort; }
-    wxString GetHttpBaseUrl() const;
-    const wxString& GetHttpWebRoot() const { return m_httpWebRoot; }
 
     void NotifyStartCalibration(const Mount *mount);
     void NotifyCalibrationStep(const CalibrationStepInfo& info);

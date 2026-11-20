@@ -262,18 +262,6 @@ set_property(TARGET test_imaging_gear PROPERTY FOLDER "Unit tests")
 add_test(NAME test_imaging_gear COMMAND test_imaging_gear)
 
 ############################################################################
-# test_webui_rpc_guard  --  webui_rpc_guard.cpp: which /api/rpc methods the
-# web UI may call while calibrating or guiding (#81). std-only.
-############################################################################
-add_executable(test_webui_rpc_guard
-  ${PHD_TESTS_DIR}/event_server/test_webui_rpc_guard.cpp
-  ${phd_src_dir}/webui_rpc_guard.cpp
-)
-target_link_libraries(test_webui_rpc_guard PRIVATE phd_test_common)
-set_property(TARGET test_webui_rpc_guard PROPERTY FOLDER "Unit tests")
-add_test(NAME test_webui_rpc_guard COMMAND test_webui_rpc_guard)
-
-############################################################################
 # test_jsonrpc_request  --  jsonrpc_request.cpp: the checks an event-server
 # JSON-RPC request gets before dispatch, and the id its error echoes (#118).
 # std-only.

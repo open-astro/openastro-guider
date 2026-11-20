@@ -8,30 +8,22 @@ This is the human-readable companion to `design/API_CONTRACT.md` (the append-onl
 
 ## Transport
 
-The same method table is served over **two** sockets (both bind `0.0.0.0`, instance 1 ports):
+The method table is served over one socket, with an HTTP port beside it for image data (both
+bind `0.0.0.0`, instance 1 ports):
 
 - **TCP `:4400`** — the standard PHD2 *event server*: newline-delimited JSON-RPC requests, plus
-  an asynchronous **event stream** pushed to every connected client. This is what **NINA**
-  speaks. Port = `4400 + (instance − 1)`.
-- **HTTP `:8080`** — an embedded server that (a) serves the static **web app** (a full
-  PHD2-like UI: guide graph + live frame + controls, all three polar-alignment tools,
-  equipment, settings, darks — `scripts/webui/`), (b) bridges `POST /api/rpc` to the *same*
-  dispatch, and (c) serves `GET /api/frame.jpg` — the current guide frame stretched for
-  display, polled by the web app's live view. The response carries an `ETag` derived from
-  the frame counter; poll with `If-None-Match` to get a cheap `304` until a new frame
-  arrives. This is what **ARA** / browsers use. Port = `8080 + (instance − 1)`.
+  an asynchronous **event stream** pushed to every connected client. This is what **NINA** and
+  **ARA** speak. Port = `4400 + (instance − 1)`.
+- **HTTP `:8080`** — data only, no control (#114). It serves two routes and answers `404` to
+  everything else: `GET /api/capture/<filename>`, the FITS bytes of a frame saved by
+  `capture_single_frame`, and `GET /api/frame.jpg`, the current guide frame stretched for
+  display (ARA's live view). The JPEG carries an `ETag` derived from the frame counter; poll
+  with `If-None-Match` to get a cheap `304` until a new frame arrives. Port =
+  `8080 + (instance − 1)`, always the JSON-RPC port + 3680. Details: `doc/jsonrpc_api.md`,
+  "HTTP Data Endpoints".
 
 **Request** (JSON-RPC 2.0): `{"method": "<name>", "params": {...}|[...], "id": <n>}`.
-Params may be an object (named) or array (positional). Over HTTP, POST that body to `/api/rpc`;
-the response is wrapped `{"ok": true, "result": ...}` / `{"ok": false, "error": "..."}`.
-While calibrating or guiding, `/api/rpc` allows only reads (`get_*`, `*_get_status`), run
-control (`stop_capture`, `set_paused`, `dither`, `set_exposure`, `set_lock_position`, `guide`,
-`loop`, `shutdown`), the drift-align tool (`driftalign_*`, which guides while it measures) and
-`set_imaging_gear_devices` (it only changes what the guide log's imaging-gear reader reads).
-Everything else, including methods added later, gets HTTP `409` and
-`"stop guiding before changing settings"`, so a Save in the web app can't disturb a run.
-`:4400` is not affected. Every `/api/rpc` call except reads is written to the debug log
-(`httpsrv: rpc ...`).
+Params may be an object (named) or array (positional).
 Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}`).
 
 **Auth:** none — the daemon is intentionally **LAN-trusted, HTTP-only** (see
@@ -44,8 +36,8 @@ Over `:4400` the reply is raw JSON-RPC (`{"jsonrpc":"2.0","result":...,"id":<n>}
 | Method | Params | Description |
 |--------|--------|-------------|
 | `get_app_state` | — | Current state string (`Stopped`, `Selected`, `Calibrating`, `Guiding`, `LostLock`, `Paused`, `Looping`). |
-| `get_calibration_progress` | — | `{calibrating}`; while calibrating, also the last step with the `Calibrating` event's fields: `Mount`, `dir`, `step`, `dist`, `dx`, `dy`, `pos`, `State?`. For HTTP clients with no event stream (the web app's Guide tab). |
-| `get_version` | — | `version` (user-facing, from `version.md`), `phd_version`, `phd_subver`, `msg_version` — the `Version` event's fields for HTTP clients with no event stream (the web app's header pill). |
+| `get_calibration_progress` | — | `{calibrating}`; while calibrating, also the last step with the `Calibrating` event's fields: `Mount`, `dir`, `step`, `dist`, `dx`, `dy`, `pos`, `State?`. For clients that poll instead of reading the event stream. |
+| `get_version` | — | `version` (user-facing, from `version.md`), `phd_version`, `phd_subver`, `msg_version` — the `Version` event's fields, for a client that asks instead of waiting for the event. |
 | `get_connected` | `device`? (`all` default, `camera`, `mount`, `rotator`) | With `all`: `true` if all selected equipment is connected. For one device: `true` if it is selected in the profile and connected. |
 | `set_connected` | `connected` (bool), `device`? (`all` default, `camera`, `mount`, `rotator`) | Connect/disconnect the profile's equipment, or one device. `all` connects what it can and returns an error naming what failed (devices that did connect stay connected). A single device lets the camera loop while the mount is off: the mount or rotator can then join or leave while looping (not while calibrating or guiding); the camera and `all` need capture stopped. A connect already in the requested state is a no-op; a device not selected in the profile is an error on connect and a no-op on disconnect. A failed connect's error ends with the driver's reason: `"mount failed to connect (<reason>)"`, `"equipment failed to connect: mount (<reason>)"`. Headless daemon (#104): a device the guider was asked to connect that is still not connected is retried in the background 15 s, 30 s and 60 s after each failure, then every 60 s (the Alpaca server is asked on a thread of its own first); `EquipmentReconnected` is sent when it connects. `connected:false` is not a no-op for a device that is already disconnected: it stops that device's retries and makes `guide` refuse it ("...: the mount was disconnected by the user") until a client connects it again, and it stops an attempt in flight before its `PUT Connected=true` if not yet sent. Details: `doc/jsonrpc_api.md`, `set_connected`. |
 | `loop` | — | Start looping exposures (no guiding). |
@@ -216,7 +208,7 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 | `set_dither_settings` | `ScaleFactor`, `RaOnly` (either optional) | **(Batch A)** Set default dither scale / RA-only. |
 | `get_guide_output_enabled` | — | Whether guide output (corrections) is enabled. |
 | `set_guide_output_enabled` | `enabled` (bool) | Enable/disable sending guide corrections. |
-| `get_guide_history` | `max_points` (1–400, default 200) | Guide-step history + summary stats from the graph's data store (HTTP clients have no event stream, so they poll this): `{pixel_scale, stats {n, rms_ra, rms_dec, rms_tot, osc_index, ra_peak, dec_peak, star_lost, ra_limited, dec_limited}, points [{t (ms epoch), dx, dy, ra, dec (px), ra_dur, dec_dur (ms), ra_dir, dec_dir, mass, snr}]}`. |
+| `get_guide_history` | `max_points` (1–400, default 200) | Guide-step history + summary stats from the graph's data store (for clients that poll instead of reading the event stream): `{pixel_scale, stats {n, rms_ra, rms_dec, rms_tot, osc_index, ra_peak, dec_peak, star_lost, ra_limited, dec_limited}, points [{t (ms epoch), dx, dy, ra, dec (px), ra_dur, dec_dur (ms), ra_dir, dec_dir, mass, snr}]}`. |
 | `get_mount_options` | — | **(Batch C)** `{AssumeOrthogonal, CalFlipRequiresDecFlip, StopGuidingWhenSlewing}`. |
 | `set_mount_options` | `AssumeOrthogonal`?, `CalFlipRequiresDecFlip`?, `StopGuidingWhenSlewing`? (bool) | **(Batch C)** Set the mount behaviour flags (all optional). |
 | `get_backlash_comp` | — | **(Batch C)** `{Enabled, PulseWidth, Floor, Ceiling}` (ms) for declination backlash compensation. |
@@ -336,7 +328,7 @@ off). Neither method ever waits on the network.
 | Method | Params | Description |
 |--------|--------|-------------|
 | `get_imaging_gear` | — | The reader's cached snapshot (below). Right after the guider starts, before the first read completes, `source` is `unavailable`. |
-| `set_imaging_gear_devices` | `camera`?, `filterwheel`?, `focuser`?, `rotator`?, `telescope`?, `observingconditions`? (Alpaca device numbers; positional in that order) | Name the devices the reader uses, so it doesn't have to guess. An override wins over the selection rules (including the telescope/rotator the guider is connected to); with a `camera` override the camera is never ambiguous. A key that is omitted keeps its override; `-1` or `null` clears it; a call with no params (or `{}` / `[]`) clears them all. All or nothing: any bad param leaves every override unchanged. Errors (`-32602`): an unknown key (`unknown device type: <key>`), a value that isn't an integer ≥ −1 or null, more than six positional params, and `camera` equal to the guide camera's device number (`camera <n> is the guide camera, not the imaging camera`). Takes effect on the reader's next poll, which rediscovers the devices. An override naming a device the server doesn't list in `configureddevices` reads nothing for that type (`null` in `get_imaging_gear`). Kept in memory until changed or the guider exits — **not saved in the profile**; set them each session (after choosing the Alpaca server). Returns the overrides now in effect, `{camera, filterwheel, focuser, rotator, telescope, observingconditions}` (number or `null`). Allowed over `/api/rpc` while guiding. |
+| `set_imaging_gear_devices` | `camera`?, `filterwheel`?, `focuser`?, `rotator`?, `telescope`?, `observingconditions`? (Alpaca device numbers; positional in that order) | Name the devices the reader uses, so it doesn't have to guess. An override wins over the selection rules (including the telescope/rotator the guider is connected to); with a `camera` override the camera is never ambiguous. A key that is omitted keeps its override; `-1` or `null` clears it; a call with no params (or `{}` / `[]`) clears them all. All or nothing: any bad param leaves every override unchanged. Errors (`-32602`): an unknown key (`unknown device type: <key>`), a value that isn't an integer ≥ −1 or null, more than six positional params, and `camera` equal to the guide camera's device number (`camera <n> is the guide camera, not the imaging camera`). Takes effect on the reader's next poll, which rediscovers the devices. An override naming a device the server doesn't list in `configureddevices` reads nothing for that type (`null` in `get_imaging_gear`). Kept in memory until changed or the guider exits — **not saved in the profile**; set them each session (after choosing the Alpaca server). Returns the overrides now in effect, `{camera, filterwheel, focuser, rotator, telescope, observingconditions}` (number or `null`). |
 
 `get_imaging_gear` result — every key always present; `null` wherever the guide log writes `unknown`
 (not reported, not a number, or no such device):
