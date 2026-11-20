@@ -708,8 +708,8 @@ reported Dec moved by a driver's rounding.
 - A Dec within 0.02° (72") of the calibration's is now unchanged. Above 60° the `Alert` is raised
   only when the Dec moved enough to change the RA rate by more than 5%,
   |cos(Dec now) / cos(calibration Dec) − 1| > 0.05: about 0.5° at Dec 80°, and a move from 70° to
-  75° still raises it. Below that the guider guides with the calibration's RA rate, as it did
-  when the Dec had not changed.
+  75° still raises it. A smaller move raises no `Alert`, and the guider guides with the
+  calibration's RA rate as measured, as it did when the Dec had not changed.
 - Below 60° a Dec that moved more than 0.02° scales the RA rate by cos(Dec now) / cos(calibration
   Dec) when Dec compensation is on, as before; a smaller move keeps the calibration's RA rate
   (under 0.07% different).
