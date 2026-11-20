@@ -43,6 +43,7 @@
 
 #include "guide_algorithm_gaussian_process.h"
 #include "gaussian_process_guider.h"
+#include "guide_algorithm_gp_params.h"
 
 #include <ctime>
 
@@ -571,11 +572,7 @@ bool GuideAlgorithmGaussianProcess::SetParam(const wxString& name, double val)
     else if (name == "reactiveWeight")
         err = SetControlGain(val);
     else if (name == "periodLength")
-    {
-        std::vector<double> hyperparameters(NumParameters);
-        hyperparameters[PKPeriodLength] = val;
-        err = SetGPHyperparameters(hyperparameters);
-    }
+        err = SetGPHyperparameters(GPHyperparametersWithPeriodLength(GetGPHyperparameters(), val)); // keep the others (#138)
     else
         err = true;
 

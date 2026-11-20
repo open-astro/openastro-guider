@@ -522,6 +522,7 @@ Alpaca discovery/query:
 - `set_algo_param`
   - params: `{"axis":"...","name":"...","value":number}`
   - a missing or non-numeric `value` gets `-32602` "expected numeric value param" (#138; it used to crash the guider)
+  - Predictive PEC `periodLength` changes only the period; the other GP hyperparameters keep their values (#138)
 
 - `get_dec_guide_mode`
 - `set_dec_guide_mode`
@@ -951,7 +952,7 @@ This section is normative for integrator behavior. Each method entry describes:
 |---|---|---|---|---|---|
 | `get_guide_output_enabled` | none | mount object should exist | `bool` | `1` mount not defined | none |
 | `set_guide_output_enabled` | `enabled:bool` | mount object should exist | `0` | `-32602` invalid boolean; `1` mount not defined | guide output enable state changes |
-| `get_algo_param_names` | `axis:string` (`ra|dec|x|y`) | none | string[] incl. `algorithmName` | `1` invalid axis | none. `get_algo_param_names` stays the authoritative per-profile list (names depend on the selected algorithm); as a static reference, the common writable names are — Hysteresis: `hysteresis`,`aggression`,`minMove`; ResistSwitch: `aggression`,`minMove`,`fastSwitch`; LowPass: `minMove`,`slopeWeight`; LowPass2: `aggressiveness`,`minMove`; ZFilter: `expFactor`,`minMove`; GaussianProcess: `minMove` + the GP hyperparameters. Verify against the live list before writing |
+| `get_algo_param_names` | `axis:string` (`ra|dec|x|y`) | none | string[] incl. `algorithmName` | `1` invalid axis | none. `get_algo_param_names` stays the authoritative per-profile list (names depend on the selected algorithm); as a static reference, the common writable names are — Hysteresis: `hysteresis`,`aggression`,`minMove`; ResistSwitch: `aggression`,`minMove`,`fastSwitch`; LowPass: `minMove`,`slopeWeight`; LowPass2: `aggressiveness`,`minMove`; ZFilter: `expFactor`,`minMove`; GaussianProcess (Predictive PEC, RA only): `minMove`,`predictiveWeight`,`reactiveWeight`,`periodLength` (`periodLength` changes only the period; the other GP hyperparameters keep their values). Verify against the live list before writing |
 | `get_algo_param` | `axis:string`, `name:string` | none | number or string (`algorithmName`) | `1` invalid args or unknown param | none |
 | `set_algo_param` | `axis:string`, `name:string`, `value:number` | none | `0` | `-32602` `value` missing or not a number ("expected numeric value param"); `1` invalid axis or name, or set failure | algorithm parameter updated; graph controls refreshed |
 | `get_dec_guide_mode` | none | none | mode string (`Scope::DecGuideModeStr`) | none expected | none |

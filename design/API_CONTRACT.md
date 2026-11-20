@@ -590,11 +590,18 @@ response; `ClearCalibration` (mediator) returns false.
 
 ## 2026-11-20 — set_algo_param value check (#138)
 
+## 2026-11-20 — set_algo_param value check, Predictive PEC period (#138)
+
 - `set_algo_param` without `value` crashed the guider (the missing param was dereferenced). A
   missing or non-numeric `value` (a string, a bool, `null`) now gets JSON-RPC `-32602` "expected
   numeric value param"; a non-numeric one got error `1` "expected param value param" before. A bad
   axis or name and a failed set keep error `1`. The other handlers already checked their params
   before reading them; the readers they share (`float_param`, `bool_param`) now refuse a missing
   param themselves too, in the wx-free `src/jsonrpc_request.cpp`.
+- `set_algo_param` `periodLength` on Predictive PEC (Gaussian Process) now changes only the
+  period. It wrote every other GP hyperparameter as 0: the three signal variances were saved to
+  the profile as 0, which turned the PEC prediction off across restarts, the three length scales
+  went back to their defaults, and the call answered "could not set param" although the period was
+  set. A period below 1 is still refused with error `1` (the period goes back to its default).
 
-ARA: no code change. It always sends a numeric `value`.
+ARA: no code change. It always sends a numeric `value` and does not set `periodLength`.
