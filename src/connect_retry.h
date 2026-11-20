@@ -184,7 +184,7 @@ struct Gates
     bool shuttingDown = false;
     bool darkBuild = false; // a dark-library / defect-map build is capturing (#100)
     bool paSession = false; // a set_pa_session lease is held
-    bool alignmentTool = false; // AlignmentToolBlocks: Static PA open, polar drift drifting, drift tool open
+    bool alignmentTool = false; // AlignmentToolBlocks: polar drift drifting, drift tool open
     bool guidingAssistant = false;
     bool connectInProgress = false; // a connect or disconnect call is on the stack (re-entrant event loop)
     bool captureActive = false;
@@ -195,15 +195,11 @@ struct Gates
 // The alignment tools, for Gates::alignmentTool.
 struct AlignmentTools
 {
-    bool staticPaOpen = false; // in any phase: aligning, between manual points, adjusting
     bool polarDriftDrifting = false;
     bool driftToolOpen = false; // drifting or adjusting
 };
 // True while a background connect must wait for an alignment tool. A connect runs GearDialog::EndModal, which can
-// reload the calibration and the image scale under the tool, and a mount that connects mid-run switches Static PA's
-// target from the home-position assumption to the mount's own RA. So Static PA blocks for as long as it is open,
-// not only while it measures a point: the user may be turning RA by hand between manual points, or the bolts in
-// the adjust phase.
+// reload the calibration and the image scale under the tool.
 bool AlignmentToolBlocks(const AlignmentTools& tools);
 
 // Why a background attempt for d must wait, or "" when it can run. Past the gates of its own, the ConnectRefusal

@@ -474,3 +474,21 @@ unchanged: `GET /api/capture/<filename>` and `GET /api/frame.jpg`. Every other m
 
 ARA: no code change. It uses `:4400` for control and only the two kept routes on `:8080`
 (`PolarAlignFrameFetcher` / `PHD2Guider.CaptureFrameUri`, `PHD2Guider.LiveFrameUri`).
+
+## 2026-11-19 — Static PA removed (#113)
+
+ARA's polar alignment is the only polar-alignment routine, so the in-guider Static PA tool
+(inherited from PHD2) is gone. Its auto mode slewed the mount through upstream motion code with
+no meridian, pier-side or hour-angle guard; removing it supersedes #112.
+
+- `staticpa_start`, `staticpa_measure`, `staticpa_get_status`, `staticpa_stop` and
+  `staticpa_close` now return JSON-RPC `-32601` "method not found". The entries above that
+  describe them (2026-06-10) are history.
+- `guiding_assistant_start` no longer checks for a running Static PA tool; it still refuses
+  while polar drift or drift alignment is running. The connect retry (#104) no longer waits on
+  an open Static PA tool; it still waits while polar drift is drifting or the drift tool is open.
+- `LoopingExposures` no longer carries `Status: "Static PA: waiting for the RA step to finish"`.
+- Polar drift (`polardrift_*`) and drift align (`driftalign_*`) are unchanged.
+
+ARA: no code change. Nothing calls the `staticpa_*` methods since openastro-ara#1686; the unused
+classes in `PHD2Methods.PolarAlign.cs` go in an ARA follow-up.

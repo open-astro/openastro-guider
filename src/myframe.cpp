@@ -42,7 +42,6 @@
 #include "phdupdate.h"
 #include "pierflip_tool.h"
 #include "Refine_DefMap.h"
-#include "staticpa_tool.h"
 
 #include <algorithm>
 #include <memory>
@@ -95,7 +94,6 @@ EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
 EVT_MENU(EEGG_FLIPCAL, MyFrame::OnEEGG)
 EVT_MENU(MENU_DRIFTTOOL, MyFrame::OnDriftTool)
 EVT_MENU(MENU_POLARDRIFTTOOL, MyFrame::OnPolarDriftTool)
-EVT_MENU(MENU_STATICPATOOL, MyFrame::OnStaticPaTool)
 EVT_MENU(MENU_COMETTOOL, MyFrame::OnCometTool)
 EVT_MENU(MENU_GUIDING_ASSISTANT, MyFrame::OnGuidingAssistant)
 EVT_MENU(MENU_HELP_ONLINE, MyFrame::OnHelpOnline)
@@ -329,7 +327,6 @@ MyFrame::MyFrame()
 
     pDriftTool = nullptr;
     pPolarDriftTool = nullptr;
-    pStaticPaTool = nullptr;
     pManualGuide = nullptr;
     pStarCrossDlg = nullptr;
     pNudgeLock = nullptr;
@@ -425,8 +422,6 @@ MyFrame::~MyFrame()
         pDriftTool->Destroy();
     if (pPolarDriftTool)
         pPolarDriftTool->Destroy();
-    if (pStaticPaTool)
-        pStaticPaTool->Destroy();
     if (pRefineDefMap)
         pRefineDefMap->Destroy();
     if (pCalSanityCheckDlg)
@@ -499,8 +494,6 @@ void MyFrame::SetupMenuBar()
                        _("Align by analyzing star drift near the celestial equator (Accurate)"));
     tools_menu->Append(MENU_POLARDRIFTTOOL, _("&Polar Drift Align"),
                        _("Align by analyzing star drift near the celestial pole (Simple)"));
-    tools_menu->Append(MENU_STATICPATOOL, _("&Static Polar Align"),
-                       _("Align by measuring the RA axis offset from the celestial pole (Fast)"));
     (void) tools_menu->AppendSeparator();
     tools_menu->AppendCheckItem(MENU_SERVER, _("Enable Server"), _("Enable PHD2 server capability"));
     tools_menu->AppendCheckItem(EEGG_STICKY_LOCK, _("Sticky Lock Position"),
@@ -1112,13 +1105,6 @@ void MyFrame::UpdateButtonsStatus()
         wxCommandEvent event(APPSTATE_NOTIFY_EVENT, GetId());
         event.SetEventObject(this);
         wxPostEvent(pPolarDriftTool, event);
-    }
-    if (pStaticPaTool)
-    {
-        // let the static PA tool update its buttons too
-        wxCommandEvent event(APPSTATE_NOTIFY_EVENT, GetId());
-        event.SetEventObject(this);
-        wxPostEvent(pStaticPaTool, event);
     }
 
     if (pCometTool)
@@ -1878,7 +1864,6 @@ bool MyFrame::StopCapturing()
 {
     Debug.Write(wxString::Format("StopCapturing CaptureActive=%d continueCapturing=%d exposurePending=%d\n", CaptureActive,
                                  m_continueCapturing, m_exposurePending));
-    StaticPaTool::NotifyLiveStale(); // #99: no live Static PA readout once capture is stopping
 
     bool finished = true;
     bool continueCapturing = m_continueCapturing;

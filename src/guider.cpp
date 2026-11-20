@@ -35,7 +35,6 @@
 #include "nudge_lock.h"
 #include "comet_tool.h"
 #include "polardrift_tool.h"
-#include "staticpa_tool.h"
 #include "guiding_assistant.h"
 
 // un-comment to log star deflections to a file
@@ -709,9 +708,8 @@ bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
             dc.DrawCircle(m_polarAlignCircleCenter.X * m_scaleFactor, m_polarAlignCircleCenter.Y * m_scaleFactor, radius);
         }
 
-        // draw static polar align stuff
+        // draw polar drift align stuff
         PolarDriftTool::PaintHelper(dc, m_scaleFactor);
-        StaticPaTool::PaintHelper(dc, m_scaleFactor);
 
         if (IsPaused())
         {
@@ -1183,7 +1181,6 @@ void Guider::StopGuiding()
 void Guider::Reset(bool fullReset)
 {
     SetState(STATE_UNINITIALIZED);
-    StaticPaTool::NotifyLiveStale(); // #99: no live readout from a frame before the reset
     if (fullReset)
     {
         InvalidateCurrentPosition(true);
@@ -1307,30 +1304,10 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
             NudgeLockTool::UpdateNudgeLockControls();
         }
 
-        // #98: a frame exposed while a Static PA auto-mode RA step is moving has a
-        // smeared star. Show it and tell clients about it, but do not track it: it
-        // must not move the star, count as a star loss, or feed the mass checker
-        // or auto exposure.
-        if (m_state == STATE_SELECTED && StaticPaTool::IgnoreFrame(pImage))
-        {
-            statusMessage = _("Static PA: waiting for the RA step to finish");
-            FrameDroppedInfo skipped {};
-            skipped.frameNumber = pImage->FrameNum;
-            skipped.status = statusMessage;
-            EvtServer.NotifyLooping(pImage->FrameNum, nullptr, &skipped);
-            throw THROW_INFO("Static PA RA step moving - frame not star-tracked");
-        }
-
         GuiderOffset ofs;
         FrameDroppedInfo info;
 
-        bool positionError = UpdateCurrentPosition(pImage, &ofs, &info); // true means error
-
-        // #99: the Static PA adjust phase follows the reference star's field on
-        // every looping frame, whether or not the guider kept its own star
-        StaticPaTool::NotifyFrame(pImage, !positionError);
-
-        if (positionError)
+        if (UpdateCurrentPosition(pImage, &ofs, &info)) // true means error
         {
             info.frameNumber = pImage->FrameNum;
             info.time = pFrame->TimeSinceGuidingStarted();
@@ -1350,7 +1327,6 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
                     SetState(STATE_UNINITIALIZED);
                     EvtServer.NotifyStarLost(info);
                 }
-                StaticPaTool::NotifyStarLost();
                 break;
             case STATE_CALIBRATING_PRIMARY:
             case STATE_CALIBRATING_SECONDARY:
@@ -1424,12 +1400,6 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
             SetState(STATE_SELECTED);
             break;
         case STATE_SELECTED:
-            if (!StaticPaTool::UpdateState())
-            {
-                SetState(STATE_UNINITIALIZED);
-                statusMessage = _("Static PA rotation failed");
-                throw ERROR_INFO("Static PA rotation failed");
-            }
             if (!PolarDriftTool::UpdateState())
             {
                 SetState(STATE_UNINITIALIZED);

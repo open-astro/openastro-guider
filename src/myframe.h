@@ -258,7 +258,6 @@ public:
     TargetWindow *pTarget;
     wxWindow *pDriftTool;
     wxWindow *pPolarDriftTool;
-    wxWindow *pStaticPaTool;
     wxWindow *pManualGuide;
     wxDialog *pStarCrossDlg;
     wxWindow *pNudgeLock;
@@ -315,7 +314,6 @@ public:
     void OnEEGG(wxCommandEvent& evt);
     void OnDriftTool(wxCommandEvent& evt);
     void OnPolarDriftTool(wxCommandEvent& evt);
-    void OnStaticPaTool(wxCommandEvent& evt);
     void OnCalibrationAssistant(wxCommandEvent& evt);
     void OnCometTool(wxCommandEvent& evt);
     void OnGuidingAssistant(wxCommandEvent& evt);
@@ -634,7 +632,6 @@ enum
     MENU_AUTOSTAR,
     MENU_DRIFTTOOL,
     MENU_POLARDRIFTTOOL,
-    MENU_STATICPATOOL,
     MENU_COMETTOOL,
     MENU_GUIDING_ASSISTANT,
     MENU_SAVESETTINGS,

@@ -185,9 +185,7 @@ Application/runtime errors:
     sent (below); no exposure starts. Failed attempts send no `Alert`, not even when the driver fails after the
     server reported the device connected (that failure goes to the debug log, and its reason to the next error
     text); a connect a client asks for keeps its `Alert`.
-  - an attempt waits while a dark-library or defect-map build runs, a `set_pa_session` lease is held, the static
-    polar alignment tool is open (in any phase, from `staticpa_start` to `staticpa_close`: aligning, between
-    manual points and adjusting, since a mount that connected mid-run would move the target), polar drift
+  - an attempt waits while a dark-library or defect-map build runs, a `set_pa_session` lease is held, polar drift
     alignment is drifting, the drift-alignment tool is open, or the Guiding Assistant runs, and under the same
     rules as `set_connected` (the camera not while capture is active; the mount and rotator not while calibrating
     or guiding). It runs once the gate opens.
@@ -638,101 +636,6 @@ Alpaca discovery/query:
   - exports configuration to default data directory as `phd2_settings.txt`
   - result: `{"filename":"..."}`
 
-### Static Polar Alignment
-
-The `staticpa_*` methods (`staticpa_start`, `staticpa_measure`, `staticpa_get_status`, `staticpa_stop`,
-`staticpa_close`) drive the Static PA tool headlessly. This section covers only how auto mode treats the frames
-exposed during its own RA steps (#98), the auto-mode `rotation` progress at the start of a run (#109) and the live
-readout while the user adjusts the mount (#99).
-
-- In auto mode (`staticpa_start {auto:true}`) the tool turns the mount west in RA in steps while the camera keeps
-  looping. While it is aligning, the daemon asks the mount whether it is slewing on every frame, before the star is
-  tracked. A frame is **not star-tracked** when the mount reads slewing, and after a step until the first frame
-  whose exposure started after the mount was seen to have stopped. The frame on which the stop is first seen was
-  exposed while the mount may still have been moving, so it is skipped as well. Each step's reading (and the
-  reference position for the next step) comes from the first frame that is tracked again.
-- A skipped frame is still displayed and still sent as `LoopingExposures`, with `Frame` and
-  `Status: "Static PA: waiting for the RA step to finish"` and no `StarMass`/`SNR`/`HFD`/`ErrorCode`. It is not a
-  star loss: no `StarLost` is sent and the run does not end, and it does not feed the mass-change check or auto
-  exposure.
-- `staticpa_get_status` keeps its shape. `rotation.slewing` is the mount's live `Slewing` state, so it can read
-  `false` for about one more frame while the step's reading is still pending.
-- `rotation.required_deg`, `rotated_deg`, `step` and `required_steps` read `0` from each `staticpa_start` (the
-  `staticpa_start` result included) until point 1 is measured and sets the targets (#109), not the previous run's
-  values.
-- Cost: one extra frame per step compared with reading the step on the frame where the mount is first seen
-  stopped (about one exposure plus download per step). A frame whose start time reads later than now (the system
-  clock was stepped back while it downloaded) is skipped too, so such a step costs one more frame.
-- No smeared-frame bridge: the star must be found within one search region of its position before the step. The
-  steps are sized for an assumed 5 deg polar error, one search region per step, so a mount that is much further off
-  can now lose the star on the first frame after a step and end the run ("Static PA rotation failed - star lost"),
-  where before a smeared frame found partway along the arc could carry the tracker across. This is the limit
-  upstream PHD2 already has on a mount whose steps finish between two frames. A larger search region does not help,
-  because the steps grow with it.
-- A mount that cannot report slewing (`Slewing` always `false`) skips one frame per step. A mount whose `Slewing`
-  read fails (an Alpaca HTTP error reads as not slewing) is treated as stopped.
-- Manual mode (`auto:false` with `staticpa_measure`) is unchanged.
-
-#### Live readout while adjusting (#99)
-
-Once the solution is calculated from points measured since the latest `staticpa_start` (`calced: true`) and the
-tool is not measuring (`aligning: false`), it is adjusting: the user turns the alt/az bolts and a client polls `staticpa_get_status` for `live_adjustment`, which converges to zero as the
-reference star reaches `ref_star_target`. The tool follows the reference star itself, through its star field,
-instead of reading the guider's star:
-
-- When the solution is calculated, the tool keeps the frame that produced the measurement: the reference star and up
-  to 30 stars around it. On every looping frame after that it lists the stars of the whole frame and works out how
-  the field moved (a translation plus a small rotation). A frame counts as a fix only when at least
-  max(3, 30% of the stars expected in view) of the measurement frame's stars agree on the move and no other move
-  explains nearly as many of them. A bolt turn of any size is found on the first frame after it while enough of the
-  field stays in view, and another star is never taken for the reference star. The guider's search region no longer
-  limits the readout.
-- When the measurement frame was a subframe (`UseSubframes` on), the field is taken from the next frame, a full one,
-  and only if a star is still within 3 px of the measured position: when the field has already moved (a turn started
-  at once), nothing ties the reference star to a star of that frame, so there is no live readout (`lost`, both
-  counters 0) until the alignment is measured again.
-- `staticpa_get_status` (and the `staticpa_stop` result, which returns the same object) gains `live_tracking` while
-  adjusting. The `staticpa_start` and `staticpa_measure` results never carry it: the tool is measuring by then.
-  `{"state": "tracking"|"searching"|"lost", "frames_since_fix": int, "seconds_since_fix": number,
-  "confirmed_by": int, "ambiguous": bool}`.
-  - `tracking`: the latest frame gave a fix, and it is fresh: capture is running and the fix is younger than
-    max(3 x exposure, 5 s).
-  - `searching`: no fresh fix (the field did not match on the latest frame, capture stopped or failed, the guider
-    was reset, or the guider is calibrating or guiding). The tool keeps looking.
-  - `lost`: no fix for at least 10 frames and 15 s. The tool still keeps looking, and the state goes back to
-    `tracking` on its own once the field is in view again. `lost` with `frames_since_fix` and `seconds_since_fix`
-    both 0 is the one exception: there is no field to look for (see the subframe case above) until the alignment is
-    measured again.
-  - `frames_since_fix`: frames evaluated since the last fix (0 when the latest frame is the fix). `seconds_since_fix`:
-    since the last fix, on a steady clock.
-  - `confirmed_by`: stars of the measurement frame that matched on the last fix. It is 0 for the measurement itself,
-    and for a field with fewer than 3 stars, where the tool follows the guider's own star instead (with the guider's
-    search-region limits, as before).
-  - `ambiguous`: the latest frame matched two different moves nearly equally well, so it is not a fix.
-- `current_star` and `live_adjustment` keep their shape but are present only while `live_tracking.state` is
-  `tracking`. `current_star` is the reference star's position on the latest frame. When the star has been moved off
-  the sensor while enough of its field is still in view, it is the position the field puts it at, which can lie
-  outside the frame (x < 0, y < 0, or beyond the frame size). It can differ from the guider's star: the guider is not
-  changed and may still lose its star during a turn (`StarLost`, `LoopingExposures` without a star), so select the
-  star again (`find_star`) before measuring again.
-- Neither `live_tracking` nor `current_star` / `live_adjustment` is sent while a solution uses points from an
-  earlier run. Manual mode keeps the previous points, so after `staticpa_start {auto:false}` the new point 1 is
-  calculated with the old points 2 and 3 (`calced: true`, `aligning: false`); the live readout comes back only once
-  points 1, 2 and 3 have all been measured again (auto mode: points 1 and 2). Before, the fields were reported
-  against such a mixed solution. They are also not sent while calibrating or guiding with the tool open (`state`
-  reads `searching` from the moment calibration or guiding starts).
-- While adjusting and looping, the guider takes no subframes, so that every frame shows the whole field (this
-  matters only when `UseSubframes` is on, also while the guider is paused or has lost its star). Calibration and
-  guiding keep their subframes even with a solved tool left open, since the readout is off then. The one frame
-  already scheduled when the adjust phase begins can still be a subframe: it is not counted either way, and the
-  previous fix is no longer reported.
-- Limits: the field is matched against the measurement frame's stars only, so a move that leaves fewer than
-  max(3, 30%) of them in view reads `searching` until the field comes back. A frame of another size (binning
-  changed) is not matched: it counts as a frame without a fix, so the state goes to `lost`, and the readout comes back
-  if the size is changed back. The search runs on the main thread on every frame: about
-  2 ms at 1280x960 and 10 ms at 3096x2080 on the arm64 test machine (larger sensors are binned for the detection
-  pass and measured at full resolution); the debug log has one `StaticPA live:` line per frame with the timing.
-
 ## Async Events
 
 All events include base fields:
@@ -803,9 +706,7 @@ Payload notes for downstream clients:
   (AlpacaBridge's iOptron driver reports a pulse as running for 500 ms after it ends). Absent for AO steps; on an AO
   rig the scope's bump moves carry it but run beside the exposures. The guide log CSV is unchanged.
 - `LoopingExposures` — `{ Frame }`, plus `StarMass`, `SNR`, `HFD` when a star was measured, `ErrorCode` when the
-  star was not found and `Status` when there is a reason to show. While a Static PA auto-mode RA step is moving, the
-  frame is not measured: the event carries `Frame` and `Status: "Static PA: waiting for the RA step to finish"`
-  only, and no `StarLost` follows (see Static Polar Alignment above).
+  star was not found and `Status` when there is a reason to show.
 - `EquipmentDisconnected` — `{ device_type: "camera", reason: string, reconnecting: bool }`. Emitted (in addition
   to `Alert`) whenever the daemon force-disconnects a device on a fault: the capture timeout, an Alpaca camera the
   server reports as not connected (Alpaca error 1031 from any capture call: `binx`/`biny`, `startexposure`,

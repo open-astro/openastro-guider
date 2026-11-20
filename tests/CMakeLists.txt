@@ -135,46 +135,6 @@ set_property(TARGET test_zfilter PROPERTY FOLDER "Unit tests")
 add_test(NAME test_zfilter COMMAND test_zfilter)
 
 ############################################################################
-# test_polar_alignment  --  links the REAL production staticpa_geometry.cpp,
-# the pure geometry/astrometry kernels extracted from StaticPaToolWin. No wx
-# coupling. Verifies circle-fit, CoR/Alt-Az decomposition, reference-star
-# projection and J2000 precession via geometric invariants.
-############################################################################
-add_executable(test_polar_alignment
-  ${PHD_TESTS_DIR}/polar_alignment/test_polar_alignment.cpp
-  ${phd_src_dir}/staticpa_geometry.cpp
-)
-target_link_libraries(test_polar_alignment PRIVATE phd_test_common)
-set_property(TARGET test_polar_alignment PROPERTY FOLDER "Unit tests")
-add_test(NAME test_polar_alignment COMMAND test_polar_alignment)
-
-############################################################################
-# test_staticpa_step_gate  --  staticpa_step_gate.cpp: frames exposed while a
-# Static PA auto-mode RA step is moving are not star-tracked (#98). std-only.
-############################################################################
-add_executable(test_staticpa_step_gate
-  ${PHD_TESTS_DIR}/polar_alignment/test_staticpa_step_gate.cpp
-  ${phd_src_dir}/staticpa_step_gate.cpp
-)
-target_link_libraries(test_staticpa_step_gate PRIVATE phd_test_common)
-set_property(TARGET test_staticpa_step_gate PROPERTY FOLDER "Unit tests")
-add_test(NAME test_staticpa_step_gate COMMAND test_staticpa_step_gate)
-
-############################################################################
-# test_staticpa_tracker  --  staticpa_tracker.cpp: the field tracker that keeps
-# the Static PA live readout on the reference star through bolt turns (#99).
-# Links the REAL star_find_core.cpp; images are synthetic, in memory.
-############################################################################
-add_executable(test_staticpa_tracker
-  ${PHD_TESTS_DIR}/polar_alignment/test_staticpa_tracker.cpp
-  ${phd_src_dir}/staticpa_tracker.cpp
-  ${phd_src_dir}/star_find_core.cpp
-)
-target_link_libraries(test_staticpa_tracker PRIVATE phd_test_common)
-set_property(TARGET test_staticpa_tracker PROPERTY FOLDER "Unit tests")
-add_test(NAME test_staticpa_tracker COMMAND test_staticpa_tracker)
-
-############################################################################
 # test_guide_algorithm_lowpass  --  links the REAL Lowpass/Lowpass2 decision
 # math (guide_algorithm_lowpass_math.cpp) against the REAL WindowedAxisStats
 # (guiding_stats.cpp). The algorithm .cpp files themselves carry wx GUI

@@ -1996,7 +1996,7 @@ void GearDialog::OnConnectRetryTimer(wxTimerEvent& event)
     if (m_probeRunning)
     {
         // The gates were checked when the probe started. One that has closed since (a dark build, calibration,
-        // the Static PA tool opening...) cancels the probe before its Connected=true PUT if that is not sent yet;
+        // polar drift starting...) cancels the probe before its Connected=true PUT if that is not sent yet;
         // the device then waits on the gate like any other due attempt. A connect on the stack is left out: that
         // connect records its own result.
         ConnectRetry::Gates now = CurrentRetryGates();

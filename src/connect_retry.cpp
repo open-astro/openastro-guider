@@ -266,7 +266,7 @@ const std::string& Tracker::LastReason(GearDevice d) const
 
 bool AlignmentToolBlocks(const AlignmentTools& tools)
 {
-    return tools.staticPaOpen || tools.polarDriftDrifting || tools.driftToolOpen;
+    return tools.polarDriftDrifting || tools.driftToolOpen;
 }
 
 std::string RetryBlocker(GearDevice d, const Gates& g)

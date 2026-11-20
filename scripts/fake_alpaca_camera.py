@@ -6,8 +6,8 @@ field (noisy background + a dozen Gaussian stars), enough for the guider's
 camera connect path, capture_single_frame, find_star, and get_star_centroids.
 
 With --rotate-deg-per-sec the star field rotates about --pole (a fake celestial
-pole on the sensor), which is what the polar-alignment flows need: the static-PA
-circle fit should recover the pole point as its centre of rotation.
+pole on the sensor), which is what RA rotation does to the sky: a circle fit
+through the star's positions should recover the pole point as its centre.
 
 A fake Alpaca *telescope* is served at device 0 too. Its pulseguide requests
 shift the star field (so the guider can calibrate and guide against it), and
@@ -20,16 +20,16 @@ reported coordinates only, unless --slew-seconds is given:
                        target until S has passed; abortslew stops it where it is.
     --slew-rotates     the field angle follows the scope's RA about --pole,
                        (RA at start - RA now) * 15 deg, interpolated during a slew,
-                       which is what a Static PA auto-mode RA step does to the sky.
+                       which is what any RA slew does to the sky.
     --slew-smear F     a frame whose exposure (startexposure time + Duration)
                        overlapped a slew is drawn with the stars at the field angle
                        of the middle of the overlap and their flux divided by F
                        (about 80 on the #98 rig), like a star smeared by the slew.
 
-    e.g. Static PA auto mode against a pole 5 deg off the star at 7.73"/px:
+    e.g. RA slews about a pole 5 deg off the star at 7.73"/px:
         --slew-seconds 2 --slew-rotates --slew-smear 80 --pole 320,-2089
 
-Larger sensors and denser fields (#99, the Static PA adjust phase):
+Larger sensors and denser fields (#99):
 
     --size W,H         sensor size (default 640,480)
     --stars N          N random stars per frame area instead of the dozen fixed ones,
@@ -648,7 +648,7 @@ if __name__ == "__main__":
     ap.add_argument("--slew-seconds", type=float, default=0.0,
                     help="slewtocoordinatesasync takes this long and reads slewing meanwhile (0: instant)")
     ap.add_argument("--slew-rotates", action="store_true",
-                    help="rotate the star field about --pole by the scope's RA change (Static PA steps)")
+                    help="rotate the star field about --pole by the scope's RA change (RA slews)")
     ap.add_argument("--slew-smear", type=float, default=0.0, metavar="F",
                     help="divide star flux by F on frames exposed during a slew (0: off)")
     ap.add_argument("--size", default="640,480", help="sensor W,H in px")
