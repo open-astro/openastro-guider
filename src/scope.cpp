@@ -623,7 +623,9 @@ Mount::MOVE_RESULT Scope::MoveAxis(GUIDE_DIRECTION direction, int duration, unsi
         if (plan.zeroedByDecMode)
             Debug.Write("duration set to 0 by GuideMode\n");
 
-        if (plan.limited)
+        if (plan.capped)
+            Debug.Write(wxString::Format("duration set to %d by the pulse ceiling\n", duration));
+        else if (plan.limited)
             Debug.Write(wxString::Format("duration set to %d by %s\n", duration, decAxis ? "maxDecDuration" : "maxRaDuration"));
 
         if (plan.alert)

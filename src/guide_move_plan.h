@@ -95,9 +95,10 @@ struct AxisPlan
 };
 
 // Scope::MoveAxis's pulse for a requested one. Only guide steps and deduced moves
-// (ALGO_RESULT or ALGO_DEDUCE) are filtered by the Dec guide mode, clamped and counted;
-// calibration (no bits), recovery and AO-bump moves pass through as asked. The tracker of the
-// move's axis is updated.
+// (ALGO_RESULT or ALGO_DEDUCE) are filtered by the Dec guide mode, clamped to the max duration
+// and counted; recovery and AO-bump moves (USE_BLC alone) are not, but they and the guide steps
+// are capped at MAX_PULSE_MS. Calibration (no bits) and manual moves pass through as asked. The
+// tracker of the move's axis is updated.
 AxisPlan PlanAxis(Dir dir, int ms, unsigned moveOptions, const AxisPolicy& policy, LimitTracker& ra, LimitTracker& dec);
 
 } // namespace guide_move_plan
