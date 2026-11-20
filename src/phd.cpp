@@ -119,7 +119,9 @@ PhdApp::PhdApp()
 // directory whenever the service stops, so a lock left by a power loss can't
 // name a PID that a process of the next boot has reused. Elsewhere it stays
 // where wx puts it by default, the home directory. OnInit and HandleRestart
-// must both use this so the restart helper waits on the same lock.
+// must both use this (with the same instance number) so the restart helper
+// waits on the lock of the instance it restarts. A run outside systemd, even
+// as the service user, does not see the daemon's lock in /run.
 wxSingleInstanceChecker *PhdApp::CreateInstanceChecker() const
 {
     wxString dir(InstanceLock::LockDir(getenv("RUNTIME_DIRECTORY")));
@@ -128,6 +130,22 @@ wxSingleInstanceChecker *PhdApp::CreateInstanceChecker() const
 
 void PhdApp::HandleRestart()
 {
+    // copy command-line args skipping "restart"
+    wchar_t **targv = new wchar_t *[argc * sizeof(*targv)];
+    targv[0] = wxStrdup(argv[0].wc_str());
+    int src = 2, dst = 1;
+    while (src < argc)
+        targv[dst++] = wxStrdup(argv[src++].wc_str());
+    targv[dst] = 0;
+
+    // This runs before wxApp::OnInit parses the command line, so take -i from
+    // the parent's arguments here; otherwise the helper would wait on instance
+    // 1's lock whatever instance is restarting (#135).
+    wxCmdLineParser parser(dst, targv);
+    OnInitCmdLine(parser);
+    if (parser.Parse(false) == 0)
+        (void) parser.Found("i", &m_instanceNumber);
+
     // wait until prev instance (parent) terminates
     while (true)
     {
@@ -136,14 +154,6 @@ void PhdApp::HandleRestart()
             break;
         wxMilliSleep(200);
     }
-
-    // copy command-line args skipping "restart"
-    wchar_t **targv = new wchar_t *[argc * sizeof(*targv)];
-    targv[0] = wxStrdup(argv[0].wc_str());
-    int src = 2, dst = 1;
-    while (src < argc)
-        targv[dst++] = wxStrdup(argv[src++].wc_str());
-    targv[dst] = 0;
 
     // launch a new instance
     wxExecute(targv, wxEXEC_ASYNC);

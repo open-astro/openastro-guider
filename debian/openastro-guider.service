@@ -25,7 +25,9 @@ RestartSec=3
 # /run is a tmpfs and systemd removes the directory whenever the service
 # stops, so a lock left by a power loss or a crash can't survive to name a PID
 # that another process (Xvfb, on RC51) reuses on the next boot and keep the
-# guider from starting. Without $RUNTIME_DIRECTORY the lock stays in $HOME.
+# guider from starting. Without $RUNTIME_DIRECTORY the lock stays in $HOME, so
+# a guider run by hand as this user (sudo -u drops the variable) does not see
+# the service's lock: stop the service first.
 RuntimeDirectory=openastro-guider
 RuntimeDirectoryMode=0700
 
