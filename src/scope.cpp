@@ -52,15 +52,21 @@ enum
 static const DEC_GUIDE_MODE DefaultDecGuideMode = DEC_AUTO;
 static const GUIDE_ALGORITHM DefaultRaGuideAlgorithm = GUIDE_ALGORITHM_HYSTERESIS;
 static const GUIDE_ALGORITHM DefaultDecGuideAlgorithm = GUIDE_ALGORITHM_RESIST_SWITCH;
-static const int MAX_CALIBRATION_STEPS = 60;
 static const int CAL_ALERT_MINSTEPS = 4;
 static const double CAL_ALERT_ORTHOGONALITY_TOLERANCE = 12.5; // Degrees
 static const double CAL_ALERT_DECRATE_DIFFERENCE = 0.20; // Ratio tolerance
 static const double CAL_ALERT_AXISRATES_TOLERANCE = 0.20; // Ratio tolerance
 static const bool SANITY_CHECKING_ACTIVE = true; // Control calibration sanity checking
 
-static int MAX_NUDGES = 3;
-static double NUDGE_TOLERANCE = 2.0;
+// The calibration run's enums carry the values of the app's (#142)
+static_assert((int) calibration_run::Dir::North == NORTH && (int) calibration_run::Dir::South == SOUTH &&
+              (int) calibration_run::Dir::East == EAST && (int) calibration_run::Dir::West == WEST);
+static_assert((int) calibration_run::DecMode::None == DEC_NONE && (int) calibration_run::DecMode::Auto == DEC_AUTO &&
+              (int) calibration_run::DecMode::North == DEC_NORTH && (int) calibration_run::DecMode::South == DEC_SOUTH);
+static_assert((int) calibration_run::Parity::Odd == GUIDE_PARITY_ODD &&
+              (int) calibration_run::Parity::Unknown == GUIDE_PARITY_UNKNOWN &&
+              (int) calibration_run::Parity::Even == GUIDE_PARITY_EVEN);
+static_assert(calibration_run::RATE_UNCALIBRATED == CALIBRATION_RATE_UNCALIBRATED);
 
 // Scope::MoveAxis casts these into guide_move_plan
 static_assert(static_cast<int>(guide_move_plan::Dir::None) == NONE && static_cast<int>(guide_move_plan::Dir::North) == NORTH &&
@@ -82,7 +88,6 @@ Scope::Scope()
     : m_maxDecDuration(0), m_maxRaDuration(0), m_decGuideMode(DEC_NONE), m_bogusGuideRatesFlagged(0),
       m_limitReachedDeferralTime(wxDateTime::GetTimeNow())
 {
-    m_calibrationSteps = 0;
     m_graphControlPane = nullptr;
     m_CalDetailsValidated = false;
 
@@ -802,7 +807,7 @@ void Scope::ClearCalibration()
 {
     Mount::ClearCalibration();
 
-    m_calibrationState = CALIBRATION_STATE_CLEARED;
+    m_calRun.Clear();
 }
 
 // Handle gross errors in cal_step duration when user changes mount guide speeds or binning.
@@ -879,17 +884,10 @@ bool Scope::BeginCalibration(const PHD_Point& currentLocation)
 
         CheckCalibrationDuration(m_calibrationDuration); // Make sure guide speeds or binning haven't changed underneath us
         ClearCalibration();
-        m_calibrationSteps = 0;
-        m_calibrationInitialLocation = currentLocation;
-        m_calibrationStartingLocation.Invalidate();
-        m_calibrationStartingCoords.Invalidate();
-        m_calibrationState = CALIBRATION_STATE_GO_WEST;
+        m_calRun.Begin(calibration_run::Pt::At(currentLocation.X, currentLocation.Y));
         m_calibrationDetails.raSteps.clear();
         m_calibrationDetails.decSteps.clear();
-        m_raSteps = 0;
-        m_decSteps = 0;
         m_calibrationDetails.lastIssue = CI_None;
-        m_eastAlertShown = false;
     }
     catch (const wxString& Msg)
     {
@@ -973,27 +971,6 @@ int Scope::CalibrationTotDistance()
     return GetCalibrationDistance();
 }
 
-// Convert camera coords to mount coords
-static PHD_Point MountCoords(const PHD_Point& cameraVector, double xCalibAngle, double yCalibAngle)
-{
-    double hyp = cameraVector.Distance();
-    double cameraTheta = cameraVector.Angle();
-    double yAngleError = norm_angle((xCalibAngle - yCalibAngle) + M_PI / 2);
-    double xAngle = cameraTheta - xCalibAngle;
-    double yAngle = cameraTheta - (xCalibAngle + yAngleError);
-    return PHD_Point(hyp * cos(xAngle), hyp * sin(yAngle));
-}
-
-static void GetRADecCoordinates(PHD_Point *coords)
-{
-    double ra, dec, lst;
-    bool err = pPointingSource->GetCoordinates(&ra, &dec, &lst);
-    if (err)
-        coords->Invalidate();
-    else
-        coords->SetXY(ra, dec);
-}
-
 static wxString DecBacklashAlertKey()
 {
     // we want the key to be under "/Confirm" so ConfirmDialog::ResetAllDontAskAgain() resets it, but we also want the setting
@@ -1013,563 +990,236 @@ static void CalibrationStatus(CalibrationStepInfo& info, const wxString& msg)
     EvtServer.NotifyCalibrationStep(info);
 }
 
+static const wxString& CalibrationLegName(calibration_run::Leg leg)
+{
+    static const wxString names[] = { _T("West"), _T("East"), _T("Backlash"), _T("North"), _T("South"), _T("NudgeSouth") };
+    return names[static_cast<int>(leg)];
+}
+
+static CalibrationStepInfo CalibrationStepFor(Mount *mount, const calibration_run::StepRecord& rec)
+{
+    PHD_Point pos(rec.pos.x, rec.pos.y);
+    if (!rec.pos.valid)
+        pos.Invalidate();
+    return CalibrationStepInfo(mount, CalibrationLegName(rec.leg), rec.step, rec.dx, rec.dy, pos, rec.dist);
+}
+
+static wxString CalibrationStepMessage(const calibration_run::Effect& e)
+{
+    switch (e.message)
+    {
+    case calibration_run::Message::WestStep:
+        return wxString::Format(_("West step %3d, dist=%4.1f"), e.number, e.rec.dist);
+    case calibration_run::Message::EastStep:
+        return wxString::Format(_("East step %3d, dist=%4.1f"), e.number, e.rec.dist);
+    case calibration_run::Message::BacklashFirst:
+        return _("Clearing backlash step 1");
+    case calibration_run::Message::BacklashStep:
+        return wxString::Format(_("Clearing backlash step %3d"), e.number);
+    case calibration_run::Message::NorthStep:
+        return wxString::Format(_("North step %3d, dist=%4.1f"), e.number, e.rec.dist);
+    case calibration_run::Message::SouthStep:
+        return wxString::Format(_("South step %3d, dist=%4.1f"), e.number, e.rec.dist);
+    case calibration_run::Message::NudgeSouth:
+        return wxString::Format(_("Nudge South %3d"), e.number);
+    }
+    return wxEmptyString;
+}
+
+// What the calibration run reads from the mount, and where its side effects go (#142).
+// Each effect is the call UpdateCalibrationState made at that point before the run moved out of Scope.
+class ScopeCalibrationHost : public calibration_run::Probe, public calibration_run::Sink
+{
+    Scope *m_scope;
+    wxString m_lastStatus; // the last status message sent, for the backlash Debug line
+
+public:
+    explicit ScopeCalibrationHost(Scope *scope) : m_scope(scope) { }
+
+    bool Coordinates(double *raHours, double *decDeg) override
+    {
+        double lst;
+        return !pPointingSource->GetCoordinates(raHours, decDeg, &lst); // true means error
+    }
+
+    bool GuideRates(double *raDegPerSec, double *decDegPerSec) override
+    {
+        return !pPointingSource->GetGuideRates(raDegPerSec, decDegPerSec); // true means error
+    }
+
+    bool CanPulseGuide() override { return m_scope->CanPulseGuide(); }
+
+    void Emit(const calibration_run::Effect& e) override
+    {
+        switch (e.kind)
+        {
+        case calibration_run::Effect::LogStep:
+        {
+            CalibrationStepInfo info(CalibrationStepFor(m_scope, e.rec));
+            GuideLog.CalibrationStep(info);
+            break;
+        }
+        case calibration_run::Effect::Status:
+        {
+            CalibrationStepInfo info(CalibrationStepFor(m_scope, e.rec));
+            CalibrationStatus(info, CalibrationStepMessage(e));
+            m_lastStatus = info.msg;
+            break;
+        }
+        case calibration_run::Effect::Move:
+            pFrame->ScheduleAxisMove(m_scope, static_cast<GUIDE_DIRECTION>(e.dir), e.ms, MOVEOPTS_CALIBRATION_MOVE);
+            break;
+        case calibration_run::Effect::DirectComplete:
+            GuideLog.CalibrationDirectComplete(m_scope, e.ra ? "West" : "North", e.angle, e.rate,
+                                               static_cast<GuideParity>(e.parity));
+            break;
+        case calibration_run::Effect::EastAdvisory:
+        {
+            wxString msg(
+                wxTRANSLATE("Advisory: Little or no east movement was measured, so guiding will probably be impaired. "
+                            "Check the guide cable and use the Manual Guide tool to confirm basic operation of the mount."));
+            const wxString& translated(wxGetTranslation(msg));
+            pFrame->Alert(translated, 0, wxEmptyString, 0, 0, true);
+            Debug.Write("Calibration alert: " + msg + "\n");
+            break;
+        }
+        case calibration_run::Effect::SouthAdvisory:
+        {
+            wxString msg;
+            switch (e.southAdvice)
+            {
+            case calibration_run::SouthAdvice::NoSouthCannotPulseGuide:
+                msg = wxTRANSLATE("Advisory: Calibration successful but little or no south movement was measured, so "
+                                  "guiding will probably be impaired.\n "
+                                  "This is usually caused by a faulty guide cable or very large Dec backlash. \n"
+                                  "Check the guide cable and read the online Help for how to identify these types of "
+                                  "problems (Manual Guide, Declination backlash).");
+                break;
+            case calibration_run::SouthAdvice::LittleSouthCannotPulseGuide:
+                msg = wxTRANSLATE(
+                    "Advisory: Calibration successful but little south movement was measured, so guiding will probably "
+                    "be impaired. \n"
+                    "This is usually caused by very large Dec backlash or other problems with the mount mechanics. \n"
+                    "Read the online Help for how to identify these types of problems (Manual Guide, Declination "
+                    "backlash).");
+                break;
+            case calibration_run::SouthAdvice::LittleSouth:
+                msg = wxTRANSLATE(
+                    "Advisory: Calibration successful but little south movement was measured, so guiding may be "
+                    "impaired.\n "
+                    "This is usually caused by very large Dec backlash or other problems with the mount mechanics. \n"
+                    "Read the online help for how to deal with this type of problem (Declination backlash).");
+                break;
+            }
+
+            // if (!m_eastAlertShown)
+            //{
+            //     const wxString& translated(wxGetTranslation(msg));
+            //     pFrame->SuppressibleAlert(DecBacklashAlertKey(), translated, SuppressDecBacklashAlert, 0, true);
+            // }
+            Debug.Write("Omitted calibration alert: " + msg + "\n");
+            break;
+        }
+        case calibration_run::Effect::BacklashDebug:
+            Debug.Write(
+                wxString::Format("Backlash: %s, Last Delta = %0.2f px, CumDistance = %0.2f px\n", m_lastStatus, e.a, e.b));
+            break;
+        case calibration_run::Effect::Debug:
+            Debug.Write(wxString(e.text));
+            break;
+        }
+    }
+};
+
 bool Scope::UpdateCalibrationState(const PHD_Point& currentLocation)
 {
     bool bError = false;
 
     try
     {
-        if (!m_calibrationStartingLocation.IsValid())
+        calibration_run::Settings settings;
+        settings.stepMs = m_calibrationDuration;
+        settings.distancePx = GetCalibrationDistance();
+        settings.maxRaMs = m_maxRaDuration;
+        settings.maxDecMs = m_maxDecDuration;
+        settings.decMode = static_cast<calibration_run::DecMode>(m_decGuideMode);
+        settings.assumeOrthogonal = m_assumeOrthogonal;
+        settings.fastRecenter = pFrame->pGuider->IsFastRecenterEnabled();
+        settings.maxMovePx = pFrame->pGuider->GetMaxMovePixels();
+
+        calibration_run::Pt location { currentLocation.X, currentLocation.Y, currentLocation.IsValid() };
+
+        ScopeCalibrationHost host(this);
+        calibration_run::FrameResult result = m_calRun.OnFrame(location, settings, host, host);
+
+        switch (result.outcome)
         {
-            m_calibrationStartingLocation = currentLocation;
-            GetRADecCoordinates(&m_calibrationStartingCoords);
+        case calibration_run::Outcome::Continue:
+            break;
 
-            Debug.Write(wxString::Format(
-                "Scope::UpdateCalibrationState: starting location = %.2f,%.2f coords = %s\n", currentLocation.X,
-                currentLocation.Y,
-                m_calibrationStartingCoords.IsValid()
-                    ? wxString::Format("%.2f,%.1f", m_calibrationStartingCoords.X, m_calibrationStartingCoords.Y)
-                    : wxString("N/A")));
-        }
+        case calibration_run::Outcome::Failed:
+            switch (result.fail)
+            {
+            case calibration_run::Fail::Cleared:
+            {
+                // #137: the calibration was cleared while it ran (the legacy socket server's CLEARCAL still can);
+                // end it as failed instead of aborting, or staying in a state that has no next step
+                wxString msg(wxTRANSLATE("Calibration failed: the calibration was cleared while calibrating"));
+                GuideLog.CalibrationFailed(this, msg);
+                EvtServer.NotifyCalibrationFailed(this, msg);
+                throw ERROR_INFO("calibration cleared while calibrating");
+            }
+            case calibration_run::Fail::RaDidNotMove:
+            {
+                wxString msg(wxTRANSLATE("RA Calibration Failed: star did not move enough"));
+                const wxString& translated(wxGetTranslation(msg));
+                pFrame->Alert(translated);
+                GuideLog.CalibrationFailed(this, msg);
+                EvtServer.NotifyCalibrationFailed(this, msg);
+                throw ERROR_INFO("RA calibration failed");
+            }
+            case calibration_run::Fail::BacklashClearingFailed:
+            {
+                wxString msg(wxTRANSLATE("Backlash Clearing Failed: star did not move enough"));
+                const wxString& translated(wxGetTranslation(msg));
+                pFrame->Alert(translated);
+                GuideLog.CalibrationFailed(this, msg);
+                EvtServer.NotifyCalibrationFailed(this, msg);
+                throw ERROR_INFO("Clear backlash failed");
+            }
+            case calibration_run::Fail::DecDidNotMove:
+            {
+                wxString msg(wxTRANSLATE("DEC Calibration Failed: star did not move enough"));
+                const wxString& translated(wxGetTranslation(msg));
+                pFrame->Alert(translated);
+                GuideLog.CalibrationFailed(this, msg);
+                EvtServer.NotifyCalibrationFailed(this, msg);
+                throw ERROR_INFO("Dec calibration failed");
+            }
+            }
+            break;
 
-        double dX = m_calibrationStartingLocation.dX(currentLocation);
-        double dY = m_calibrationStartingLocation.dY(currentLocation);
-        double dist = m_calibrationStartingLocation.Distance(currentLocation);
-        double dist_crit = GetCalibrationDistance();
-        double blDelta;
-        double blCumDelta;
-        double nudge_amt;
-        double nudgeDirCosX;
-        double nudgeDirCosY;
-        double cos_theta;
-        double theta;
-        double southDistMoved;
-        double northDistMoved;
-        double southAngle;
-
-        switch (m_calibrationState)
+        case calibration_run::Outcome::Complete:
         {
-        case CALIBRATION_STATE_CLEARED:
-        {
-            // #137: the calibration was cleared while it ran (the legacy socket server's CLEARCAL still can);
-            // end it as failed instead of aborting, or staying in a state that has no next step
-            wxString msg(wxTRANSLATE("Calibration failed: the calibration was cleared while calibrating"));
-            GuideLog.CalibrationFailed(this, msg);
-            EvtServer.NotifyCalibrationFailed(this, msg);
-            throw ERROR_INFO("calibration cleared while calibrating");
-        }
-
-        case CALIBRATION_STATE_GO_WEST:
-        {
-
-            // step number in the log is the step that just finished
-            CalibrationStepInfo info(this, _T("West"), m_calibrationSteps, dX, dY, currentLocation, dist);
-            GuideLog.CalibrationStep(info);
-            m_calibrationDetails.raSteps.push_back(wxRealPoint(dX, dY));
-
-            if (dist < dist_crit)
+            const calibration_run::Measured& measured = m_calRun.measured();
+            if (result.firstComplete)
             {
-                if (m_calibrationSteps++ > MAX_CALIBRATION_STEPS)
-                {
-                    wxString msg(wxTRANSLATE("RA Calibration Failed: star did not move enough"));
-                    const wxString& translated(wxGetTranslation(msg));
-                    pFrame->Alert(translated);
-                    GuideLog.CalibrationFailed(this, msg);
-                    EvtServer.NotifyCalibrationFailed(this, msg);
-                    throw ERROR_INFO("RA calibration failed");
-                }
-                CalibrationStatus(info, wxString::Format(_("West step %3d, dist=%4.1f"), m_calibrationSteps, dist));
-                pFrame->ScheduleAxisMove(this, WEST, m_calibrationDuration, MOVEOPTS_CALIBRATION_MOVE);
-                break;
+                // What the run measured. On a later frame in this state (#148) these
+                // members already hold the calibration stored on the first one.
+                m_calibration.xAngle = measured.xAngle;
+                m_calibration.xRate = measured.xRate;
+                m_calibration.yAngle = measured.yAngle;
+                m_calibration.yRate = measured.yRate;
+                m_calibration.raGuideParity = static_cast<GuideParity>(measured.raParity);
+                m_calibration.decGuideParity = static_cast<GuideParity>(measured.decParity);
+                m_calibrationDetails.raSteps.clear();
+                for (const auto& step : measured.raSteps)
+                    m_calibrationDetails.raSteps.push_back(wxRealPoint(step.first, step.second));
+                m_calibrationDetails.decSteps.clear();
+                for (const auto& step : measured.decSteps)
+                    m_calibrationDetails.decSteps.push_back(wxRealPoint(step.first, step.second));
             }
 
-            // West calibration complete
-
-            m_calibration.xAngle = m_calibrationStartingLocation.Angle(currentLocation);
-            m_calibration.xRate = dist / (m_calibrationSteps * m_calibrationDuration);
-
-            m_calibration.raGuideParity = GUIDE_PARITY_UNKNOWN;
-            if (m_calibrationStartingCoords.IsValid())
-            {
-                PHD_Point endingCoords;
-                GetRADecCoordinates(&endingCoords);
-                if (endingCoords.IsValid())
-                {
-                    // true westward motion decreases RA
-                    double ONE_ARCSEC = 24.0 / (360. * 60. * 60.); // hours
-                    double dra = endingCoords.X - m_calibrationStartingCoords.X;
-                    if (dra < -ONE_ARCSEC)
-                        m_calibration.raGuideParity = GUIDE_PARITY_EVEN;
-                    else if (dra > ONE_ARCSEC)
-                        m_calibration.raGuideParity = GUIDE_PARITY_ODD;
-                }
-            }
-
-            Debug.Write(wxString::Format("WEST calibration completes with steps=%d angle=%.1f rate=%.3f parity=%d\n",
-                                         m_calibrationSteps, degrees(m_calibration.xAngle), m_calibration.xRate * 1000.0,
-                                         m_calibration.raGuideParity));
-
-            m_raSteps = m_calibrationSteps;
-            GuideLog.CalibrationDirectComplete(this, "West", m_calibration.xAngle, m_calibration.xRate,
-                                               m_calibration.raGuideParity);
-
-            // for GO_EAST m_recenterRemaining contains the total remaining duration.
-            // Choose the largest pulse size that will not lose the guide star or exceed
-            // the user-specified max pulse
-
-            m_recenterRemaining = m_calibrationSteps * m_calibrationDuration;
-
-            if (pFrame->pGuider->IsFastRecenterEnabled())
-            {
-                m_recenterDuration = (int) floor((double) pFrame->pGuider->GetMaxMovePixels() / m_calibration.xRate);
-                if (m_recenterDuration > m_maxRaDuration)
-                    m_recenterDuration = m_maxRaDuration;
-                if (m_recenterDuration < m_calibrationDuration)
-                    m_recenterDuration = m_calibrationDuration;
-            }
-            else
-                m_recenterDuration = m_calibrationDuration;
-
-            m_calibrationSteps = DIV_ROUND_UP(m_recenterRemaining, m_recenterDuration);
-            m_calibrationState = CALIBRATION_STATE_GO_EAST;
-            m_eastStartingLocation = currentLocation;
-
-            // fall through
-            Debug.Write("Falling Through to state GO_EAST\n");
-        }
-
-        case CALIBRATION_STATE_GO_EAST:
-        {
-
-            CalibrationStepInfo info(this, _T("East"), m_calibrationSteps, dX, dY, currentLocation, dist);
-            GuideLog.CalibrationStep(info);
-            m_calibrationDetails.raSteps.push_back(wxRealPoint(dX, dY));
-
-            if (m_recenterRemaining > 0)
-            {
-                int duration = m_recenterDuration;
-                if (duration > m_recenterRemaining)
-                    duration = m_recenterRemaining;
-
-                CalibrationStatus(info, wxString::Format(_("East step %3d, dist=%4.1f"), m_calibrationSteps, dist));
-
-                m_recenterRemaining -= duration;
-                --m_calibrationSteps;
-                m_lastLocation = currentLocation;
-
-                pFrame->ScheduleAxisMove(this, EAST, duration, MOVEOPTS_CALIBRATION_MOVE);
-                break;
-            }
-
-            // If not pulse-guiding check for obvious guide cable problem and no useful east moves
-            if (!CanPulseGuide())
-            {
-                double eastDistMoved = m_eastStartingLocation.Distance(currentLocation);
-                double westDistMoved = m_calibrationStartingLocation.Distance(m_eastStartingLocation);
-                double eastAngle = m_eastStartingLocation.Angle(currentLocation);
-                // Want a significant east movement that re-traces the west vector to within 30 degrees
-                if (fabs(eastDistMoved) < 0.25 * westDistMoved ||
-                    fabs(norm_angle(eastAngle - (m_calibration.xAngle + M_PI))) > radians(30))
-                {
-                    wxString msg(wxTRANSLATE(
-                        "Advisory: Little or no east movement was measured, so guiding will probably be impaired. "
-                        "Check the guide cable and use the Manual Guide tool to confirm basic operation of the mount."));
-                    const wxString& translated(wxGetTranslation(msg));
-                    pFrame->Alert(translated, 0, wxEmptyString, 0, 0, true);
-                    Debug.Write("Calibration alert: " + msg + "\n");
-                    m_eastAlertShown = true;
-                }
-            }
-            // setup for clear backlash
-
-            m_calibrationSteps = 0;
-            dist = dX = dY = 0.0;
-            m_calibrationStartingLocation = currentLocation;
-
-            if (m_decGuideMode == DEC_NONE)
-            {
-                Debug.Write("Skipping Dec calibration as DecGuideMode == NONE\n");
-                m_calibrationState = CALIBRATION_STATE_COMPLETE;
-                m_calibration.yAngle =
-                    norm_angle(m_calibration.xAngle + M_PI / 2.); // choose an arbitrary angle perpendicular to xAngle
-                // indicate lack of Dec calibration data, see Scope::IsCalibrated.
-                m_calibration.yRate = CALIBRATION_RATE_UNCALIBRATED;
-                m_calibration.decGuideParity = GUIDE_PARITY_UNKNOWN;
-                break;
-            }
-
-            m_calibrationState = CALIBRATION_STATE_CLEAR_BACKLASH;
-            m_blMarkerPoint = currentLocation;
-            GetRADecCoordinates(&m_calibrationStartingCoords);
-            m_blExpectedBacklashStep = m_calibration.xRate * m_calibrationDuration * 0.6;
-
-            double RASpeed;
-            double DecSpeed;
-            if (!pPointingSource->GetGuideRates(&RASpeed, &DecSpeed) && RASpeed != 0.0 && RASpeed != DecSpeed)
-            {
-                m_blExpectedBacklashStep *= DecSpeed / RASpeed;
-            }
-
-            m_blMaxClearingPulses = wxMax(8, BL_MAX_CLEARING_TIME / m_calibrationDuration);
-            m_blLastCumDistance = 0;
-            m_blAcceptedMoves = 0;
-            Debug.Write(wxString::Format("Backlash: Looking for 3 moves of %0.1f px, max attempts = %d\n",
-                                         m_blExpectedBacklashStep, m_blMaxClearingPulses));
-            // fall through
-            Debug.Write("Falling Through to state CLEAR_BACKLASH\n");
-        }
-
-        case CALIBRATION_STATE_CLEAR_BACKLASH:
-        {
-
-            CalibrationStepInfo info(this, _T("Backlash"), m_calibrationSteps, dX, dY, currentLocation, dist);
-            GuideLog.CalibrationStep(info);
-            blDelta = m_blMarkerPoint.Distance(currentLocation);
-            blCumDelta = dist;
-
-            // Want to see the mount moving north for 3 moves of >= expected distance pixels without any direction reversals
-            if (m_calibrationSteps == 0)
-            {
-                // Get things moving with the first clearing pulse
-                Debug.Write(
-                    wxString::Format("Backlash: Starting north clearing using pulse width of %d\n", m_calibrationDuration));
-                pFrame->ScheduleAxisMove(this, NORTH, m_calibrationDuration, MOVEOPTS_CALIBRATION_MOVE);
-                m_calibrationSteps = 1;
-                CalibrationStatus(info, _("Clearing backlash step 1"));
-                break;
-            }
-
-            if (blDelta >= m_blExpectedBacklashStep)
-            {
-                if (m_blAcceptedMoves == 0 ||
-                    (blCumDelta > m_blLastCumDistance)) // Just starting or still moving in same direction
-                {
-                    m_blAcceptedMoves++;
-                    Debug.Write(wxString::Format("Backlash: Accepted clearing move of %0.1f\n", blDelta));
-                }
-                else
-                {
-                    m_blAcceptedMoves = 0; // Reset on a direction reversal
-                    Debug.Write(wxString::Format("Backlash: Rejected clearing move of %0.1f, direction reversal\n", blDelta));
-                }
-            }
-            else
-            {
-                if (blCumDelta < m_blLastCumDistance)
-                {
-                    m_blAcceptedMoves = 0;
-                    Debug.Write(wxString::Format("Backlash: Rejected small direction reversal of %0.1f px\n", blDelta));
-                }
-                else
-                    Debug.Write(wxString::Format("Backlash: Rejected small move of %0.1f px\n", blDelta));
-            }
-
-            if (m_blAcceptedMoves < BL_BACKLASH_MIN_COUNT) // More work to do
-            {
-                if (m_calibrationSteps < m_blMaxClearingPulses && blCumDelta < dist_crit)
-                {
-                    // Still have attempts left, haven't moved the star by 25 px yet
-                    pFrame->ScheduleAxisMove(this, NORTH, m_calibrationDuration, MOVEOPTS_CALIBRATION_MOVE);
-                    m_calibrationSteps++;
-                    m_blMarkerPoint = currentLocation;
-                    GetRADecCoordinates(&m_calibrationStartingCoords);
-                    m_blLastCumDistance = blCumDelta;
-                    CalibrationStatus(info, wxString::Format(_("Clearing backlash step %3d"), m_calibrationSteps));
-                    Debug.Write(wxString::Format("Backlash: %s, Last Delta = %0.2f px, CumDistance = %0.2f px\n", info.msg,
-                                                 blDelta, blCumDelta));
-                    break;
-                }
-                else
-                {
-                    // Used up all our attempts - might be ok or not
-                    if (blCumDelta >= (double) BL_MIN_CLEARING_DISTANCE)
-                    {
-                        // Exhausted all the clearing pulses without reaching the goal - but we did move the mount > 3 px (same
-                        // as PHD1)
-                        m_calibrationSteps = 0;
-                        m_calibrationStartingLocation = currentLocation;
-                        dX = 0;
-                        dY = 0;
-                        dist = 0;
-                        Debug.Write(
-                            "Backlash: Reached clearing limit but total displacement > 3px - proceeding with calibration\n");
-                    }
-                    else
-                    {
-                        wxString msg(wxTRANSLATE("Backlash Clearing Failed: star did not move enough"));
-                        const wxString& translated(wxGetTranslation(msg));
-                        pFrame->Alert(translated);
-                        GuideLog.CalibrationFailed(this, msg);
-                        EvtServer.NotifyCalibrationFailed(this, msg);
-                        throw ERROR_INFO("Clear backlash failed");
-                    }
-                }
-            }
-            else // Got our 3 moves, move ahead
-            {
-                // We know the last backlash clearing move was big enough - include that as a north calibration move
-
-                // log the starting point
-                CalibrationStepInfo info(this, _T("North"), 0, 0.0, 0.0, m_blMarkerPoint, 0.0);
-                GuideLog.CalibrationStep(info);
-                m_calibrationDetails.decSteps.push_back(wxRealPoint(0.0, 0.0));
-
-                m_calibrationSteps = 1;
-                m_calibrationStartingLocation = m_blMarkerPoint;
-                dX = m_blMarkerPoint.dX(currentLocation);
-                dY = m_blMarkerPoint.dY(currentLocation);
-                dist = m_blMarkerPoint.Distance(currentLocation);
-                Debug.Write("Backlash: Got 3 acceptable moves, using last move as step 1 of N calibration\n");
-            }
-
-            m_blDistanceMoved = m_blMarkerPoint.Distance(m_calibrationInitialLocation); // Need this to set nudging limit
-
-            Debug.Write(wxString::Format("Backlash: North calibration moves starting at {%0.1f,%0.1f}, Offset = %0.1f px\n",
-                                         m_blMarkerPoint.X, m_blMarkerPoint.Y, m_blDistanceMoved));
-            Debug.Write(wxString::Format("Backlash: Total distance moved = %0.1f\n",
-                                         currentLocation.Distance(m_calibrationInitialLocation)));
-
-            m_calibrationState = CALIBRATION_STATE_GO_NORTH;
-            // falling through to start moving north
-            Debug.Write("Backlash: Falling Through to state GO_NORTH\n");
-        }
-
-        case CALIBRATION_STATE_GO_NORTH:
-        {
-
-            CalibrationStepInfo info(this, _T("North"), m_calibrationSteps, dX, dY, currentLocation, dist);
-            GuideLog.CalibrationStep(info);
-            m_calibrationDetails.decSteps.push_back(wxRealPoint(dX, dY));
-
-            if (dist < dist_crit)
-            {
-                if (m_calibrationSteps++ > MAX_CALIBRATION_STEPS)
-                {
-                    wxString msg(wxTRANSLATE("DEC Calibration Failed: star did not move enough"));
-                    const wxString& translated(wxGetTranslation(msg));
-                    pFrame->Alert(translated);
-                    GuideLog.CalibrationFailed(this, msg);
-                    EvtServer.NotifyCalibrationFailed(this, msg);
-                    throw ERROR_INFO("Dec calibration failed");
-                }
-                CalibrationStatus(info, wxString::Format(_("North step %3d, dist=%4.1f"), m_calibrationSteps, dist));
-                pFrame->ScheduleAxisMove(this, NORTH, m_calibrationDuration, MOVEOPTS_CALIBRATION_MOVE);
-                break;
-            }
-
-            // note: this calculation is reversed from the ra calculation, because
-            // that one was calibrating WEST, but the angle is really relative
-            // to EAST
-            if (m_assumeOrthogonal)
-            {
-                double a1 = norm_angle(m_calibration.xAngle + M_PI / 2.);
-                double a2 = norm_angle(m_calibration.xAngle - M_PI / 2.);
-                double yAngle = currentLocation.Angle(m_calibrationStartingLocation);
-                m_calibration.yAngle = fabs(norm_angle(a1 - yAngle)) < fabs(norm_angle(a2 - yAngle)) ? a1 : a2;
-                double dec_dist = dist * cos(yAngle - m_calibration.yAngle);
-                m_calibration.yRate = dec_dist / (m_calibrationSteps * m_calibrationDuration);
-
-                Debug.Write(wxString::Format("Assuming orthogonal axes: measured Y angle = %.1f, X angle = %.1f, orthogonal = "
-                                             "%.1f, %.1f, best = %.1f, dist = %.2f, dec_dist = %.2f\n",
-                                             degrees(yAngle), degrees(m_calibration.xAngle), degrees(a1), degrees(a2),
-                                             degrees(m_calibration.yAngle), dist, dec_dist));
-            }
-            else
-            {
-                m_calibration.yAngle = currentLocation.Angle(m_calibrationStartingLocation);
-                m_calibration.yRate = dist / (m_calibrationSteps * m_calibrationDuration);
-            }
-
-            m_decSteps = m_calibrationSteps;
-
-            m_calibration.decGuideParity = GUIDE_PARITY_UNKNOWN;
-            if (m_calibrationStartingCoords.IsValid())
-            {
-                PHD_Point endingCoords;
-                GetRADecCoordinates(&endingCoords);
-                if (endingCoords.IsValid())
-                {
-                    // real Northward motion increases Dec
-                    double ONE_ARCSEC = 1.0 / (60. * 60.); // degrees
-                    double ddec = endingCoords.Y - m_calibrationStartingCoords.Y;
-                    if (ddec > ONE_ARCSEC)
-                        m_calibration.decGuideParity = GUIDE_PARITY_EVEN;
-                    else if (ddec < -ONE_ARCSEC)
-                        m_calibration.decGuideParity = GUIDE_PARITY_ODD;
-                }
-            }
-
-            Debug.Write(wxString::Format("NORTH calibration completes with angle=%.1f rate=%.3f parity=%d\n",
-                                         degrees(m_calibration.yAngle), m_calibration.yRate * 1000.0,
-                                         m_calibration.decGuideParity));
-
-            GuideLog.CalibrationDirectComplete(this, "North", m_calibration.yAngle, m_calibration.yRate,
-                                               m_calibration.decGuideParity);
-
-            // for GO_SOUTH m_recenterRemaining contains the total remaining duration.
-            // Choose the largest pulse size that will not lose the guide star or exceed
-            // the user-specified max pulse
-            m_recenterRemaining = m_calibrationSteps * m_calibrationDuration;
-
-            if (pFrame->pGuider->IsFastRecenterEnabled())
-            {
-                m_recenterDuration = (int) floor(0.8 * (double) pFrame->pGuider->GetMaxMovePixels() / m_calibration.yRate);
-                if (m_recenterDuration > m_maxDecDuration)
-                    m_recenterDuration = m_maxDecDuration;
-                if (m_recenterDuration < m_calibrationDuration)
-                    m_recenterDuration = m_calibrationDuration;
-            }
-            else
-                m_recenterDuration = m_calibrationDuration;
-
-            m_calibrationSteps = DIV_ROUND_UP(m_recenterRemaining, m_recenterDuration);
-            m_calibrationState = CALIBRATION_STATE_GO_SOUTH;
-            m_southStartingLocation = currentLocation;
-
-            // fall through
-            Debug.Write("Falling Through to state GO_SOUTH\n");
-        }
-
-        case CALIBRATION_STATE_GO_SOUTH:
-        {
-
-            CalibrationStepInfo info(this, _T("South"), m_calibrationSteps, dX, dY, currentLocation, dist);
-            GuideLog.CalibrationStep(info);
-            m_calibrationDetails.decSteps.push_back(wxRealPoint(dX, dY));
-
-            if (m_recenterRemaining > 0)
-            {
-                int duration = m_recenterDuration;
-                if (duration > m_recenterRemaining)
-                    duration = m_recenterRemaining;
-
-                CalibrationStatus(info, wxString::Format(_("South step %3d, dist=%4.1f"), m_calibrationSteps, dist));
-
-                m_recenterRemaining -= duration;
-                --m_calibrationSteps;
-
-                pFrame->ScheduleAxisMove(this, SOUTH, duration, MOVEOPTS_CALIBRATION_MOVE);
-                break;
-            }
-
-            // Check for obvious guide cable problem and no useful south moves
-            southDistMoved = m_southStartingLocation.Distance(currentLocation);
-            northDistMoved = m_calibrationStartingLocation.Distance(m_southStartingLocation);
-            southAngle = currentLocation.Angle(m_southStartingLocation);
-            // Want a significant south movement that re-traces the north vector to within 30 degrees
-            if (fabs(southDistMoved) < 0.25 * northDistMoved ||
-                fabs(norm_angle(southAngle - (m_calibration.yAngle + M_PI))) > radians(30))
-            {
-                wxString msg;
-                if (!CanPulseGuide())
-                {
-                    if (fabs(southDistMoved) < 0.10 * northDistMoved)
-                        msg = wxTRANSLATE("Advisory: Calibration successful but little or no south movement was measured, so "
-                                          "guiding will probably be impaired.\n "
-                                          "This is usually caused by a faulty guide cable or very large Dec backlash. \n"
-                                          "Check the guide cable and read the online Help for how to identify these types of "
-                                          "problems (Manual Guide, Declination backlash).");
-                    else
-                        msg = wxTRANSLATE(
-                            "Advisory: Calibration successful but little south movement was measured, so guiding will probably "
-                            "be impaired. \n"
-                            "This is usually caused by very large Dec backlash or other problems with the mount mechanics. \n"
-                            "Read the online Help for how to identify these types of problems (Manual Guide, Declination "
-                            "backlash).");
-                }
-                else
-                    msg = wxTRANSLATE(
-                        "Advisory: Calibration successful but little south movement was measured, so guiding may be "
-                        "impaired.\n "
-                        "This is usually caused by very large Dec backlash or other problems with the mount mechanics. \n"
-                        "Read the online help for how to deal with this type of problem (Declination backlash).");
-
-                // if (!m_eastAlertShown)
-                //{
-                //     const wxString& translated(wxGetTranslation(msg));
-                //     pFrame->SuppressibleAlert(DecBacklashAlertKey(), translated, SuppressDecBacklashAlert, 0, true);
-                // }
-                Debug.Write("Omitted calibration alert: " + msg + "\n");
-            }
-
-            m_lastLocation = currentLocation;
-            // Compute the vector for the north moves we made - use it to make sure any nudging is going in the correct
-            // direction These are the direction cosines of the vector
-            m_northDirCosX = m_calibrationInitialLocation.dX(m_southStartingLocation) /
-                m_calibrationInitialLocation.Distance(m_southStartingLocation);
-            m_northDirCosY = m_calibrationInitialLocation.dY(m_southStartingLocation) /
-                m_calibrationInitialLocation.Distance(m_southStartingLocation);
-            // Debug.Write(wxString::Format("Nudge: InitStart:{%0.1f,%0.1f}, southStart:{%.1f,%0.1f}, north_l:%0.2f,
-            // north_m:%0.2f\n",
-            //     m_calibrationInitialLocation.X, m_calibrationInitialLocation.Y,
-            //     m_southStartingLocation.X, m_southStartingLocation.Y, m_northDirCosX, m_northDirCosY));
-            //  Get magnitude and sign convention for the south moves we already made
-            m_totalSouthAmt =
-                MountCoords(m_southStartingLocation - m_lastLocation, m_calibration.xAngle, m_calibration.yAngle).Y;
-            m_calibrationState = CALIBRATION_STATE_NUDGE_SOUTH;
-            m_calibrationSteps = 0;
-            // Fall through to nudging
-            Debug.Write("Falling Through to state CALIBRATION_STATE_NUDGE_SOUTH\n");
-        }
-
-        case CALIBRATION_STATE_NUDGE_SOUTH:
-            // Nudge further South on Dec, get within 2 px North/South of starting point, don't try more than 3 times and don't
-            // do nudging at all if we're starting too far away from the target
-            nudge_amt = currentLocation.Distance(m_calibrationInitialLocation);
-            // Compute the direction cosines for the expected nudge op
-            nudgeDirCosX = currentLocation.dX(m_calibrationInitialLocation) / nudge_amt;
-            nudgeDirCosY = currentLocation.dY(m_calibrationInitialLocation) / nudge_amt;
-            // Compute the angle between the nudge and north move vector - they should be reversed, i.e. something close to 180
-            // deg
-            cos_theta = nudgeDirCosX * m_northDirCosX + nudgeDirCosY * m_northDirCosY;
-            theta = acos(cos_theta);
-            // Debug.Write(wxString::Format("Nudge: currLoc:{%0.1f,%0.1f}, m_nudgeDirCosX: %0.2f, nudgeDirCosY: %0.2f,
-            // cos_theta: %0.2f\n",
-            //     currentLocation.X, currentLocation.Y, nudgeDirCosX, nudgeDirCosY, cos_theta));
-            Debug.Write(wxString::Format("Nudge: theta = %0.2f\n", theta));
-            if (fabs(fabs(theta) * 180.0 / M_PI - 180.0) < 40.0) // We're going at least roughly in the right direction
-            {
-                if (m_calibrationSteps <= MAX_NUDGES && nudge_amt > NUDGE_TOLERANCE &&
-                    nudge_amt < dist_crit + m_blDistanceMoved)
-                {
-                    // Compute how much more south we need to go
-                    double decAmt =
-                        MountCoords(currentLocation - m_calibrationInitialLocation, m_calibration.xAngle, m_calibration.yAngle)
-                            .Y;
-                    Debug.Write(
-                        wxString::Format("South nudging, decAmt = %.3f, Normal south moves = %.3f\n", decAmt, m_totalSouthAmt));
-
-                    if (decAmt * m_totalSouthAmt > 0.0) // still need to move south to reach target based on matching sign
-                    {
-                        decAmt = fabs(decAmt); // Sign doesn't matter now, we're always moving south
-                        decAmt = wxMin(decAmt, (double) pFrame->pGuider->GetMaxMovePixels());
-                        int pulseAmt = (int) floor(decAmt / m_calibration.yRate);
-                        if (pulseAmt > m_calibrationDuration)
-                            pulseAmt =
-                                m_calibrationDuration; // Be conservative, use durations that pushed us north in the first place
-                        Debug.Write(wxString::Format("Sending NudgeSouth pulse of duration %d ms\n", pulseAmt));
-                        ++m_calibrationSteps;
-                        CalibrationStepInfo info(this, _T("NudgeSouth"), m_calibrationSteps, dX, dY, currentLocation, dist);
-                        CalibrationStatus(info, wxString::Format(_("Nudge South %3d"), m_calibrationSteps));
-                        pFrame->ScheduleAxisMove(this, SOUTH, pulseAmt, MOVEOPTS_CALIBRATION_MOVE);
-                        break;
-                    }
-                }
-            }
-            else
-            {
-                Debug.Write(wxString::Format("Nudging discontinued, wrong direction: %0.2f\n", theta));
-            }
-
-            Debug.Write(wxString::Format("Final south nudging status: Current loc = {%.3f,%.3f}, targeting {%.3f,%.3f}\n",
-                                         currentLocation.X, currentLocation.Y, m_calibrationInitialLocation.X,
-                                         m_calibrationInitialLocation.Y));
-
-            m_calibrationState = CALIBRATION_STATE_COMPLETE;
-            // fall through
-            Debug.Write("Falling Through to state CALIBRATION_COMPLETE\n");
-
-        case CALIBRATION_STATE_COMPLETE:
             GetLastCalibration(&m_prevCalibration);
             LoadCalibrationDetails(&m_prevCalibrationDetails);
             Calibration cal(m_calibration);
@@ -1578,8 +1228,8 @@ bool Scope::UpdateCalibrationState(const PHD_Point& currentLocation)
             cal.rotatorAngle = Rotator::RotatorPosition();
             cal.binning = pCamera->GetBinning();
             SetCalibration(cal);
-            m_calibrationDetails.raStepCount = m_raSteps;
-            m_calibrationDetails.decStepCount = m_decSteps;
+            m_calibrationDetails.raStepCount = measured.raStepCount;
+            m_calibrationDetails.decStepCount = measured.decStepCount;
             SetCalibrationDetails(m_calibrationDetails, m_calibration.xAngle, m_calibration.yAngle, m_calibration.binning);
             if (SANITY_CHECKING_ACTIVE)
                 SanityCheckCalibration(m_prevCalibration, m_prevCalibrationDetails); // method gets "new" info itself
@@ -1589,6 +1239,7 @@ bool Scope::UpdateCalibrationState(const PHD_Point& currentLocation)
             Debug.Write("Calibration Complete\n");
             pConfig->Flush();
             break;
+        }
         }
     }
     catch (const wxString& Msg)
