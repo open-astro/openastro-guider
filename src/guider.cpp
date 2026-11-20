@@ -33,6 +33,7 @@
  */
 #include "phd.h"
 #include "guiding_assistant.h"
+#include "edge_allowance.h"
 
 // un-comment to log star deflections to a file
 // #define CAPTURE_DEFLECTIONS
@@ -1165,6 +1166,36 @@ void Guider::Reset(bool fullReset)
     {
         InvalidateCurrentPosition(true);
     }
+}
+
+static CalibrationGear CalibrationGearOf(Mount *mount)
+{
+    CalibrationGear gear;
+    if (mount && mount->IsConnected())
+    {
+        gear.connected = true;
+        gear.calibrated = mount->IsCalibrated();
+        gear.calTotDist = mount->CalibrationTotDistance();
+    }
+    return gear;
+}
+
+int Guider::CalibrationEdgeAllowance(bool willForceRecal)
+{
+    // the rule is in the wx-free edge_allowance.cpp
+    return EdgeAllowance(CalibrationGearOf(pMount), CalibrationGearOf(pSecondaryMount), willForceRecal);
+}
+
+bool Guider::SelectedStarClearForRecalibration() const
+{
+    // a star picked with no calibration margin (find_star on a calibrated mount) can be too close to the edge for
+    // the walk of the calibration that guide with recalibrate: true runs on it (#140); rule in edge_allowance.cpp
+    const usImage *image = CurrentImage();
+    const PHD_Point& pos = CurrentPosition();
+    if (!image || !image->ImageData || !pos.IsValid())
+        return true; // nothing to check
+    return StarClearForRecalibration(pos.X, pos.Y, image->Size.GetWidth(), image->Size.GetHeight(), m_searchRegion,
+                                     CalibrationGearOf(pMount), CalibrationGearOf(pSecondaryMount));
 }
 
 // Called from the alert to offer auto-restore calibration

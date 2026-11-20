@@ -396,3 +396,16 @@ add_executable(test_guide_algorithm_gp_params
 target_link_libraries(test_guide_algorithm_gp_params PRIVATE phd_test_common GPGuider)
 set_property(TARGET test_guide_algorithm_gp_params PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_algorithm_gp_params COMMAND test_guide_algorithm_gp_params)
+
+############################################################################
+# test_edge_allowance  --  edge_allowance.cpp: how far beyond the search
+# region auto-select keeps a star from the frame edge, including a guide
+# with recalibrate: true on a calibrated mount (#140). std-only.
+############################################################################
+add_executable(test_edge_allowance
+  ${PHD_TESTS_DIR}/star/test_edge_allowance.cpp
+  ${phd_src_dir}/edge_allowance.cpp
+)
+target_link_libraries(test_edge_allowance PRIVATE phd_test_common)
+set_property(TARGET test_edge_allowance PROPERTY FOLDER "Unit tests")
+add_test(NAME test_edge_allowance COMMAND test_edge_allowance)

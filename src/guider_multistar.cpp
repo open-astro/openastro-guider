@@ -226,7 +226,7 @@ void GuiderMultiStar::SetMultiStarMode(bool val)
             bool guiding_active = IsCalibratingOrGuiding();
             StopGuiding();
             InvalidateCurrentPosition(true);
-            if (!AutoSelect(wxRect(0, 0, 0, 0)))
+            if (!AutoSelect(wxRect(0, 0, 0, 0), false))
             {
                 if (guiding_active)
                     StartGuiding();
@@ -440,7 +440,7 @@ static wxString StarStatus(const Star& star)
     return status;
 }
 
-bool GuiderMultiStar::AutoSelect(const wxRect& roi)
+bool GuiderMultiStar::AutoSelect(const wxRect& roi, bool willForceRecal)
 {
     Debug.Write("GuiderMultiStar::AutoSelect enter\n");
 
@@ -455,15 +455,11 @@ bool GuiderMultiStar::AutoSelect(const wxRect& roi)
             throw ERROR_INFO("No Current Image");
         }
 
-        // If mount is not calibrated, we need to choose a star a bit farther
-        // from the edge to allow for the motion of the star during
-        // calibration
+        // If the mount will calibrate after this selection (it is not calibrated, or the guide request
+        // will clear its calibration first, #140), we need to choose a star a bit farther from the edge
+        // to allow for the motion of the star during calibration
         //
-        int edgeAllowance = 0;
-        if (pMount && pMount->IsConnected() && !pMount->IsCalibrated())
-            edgeAllowance = wxMax(edgeAllowance, pMount->CalibrationTotDistance());
-        if (pSecondaryMount && pSecondaryMount->IsConnected() && !pSecondaryMount->IsCalibrated())
-            edgeAllowance = wxMax(edgeAllowance, pSecondaryMount->CalibrationTotDistance());
+        int edgeAllowance = CalibrationEdgeAllowance(willForceRecal);
 
         GuideStar newStar;
         if (!newStar.AutoFind(*image, edgeAllowance, m_searchRegion, roi, m_guideStars,

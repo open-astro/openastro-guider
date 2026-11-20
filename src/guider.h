@@ -253,6 +253,10 @@ public:
     void BookmarkCurPosition();
 
     void Reset(bool fullReset);
+    // how far beyond the search region auto-select keeps a star from the frame edge for the calibration (#140)
+    static int CalibrationEdgeAllowance(bool willForceRecal);
+    // whether the selected star is far enough from the edge for the calibration of a forced recalibration (#140)
+    bool SelectedStarClearForRecalibration() const;
     void EnableMeasurementMode(bool enabled);
     double GetMinStarHFD() const;
     double GetMinStarHFDFloor() const;
@@ -291,7 +295,8 @@ public:
     virtual void OnPaint(wxPaintEvent& evt) = 0;
 
     virtual bool IsLocked() const = 0;
-    virtual bool AutoSelect(const wxRect& roi = wxRect()) = 0;
+    // willForceRecal: the guide request selecting the star will clear the calibration before it calibrates (#140)
+    virtual bool AutoSelect(const wxRect& roi = wxRect(), bool willForceRecal = false) = 0;
 
     virtual const PHD_Point& CurrentPosition() const = 0;
     virtual wxRect GetBoundingBox() const = 0;
