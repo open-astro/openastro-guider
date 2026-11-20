@@ -56,6 +56,7 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 | `test_pulse_wait` | `src/pulse_wait.cpp` — how long `ScopeAlpaca::Guide` waits for an Alpaca `PulseGuide` (#119), timed from just before the request: no sleep before the first `IsPulseGuiding` check when the request returned at or after the end of the pulse (a blocking driver), else the rest of the pulse plus 10 ms, and the completion timeout 2 s after the end of the pulse | Direct (extract-for-testability): wx-free rule linked unmodified |
 | `test_guide_algorithm_gp_params` | `src/guide_algorithm_gp_params.cpp` — the Predictive PEC (Gaussian Process) hyperparameters `set_algo_param` `periodLength` writes (#138): the current ones with only the period changed (it used to zero the signal variances and reset the length scales) and the periodic length scale taken from the profile, since `GetGPHyperparameters()` returns it wrong once it is over half the old period; run through the real `GaussianProcessGuider` and repeated without drift. Pins the helper only: the call in the wx-coupled `SetParam` is checked by the manual live test of #138 | Direct (extract-for-testability): wx-free helper linked unmodified with the contrib `GPGuider` library |
 | `test_edge_allowance` | `src/edge_allowance.cpp` — how far beyond the search region auto-select keeps a star from the frame edge (#140): the calibration distance when the mount (or AO) is not calibrated or the guide request will force a recalibration (`guide` with `recalibrate: true` selects its star before it clears the old calibration), else 0; with an AO, the larger of the AO's and the mount's; and whether a star already selected (`find_star` while looping) is far enough from the edge for a forced recalibration or `guide` selects again | Direct (extract-for-testability): wx-free rule linked unmodified |
+| `test_closed_loop_calibration` | `Scope::BeginCalibration` / `UpdateCalibrationState` — the calibration state machine (#142), closed loop: a SimMount (`tests/closed_loop/sim_mount.{h,cpp}`: camera angle, Dec mirror, RA image rate × cos(Dec), Dec rate, Dec backlash as dead time on each reversal, non-orthogonal axes, seeded centroid noise, the mount's coordinates and guide rates) is pulsed by the calibration frame by frame as the guider does. Pins today's behaviour: xAngle/yAngle within 0.5° and rates within 2 % over camera angles 0/30/90/200/−135° normal and mirrored, step counts, the 61-pulse RA and Dec failures, backlash clearing (cleared before the Dec rate is measured, the last clearing move as North step 1, failure after max(8, 60000/step) pulses, going on after 3 px), DEC_NONE completing a frame after the East leg, the East/South recenter pulse sizes, the South nudge (at most 4, never over a step, none off the North line, NaN angle on the lock), assumeOrthogonal, RA/Dec parity, the mount reads and where they happen, the East advisory, a clear mid-run (#145), the DEC_NONE → Auto re-entry (#148), and the high-Dec RA steps (75° takes 46 steps, 79° and up fail, #141) | Frozen twin: `legacy/scope_calibration_legacy.cpp` is a verbatim LF copy of those `scope.cpp` lines at abe96d85 (`legacy/check_twin.sh` diffs it), compiled against mechanical wx/app stand-ins that record every scheduled move, guide-log row, event, alert and status. The extraction of a wx-free `CalibrationRun` runs the same suite |
 
 ## How the build infra works (and why)
 
@@ -118,11 +119,13 @@ specific blocker.
   `pFrame->pGuider` and the GUI; and the `usImage`/FITS save path.
 - **Calibration math.** The camera↔mount coordinate transforms are now
   covered directly by `test_calibration_transform` (extracted to the wx-free
-  `calibration_transform.{h,cpp}`). Still deferred: the calibration
-  *sequence* sign conventions / RA-Dec angle + rate derivation
-  (`scope.cpp` calibration state machine) and step-size selection
-  (`calstep_dialog.cpp`), which are wired through `Mount`/`Scope`
-  virtuals and the GUI.
+  `calibration_transform.{h,cpp}`), and the calibration *sequence* (the
+  `scope.cpp` state machine: RA/Dec angle and rate derivation, backlash,
+  recentering, nudge) is characterized closed loop by
+  `test_closed_loop_calibration` against a frozen copy (#142); its
+  extraction to a wx-free `CalibrationRun` is the next step. Still
+  deferred: step-size selection (`calstep_dialog.cpp`), which is wired
+  through `Mount`/`Scope` virtuals and the GUI.
 - **End-to-end test of `CameraAlpaca::Capture()`'s bounded-retry fix
   (e7a91ddc).** Lives inside the `WorkerThread` polling loop; can't be
   unit-tested without an integration harness against a fake Alpaca
