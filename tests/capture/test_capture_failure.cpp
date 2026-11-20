@@ -398,15 +398,16 @@ TEST(FrameRetry, DecisionTable)
     for (const Case& c : failures)
         for (FramePhase phase : phases)
             for (int retries = 0; retries <= 2; ++retries)
-                for (bool continuing : { false, true })
-                    for (bool connected : { false, true })
-                    {
-                        bool want = phase != FramePhase::Other && c.transient && retries < CaptureFailures::kFrameRetries &&
-                            continuing && connected;
-                        EXPECT_EQ(CaptureFailures::ShouldRetryFrame(c.failure, retries, phase, continuing, connected), want)
-                            << c.name << " phase " << static_cast<int>(phase) << " retries " << retries << " continuing "
-                            << continuing << " connected " << connected;
-                    }
+                for (int flags = 0; flags < 4; ++flags) // every continuing x connected pair
+                {
+                    const bool continuing = (flags & 1) != 0;
+                    const bool connected = (flags & 2) != 0;
+                    bool want = phase != FramePhase::Other && c.transient && retries < CaptureFailures::kFrameRetries &&
+                        continuing && connected;
+                    EXPECT_EQ(CaptureFailures::ShouldRetryFrame(c.failure, retries, phase, continuing, connected), want)
+                        << c.name << " phase " << static_cast<int>(phase) << " retries " << retries << " continuing "
+                        << continuing << " connected " << connected;
+                }
 }
 
 TEST(FrameRetry, GuidingBudgetCountsAndResets)
