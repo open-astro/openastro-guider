@@ -264,11 +264,6 @@ const std::string& Tracker::LastReason(GearDevice d) const
     return At(d).reason;
 }
 
-bool AlignmentToolBlocks(const AlignmentTools& tools)
-{
-    return tools.polarDriftDrifting || tools.driftToolOpen;
-}
-
 std::string RetryBlocker(GearDevice d, const Gates& g)
 {
     if (g.shuttingDown)
@@ -277,8 +272,6 @@ std::string RetryBlocker(GearDevice d, const Gates& g)
         return "dark-frame capture in progress";
     if (g.paSession)
         return "polar-alignment session in progress";
-    if (g.alignmentTool)
-        return "polar or drift alignment in progress";
     if (g.guidingAssistant)
         return "Guiding Assistant is running";
     if (g.connectInProgress)

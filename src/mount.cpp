@@ -1935,10 +1935,6 @@ bool Mount::CalibrationFlipRequiresDecFlip()
     return false;
 }
 
-void Mount::StartDecDrift() { }
-
-void Mount::EndDecDrift() { }
-
 bool Mount::IsDecDrifting() const
 {
     return false;

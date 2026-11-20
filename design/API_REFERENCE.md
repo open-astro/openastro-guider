@@ -74,41 +74,6 @@ and this **session lease** so nothing else can fight ARA for the camera mid-rout
 | `set_pa_session` | `active` (bool), `timeout_s` (10–3600, default 600) | Start/renew (or end) a PA session. While active, `guide`, `loop`, `dither`, `guide_pulse`, `build_dark_library`, `build_defect_map_darks`, and `set_connected` are rejected with *"polar-alignment session in progress"*; `capture_single_frame`, `find_star`, `get_star_centroids`, `stop_capture` stay available. The lease auto-expires (renew by calling again) so a crashed orchestrator can't wedge the daemon. Starting is rejected while calibrating/guiding. |
 | `get_pa_session` | — | `{active, expires_in_s?}`. |
 
-## Polar Drift Alignment (in-guider tool over RPC)
-
-Drives the built-in **Polar Drift** tool headlessly: the tool's window is constructed hidden and
-runs from the guider's per-frame hook, the same state machine the desktop GUI uses.
-Point near the pole, select a star, start, and let it accumulate — the longer it drifts, the
-better the estimate. Guide output is disabled while drifting (the star must drift freely) and
-restored on stop/close. Requires a known pixel scale, looping + a selected star.
-
-| Method | Params | Description |
-|--------|--------|-------------|
-| `polardrift_start` | `hemisphere`? (`"north"`/`"south"`), `mirrored`? (bool — image mirrored, e.g. OAG) | Start accumulating drift samples (one per frame). Errors: no camera, calibrating/guiding, pixel scale unknown, no star selected, already drifting. |
-| `polardrift_get_status` | — | `{active, drifting, hemisphere, mirrored, pixel_scale, num_samples, elapsed_s?, offset_px?, error_arcmin?, pole_direction_deg?, current_star?, target?}` — after ≥ 2 samples the least-squares drift fit yields the polar-alignment error and the on-sensor `target`; adjust alt/az to move the star to the target, then restart to re-measure. |
-| `polardrift_stop` | — | Stop drifting and restore guide output; the result stays readable. |
-| `polardrift_close` | — | Stop (restoring guide output) and tear the tool down. |
-
-## Drift Alignment (in-guider tool over RPC)
-
-Drives the classic **Drift Align** tool headlessly (meridian/horizon dec-drift method). Needs a
-**calibrated** mount and *guiding*: in drift mode the tool starts guiding itself (looping →
-auto-select → guide) and then disables dec output so the dec trendline shows the polar
-misalignment; the error number is the same Frank-Barrett estimate the graph overlays. Flow per
-phase: point near meridian+equator (azimuth) or east/west horizon (altitude) — ARA slews via
-its own mount connection — then `driftalign_drift`, watch `polar_alignment_error` stabilise,
-`driftalign_adjust`, turn the bolt to re-centre the star on `lock_position`, and repeat
-drift/adjust until the error is small; switch phase and do the other axis.
-
-| Method | Params | Description |
-|--------|--------|-------------|
-| `driftalign_start` | — | Create the (hidden) tool. Errors: no camera, no mount, pixel scale unknown. |
-| `driftalign_set_phase` | `phase` (`"azimuth"`/`"altitude"`) | Switch the adjustment phase (drops to idle mode). |
-| `driftalign_drift` | — | Enter drift mode: starts guiding if needed (mount must already be calibrated), disables dec output, clears the graph, enables trendlines. |
-| `driftalign_adjust` | — | Enter adjust mode: stops guiding (keeps looping), locks the lock position at the drifted star, full frames, star-lost tolerant. |
-| `driftalign_get_status` | — | `{active, phase, mode, drifting, can_slew, slewing, calibrated, guiding, status_message?, polar_alignment_error? {error_arcmin, dec_drift_arcsec_per_min, samples}, current_star?, lock_position?, scope? {ra_hours, dec_degrees, lst_hours}}`. |
-| `driftalign_close` | — | Full restore (end dec drift, graph mode/scale, sticky lock, subframes, star-lost behavior) + teardown — same path as the GUI close. |
-
 ## Guiding Assistant (headless)
 
 Runs PHD2's **Guiding Assistant** measurement without its dialog — the same statistics and
@@ -120,12 +85,12 @@ when the guider is closed mid-run (window close, `shutdown`, SIGTERM). Start it
 **while guiding**, or **while looping with a selected star and a calibrated mount**: in that case the
 run starts guiding itself (output already disabled, so nothing is corrected) and returns to looping
 at the end. Results are also written to the guide log and the profile's GA history, exactly as the
-dialog does. While a run is active, `guide`, `dither`, `polardrift_start`,
-`driftalign_start` and `driftalign_drift` are rejected ("Guiding Assistant is running").
+dialog does. While a run is active, `guide` and `dither` are rejected ("Guiding Assistant is
+running").
 
 | Method | Params | Description |
 |--------|--------|-------------|
-| `guiding_assistant_start` | `measure_backlash` (bool, required — the test moves the star well north, so pick a star with room), `duration_s`? (10–3600, default 120 — the dialog's minimum; shorter runs give less reliable seeing/min-move estimates) | Start measuring; returns the status. Errors: no camera / mount, calibrating, paused, not guiding and not (looping + star selected), mount not calibrated (when starting from looping), backlash test impossible (no Dec calibration), already running, Guiding Assistant dialog open, a polar-alignment tool running, PA session lease, dark build in progress. |
+| `guiding_assistant_start` | `measure_backlash` (bool, required — the test moves the star well north, so pick a star with room), `duration_s`? (10–3600, default 120 — the dialog's minimum; shorter runs give less reliable seeing/min-move estimates) | Start measuring; returns the status. Errors: no camera / mount, calibrating, paused, not guiding and not (looping + star selected), mount not calibrated (when starting from looping), backlash test impossible (no Dec calibration), already running, Guiding Assistant dialog open, PA session lease, dark build in progress. |
 | `guiding_assistant_stop` | — | End the run now. During sampling: finish with the samples so far (backlash test skipped), or `failed` if fewer than 2 samples. During the backlash test: abort it and finish without a backlash result. Error if not running. |
 | `guiding_assistant_get_status` | — | `{state, duration_s, measure_backlash, elapsed_s, samples, pixel_scale, ...}` — see below. |
 | `guiding_assistant_apply` | `which` (non-empty array of `"exposure"`, `"min_move_ra"`, `"min_move_dec"`, `"dec_backlash"`, `"dec_guide_mode"`, `"dec_algorithm"`) | Write the accepted recommendations to the current profile (state must be `done`) and save it. **All-or-nothing:** every requested item is first checked against the live mount/camera (recommendation present, algorithm has a min-move, Lowpass2 available for Dec, an exposure in range exists, …); if any can't be applied the call fails with `"<item>: <reason>; nothing was applied"` and nothing is changed. Items are applied in dependency order (`exposure`, `min_move_ra`, `dec_algorithm`, `min_move_dec`, `dec_backlash`, `dec_guide_mode`); duplicates are ignored. Should a setter still refuse after the checks, the error names it and what was already applied and saved: `"<item>: the setting was rejected; already applied and saved: a, b"`. `exposure` picks the shortest available exposure in `[exposure_s, exposure_max_s]`. Results only apply to the session they were measured in: if the profile changed, or the camera or mount was disconnected or reconnected since the run, the call fails (`"cannot apply the Guiding Assistant results: <what changed> - run it again"`). Returns `{applied: [...]}`. |
@@ -379,7 +344,16 @@ The in-guider Static Polar Alignment tool was removed: ARA's polar alignment is 
 polar-alignment routine, and the tool's auto mode slewed the mount with no meridian, pier-side
 or hour-angle guard. `staticpa_start`, `staticpa_measure`, `staticpa_get_status`,
 `staticpa_stop` and `staticpa_close` now return a standard "method not found" JSON-RPC error
-(`-32601`). Polar Drift and Drift Alignment are unchanged.
+(`-32601`).
+
+## Removed methods (Polar Drift and Drift Alignment — dropped in #129)
+
+The in-guider Polar Drift and Drift Align tools were removed: ARA's polar alignment is the only
+polar-alignment routine, and the Drift Align window had a "Slew To" button that drove the mount.
+`polardrift_start`, `polardrift_get_status`, `polardrift_stop`, `polardrift_close`,
+`driftalign_start`, `driftalign_set_phase`, `driftalign_drift`, `driftalign_adjust`,
+`driftalign_get_status` and `driftalign_close` now return a standard "method not found" JSON-RPC
+error (`-32601`). The Guiding Assistant's polar-alignment estimate is unchanged.
 
 ---
 

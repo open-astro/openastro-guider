@@ -346,8 +346,8 @@ static std::vector<GARecommendation> BuildGARecommendations(const ga_math::Recom
 
     if (r.pa == ga_math::PaAdvice::Improve)
         recs.push_back({ "PA", _("Polar alignment error > 5 arc-min; that could probably be improved.") });
-    else if (r.pa == ga_math::PaAdvice::UseDriftAlign)
-        recs.push_back({ "PA", _("Polar alignment error > 10 arc-min; try using the Drift Align tool to improve alignment.") });
+    else if (r.pa == ga_math::PaAdvice::Redo)
+        recs.push_back({ "PA", _("Polar alignment error > 10 arc-min; redo the polar alignment to improve it.") });
 
     if (r.improveFocus)
         recs.push_back({ "StarHFD", _("Consider trying to improve focus on the guide camera") });

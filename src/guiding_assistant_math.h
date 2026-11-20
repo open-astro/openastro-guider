@@ -214,7 +214,7 @@ enum class PaAdvice
 {
     None,
     Improve, // > 5'
-    UseDriftAlign // > 10'
+    Redo // > 10'
 };
 
 PaAdvice RecommendPolarAlignment(double errorArcmin, bool likelyBacklash);

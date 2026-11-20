@@ -168,13 +168,6 @@ public:
 
     void ResetData();
 
-    // Polar-alignment error estimate from the dec trendline over the visible
-    // plot window (Frank Barrett's formula) — the same number the graph
-    // overlays while dec-drifting during drift alignment. Returns false when
-    // unavailable (not RA/Dec mode, unknown pixel scale, not dec-drifting,
-    // fewer than 2 samples, zero time span, or |dec| beyond the comp limit).
-    bool GetPolarAlignmentError(double *errArcmin, double *decDriftArcsecPerMin) const;
-
     // read-only access to the guide-step history for the JSON-RPC
     // get_guide_history readout (Ara's guide graph)
     const circular_buffer<S_HISTORY>& History() const { return m_history; }
@@ -237,7 +230,6 @@ public:
 
     void UpdateControls();
     void SetState(bool is_active);
-    void EnableTrendLines(bool enable);
     GraphLogClientWindow::GRAPH_MODE SetMode(GraphLogClientWindow::GRAPH_MODE newMode);
     int GetLength() const;
     void SetLength(int length);
@@ -272,10 +264,6 @@ public:
     const wxColor& GetDecOrDyColor();
 
     const SummaryStats& Stats() const { return m_pClient->m_stats; }
-    bool GetPolarAlignmentError(double *errArcmin, double *decDriftArcsecPerMin) const
-    {
-        return m_pClient->GetPolarAlignmentError(errArcmin, decDriftArcsecPerMin);
-    }
     const circular_buffer<S_HISTORY>& History() const { return m_pClient->History(); }
     void ResetData();
 

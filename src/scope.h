@@ -87,7 +87,6 @@ class Scope : public Mount
     int m_maxDecDuration;
     int m_maxRaDuration;
     DEC_GUIDE_MODE m_decGuideMode;
-    DEC_GUIDE_MODE m_saveDecGuideMode;
 
     time_t m_limitReachedDeferralTime;
     GUIDE_DIRECTION m_raLimitReachedDirection;
@@ -258,11 +257,6 @@ public:
     virtual bool GetGuideRates(double *pRAGuideRate, double *pDecGuideRate);
     virtual bool GetCoordinates(double *ra, double *dec, double *siderealTime);
     virtual bool GetSiteLatLong(double *latitude, double *longitude);
-    virtual bool CanSlew();
-    virtual bool CanSlewAsync();
-    virtual bool SlewToCoordinates(double ra, double dec);
-    virtual bool SlewToCoordinatesAsync(double ra, double dec);
-    virtual void AbortSlew();
     virtual bool CanCheckSlewing();
     virtual bool Slewing();
     virtual PierSide SideOfPier();
@@ -272,8 +266,6 @@ public:
     virtual bool PreparePositionInteractive();
     virtual bool CanPulseGuide();
 
-    void StartDecDrift() override;
-    void EndDecDrift() override;
     bool IsDecDrifting() const override;
 
 private:

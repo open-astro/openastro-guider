@@ -185,10 +185,9 @@ Application/runtime errors:
     sent (below); no exposure starts. Failed attempts send no `Alert`, not even when the driver fails after the
     server reported the device connected (that failure goes to the debug log, and its reason to the next error
     text); a connect a client asks for keeps its `Alert`.
-  - an attempt waits while a dark-library or defect-map build runs, a `set_pa_session` lease is held, polar drift
-    alignment is drifting, the drift-alignment tool is open, or the Guiding Assistant runs, and under the same
-    rules as `set_connected` (the camera not while capture is active; the mount and rotator not while calibrating
-    or guiding). It runs once the gate opens.
+  - an attempt waits while a dark-library or defect-map build runs, a `set_pa_session` lease is held, or the
+    Guiding Assistant runs, and under the same rules as `set_connected` (the camera not while capture is active;
+    the mount and rotator not while calibrating or guiding). It runs once the gate opens.
   - `set_connected` false (for that device or for all) stops the retries for the devices it covers, even one that
     was not connected: the guider never connects a device the user disconnected behind their back. A refused
     disconnect changes nothing. Selecting another device or another profile forgets the state, and the device is then
@@ -795,9 +794,9 @@ Payload notes for downstream clients:
 
   The reason's server text is passed through untranslated; the driver-alert fallback is the daemon's own message
   and can be localised. The reason is cleared whenever an exposure is scheduled or starts, so a frame never reports
-  an earlier frame's failure. Looping, guiding and the polar-alignment tools with no `guide` / `dither` request in
-  flight still end with `LoopingExposuresStopped` / `GuidingStopped`, which carry no reason; the `Alert` does. A
-  failed gain write is still logged and does not fail the frame.
+  an earlier frame's failure. Looping and guiding with no `guide` / `dither` request in flight still end with
+  `LoopingExposuresStopped` / `GuidingStopped`, which carry no reason; the `Alert` does. A failed gain write is
+  still logged and does not fail the frame.
 
 ### Startup Catch-Up Events
 

@@ -29,6 +29,9 @@ What landed in the guider (see §8/§4 and `API_REFERENCE.md`):
 - **Removed 2026-11-19 (#113):** ARA's own polar alignment replaced it, so the in-guider
   Static PA tool, its `staticpa_*` methods and `src/staticpa_geometry.{h,cpp}` are gone
   (the methods return "method not found"). References to them below are history.
+- **Removed 2026-11-19 (#129):** the in-guider Polar Drift and Drift Align tools and their
+  `polardrift_*` / `driftalign_*` methods went the same way. References to the PHD2 drift
+  tools below are history.
 
 ---
 

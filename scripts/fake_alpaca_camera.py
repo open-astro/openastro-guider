@@ -12,8 +12,9 @@ through the star's positions should recover the pole point as its centre.
 A fake Alpaca *telescope* is served at device 0 too. Its pulseguide requests
 shift the star field (so the guider can calibrate and guide against it), and
 --dec-drift-px-per-min injects a steady dec-axis drift simulating polar
-misalignment - what the drift-align flow measures. Slew endpoints update the
-reported coordinates only, unless --slew-seconds is given:
+misalignment - what the Guiding Assistant's polar-alignment estimate measures.
+Slew endpoints update the reported coordinates only, unless --slew-seconds is
+given:
 
     --slew-seconds S   slewtocoordinatesasync takes S seconds: telescope `slewing`
                        reads true and the reported RA moves from the start to the

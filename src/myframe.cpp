@@ -79,8 +79,6 @@ EVT_MENU_CLOSE(MyFrame::OnAnyMenuClose)
 EVT_MENU(wxID_ANY, MyFrame::OnAnyMenu)
 EVT_MENU(wxID_EXIT, MyFrame::OnQuit)
 EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
-EVT_MENU(MENU_DRIFTTOOL, MyFrame::OnDriftTool)
-EVT_MENU(MENU_POLARDRIFTTOOL, MyFrame::OnPolarDriftTool)
 EVT_MENU(MENU_GUIDING_ASSISTANT, MyFrame::OnGuidingAssistant)
 EVT_MENU(wxID_SAVE, MyFrame::OnSave)
 EVT_MENU(MENU_TAKEDARKS, MyFrame::OnDark)
@@ -295,8 +293,6 @@ MyFrame::MyFrame()
 
     pGearDialog = new GearDialog(this);
 
-    pDriftTool = nullptr;
-    pPolarDriftTool = nullptr;
     pGuidingAssistant = nullptr;
     m_starFindMode = Star::FIND_CENTROID;
     m_rawImageMode = false;
@@ -379,11 +375,6 @@ MyFrame::~MyFrame()
 
     pAdvancedDialog->Destroy();
 
-    if (pDriftTool)
-        pDriftTool->Destroy();
-    if (pPolarDriftTool)
-        pPolarDriftTool->Destroy();
-
     m_mgr.UnInit();
 
     delete m_showBookmarksAccel;
@@ -422,10 +413,6 @@ void MyFrame::SetupMenuBar()
     tools_menu = new wxMenu;
     m_autoSelectStarMenuItem = tools_menu->Append(MENU_AUTOSTAR, _("&Auto-select Star\tAlt-S"), _("Automatically select star"));
     tools_menu->Append(MENU_GUIDING_ASSISTANT, _("&Guiding Assistant"), _("Run the Guiding Assistant"));
-    tools_menu->Append(MENU_DRIFTTOOL, _("&Drift Align"),
-                       _("Align by analyzing star drift near the celestial equator (Accurate)"));
-    tools_menu->Append(MENU_POLARDRIFTTOOL, _("&Polar Drift Align"),
-                       _("Align by analyzing star drift near the celestial pole (Simple)"));
     (void) tools_menu->AppendSeparator();
     tools_menu->AppendCheckItem(MENU_SERVER, _("Enable Server"), _("Enable PHD2 server capability"));
     tools_menu->AppendCheckItem(EEGG_STICKY_LOCK, _("Sticky Lock Position"),
@@ -963,21 +950,6 @@ void MyFrame::UpdateButtonsStatus()
 
     if (cond_update_tool(MainToolbar, BUTTON_CAM_PROPERTIES, m_cameraMenuItem, cam_props))
         need_update = true;
-
-    if (pDriftTool)
-    {
-        // let the drift tool update its buttons too
-        wxCommandEvent event(APPSTATE_NOTIFY_EVENT, GetId());
-        event.SetEventObject(this);
-        wxPostEvent(pDriftTool, event);
-    }
-    if (pPolarDriftTool)
-    {
-        // let the Polar drift tool update its buttons too
-        wxCommandEvent event(APPSTATE_NOTIFY_EVENT, GetId());
-        event.SetEventObject(this);
-        wxPostEvent(pPolarDriftTool, event);
-    }
 
     // also drives a headless (JSON-RPC) Guiding Assistant run, which has no window
     GuidingAssistant::UpdateUIControls();

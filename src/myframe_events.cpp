@@ -908,8 +908,6 @@ void MyFrame::OnRestoreWindows(wxCommandEvent& evt)
     }
     m_mgr.Update();
 
-    if (pDriftTool)
-        pDriftTool->Center();
     if (pGuidingAssistant)
         pGuidingAssistant->Center();
 }
@@ -1187,7 +1185,7 @@ void MyFrame::OnCharHook(wxKeyEvent& evt)
     bool handled = false;
 
     // We keep this handler here so the keystrokes work when other windows like
-    // the Drift Tool window have focus; the menu accelerators on the MyFrame
+    // the Guiding Assistant window have focus; the menu accelerators on the MyFrame
     // provide the keyboard responses otherwise.
 
     if (evt.GetKeyCode() == 'B')

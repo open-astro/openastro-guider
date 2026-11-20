@@ -50,8 +50,6 @@ private:
     bool m_canCheckPulseGuiding;
     bool m_canGetCoordinates;
     bool m_canGetGuideRates;
-    bool m_canSlew;
-    bool m_canSlewAsync;
     bool m_canPulseGuide;
     bool m_canGetSiteLatLong;
 
@@ -77,13 +75,8 @@ public:
     bool GetGuideRates(double *pRAGuideRate, double *pDecGuideRate) override;
     bool GetCoordinates(double *ra, double *dec, double *siderealTime) override;
     bool GetSiteLatLong(double *latitude, double *longitude) override;
-    bool CanSlew() override;
-    bool CanSlewAsync() override;
     bool CanReportPosition() override;
     bool CanPulseGuide() override;
-    bool SlewToCoordinates(double ra, double dec) override;
-    bool SlewToCoordinatesAsync(double ra, double dec) override;
-    void AbortSlew() override;
     bool CanCheckSlewing() override;
     bool Slewing() override;
     PierSide SideOfPier() override;

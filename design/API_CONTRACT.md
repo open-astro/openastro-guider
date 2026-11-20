@@ -492,3 +492,27 @@ no meridian, pier-side or hour-angle guard; removing it supersedes #112.
 
 ARA: no code change. Nothing calls the `staticpa_*` methods since openastro-ara#1686; the unused
 classes in `PHD2Methods.PolarAlign.cs` go in an ARA follow-up.
+
+## 2026-11-19 — Polar Drift and Drift Align removed (#129)
+
+ARA's polar alignment is the only polar-alignment routine, so the in-guider Polar Drift and
+Drift Align tools (inherited from PHD2) are gone. The Drift Align window had a "Slew To" button
+that drove the mount; no RPC method reached it.
+
+- `polardrift_start`, `polardrift_get_status`, `polardrift_stop`, `polardrift_close`,
+  `driftalign_start`, `driftalign_set_phase`, `driftalign_drift`, `driftalign_adjust`,
+  `driftalign_get_status` and `driftalign_close` now return JSON-RPC `-32601` "method not
+  found". The entries above that describe them (2026-06-10) are history.
+- `guiding_assistant_start` no longer refuses while polar drift or drift alignment is running.
+  The connect retry (#104) no longer waits on those tools, and its "polar or drift alignment in
+  progress" reason is gone; it still waits on a dark build, a `set_pa_session` lease and a
+  Guiding Assistant run.
+- The Guiding Assistant's > 10 arc-min polar-alignment recommendation (`id` `"PA"`) now reads
+  "redo the polar alignment to improve it" instead of naming the Drift Align tool. Its
+  polar-alignment estimate is unchanged.
+- The mount slew calls only Drift Align used are gone too, so the guider has no path that slews
+  the mount. Its Alpaca mount driver no longer reads `canslew` / `canslewasync` when it connects.
+- `get_pa_session` / `set_pa_session` are unchanged.
+
+ARA: no code change. Nothing calls the `polardrift_*` or `driftalign_*` methods; the unused
+classes in `PHD2Methods.PolarAlign.cs` go in an ARA follow-up.

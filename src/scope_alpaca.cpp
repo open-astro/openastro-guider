@@ -53,8 +53,6 @@ ScopeAlpaca::ScopeAlpaca() : m_client(nullptr), m_host(pConfig->Profile.GetStrin
     m_canCheckPulseGuiding = false;
     m_canGetCoordinates = false;
     m_canGetGuideRates = false;
-    m_canSlew = false;
-    m_canSlewAsync = false;
     m_canPulseGuide = false;
     m_canGetSiteLatLong = false;
 }
@@ -196,35 +194,6 @@ bool ScopeAlpaca::Connect()
             {
                 Debug.Write("Alpaca Mount: cannot get sitelongitude\n");
                 m_canGetSiteLatLong = false;
-            }
-        }
-
-        // Check if we can slew
-        m_canSlew = true;
-        endpoint = wxString::Format("telescope/%ld/canslew", m_deviceNumber);
-        if (!m_client->GetBool(endpoint, &dummyBool, &errorCode))
-        {
-            m_canSlew = false;
-            Debug.Write("Alpaca Mount: cannot get canslew\n");
-        }
-        else if (!dummyBool)
-        {
-            m_canSlew = false;
-            Debug.Write("Alpaca Mount: reports CanSlew = false\n");
-        }
-        else
-        {
-            // Check for async slewing
-            endpoint = wxString::Format("telescope/%ld/canslewasync", m_deviceNumber);
-            if (m_client->GetBool(endpoint, &dummyBool, &errorCode) && dummyBool)
-            {
-                m_canSlewAsync = true;
-                Debug.Write("Alpaca Mount: CanSlewAsync is true\n");
-            }
-            else
-            {
-                m_canSlewAsync = false;
-                Debug.Write("Alpaca Mount: CanSlewAsync is false\n");
             }
         }
 
@@ -806,9 +775,8 @@ bool ScopeAlpaca::GetCoordinates(double *ra, double *dec, double *siderealTime)
         }
 
         // PHD2's GetCoordinates convention is (hours, degrees, hours) — see
-        // ScopeManualPointing::GetCoordinates and the drift tool caller, which
-        // computes hour angles as lst - ra. Alpaca already reports hours/degrees,
-        // so pass through.
+        // ScopeManualPointing::GetCoordinates; callers compute hour angles as
+        // lst - ra. Alpaca already reports hours/degrees, so pass through.
         if (ra)
             *ra = raHours;
         if (dec)
@@ -866,42 +834,6 @@ bool ScopeAlpaca::GetSiteLatLong(double *latitude, double *longitude)
     return bError;
 }
 
-bool ScopeAlpaca::CanSlew()
-{
-    try
-    {
-        if (!IsConnected())
-        {
-            throw ERROR_INFO("Alpaca Mount: cannot get CanSlew property when not connected to mount");
-        }
-
-        return m_canSlew;
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        return false;
-    }
-}
-
-bool ScopeAlpaca::CanSlewAsync()
-{
-    try
-    {
-        if (!IsConnected())
-        {
-            throw ERROR_INFO("Alpaca Mount: cannot get CanSlewAsync property when not connected to mount");
-        }
-
-        return m_canSlewAsync;
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        return false;
-    }
-}
-
 bool ScopeAlpaca::CanReportPosition()
 {
     return true;
@@ -910,95 +842,6 @@ bool ScopeAlpaca::CanReportPosition()
 bool ScopeAlpaca::CanPulseGuide()
 {
     return m_canPulseGuide;
-}
-
-bool ScopeAlpaca::SlewToCoordinates(double ra, double dec)
-{
-    bool bError = false;
-
-    try
-    {
-        if (!IsConnected())
-        {
-            throw ERROR_INFO("Alpaca Mount: cannot slew when not connected");
-        }
-
-        if (!m_canSlew)
-        {
-            throw THROW_INFO("Alpaca Mount: not capable of slewing");
-        }
-
-        // ra is hours, dec is degrees (the PHD2-wide SlewToCoordinates
-        // convention; see the drift tool caller) — the same units Alpaca expects,
-        // so pass through
-        wxString endpoint = wxString::Format("telescope/%ld/slewtocoordinates", m_deviceNumber);
-        wxString params = wxString::Format("RightAscension=%.6f&Declination=%.6f", ra, dec);
-
-        long errorCode = 0;
-        if (!m_client->PutAction(endpoint, "SlewToCoordinates", params, &errorCode))
-        {
-            throw ERROR_INFO("Alpaca Mount: slew to coordinates failed, HTTP " + wxString::Format("%ld", errorCode));
-        }
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        bError = true;
-    }
-
-    return bError;
-}
-
-bool ScopeAlpaca::SlewToCoordinatesAsync(double ra, double dec)
-{
-    bool bError = false;
-
-    try
-    {
-        if (!IsConnected())
-        {
-            throw ERROR_INFO("Alpaca Mount: cannot slew when not connected");
-        }
-
-        if (!m_canSlewAsync)
-        {
-            throw THROW_INFO("Alpaca Mount: not capable of async slewing");
-        }
-
-        // ra is hours, dec is degrees (the PHD2-wide SlewToCoordinates
-        // convention) — the same units Alpaca expects, so pass through
-        wxString endpoint = wxString::Format("telescope/%ld/slewtocoordinatesasync", m_deviceNumber);
-        wxString params = wxString::Format("RightAscension=%.6f&Declination=%.6f", ra, dec);
-
-        long errorCode = 0;
-        if (!m_client->PutAction(endpoint, "SlewToCoordinatesAsync", params, &errorCode))
-        {
-            throw ERROR_INFO("Alpaca Mount: async slew to coordinates failed, HTTP " + wxString::Format("%ld", errorCode));
-        }
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        bError = true;
-    }
-
-    return bError;
-}
-
-void ScopeAlpaca::AbortSlew()
-{
-    if (!IsConnected() || !m_client)
-    {
-        return;
-    }
-
-    Debug.Write("ScopeAlpaca: AbortSlew\n");
-    wxString endpoint = wxString::Format("telescope/%ld/abortslew", m_deviceNumber);
-    long errorCode = 0;
-    if (!m_client->PutAction(endpoint, "AbortSlew", "", &errorCode))
-    {
-        pFrame->Alert(_("Alpaca driver failed calling AbortSlew, see the debug log for more information."));
-    }
 }
 
 PierSide ScopeAlpaca::SideOfPier()

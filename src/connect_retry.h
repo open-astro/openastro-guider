@@ -184,23 +184,12 @@ struct Gates
     bool shuttingDown = false;
     bool darkBuild = false; // a dark-library / defect-map build is capturing (#100)
     bool paSession = false; // a set_pa_session lease is held
-    bool alignmentTool = false; // AlignmentToolBlocks: polar drift drifting, drift tool open
     bool guidingAssistant = false;
     bool connectInProgress = false; // a connect or disconnect call is on the stack (re-entrant event loop)
     bool captureActive = false;
     bool calibratingOrGuiding = false;
     bool dialogOpen = false; // the Gear dialog is modal
 };
-
-// The alignment tools, for Gates::alignmentTool.
-struct AlignmentTools
-{
-    bool polarDriftDrifting = false;
-    bool driftToolOpen = false; // drifting or adjusting
-};
-// True while a background connect must wait for an alignment tool. A connect runs GearDialog::EndModal, which can
-// reload the calibration and the image scale under the tool.
-bool AlignmentToolBlocks(const AlignmentTools& tools);
 
 // Why a background attempt for d must wait, or "" when it can run. Past the gates of its own, the ConnectRefusal
 // rules of set_connected apply: the camera waits while capture is active, the mount and rotator while calibrating or

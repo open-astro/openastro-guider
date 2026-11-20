@@ -32,7 +32,6 @@
  *
  */
 #include "phd.h"
-#include "polardrift_tool.h"
 #include "guiding_assistant.h"
 
 // un-comment to log star deflections to a file
@@ -174,7 +173,6 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_lockPosShift.shiftUnits = UNIT_ARCSEC;
     m_lockPosShift.shiftIsMountCoords = true;
     m_lockPosIsSticky = false;
-    m_ignoreLostStarLooping = false;
     m_forceFullFrame = false;
     m_measurementMode = false;
     m_searchRegion = 0;
@@ -195,7 +193,6 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_userMultiStarMode = GetMultiStarMode();
 
     m_polarAlignCircleRadius = 0.0;
-    m_polarAlignCircleCorrection = 1.0;
 
     SetBackgroundStyle(wxBG_STYLE_CUSTOM);
     SetBackgroundColour(wxColour((unsigned char) 30, (unsigned char) 30, (unsigned char) 30));
@@ -276,15 +273,6 @@ void Guider::ForceFullFrame()
     {
         Debug.Write("setting force full frames = true\n");
         m_forceFullFrame = true;
-    }
-}
-
-void Guider::SetIgnoreLostStarLooping(bool ignore)
-{
-    if (m_ignoreLostStarLooping != ignore)
-    {
-        Debug.Write(wxString::Format("setting ignore lost star looping = %s\n", ignore ? "true" : "false"));
-        m_ignoreLostStarLooping = ignore;
     }
 }
 
@@ -700,14 +688,10 @@ bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
         if (m_polarAlignCircleRadius)
         {
             dc.SetBrush(*wxTRANSPARENT_BRUSH);
-            wxPenStyle penStyle = m_polarAlignCircleCorrection == 1.0 ? wxPENSTYLE_DOT : wxPENSTYLE_SOLID;
-            dc.SetPen(wxPen(wxColor(255, 0, 255), 1, penStyle));
-            int radius = ROUND(m_polarAlignCircleRadius * m_polarAlignCircleCorrection * m_scaleFactor);
+            dc.SetPen(wxPen(wxColor(255, 0, 255), 1, wxPENSTYLE_DOT));
+            int radius = ROUND(m_polarAlignCircleRadius * m_scaleFactor);
             dc.DrawCircle(m_polarAlignCircleCenter.X * m_scaleFactor, m_polarAlignCircleCenter.Y * m_scaleFactor, radius);
         }
-
-        // draw polar drift align stuff
-        PolarDriftTool::PaintHelper(dc, m_scaleFactor);
 
         if (IsPaused())
         {
@@ -1317,11 +1301,8 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
             case STATE_SELECTED:
                 // we had a current position and lost it
                 EvtServer.NotifyLooping(pImage->FrameNum, nullptr, &info);
-                if (!m_ignoreLostStarLooping)
-                {
-                    SetState(STATE_UNINITIALIZED);
-                    EvtServer.NotifyStarLost(info);
-                }
+                SetState(STATE_UNINITIALIZED);
+                EvtServer.NotifyStarLost(info);
                 break;
             case STATE_CALIBRATING_PRIMARY:
             case STATE_CALIBRATING_SECONDARY:
@@ -1395,12 +1376,6 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
             SetState(STATE_SELECTED);
             break;
         case STATE_SELECTED:
-            if (!PolarDriftTool::UpdateState())
-            {
-                SetState(STATE_UNINITIALIZED);
-                statusMessage = _("Polar Drift PA drift failed");
-                throw ERROR_INFO("Polar Drift PA drift failed");
-            }
             break;
         case STATE_CALIBRATING_PRIMARY:
             if (!pMount->IsCalibrated())

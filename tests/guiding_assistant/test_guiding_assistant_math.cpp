@@ -399,14 +399,14 @@ TEST(GuidingAssistantMath, PolarAlignmentAdvice)
 {
     EXPECT_EQ(RecommendPolarAlignment(4.0, false), PaAdvice::None);
     EXPECT_EQ(RecommendPolarAlignment(7.0, false), PaAdvice::Improve);
-    EXPECT_EQ(RecommendPolarAlignment(12.0, false), PaAdvice::UseDriftAlign);
+    EXPECT_EQ(RecommendPolarAlignment(12.0, false), PaAdvice::Redo);
     // likely backlash: only errors above 10' are worth mentioning
     EXPECT_EQ(RecommendPolarAlignment(7.0, true), PaAdvice::None);
-    EXPECT_EQ(RecommendPolarAlignment(12.0, true), PaAdvice::UseDriftAlign);
+    EXPECT_EQ(RecommendPolarAlignment(12.0, true), PaAdvice::Redo);
     // boundaries as the dialog draws them: from 10' the stronger advice, but
     // with likely backlash only strictly above 10'
     EXPECT_EQ(RecommendPolarAlignment(5.0, false), PaAdvice::None);
-    EXPECT_EQ(RecommendPolarAlignment(10.0, false), PaAdvice::UseDriftAlign);
+    EXPECT_EQ(RecommendPolarAlignment(10.0, false), PaAdvice::Redo);
     EXPECT_EQ(RecommendPolarAlignment(10.0, true), PaAdvice::None);
 }
 
@@ -496,7 +496,7 @@ TEST(GuidingAssistantRecommend, FlagsProblems)
     EXPECT_TRUE(r.recommendBinning);
     EXPECT_EQ(r.binning, 2);
     EXPECT_TRUE(r.brighterStar);
-    EXPECT_EQ(r.pa, PaAdvice::UseDriftAlign);
+    EXPECT_EQ(r.pa, PaAdvice::Redo);
     EXPECT_TRUE(r.recalibrate);
 
     in = BaseInputs();

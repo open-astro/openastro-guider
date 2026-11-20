@@ -383,8 +383,6 @@ public:
     virtual bool CalibrationFlipRequiresDecFlip();
     virtual bool HasHPEncoders() const { return false; }
 
-    virtual void StartDecDrift();
-    virtual void EndDecDrift();
     virtual bool IsDecDrifting() const;
 
     bool MountIsCalibrated() const { return m_calibrated; }
