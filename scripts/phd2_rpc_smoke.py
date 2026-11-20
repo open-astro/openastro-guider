@@ -85,6 +85,44 @@ class FakeAlpaca:
         return self.get("/api/v1/telescope/0/declination")["Value"]
 
 
+def alpaca_port_configured(cfg):
+    """True when a get_alpaca_server result names a usable port (a profile with no server set reads port 0)."""
+    port = cfg.get("port") if isinstance(cfg, dict) else None
+    return isinstance(port, int) and 1 <= port <= 65535
+
+
+def expect_equal(got, want):
+    if got != want:
+        raise RuntimeError(f"got {got!r}, expected {want!r}")
+    return got
+
+
+def expect_list(value, key):
+    if not isinstance(value, list):
+        raise RuntimeError(f"{key}: expected a list, got {value!r}")
+    return f"{len(value)} choices"
+
+
+def expect_absent(obj, key):
+    if key in obj:
+        raise RuntimeError(f"unexpected key {key}: {obj[key]!r}")
+    return "absent"
+
+
+def alpaca_query_live_check(cli, fake, run_check):
+    """#155: query_alpaca_devices lists the camera and the telescope that scripts/fake_alpaca_camera.py serves."""
+
+    def query():
+        devices = cli.call("query_alpaca_devices", {"host": fake.host, "port": fake.port, "device_type": "all"})
+        found = sorted((d.get("device_type"), d.get("device_number")) for d in devices or [])
+        expect_equal(found, [("Camera", 0), ("Telescope", 0)])
+        cameras = cli.call("query_alpaca_devices", {"host": fake.host, "port": fake.port, "device_type": "camera"})
+        expect_equal([d.get("device_type") for d in cameras or []], ["Camera"])
+        return devices
+
+    run_check("query_alpaca_devices against the fake server", query)
+
+
 def ra_calibration_step_ms(step_ms, dec_deg):
     """#141: the West/East calibration pulse for a step at a Dec (calibration_run.cpp RaCalibrationStepMs)."""
     c = max(abs(math.cos(math.radians(dec_deg))), 1.0 / 4.0)
@@ -214,7 +252,7 @@ def profile_setup_live_checks(cli, fake, run_check):
             print(f"WARN #117 cleanup: {e}")
 
 
-def clear_calibration_live_checks(cli, fake, run_check):
+def clear_calibration_live_checks(cli, fake, run_check, calibration_timeout=180.0):
     """#137: clear_calibration is refused while calibrating and the calibration goes on; allowed while guiding.
 
     On main the clear went through, and the calibration it cleared never finished (an assert abort with asserts
@@ -243,7 +281,7 @@ def clear_calibration_live_checks(cli, fake, run_check):
         err = cli.request("clear_calibration").get("error")
         expect(err and err.get("code") == 1, f"clear_calibration while calibrating: expected error 1, got {err}")
         expect(cli.call("get_app_state") == "Calibrating", "the refused clear_calibration ended the calibration")
-        wait_state("Guiding", 180)
+        wait_state("Guiding", calibration_timeout)
         expect(cli.call("get_calibrated") is True, "not calibrated after the calibration completed")
         return err
 
@@ -284,9 +322,12 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=4400)
     ap.add_argument("--timeout", type=float, default=5.0)
+    ap.add_argument("--calibration-timeout", type=float, default=180.0,
+                    help="seconds a calibration in the --fake-alpaca-url checks may take (raise it for a sanitizer build)")
     ap.add_argument("--fake-alpaca-url", metavar="URL",
-                    help="also check that set_profile_setup reaches the live mount and camera (#117), and "
-                         "clear_calibration during a calibration (#137), against scripts/fake_alpaca_camera.py at URL "
+                    help="also check query_alpaca_devices (#155), that set_profile_setup reaches the live mount and "
+                         "camera (#117), and clear_calibration during a calibration (#137), against "
+                         "scripts/fake_alpaca_camera.py at URL "
                          "(e.g. http://127.0.0.1:11111); needs the equipment disconnected")
     args = ap.parse_args()
 
@@ -366,21 +407,68 @@ def main():
         run_check("get_connected", lambda: cli.call("get_connected"))
         run_check("get_current_equipment", lambda: cli.call("get_current_equipment"))
         run_check("get_calibration_files_status", lambda: cli.call("get_calibration_files_status"))
-        run_check("get_indi_server", lambda: cli.call("get_indi_server"))
-        run_check("get_alpaca_server", lambda: cli.call("get_alpaca_server"))
+
+        # the daemon is Alpaca-only (#115): the INDI methods are gone from the method table (#155)
+        for method, params in (
+            ("get_indi_server", None),
+            ("set_indi_server", {"host": "localhost", "port": 7624}),
+            ("get_selected_indi_mount_driver", None),
+            ("set_selected_indi_mount_driver", {"mount_driver": "indi_simulator_telescope"}),
+            ("get_selected_indi_camera_driver", None),
+            ("set_selected_indi_camera_driver", {"camera_driver": "indi_simulator_ccd"}),
+        ):
+            expect_error(f"{method}_removed_returns_method_not_found", method, params=params, code=-32601)
+
+        alpaca_cfg = run_check("get_alpaca_server", lambda: cli.call("get_alpaca_server"))
         run_check("discover_alpaca_servers", lambda: cli.call("discover_alpaca_servers", {"num_queries": 1, "timeout_seconds": 1}))
-        run_check("query_alpaca_devices", lambda: cli.call("query_alpaca_devices", {"device_type": "all"}))
+        if alpaca_port_configured(alpaca_cfg):
+            run_check("query_alpaca_devices", lambda: cli.call("query_alpaca_devices", {"device_type": "all"}))
+        else:
+            # a profile with no Alpaca server set has port 0, so the query goes to <host>:0 and fails (#155)
+            expect_error(
+                "query_alpaca_devices_unconfigured_profile_fails",
+                "query_alpaca_devices",
+                params={"device_type": "all"},
+                code=1,
+                message_contains="failed to query configured devices",
+            )
+        expect_error(
+            "query_alpaca_devices_port_0_returns_invalid_params",
+            "query_alpaca_devices",
+            params={"host": "127.0.0.1", "port": 0},
+            code=-32602,
+        )
+        expect_error(
+            "query_alpaca_devices_unknown_type_returns_invalid_params",
+            "query_alpaca_devices",
+            params={"device_type": "focuser"},
+            code=-32602,
+        )
 
         choices = run_check("get_equipment_choices", lambda: cli.call("get_equipment_choices")) or {}
         mount_choice = run_check("get_selected_mount", lambda: cli.call("get_selected_mount"))
         camera_choice = run_check("get_selected_camera", lambda: cli.call("get_selected_camera"))
-        aux_choice = run_check("get_selected_aux_mount", lambda: cli.call("get_selected_aux_mount"))
-        ao_choice = run_check("get_selected_ao", lambda: cli.call("get_selected_ao"))
         rot_choice = run_check("get_selected_rotator", lambda: cli.call("get_selected_rotator"))
 
+        # no aux mount and no AO in this build: the getters read "None" and the setters are refused (#155)
+        run_check("get_selected_aux_mount is None", lambda: expect_equal(cli.call("get_selected_aux_mount"), "None"))
+        run_check("get_selected_ao is None", lambda: expect_equal(cli.call("get_selected_ao"), "None"))
+        expect_error(
+            "set_selected_aux_mount_not_supported",
+            "set_selected_aux_mount",
+            params={"aux_mount": "None"},
+            code=1,
+            message_contains="not supported",
+        )
+        expect_error(
+            "set_selected_ao_not_supported",
+            "set_selected_ao",
+            params={"ao": "None"},
+            code=1,
+            message_contains="not supported",
+        )
+
         run_check("get_selected_camera_id", lambda: cli.call("get_selected_camera_id"))
-        run_check("get_selected_indi_mount_driver", lambda: cli.call("get_selected_indi_mount_driver"))
-        run_check("get_selected_indi_camera_driver", lambda: cli.call("get_selected_indi_camera_driver"))
 
         bitdepth = run_check("get_camera_bitdepth", lambda: cli.call("get_camera_bitdepth"))
 
@@ -388,10 +476,6 @@ def main():
             run_check("set_selected_mount", lambda: cli.call("set_selected_mount", {"mount": mount_choice}))
         if isinstance(camera_choice, str):
             run_check("set_selected_camera", lambda: cli.call("set_selected_camera", {"camera": camera_choice}))
-        if isinstance(aux_choice, str):
-            run_check("set_selected_aux_mount", lambda: cli.call("set_selected_aux_mount", {"aux_mount": aux_choice}))
-        if isinstance(ao_choice, str):
-            run_check("set_selected_ao", lambda: cli.call("set_selected_ao", {"ao": ao_choice}))
         if isinstance(rot_choice, str):
             run_check("set_selected_rotator", lambda: cli.call("set_selected_rotator", {"rotator": rot_choice}))
 
@@ -402,39 +486,35 @@ def main():
         if isinstance(current_cam_id, str):
             run_check("set_selected_camera_id", lambda: cli.call("set_selected_camera_id", {"camera_id": current_cam_id}))
 
-        mount_driver = run_check("get_selected_indi_mount_driver (again)", lambda: cli.call("get_selected_indi_mount_driver"))
-        if isinstance(mount_driver, str):
-            run_check("set_selected_indi_mount_driver", lambda: cli.call("set_selected_indi_mount_driver", {"mount_driver": mount_driver}))
-
-        cam_driver = run_check("get_selected_indi_camera_driver (again)", lambda: cli.call("get_selected_indi_camera_driver"))
-        if isinstance(cam_driver, str):
-            run_check("set_selected_indi_camera_driver", lambda: cli.call("set_selected_indi_camera_driver", {"camera_driver": cam_driver}))
-
         still_connected = run_check("get_connected (config checks)", lambda: cli.call("get_connected"))
         if not still_connected:
-            indi_cfg = run_check("get_indi_server (again)", lambda: cli.call("get_indi_server"))
-            if isinstance(indi_cfg, dict):
-                if "host" in indi_cfg:
-                    run_check("set_indi_server host", lambda: cli.call("set_indi_server", {"host": indi_cfg["host"]}))
-                if "port" in indi_cfg:
-                    run_check("set_indi_server port", lambda: cli.call("set_indi_server", {"port": indi_cfg["port"]}))
-
             alpaca_cfg = run_check("get_alpaca_server (again)", lambda: cli.call("get_alpaca_server"))
             if isinstance(alpaca_cfg, dict):
-                payload = {}
-                for k in ("host", "port", "camera_device", "telescope_device", "rotator_device"):
-                    if k in alpaca_cfg:
-                        payload[k] = alpaca_cfg[k]
+                # write the profile's own values back; the port only when it is set, because the port 0 of a profile
+                # with no Alpaca server is refused (#155, checked below)
+                keys = ["host", "camera_device", "telescope_device", "rotator_device"]
+                if alpaca_port_configured(alpaca_cfg):
+                    keys.append("port")
+                payload = {k: alpaca_cfg[k] for k in keys if k in alpaca_cfg}
                 if payload:
                     run_check("set_alpaca_server", lambda: cli.call("set_alpaca_server", payload))
+                    run_check(
+                        "get_alpaca_server unchanged by set_alpaca_server",
+                        lambda: expect_equal(cli.call("get_alpaca_server"), alpaca_cfg),
+                    )
+            expect_error(
+                "set_alpaca_server_port_0_returns_invalid_params",
+                "set_alpaca_server",
+                params={"port": 0},
+                code=-32602,
+                message_contains="port in range",
+            )
 
-        # basic presence check for list keys
-        for key in ("camera", "mount", "aux_mount", "AO", "rotator"):
-            if key not in choices:
-                failures.append(("get_equipment_choices keys", f"missing key {key}"))
-                print(f"FAIL get_equipment_choices keys: missing key {key}")
-            else:
-                print(f"PASS get_equipment_choices keys: has {key}")
+        # the equipment lists: camera, mount and rotator; no aux mount or AO lists in this build (#155)
+        for key in ("camera", "mount", "rotator"):
+            run_check(f"get_equipment_choices has {key}", lambda key=key: expect_list(choices.get(key), key))
+        for key in ("aux_mount", "AO"):
+            run_check(f"get_equipment_choices has no {key}", lambda key=key: expect_absent(choices, key))
 
         expect_error(
             "unknown_method_returns_method_not_found",
@@ -545,8 +625,9 @@ def main():
                 failures.append(("#117 profile setup checks", "equipment is connected; disconnect it first"))
                 print("FAIL #117 profile setup checks: equipment is connected; disconnect it first")
             else:
+                alpaca_query_live_check(cli, FakeAlpaca(args.fake_alpaca_url), run_check)
                 profile_setup_live_checks(cli, FakeAlpaca(args.fake_alpaca_url), run_check)
-                clear_calibration_live_checks(cli, FakeAlpaca(args.fake_alpaca_url), run_check)
+                clear_calibration_live_checks(cli, FakeAlpaca(args.fake_alpaca_url), run_check, args.calibration_timeout)
 
     finally:
         cli.close()

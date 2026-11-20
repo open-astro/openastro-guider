@@ -400,3 +400,92 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
+
+  e2e:
+    # The daemon itself, end to end (#142 Tier 1): phd2.bin built with AddressSanitizer and
+    # UndefinedBehaviorSanitizer, run headless under xvfb-run against scripts/fake_alpaca_camera.py,
+    # and driven over JSON-RPC by scripts/e2e_guide_scenarios.py the way Ara drives it: the RPC
+    # smoke script, calibrate and guide (with the event order Ara consumes), recalibration on a
+    # new target, and dropped frames while guiding. A separate job beside the Release build, in
+    # its own build dir, so the GTest job above is unchanged and the two run in parallel.
+    name: Daemon e2e (arm64, ASan/UBSan)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Install build and run dependencies
+        # The build job's list, plus what the run needs: xvfb + xauth for xvfb-run, and numpy
+        # for the fake camera's frames.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            libwxgtk3.2-dev \
+            libcfitsio-dev \
+            libopencv-dev \
+            libv4l-dev \
+            libcurl4-openssl-dev \
+            libeigen3-dev \
+            libgtest-dev \
+            libx11-dev \
+            libnova-dev \
+            xvfb \
+            xauth \
+            python3-numpy
+
+      - name: Configure (ASan + UBSan)
+        # RelWithDebInfo: optimised with NDEBUG like the shipped .deb, plus line numbers for the
+        # sanitizer stacks. Only the daemon is built below, not the GTest targets. No vptr check:
+        # GCC's reads the vptr right after a null report it continues past, so the known null
+        # findings scripts/e2e_ubsan.supp suppresses would crash inside the check (see that file).
+        run: |
+          cmake -S . -B build-asan -DUSE_SYSTEM_GTEST=1 -Wno-dev \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize=vptr -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build phd2.bin
+        run: cmake --build build-asan --target phd2 --parallel "$(nproc)"
+
+      - name: Limit mmap ASLR entropy for ASan
+        # Ubuntu 24.04 kernels raise vm.mmap_rnd_bits, and ASan runtimes older than the kernel can
+        # then hang or crash at startup on a mapping that lands in their shadow range (GitHub set
+        # 28 on its x64 24.04 image for this, actions/runner-images#9491). 28 is within arm64's
+        # range; set it here so the run does not depend on what the arm image ships.
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Run the daemon scenarios
+        # Fails on a failed check, on the daemon crashing or exiting non-zero, and on any
+        # sanitizer report. halt_on_error makes the first report fatal; the script adds the
+        # known, reported UBSan findings in scripts/e2e_ubsan.supp. detect_leaks=0:
+        # LeakSanitizer's exit-time check reports the wxWidgets/GTK and PHD2 singletons that are
+        # never freed by design, which is not a bug; the memory-error and UB checks stay on.
+        # The script has its own whole-run timeout (--timeout) under the step's. Under ASan the
+        # ubuntu-24.04-arm runner is about 3x slower than a local run: a calibration takes about
+        # 270 s and the whole run about 15 min.
+        timeout-minutes: 45
+        env:
+          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0:print_stacktrace=1
+          UBSAN_OPTIONS: halt_on_error=1:abort_on_error=1:print_stacktrace=1
+        run: |
+          python3 scripts/e2e_guide_scenarios.py \
+            --phd2 build-asan/phd2.bin \
+            --instance 10 \
+            --fake-port 11150 \
+            --display 110 \
+            --timeout 2400 \
+            --work-dir "$RUNNER_TEMP/e2e"
+
+      - name: Upload the daemon and fake logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: daemon-e2e-logs
+          path: ${{ runner.temp }}/e2e/
+          if-no-files-found: warn
