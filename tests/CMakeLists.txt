@@ -329,7 +329,8 @@ add_test(NAME test_capture_cleanup COMMAND test_capture_cleanup)
 # test_capture_failure  --  capture_failure.cpp: the reason a failed capture
 # reports to clients (SingleFrameComplete / SettleDone / dark-build error /
 # Alert), built from the failed Alpaca call or the driver's alert (#97), and
-# whether a failed calibration frame is exposed again (#116).
+# whether a failed calibration frame is exposed again (#116) or a failed
+# guiding frame is dropped (#136), and the phase of each guider state.
 # std-only.
 ############################################################################
 add_executable(test_capture_failure
@@ -341,6 +342,19 @@ add_executable(test_capture_failure
 target_link_libraries(test_capture_failure PRIVATE phd_test_common)
 set_property(TARGET test_capture_failure PROPERTY FOLDER "Unit tests")
 add_test(NAME test_capture_failure COMMAND test_capture_failure)
+
+############################################################################
+# test_settle_frame  --  settle_frame.cpp: what one guide frame does to a
+# guide or dither settle, including a frame dropped after a transient
+# capture failure (#136). std-only.
+############################################################################
+add_executable(test_settle_frame
+  ${PHD_TESTS_DIR}/guiding/test_settle_frame.cpp
+  ${phd_src_dir}/settle_frame.cpp
+)
+target_link_libraries(test_settle_frame PRIVATE phd_test_common)
+set_property(TARGET test_settle_frame PROPERTY FOLDER "Unit tests")
+add_test(NAME test_settle_frame COMMAND test_settle_frame)
 
 ############################################################################
 # test_restore_calibration  --  restore_calibration.cpp: when

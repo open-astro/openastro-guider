@@ -68,15 +68,28 @@ bool IsTransient(const Failure& failure)
     }
 }
 
-bool ShouldRetryCalibrationFrame(const Failure& failure, int retriesSoFar, bool calibrating, bool continuing,
-                                 bool cameraConnected)
+FramePhase PhaseFor(GUIDER_STATE state)
 {
-    return calibrating && continuing && cameraConnected && retriesSoFar < kCalibrationFrameRetries && IsTransient(failure);
+    switch (state)
+    {
+    case STATE_CALIBRATING_PRIMARY:
+    case STATE_CALIBRATING_SECONDARY:
+        return FramePhase::Calibrating;
+    case STATE_GUIDING:
+        return FramePhase::Guiding;
+    default:
+        return FramePhase::Other;
+    }
 }
 
-bool CalibrationFrameRetries::OnFailedFrame(const Failure& failure, bool calibrating, bool continuing, bool cameraConnected)
+bool ShouldRetryFrame(const Failure& failure, int retriesSoFar, FramePhase phase, bool continuing, bool cameraConnected)
 {
-    if (ShouldRetryCalibrationFrame(failure, m_retries, calibrating, continuing, cameraConnected))
+    return phase != FramePhase::Other && continuing && cameraConnected && retriesSoFar < kFrameRetries && IsTransient(failure);
+}
+
+bool FrameRetries::OnFailedFrame(const Failure& failure, FramePhase phase, bool continuing, bool cameraConnected)
+{
+    if (ShouldRetryFrame(failure, m_retries, phase, continuing, cameraConnected))
     {
         ++m_retries;
         return true;
@@ -86,13 +99,13 @@ bool CalibrationFrameRetries::OnFailedFrame(const Failure& failure, bool calibra
     return false;
 }
 
-void CalibrationFrameRetries::OnGoodFrame()
+void FrameRetries::OnGoodFrame()
 {
     m_retries = 0;
     m_refilled = false;
 }
 
-void CalibrationFrameRetries::OnReconnect()
+void FrameRetries::OnReconnect()
 {
     if (m_retries > 0 && !m_refilled)
     {

@@ -504,28 +504,45 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
 
             CaptureFailures::Failure captureFailure = pCamera ? pCamera->TakeCaptureFailure() : CaptureFailures::Failure();
 
-            // #116: a calibration step's frame that failed with a transient error (Alpaca 1280, a timeout) is
-            // exposed again instead of failing the calibration. The step's move finished before its exposure
-            // started, so skipping UpdateGuideState repeats that step's frame without moving the mount again.
-            // The camera already raised its alert, and the #103 tracker keeps counting, so a 3rd 1280 in a row
-            // reconnects the camera instead. Guider::IsCalibrating excludes STATE_CALIBRATED: that state lasts
-            // past a frame only when guiding starts on an existing calibration, where no step is repeated.
-            if (m_calibrationFrameRetries.OnFailedFrame(captureFailure, pGuider->IsCalibrating(),
-                                                        m_continueCapturing && !m_singleExposure.enabled,
-                                                        pCamera && pCamera->Connected))
-            {
-                Debug.Write(wxString::Format("OnExposeComplete: calibration frame failed (%s), retrying exposure %d of %d\n",
-                                             wxString::FromUTF8(CaptureFailures::Text(captureFailure).c_str()),
-                                             m_calibrationFrameRetries.Count(), CaptureFailures::kCalibrationFrameRetries));
-                ScheduleExposure();
-                return;
-            }
-
             // #97: the camera's reason for this failure, built once for every report of it:
             // "camera error: <reason>", or "camera error -- see debug log" when it gave none
             wxString failure = wxString::FromUTF8(CaptureFailures::Text(captureFailure).c_str());
             if (failure.empty())
                 failure = CaptureFailures::kFallback;
+
+            // #116: a calibration step's frame that failed with a transient error (Alpaca 1280, a timeout) is
+            // exposed again instead of failing the calibration. The step's move finished before its exposure
+            // started, so skipping UpdateGuideState repeats that step's frame without moving the mount again.
+            // The camera already raised its alert, and the #103 tracker keeps counting, so a 3rd 1280 in a row
+            // reconnects the camera instead. PhaseFor maps STATE_CALIBRATED to Other: that state lasts past a
+            // frame only when guiding starts on an existing calibration, where no step is repeated.
+            // #136: a guiding frame (guiding or settling) that failed the same way is dropped like a lost-star
+            // frame instead of stopping guiding: StarLost with the #97 text, no guide pulse and no deduced move
+            // (a failure can take up to the 30 s call timeout), the lock untouched, and a settle in progress
+            // counts it as a dropped frame while its timeout keeps running. The same budget applies.
+            CaptureFailures::FramePhase phase = CaptureFailures::PhaseFor(pGuider->GetState());
+            if (m_frameRetries.OnFailedFrame(captureFailure, phase, m_continueCapturing && !m_singleExposure.enabled,
+                                             pCamera && pCamera->Connected))
+            {
+                bool guiding = phase == CaptureFailures::FramePhase::Guiding;
+                Debug.Write(wxString::Format("OnExposeComplete: %s frame failed (%s), retry %d of %d\n",
+                                             guiding ? "guiding" : "calibration", failure, m_frameRetries.Count(),
+                                             CaptureFailures::kFrameRetries));
+                if (guiding)
+                {
+                    FrameDroppedInfo info {};
+                    info.frameNumber = ++m_frameCounter;
+                    info.time = TimeSinceGuidingStarted();
+                    info.avgDist = CurrentGuideError();
+                    info.status = failure;
+                    GuideLog.FrameDropped(info);
+                    EvtServer.NotifyStarLost(info);
+                    PhdController::UpdateControllerState(true);
+                }
+                ScheduleExposure();
+                return;
+            }
+
             Debug.Write(wxString::Format("OnExposeComplete: %s\n", failure));
 
             bool stopping = !m_continueCapturing;
@@ -557,7 +574,7 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
         }
 
         pNewFrame->FrameNum = ++m_frameCounter;
-        m_calibrationFrameRetries.OnGoodFrame(); // #116: the retry budget is per step, for consecutive failures
+        m_frameRetries.OnGoodFrame(); // #116, #136: the retry budget is for consecutive failures
 
         if (m_rawImageMode && !m_rawImageModeWarningDone)
         {
