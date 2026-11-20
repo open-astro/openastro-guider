@@ -63,7 +63,7 @@ class Failure(Exception):
 
 
 class RunTimeout(Exception):
-    """The whole-run timeout; not a Failure, so no step catches it and the run ends."""
+    """The whole-run timeout. step() re-raises it, so the run ends and goes to teardown."""
 
 
 def expect(cond, msg):
@@ -487,6 +487,8 @@ def main():
             failures.append((name, str(e)))
             print(f"FAIL {name} ({time.time() - t:.0f} s): {e}", flush=True)
             return False
+        except RunTimeout:  # ends the run, not just this step: the alarm only fires once
+            raise
         except Exception as e:  # a bug in a check is a failed step, and the daemon is still shut down after it
             failures.append((name, repr(e)))
             print(f"FAIL {name} ({time.time() - t:.0f} s): {e!r}", flush=True)
