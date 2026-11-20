@@ -1366,19 +1366,27 @@ void Mount::AdjustCalibrationForScopePointing()
     // compensate RA guide rate for declination if the declination changed and we know both the
     // calibration declination and the current declination.  This must be done after all other adjustments that may
     // update the calibration data in the registry.  The adjusted x_Rate is never persisted
+    // A Dec that moved by no more than a driver's rounding has not changed, and above the Dec comp limit only a move
+    // that changes the RA rate by more than 5% needs a new calibration (#157): calibration_transform::DecideDecComp.
     bool deccomp = false;
 
-    if (newDeclination != m_cal.declination && newDeclination != UNKNOWN_DECLINATION &&
-        m_cal.declination != UNKNOWN_DECLINATION)
+    std::optional<double> calDec;
+    std::optional<double> nowDec;
+    if (m_cal.declination != UNKNOWN_DECLINATION)
+        calDec = m_cal.declination;
+    if (newDeclination != UNKNOWN_DECLINATION)
+        nowDec = newDeclination;
+
+    switch (calibration_transform::DecideDecComp(calDec, nowDec, Scope::DEC_COMP_LIMIT))
     {
+    case calibration_transform::DecComp::Alert:
         // avoid division by zero and gross errors.  If the user didn't calibrate
         // somewhere near the celestial equator, we don't do this
-        if (fabs(m_cal.declination) > Scope::DEC_COMP_LIMIT)
-        {
-            Debug.AddLine("skipping Dec comp: initial calibration too far from equator");
-            pFrame->Alert(_("Calibration was too far from equator, recalibration is needed."));
-        }
-        else if (!DecCompensationEnabled())
+        Debug.AddLine("skipping Dec comp: initial calibration too far from equator");
+        pFrame->Alert(_("Calibration was too far from equator, recalibration is needed."));
+        break;
+    case calibration_transform::DecComp::Compensate:
+        if (!DecCompensationEnabled())
         {
             Debug.AddLine("skipping Dec comp: Dec Comp not enabled");
         }
@@ -1386,12 +1394,18 @@ void Mount::AdjustCalibrationForScopePointing()
         {
             // Don't do a full dec comp too close to pole - xRate will become a huge number and will cause problems downstream
             newDeclination = wxMax(radians(-89.0), wxMin(radians(89.0), newDeclination));
-            m_xRate = (m_cal.xRate / cos(m_cal.declination)) * cos(newDeclination);
+            m_xRate = calibration_transform::CompensatedRaRate(m_cal.xRate, m_cal.declination, newDeclination);
             deccomp = true;
 
             Debug.Write(wxString::Format("Dec comp: XRate %.3f -> %.3f for dec %.1f -> dec %.1f\n", m_cal.xRate * 1000.0,
                                          m_xRate * 1000.0, degrees(m_cal.declination), degrees(newDeclination)));
         }
+        break;
+    case calibration_transform::DecComp::None:
+        if (calDec && nowDec && *nowDec != *calDec)
+            Debug.Write(wxString::Format("skipping Dec comp: dec %.4f -> dec %.4f is not a meaningful change\n",
+                                         degrees(m_cal.declination), degrees(newDeclination)));
+        break;
     }
     if (!deccomp && m_xRate != m_cal.xRate)
     {

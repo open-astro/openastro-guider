@@ -12,6 +12,10 @@
  *  wxLongLong), no member state, no logging. Mount::Transform* read their
  *  members, call these, and keep the validity checks + Debug logging.
  *
+ *  DecideDecComp and CompensatedRaRate are the Dec compensation of the RA rate
+ *  that Mount::AdjustCalibrationForScopePointing applies on every entry to
+ *  Guiding (#157); Mount keeps the alert, the Dec comp setting and the logging.
+ *
  *  This source code is distributed under the following "BSD" license
  *  Redistribution and use in source and binary forms, with or without
  *  modification, are permitted provided that the following conditions are met:

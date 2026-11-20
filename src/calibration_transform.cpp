@@ -100,10 +100,24 @@ double YAngleError(double calXAngle, double calYAngle)
 
 DecComp DecideDecComp(std::optional<double> calDecRad, std::optional<double> newDecRad, double compLimitRad)
 {
-    // Mount::AdjustCalibrationForScopePointing's rule today: any difference acts.
-    if (!calDecRad || !newDecRad || *newDecRad == *calDecRad)
+    if (!calDecRad || !newDecRad || !std::isfinite(*calDecRad) || !std::isfinite(*newDecRad))
         return DecComp::None;
-    return std::fabs(*calDecRad) > compLimitRad ? DecComp::Alert : DecComp::Compensate;
+
+    // A reading that moved by a driver's rounding or the calibration's residual has not moved (#157).
+    // Before, any difference in the doubles acted.
+    double const cal = *calDecRad;
+    double const now = *newDecRad;
+    if (std::fabs(now - cal) <= DEC_COMP_MIN_MOVE_DEG * M_PI / 180.)
+        return DecComp::None;
+
+    if (std::fabs(cal) <= compLimitRad)
+        return DecComp::Compensate;
+
+    // |cos(now) / cos(cal) - 1| > tolerance, without dividing by a cos(cal) near 0
+    double const cosCal = std::fabs(std::cos(cal));
+    if (std::fabs(std::fabs(std::cos(now)) - cosCal) > DEC_COMP_RATE_TOLERANCE * cosCal)
+        return DecComp::Alert;
+    return DecComp::None;
 }
 
 double CompensatedRaRate(double calXRate, double calDecRad, double newDecRad)
