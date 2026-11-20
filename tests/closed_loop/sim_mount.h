@@ -84,7 +84,7 @@ struct SimMountConfig
     double startX = 512.;
     double startY = 384.;
     double startRaHours = 6.;
-    bool flipMirrorsDec = true; // a pier flip also mirrors Dec (German equatorial mount)
+    bool flipMirrorsDec = true; // a pier flip also mirrors Dec and reverses its parity (GEM)
 };
 
 class SimMount
@@ -102,7 +102,8 @@ public:
     void Displace(double dx, double dy);
     void MoveTo(double x, double y);
 
-    // Meridian flip: the West direction turns 180 deg, Dec mirrors if flipMirrorsDec
+    // Meridian flip: the West direction turns 180 deg; if flipMirrorsDec, Dec mirrors
+    // and its parity reverses (North keeps its image direction, so it moves south)
     void FlipPier();
 
     // Probes, in the mount's own terms. Each call is counted and logged.

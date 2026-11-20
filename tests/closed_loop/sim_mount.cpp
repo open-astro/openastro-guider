@@ -140,7 +140,13 @@ void SimMount::FlipPier()
 {
     m_cfg.westAngleDeg += 180.;
     if (m_cfg.flipMirrorsDec)
+    {
+        // North keeps its image direction while the sky turns 180 deg, so it now
+        // moves the scope south: Dec parity reverses (Mount::FlipCalibration
+        // without decFlipRequired). RA parity is unchanged.
         m_cfg.decMirrored = !m_cfg.decMirrored;
+        m_cfg.decParityOdd = !m_cfg.decParityOdd;
+    }
 }
 
 bool SimMount::Coordinates(double *raHours, double *decDeg)

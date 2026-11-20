@@ -85,6 +85,23 @@ int FirstDebugFrame(const CalOutcome& o, const std::string& fragment)
     return -1;
 }
 
+// Whether the first Debug line holding fragment prints a NaN right after it.
+// printf shows the NaN's sign, and 0/0 gives -nan on x86-64 but nan on arm64.
+bool DebugShowsNanAfter(const CalOutcome& o, const std::string& fragment)
+{
+    for (const Event& e : o.events)
+    {
+        if (e.kind != Event::Debug)
+            continue;
+        std::string::size_type at = e.text.find(fragment);
+        if (at == std::string::npos)
+            continue;
+        std::string rest = e.text.substr(at + fragment.size());
+        return rest.rfind("nan", 0) == 0 || rest.rfind("-nan", 0) == 0;
+    }
+    return false;
+}
+
 // The South nudge compares the nudge with the North leg through acos of their
 // direction cosines. In a noiseless run the two are exactly antiparallel, so
 // the cosine sits on -1 and rounding (FMA contraction included) decides
@@ -255,6 +272,28 @@ TEST(SimMount, PierFlipTurnsWestAndMirrorsDec)
     EXPECT_NEAR(Degrees(sim.ExpectedXAngle()), 30., 1e-9);
     EXPECT_TRUE(sim.Config().decMirrored);
     EXPECT_NEAR(Degrees(sim.ExpectedYAngle()), -60., 1e-9); // 210 + 90
+}
+
+TEST(SimMount, PierFlipReversesDecParityOnlyWhenItMirrorsDec)
+{
+    // a flip that keeps North's image direction leaves North moving the scope
+    // south on the sky (Mount::FlipCalibration without decFlipRequired)
+    for (int mirrors = 0; mirrors < 2; ++mirrors)
+    {
+        SimMountConfig c;
+        c.flipMirrorsDec = mirrors != 0;
+        SimMount sim(c);
+        sim.FlipPier();
+        double ra0, dec0, ra1, dec1;
+        ASSERT_TRUE(sim.Coordinates(&ra0, &dec0));
+        sim.Pulse(Dir::North, 1000);
+        sim.Pulse(Dir::West, 1000);
+        ASSERT_TRUE(sim.Coordinates(&ra1, &dec1));
+        SCOPED_TRACE("flipMirrorsDec " + std::to_string(mirrors));
+        EXPECT_EQ(dec1 < dec0, mirrors != 0);
+        EXPECT_LT(ra1, ra0); // RA parity never changes
+        EXPECT_EQ(sim.Config().decParityOdd, mirrors != 0);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -714,8 +753,8 @@ TEST(LegacyCalibration, NudgeSouthEndsOnANanAngleWhenTheStarIsOnTheLock)
     CalOutcome o = Calibrate(c, ProfileSettings(), 2000, home);
     ASSERT_EQ(o.outcome, Outcome::Complete);
     EXPECT_TRUE(NudgePulses(o).empty());
-    EXPECT_TRUE(o.HasDebug("Nudge: theta = nan"));
-    EXPECT_TRUE(o.HasDebug("Nudging discontinued, wrong direction: nan"));
+    EXPECT_TRUE(DebugShowsNanAfter(o, "Nudge: theta = "));
+    EXPECT_TRUE(DebugShowsNanAfter(o, "Nudging discontinued, wrong direction: "));
 }
 
 // ---------------------------------------------------------------------------
@@ -869,7 +908,7 @@ TEST(LegacyCalibration, HighDecRaStepsTodayGrowWithOneOverCosDec)
     }
 }
 
-TEST(LegacyCalibration, HighDecTodayFailsAbove79Degrees)
+TEST(LegacyCalibration, HighDecTodayFailsAt79DegreesAndAbove)
 {
     for (int dec : { 79, 80, 85, -80 })
     {
