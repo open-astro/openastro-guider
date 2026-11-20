@@ -59,17 +59,27 @@ static const double CAL_ALERT_DECRATE_DIFFERENCE = 0.20; // Ratio tolerance
 static const double CAL_ALERT_AXISRATES_TOLERANCE = 0.20; // Ratio tolerance
 static const bool SANITY_CHECKING_ACTIVE = true; // Control calibration sanity checking
 
-static int LIMIT_REACHED_WARN_COUNT = 5;
 static int MAX_NUDGES = 3;
 static double NUDGE_TOLERANCE = 2.0;
+
+// Scope::MoveAxis casts these into guide_move_plan
+static_assert(static_cast<int>(guide_move_plan::Dir::None) == NONE && static_cast<int>(guide_move_plan::Dir::North) == NORTH &&
+              static_cast<int>(guide_move_plan::Dir::South) == SOUTH && static_cast<int>(guide_move_plan::Dir::East) == EAST &&
+              static_cast<int>(guide_move_plan::Dir::West) == WEST);
+static_assert(static_cast<int>(guide_move_plan::DecMode::None) == DEC_NONE &&
+              static_cast<int>(guide_move_plan::DecMode::Auto) == DEC_AUTO &&
+              static_cast<int>(guide_move_plan::DecMode::North) == DEC_NORTH &&
+              static_cast<int>(guide_move_plan::DecMode::South) == DEC_SOUTH);
+static_assert(guide_move_plan::ALGO_RESULT == MOVEOPT_ALGO_RESULT && guide_move_plan::ALGO_DEDUCE == MOVEOPT_ALGO_DEDUCE &&
+              guide_move_plan::USE_BLC == MOVEOPT_USE_BLC && guide_move_plan::GRAPH == MOVEOPT_GRAPH &&
+              guide_move_plan::MANUAL == MOVEOPT_MANUAL);
 
 // enable dec compensation when calibration declination is less than this
 const double Scope::DEC_COMP_LIMIT = M_PI / 2.0 * 2.0 / 3.0; // 60 degrees
 const double Scope::DEFAULT_MOUNT_GUIDE_SPEED = 0.5;
 
 Scope::Scope()
-    : m_maxDecDuration(0), m_maxRaDuration(0), m_decGuideMode(DEC_NONE), m_raLimitReachedDirection(NONE),
-      m_raLimitReachedCount(0), m_decLimitReachedDirection(NONE), m_decLimitReachedCount(0), m_bogusGuideRatesFlagged(0),
+    : m_maxDecDuration(0), m_maxRaDuration(0), m_decGuideMode(DEC_NONE), m_bogusGuideRatesFlagged(0),
       m_limitReachedDeferralTime(wxDateTime::GetTimeNow())
 {
     m_calibrationSteps = 0;
@@ -586,80 +596,33 @@ Mount::MOVE_RESULT Scope::MoveAxis(GUIDE_DIRECTION direction, int duration, unsi
         Debug.Write(
             wxString::Format("MoveAxis(%s, %d, %s)\n", DirectionChar(direction), duration, DumpMoveOptionBits(moveOptions)));
 
-        if (!m_guidingEnabled && (moveOptions & MOVEOPT_MANUAL) == 0)
+        // Compute the actual guide durations: guiding disabled, Dec guide mode, max duration and
+        // the limit-reached count (guide_move_plan.cpp)
+        guide_move_plan::AxisPolicy policy;
+        policy.guidingEnabled = m_guidingEnabled;
+        policy.decMode = static_cast<guide_move_plan::DecMode>(m_decGuideMode);
+        policy.maxRaMs = m_maxRaDuration;
+        policy.maxDecMs = m_maxDecDuration;
+        guide_move_plan::AxisPlan plan = guide_move_plan::PlanAxis(static_cast<guide_move_plan::Dir>(direction), duration,
+                                                                   moveOptions, policy, m_raLimitReached, m_decLimitReached);
+
+        if (plan.refused)
         {
             throw THROW_INFO("Guiding disabled");
         }
 
-        // Compute the actual guide durations
+        bool decAxis = direction == NORTH || direction == SOUTH;
+        duration = plan.ms;
+        limitReached = plan.limited;
 
-        switch (direction)
-        {
-        case NORTH:
-        case SOUTH:
+        if (plan.zeroedByDecMode)
+            Debug.Write("duration set to 0 by GuideMode\n");
 
-            // Enforce dec guide mode and max duration for guide step (or deduced step) moves
-            if (moveOptions & (MOVEOPT_ALGO_RESULT | MOVEOPT_ALGO_DEDUCE))
-            {
-                if ((m_decGuideMode == DEC_NONE) || (direction == SOUTH && m_decGuideMode == DEC_NORTH) ||
-                    (direction == NORTH && m_decGuideMode == DEC_SOUTH))
-                {
-                    duration = 0;
-                    Debug.Write("duration set to 0 by GuideMode\n");
-                }
+        if (plan.limited)
+            Debug.Write(wxString::Format("duration set to %d by %s\n", duration, decAxis ? "maxDecDuration" : "maxRaDuration"));
 
-                if (duration > m_maxDecDuration)
-                {
-                    duration = m_maxDecDuration;
-                    Debug.Write(wxString::Format("duration set to %d by maxDecDuration\n", duration));
-                    limitReached = true;
-                }
-
-                if (limitReached && direction == m_decLimitReachedDirection)
-                {
-                    if (++m_decLimitReachedCount >= LIMIT_REACHED_WARN_COUNT)
-                        AlertLimitReached(duration, GUIDE_DEC);
-                }
-                else
-                    m_decLimitReachedCount = 0;
-
-                if (limitReached)
-                    m_decLimitReachedDirection = direction;
-                else
-                    m_decLimitReachedDirection = NONE;
-            }
-            break;
-        case EAST:
-        case WEST:
-
-            // Enforce max duration for guide step (or deduced step) moves
-            if (moveOptions & (MOVEOPT_ALGO_RESULT | MOVEOPT_ALGO_DEDUCE))
-            {
-                if (duration > m_maxRaDuration)
-                {
-                    duration = m_maxRaDuration;
-                    Debug.Write(wxString::Format("duration set to %d by maxRaDuration\n", duration));
-                    limitReached = true;
-                }
-
-                if (limitReached && direction == m_raLimitReachedDirection)
-                {
-                    if (++m_raLimitReachedCount >= LIMIT_REACHED_WARN_COUNT)
-                        AlertLimitReached(duration, GUIDE_RA);
-                }
-                else
-                    m_raLimitReachedCount = 0;
-
-                if (limitReached)
-                    m_raLimitReachedDirection = direction;
-                else
-                    m_raLimitReachedDirection = NONE;
-            }
-            break;
-
-        case NONE:
-            break;
-        }
+        if (plan.alert)
+            AlertLimitReached(duration, decAxis ? GUIDE_DEC : GUIDE_RA);
 
         // Actually do the guide
         if (duration > 0)

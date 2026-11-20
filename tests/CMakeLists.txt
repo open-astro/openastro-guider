@@ -427,3 +427,21 @@ add_executable(test_closed_loop_calibration
 target_link_libraries(test_closed_loop_calibration PRIVATE phd_test_common)
 set_property(TARGET test_closed_loop_calibration PROPERTY FOLDER "Unit tests")
 add_test(NAME test_closed_loop_calibration COMMAND test_closed_loop_calibration)
+
+############################################################################
+# test_guide_move_plan  --  guide_move_plan.cpp: the pulse per axis
+# Mount::MoveOffset plans for a guide correction and what Scope::MoveAxis
+# does to it (guiding disabled, Dec guide mode, max-duration clamp,
+# limit-reached count), plus the guide sign in a closed loop through the
+# real calibration_transform.cpp across camera angle, Dec mirror and a
+# meridian flip (#142). std-only.
+############################################################################
+add_executable(test_guide_move_plan
+  ${PHD_TESTS_DIR}/guiding/test_guide_move_plan.cpp
+  ${PHD_TESTS_DIR}/guiding/test_guide_sign_closed_loop.cpp
+  ${phd_src_dir}/guide_move_plan.cpp
+  ${phd_src_dir}/calibration_transform.cpp
+)
+target_link_libraries(test_guide_move_plan PRIVATE phd_test_common)
+set_property(TARGET test_guide_move_plan PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guide_move_plan COMMAND test_guide_move_plan)

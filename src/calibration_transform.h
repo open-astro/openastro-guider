@@ -79,6 +79,11 @@ CamToMount CameraToMount(double camX, double camY, double calXAngle, double yAng
 // mountTheta sign flip when |yAngleError| > pi/2).
 MountToCam MountToCamera(double mountX, double mountY, double calXAngle, double yAngleError);
 
+// The axis-orthogonality error of a calibration, norm_angle(xAngle - yAngle + pi/2): about 0
+// when a North pulse moves the star at the angle of a West pulse's motion minus pi/2, about pi
+// when the Dec axis is mirrored. Mount::SetCalibration stores it as m_yAngleError.
+double YAngleError(double calXAngle, double calYAngle);
+
 } // namespace calibration_transform
 
 #endif // CALIBRATION_TRANSFORM_H_INCLUDED
