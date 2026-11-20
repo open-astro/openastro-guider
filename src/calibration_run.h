@@ -131,12 +131,16 @@ constexpr double RATE_UNCALIBRATED = 123e4; // CALIBRATION_RATE_UNCALIBRATED (sc
 
 // The largest factor RaCalibrationStepMs grows the RA step by (#141)
 constexpr double RA_STEP_MAX_SCALE = 4.0;
+// The longest RA pulse that scaling makes (#141): under the 30 s HTTP timeout of
+// a blocking Alpaca PulseGuide. A step already longer than this is not grown.
+constexpr int RA_STEP_MAX_MS = 25000;
 
 // The pulse the West and East legs use for a calibration step of stepMs at
 // declinationRad (#141). A star's RA motion per ms of guide pulse shrinks with
 // cos(Dec), so a step that suits the equator needs 1/cos(Dec) as many pulses
 // near the pole and runs out of its MAX_CALIBRATION_STEPS above about 79 deg.
-// No declination (nullopt) gives stepMs.
+// No declination (nullopt) gives stepMs. The result is at most
+// max(stepMs, RA_STEP_MAX_MS).
 int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad);
 
 // What the run reads from Scope and the guider. Scope fills it from its members

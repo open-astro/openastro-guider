@@ -638,8 +638,11 @@ No API change. A calibration above about Dec 79° failed with `CalibrationFailed
 Failed: star did not move enough": the West leg pulsed the Dec 0 step, which moves the star only
 cos(Dec) as far, and ran out of its 61 pulses.
 
-- The West and East legs now pulse `ceil(step / max(|cos(Dec)|, 1/4))` ms, for the Dec the guider
-  reads from the mount once at the start of each calibration. The Dec leg, backlash clearing and the
+- The West and East legs now pulse `ceil(step / max(|cos(Dec)|, 1/4))` ms, at most 25 000 ms
+  (a step already longer is not grown), for the Dec the guider reads from the mount once at the
+  start of each calibration. The 25 s ceiling keeps a grown pulse under the 30 s HTTP timeout the
+  Alpaca client gives a `PulseGuide` that blocks while it runs; it only matters for a step over
+  6250 ms. The Dec leg, backlash clearing and the
   South nudge keep the step. An unknown Dec (no coordinates, a failed read) keeps the step for every
   leg, as before.
 - Not changed: `calibration_duration` (`get_profile_setup`/`set_profile_setup`, the profile's

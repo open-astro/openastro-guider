@@ -174,6 +174,28 @@ TEST(RaCalibrationStepMs, NeverShrinksTheStep)
         }
 }
 
+TEST(RaCalibrationStepMs, StaysUnderTheAlpacaPulseGuideTimeout)
+{
+    auto at = [](int stepMs, double decDeg) { return cr::RaCalibrationStepMs(stepMs, Radians(decDeg)); };
+    EXPECT_EQ(cr::RA_STEP_MAX_MS, 25000);
+    // AlpacaClient times a blocking PulseGuide out after 30 s: a grown pulse stops at 25 s
+    EXPECT_EQ(at(6250, 85.), 25000); // exactly 4x
+    EXPECT_EQ(at(7500, 85.), 25000); // 4x would be 30000
+    EXPECT_EQ(at(20000, 60.), 25000); // 2x would be 40000
+    EXPECT_EQ(at(20000, 30.), 23095); // 23094.01, under the ceiling
+    // a step already over the ceiling is the user's choice and is not grown or cut
+    EXPECT_EQ(at(25000, 85.), 25000);
+    EXPECT_EQ(at(60000, 85.), 60000);
+    EXPECT_EQ(at(60000, 0.), 60000);
+    for (int deg = -90; deg <= 90; deg++)
+        for (int stepMs : { 5000, 10000, 24999, 25001, 60000 })
+        {
+            int ms = cr::RaCalibrationStepMs(stepMs, Radians(deg));
+            EXPECT_GE(ms, stepMs) << deg << " " << stepMs;
+            EXPECT_LE(ms, std::max(stepMs, cr::RA_STEP_MAX_MS)) << deg << " " << stepMs;
+        }
+}
+
 TEST(RaCalibrationStepMs, ANonFiniteDecKeepsTheStep)
 {
     EXPECT_EQ(cr::RaCalibrationStepMs(550, std::nan("")), 550);

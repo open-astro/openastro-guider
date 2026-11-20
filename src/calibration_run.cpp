@@ -213,12 +213,17 @@ void CalibrationRun::Debug(Sink& sink, const char *format, ...)
 // calibration still completes in 3 steps (with the too-few-steps advisory).
 // A 2x cap would still fail at 85 deg (68 pulses); 4x calibrates to about
 // 87 deg.
+//
+// RA_STEP_MAX_MS keeps a grown pulse under the 30 s HTTP timeout AlpacaClient
+// gives a PulseGuide that blocks while it runs: a step over 6250 ms would
+// otherwise reach it near the pole. A step already longer is left as it was.
 int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad)
 {
     if (!declinationRad || !std::isfinite(*declinationRad))
         return stepMs;
     double c = std::max(std::fabs(std::cos(*declinationRad)), 1.0 / RA_STEP_MAX_SCALE);
-    return std::max(stepMs, (int) std::ceil(stepMs / c));
+    double scaled = std::min(std::ceil(stepMs / c), (double) std::max(stepMs, RA_STEP_MAX_MS));
+    return std::max(stepMs, (int) scaled);
 }
 
 void CalibrationRun::Begin(const Pt& initialLocation, std::optional<double> declinationRad)
