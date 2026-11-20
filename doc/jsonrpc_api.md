@@ -480,6 +480,7 @@ Alpaca discovery/query:
 
 - `clear_calibration`
   - params: optional `which` = `mount|ao|both` (default both)
+  - error `1` "cannot clear calibration while calibrating" (nothing changed): a calibration is running (`AppState` `Calibrating`). Allowed while guiding, as in PHD2: guiding goes on with the calibration it started with, and the next `guide` calibrates again
 
 - `flip_calibration`
   - flips calibration data for pier-side style inversion
@@ -955,7 +956,7 @@ This section is normative for integrator behavior. Each method entry describes:
 | `get_dec_guide_mode` | none | none | mode string (`Scope::DecGuideModeStr`) | none expected | none |
 | `set_dec_guide_mode` | `mode:string` | none | `0` | `1` invalid mode | DEC guide mode updated; graph controls refreshed |
 | `get_calibrated` | none | none | `bool` | none expected | none |
-| `clear_calibration` | optional `which:string` (`mount|ao|both`) | none | `0` | `-32602` invalid `which` | mount/AO calibration cleared |
+| `clear_calibration` | optional `which:string` (`mount|ao|both`) | not calibrating (allowed while guiding) | `0` | `-32602` invalid `which`; `1` calibrating | mount/AO calibration cleared |
 | `flip_calibration` | none | none | `0` | `1` flip failure | calibration parity/geometry flipped; `CalibrationDataFlipped` event |
 | `restore_calibration` | none | guider context must exist; not calibrating or guiding; mount (and AO, if used) connected; no guide/dither request in progress other than one waiting on a failed calibration | `true` restored and every mount calibrated; `false` some mount has no saved calibration (nothing changed) or the restored calibration is not usable with the current Dec guide mode (`get_calibrated` agrees) | `1` calibrating or guiding, mount/AO not connected, or a guide/dither request in progress | saved calibration loaded on every mount; a `guide` request still waiting on the failed calibration is ended first with `SettleDone` `Status:1`, `Error:"calibration failed; saved calibration restored"`, `TotalFrames:0`, `DroppedFrames:0`, and the sticky-lock setting it forced on for the calibration put back |
 | `guide_pulse` | `amount:int`, `direction:string`, optional `which` (`mount|ao`) | target device connected; guider must not be calibrating/guiding; target not busy | `0` | `1` invalid args, invalid `which`, not connected, busy/calibrating/guiding | manual pulse scheduled |

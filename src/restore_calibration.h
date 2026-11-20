@@ -3,8 +3,9 @@
  *  PHD Guiding
  *
  *  restore_calibration (#102): whether the saved calibration can be put back
- *  now, and what has to happen first. Kept free of wx so it can be unit
- *  tested (tests/calibration/test_restore_calibration.cpp).
+ *  now, and what has to happen first; clear_calibration (#137): whether the
+ *  calibration can be cleared now. Kept free of wx so it can be unit tested
+ *  (tests/calibration/test_restore_calibration.cpp).
  */
 
 #ifndef RESTORE_CALIBRATION_H_INCLUDED
@@ -43,5 +44,11 @@ struct RestoreCalibrationDecision
 extern const char *const RESTORE_CALIBRATION_ABORT_REASON;
 
 RestoreCalibrationDecision DecideRestoreCalibration(const RestoreCalibrationState& s);
+
+// clear_calibration (#137): nullptr when the calibration can be cleared now, else the error (code 1).
+// Refused while calibrating: the running calibration would lose its state and never finish. Allowed
+// while guiding, as in PHD2: guiding keeps the calibration it started with, and the next guide start
+// calibrates again.
+const char *ClearCalibrationRefusal(bool calibrating);
 
 #endif

@@ -4,7 +4,8 @@
 // calibrates; restore_calibration puts back the one saved in the profile.
 // When the calibration failed, the guide request is left waiting for it, and
 // restore_calibration ends that request before restoring so the client can
-// guide again. The decision lives in restore_calibration.cpp.
+// guide again. The decision lives in restore_calibration.cpp, with the
+// clear_calibration refusal rule (#137).
 
 #include <gtest/gtest.h>
 
@@ -156,4 +157,20 @@ TEST(RestoreCalibration, SecondarySavedFlagIgnoredWithoutASecondaryMount)
     s.secondarySaved = false;
     s.secondaryConnected = false;
     EXPECT_EQ(DecideRestoreCalibration(s).action, RestoreCalibrationAction::Restore);
+}
+
+// clear_calibration (#137): a calibration cleared while it runs has no next step, so the
+// guider used to abort on it (assert) or stay in Calibrating forever (NDEBUG)
+TEST(ClearCalibration, RefusedWhileCalibrating)
+{
+    const char *refusal = ClearCalibrationRefusal(true);
+    ASSERT_NE(refusal, nullptr);
+    EXPECT_STREQ(refusal, "cannot clear calibration while calibrating");
+}
+
+TEST(ClearCalibration, AllowedOtherwiseIncludingWhileGuiding)
+{
+    // not calibrating: stopped, looping, star selected, or guiding (as in PHD2, guiding keeps the
+    // calibration it started with and the next guide start calibrates again)
+    EXPECT_EQ(ClearCalibrationRefusal(false), nullptr);
 }

@@ -3324,6 +3324,13 @@ static void clear_calibration(JObj& response, const json_value *params)
         }
     }
 
+    // #137: a calibration cleared while it runs never finishes; the rule is in restore_calibration.cpp
+    if (const char *refusal = ClearCalibrationRefusal(pFrame->pGuider && pFrame->pGuider->IsCalibrating()))
+    {
+        response << jrpc_error(1, refusal);
+        return;
+    }
+
     Mount *mount = TheScope();
     Mount *ao = TheAO();
 

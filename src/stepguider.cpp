@@ -762,9 +762,16 @@ bool StepGuider::UpdateCalibrationState(const PHD_Point& currentLocation)
             GuideLog.CalibrationComplete(this);
             Debug.Write("Calibration Complete\n");
             break;
+        case CALIBRATION_STATE_CLEARED:
         default:
-            assert(false);
-            break;
+        {
+            // #137: the calibration was cleared while it ran (the legacy socket server's CLEARCAL still can);
+            // end it as failed instead of aborting, or staying in a state that has no next step
+            wxString msg(wxTRANSLATE("AO calibration failed: the calibration was cleared while calibrating"));
+            GuideLog.CalibrationFailed(this, msg);
+            EvtServer.NotifyCalibrationFailed(this, msg);
+            throw ERROR_INFO("calibration cleared while calibrating");
+        }
         }
 
         if (moveUp)

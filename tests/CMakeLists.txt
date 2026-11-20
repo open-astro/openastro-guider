@@ -359,7 +359,8 @@ add_test(NAME test_settle_frame COMMAND test_settle_frame)
 ############################################################################
 # test_restore_calibration  --  restore_calibration.cpp: when
 # restore_calibration is refused, returns false or ends a stale guide
-# request before restoring (#102). std-only.
+# request before restoring (#102); clear_calibration is refused while
+# calibrating (#137). std-only.
 ############################################################################
 add_executable(test_restore_calibration
   ${PHD_TESTS_DIR}/calibration/test_restore_calibration.cpp

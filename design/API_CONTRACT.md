@@ -564,3 +564,21 @@ that drove the mount; no RPC method reached it.
 
 ARA: no code change. Nothing calls the `polardrift_*` or `driftalign_*` methods; the unused
 classes in `PHD2Methods.PolarAlign.cs` go in an ARA follow-up.
+
+## 2026-11-20 — clear_calibration refused while calibrating (#137)
+
+`clear_calibration` during a calibration erased the state the calibration was stepping through,
+so the next frame hit `assert(false)` in `Scope::UpdateCalibrationState` (the packaged guider,
+built with asserts, aborted) or, with `NDEBUG`, left the guider in `Calibrating` forever.
+
+- `clear_calibration` → error 1 "cannot clear calibration while calibrating", nothing changed,
+  while the guider is calibrating. Still allowed while guiding, as in PHD2 (guiding keeps the
+  calibration it started with; the next `guide` calibrates again). The rule is in the wx-free
+  `src/restore_calibration.cpp` (`test_restore_calibration`).
+- A calibration cleared some other way while it runs (the legacy socket server's CLEARCAL) now
+  ends as a failed calibration: `CalibrationFailed` with `Reason` "Calibration failed: the
+  calibration was cleared while calibrating" ("AO calibration failed: ..." for an AO), and the
+  guider goes back to looping, as after any calibration failure.
+
+ARA: no code change. `ClearCalibrationAsync` (the live clear button) already throws on an error
+response; `ClearCalibration` (mediator) returns false.
