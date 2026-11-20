@@ -255,7 +255,7 @@ private:
     double m_yRate = 0.;
 };
 
-Outcome Simulate(Scenario sc)
+Outcome Simulate(const Scenario& sc)
 {
     return Simulation(sc).Run();
 }
