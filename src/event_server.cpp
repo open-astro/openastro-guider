@@ -4895,8 +4895,8 @@ static void get_camera_frame_size(JObj& response, const json_value *params)
         response << jrpc_error(1, "camera not connected");
 }
 
-// Guide-step history + summary stats from MyFrame's GuideHistory — the web
-// UI's guide graph polls this (there is no event stream over HTTP).
+// Guide-step history + summary stats from MyFrame's GuideHistory. Ara's
+// guide graph polls this.
 static void get_guide_history(JObj& response, const json_value *params)
 {
     Params p("max_points", params);
