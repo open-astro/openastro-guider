@@ -34,7 +34,6 @@
 #include "phd.h"
 
 #include "backlash_comp.h"
-#include "calreview_dialog.h"
 #include "calstep_dialog.h"
 #include "image_math.h"
 #include "socket_server.h"
@@ -410,7 +409,7 @@ bool Scope::CalibrationFlipRequiresDecFlip()
     return m_calibrationFlipRequiresDecFlip;
 }
 
-// No 'Set' function, property is set via profile in new-profile-wizard
+// No 'Set' function, property is set via the /scope/HiResEncoders profile key (set_profile_setup)
 bool Scope::HasHPEncoders() const
 {
     return m_hasHPEncoders;
@@ -745,29 +744,6 @@ static wxString CalibrationWarningKey(CalibrationIssueType etype)
     return rtn;
 }
 
-void Scope::SetCalibrationWarning(CalibrationIssueType etype, bool val)
-{
-    pConfig->Global.SetBoolean(CalibrationWarningKey(etype), val);
-}
-
-// Generic hook for "details" button in calibration sanity check alert
-static void ShowCalibrationIssues(intptr_t scopeptr)
-{
-    Scope *pscope = reinterpret_cast<Scope *>(scopeptr);
-    pscope->HandleSanityCheckDialog();
-}
-
-// Handle the "details" dialog for the calibration sanity check
-void Scope::HandleSanityCheckDialog()
-{
-    if (pFrame->pCalSanityCheckDlg)
-        pFrame->pCalSanityCheckDlg->Destroy();
-
-    pFrame->pCalSanityCheckDlg =
-        new CalSanityDialog(pFrame, m_prevCalibration, m_prevCalibrationDetails, m_lastCalibrationIssue);
-    pFrame->pCalSanityCheckDlg->Show();
-}
-
 // Do some basic sanity checking on the just-completed calibration, looking for things that are fishy.  Do the checking in the
 // order of importance/confidence, since we only alert about a single condition
 void Scope::SanityCheckCalibration(const Calibration& oldCal, const CalibrationDetails& oldDetails)
@@ -868,12 +844,11 @@ void Scope::SanityCheckCalibration(const Calibration& oldCal, const CalibrationD
             break;
         }
 
-        // Suppression of calibration alerts is handled in the 'Details' dialog - a special case
+        // CalWarning_* keys that an older build saved are still honored; nothing writes them any more
         if (pConfig->Global.GetBoolean(CalibrationWarningKey(m_lastCalibrationIssue),
                                        true)) // User hasn't disabled this type of alert
         {
-            // Generate alert with 'Help' button that will lead to trouble-shooting section
-            pFrame->Alert(alertMsg, 0, _("Details..."), ShowCalibrationIssues, (intptr_t) this, true);
+            pFrame->Alert(alertMsg);
         }
         else
         {
@@ -1891,19 +1866,9 @@ ScopeConfigDialogCtrlSet::ScopeConfigDialogCtrlSet(wxWindow *pParent, Scope *pSc
     m_pCalibrationDuration =
         pFrame->MakeSpinCtrl(GetParentWindow(AD_szCalibrationDuration), wxID_ANY, wxEmptyString, wxDefaultPosition,
                              wxSize(width, -1), wxSP_ARROW_KEYS, 0, 10000, 1000, _T("Cal_Dur"));
-    pCalibSizer->Add(MakeLabeledControl(
-        AD_szCalibrationDuration, _("Calibration step (ms)"), m_pCalibrationDuration,
-        _("How long a guide pulse should be used during calibration? Click \"Advanced...\" to compute a suitable value.")));
+    pCalibSizer->Add(MakeLabeledControl(AD_szCalibrationDuration, _("Calibration step (ms)"), m_pCalibrationDuration,
+                                        _("How long a guide pulse should be used during calibration?")));
     m_pCalibrationDuration->Enable(enableCtrls);
-
-    // create the 'auto' button and bind it to the associated event-handler
-    wxButton *pAutoDuration = new wxButton(GetParentWindow(AD_szCalibrationDuration), wxID_OK, _("Advanced..."));
-    pAutoDuration->SetToolTip(
-        _("Click to open the Calibration Calculator Dialog to review or change all calibration parameters"));
-    pAutoDuration->Bind(wxEVT_COMMAND_BUTTON_CLICKED, &ScopeConfigDialogCtrlSet::OnCalcCalibrationStep, this);
-    pAutoDuration->Enable(enableCtrls);
-
-    pCalibSizer->Add(pAutoDuration);
 
     wxBoxSizer *pCalibGroupSizer = new wxBoxSizer(wxVERTICAL);
     pCalibGroupSizer->Add(pCalibSizer);
@@ -2023,7 +1988,6 @@ void ScopeConfigDialogCtrlSet::LoadValues()
     MountConfigDialogCtrlSet::LoadValues();
     int stepSize = m_pScope->GetCalibrationDuration();
     m_pCalibrationDuration->SetValue(stepSize);
-    m_calibrationDistance = m_pScope->GetCalibrationDistance();
     m_pNeedFlipDec->SetValue(m_pScope->CalibrationFlipRequiresDecFlip());
     if (m_pStopGuidingWhenSlewing)
         m_pStopGuidingWhenSlewing->SetValue(m_pScope->IsStopGuidingWhenSlewingEnabled());
@@ -2064,7 +2028,6 @@ void ScopeConfigDialogCtrlSet::UnloadValues()
 {
     bool usingAO = TheAO() != nullptr;
     m_pScope->SetCalibrationDuration(m_pCalibrationDuration->GetValue());
-    m_pScope->SetCalibrationDistance(m_calibrationDistance);
     bool oldFlip = m_pScope->CalibrationFlipRequiresDecFlip();
     bool newFlip = m_pNeedFlipDec->GetValue();
     m_pScope->SetCalibrationFlipRequiresDecFlip(newFlip);
@@ -2155,37 +2118,6 @@ void ScopeConfigDialogCtrlSet::OnDecModeChoice(wxCommandEvent& evt)
     {
         m_pUseBacklashComp->SetValue(m_origBLCEnabled);
         m_pUseBacklashComp->Enable(true);
-    }
-}
-
-void ScopeConfigDialogCtrlSet::OnCalcCalibrationStep(wxCommandEvent& evt)
-{
-    int focalLength = 0;
-    double pixelSize = 0;
-    int binning = 1;
-    AdvancedDialog *pAdvancedDlg = pFrame->pAdvancedDialog;
-
-    if (pAdvancedDlg)
-    {
-        pixelSize = pAdvancedDlg->GetPixelSize();
-        binning = pAdvancedDlg->GetBinning();
-        focalLength = pAdvancedDlg->GetFocalLength();
-    }
-
-    CalstepDialog calc(m_pParent, focalLength, pixelSize, binning);
-    if (calc.ShowModal() == wxID_OK)
-    {
-        int calibrationStep;
-        int distance;
-        if (calc.GetResults(&focalLength, &pixelSize, &binning, &calibrationStep, &distance))
-        {
-            // Following sets values in the UI controls of the various dialog tabs - not underlying data values
-            pAdvancedDlg->SetFocalLength(focalLength);
-            pAdvancedDlg->SetPixelSize(pixelSize);
-            pAdvancedDlg->SetBinning(binning);
-            m_pCalibrationDuration->SetValue(calibrationStep);
-            m_calibrationDistance = distance;
-        }
     }
 }
 

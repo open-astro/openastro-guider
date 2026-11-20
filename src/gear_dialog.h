@@ -113,8 +113,6 @@ public:
     int ShowGearDialog(bool autoConnect);
     void EndModal(int retCode) override;
 
-    void ShowProfileWizard();
-    void ShowProfileWizard(wxCommandEvent& evt);
     bool SetProfile(int profileId, wxString *error);
     // The current profile changed without a profile choice (delete_profile of the current profile): rebuild the
     // camera, mount and rotator from the new current profile, as a profile choice does (#117).
@@ -124,7 +122,6 @@ public:
     // one device, or all with GearDevice::All; returns true on error, like ConnectAll
     bool SetDeviceConnected(GearDevice device, bool connect, wxString *error);
     void Shutdown(bool forced);
-    bool IsEmptyProfile();
     bool ReconnectCamera();
 
     // #104 (headless only; each returns at once in the GUI)
@@ -188,8 +185,6 @@ private:
     void OnButtonSetupRotator(wxCommandEvent& event);
     void OnButtonConnectRotator(wxCommandEvent& event);
     void OnButtonDisconnectRotator(wxCommandEvent& event);
-
-    void OnButtonWizard(wxCommandEvent& event);
 
     bool RetryEnabled() const;
     bool DeviceSelected(GearDevice dev) const;

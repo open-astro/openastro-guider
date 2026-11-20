@@ -37,11 +37,7 @@
 #include "phd.h"
 
 #include "aui_controls.h"
-#include "comet_tool.h"
 #include "guiding_assistant.h"
-#include "phdupdate.h"
-#include "pierflip_tool.h"
-#include "Refine_DefMap.h"
 
 #include <algorithm>
 #include <memory>
@@ -74,7 +70,6 @@ wxDEFINE_EVENT(STATUSBAR_TIMER_EVENT, wxTimerEvent);
 wxDEFINE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDEFINE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
 wxDEFINE_EVENT(RECONNECT_CAMERA_EVENT, wxThreadEvent);
-wxDEFINE_EVENT(UPDATER_EVENT, wxThreadEvent);
 
 // clang-format off
 // clang-format off
@@ -83,30 +78,14 @@ EVT_MENU_HIGHLIGHT_ALL(MyFrame::OnMenuHighlight)
 EVT_MENU_CLOSE(MyFrame::OnAnyMenuClose)
 EVT_MENU(wxID_ANY, MyFrame::OnAnyMenu)
 EVT_MENU(wxID_EXIT, MyFrame::OnQuit)
-EVT_MENU(wxID_ABOUT, MyFrame::OnAbout)
-EVT_MENU(EEGG_RESTORECAL, MyFrame::OnEEGG)
-EVT_MENU(EEGG_MANUALCAL, MyFrame::OnEEGG)
-EVT_MENU(EEGG_CLEARCAL, MyFrame::OnEEGG)
-EVT_MENU(EEGG_REVIEWCAL, MyFrame::OnEEGG)
-EVT_MENU(MENU_CALIBRATIONASSIST, MyFrame::OnCalibrationAssistant)
-EVT_MENU(EEGG_MANUALLOCK, MyFrame::OnEEGG)
 EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
-EVT_MENU(EEGG_FLIPCAL, MyFrame::OnEEGG)
 EVT_MENU(MENU_DRIFTTOOL, MyFrame::OnDriftTool)
 EVT_MENU(MENU_POLARDRIFTTOOL, MyFrame::OnPolarDriftTool)
-EVT_MENU(MENU_COMETTOOL, MyFrame::OnCometTool)
 EVT_MENU(MENU_GUIDING_ASSISTANT, MyFrame::OnGuidingAssistant)
-EVT_MENU(MENU_HELP_ONLINE, MyFrame::OnHelpOnline)
-EVT_MENU(MENU_HELP_LOG_FOLDER, MyFrame::OnHelpLogFolder)
-EVT_MENU(MENU_HELP_UPLOAD_LOGS, MyFrame::OnHelpUploadLogs)
-EVT_MENU(wxID_HELP_PROCEDURES, MyFrame::OnInstructions)
 EVT_MENU(wxID_SAVE, MyFrame::OnSave)
 EVT_MENU(MENU_TAKEDARKS, MyFrame::OnDark)
 EVT_MENU(MENU_LOADDARK, MyFrame::OnLoadDark)
 EVT_MENU(MENU_LOADDEFECTMAP, MyFrame::OnLoadDefectMap)
-EVT_MENU(MENU_MANGUIDE, MyFrame::OnTestGuide)
-EVT_MENU(MENU_STARCROSS_TEST, MyFrame::OnStarCrossTest)
-EVT_MENU(MENU_PIERFLIP_TOOL, MyFrame::OnPierFlipTool)
 EVT_MENU(MENU_XHAIR0, MyFrame::OnOverlay)
 EVT_MENU(MENU_XHAIR1, MyFrame::OnOverlay)
 EVT_MENU(MENU_XHAIR2, MyFrame::OnOverlay)
@@ -118,15 +97,8 @@ EVT_MENU(MENU_BOOKMARKS_SHOW, MyFrame::OnBookmarksShow)
 EVT_MENU(MENU_BOOKMARKS_SET_AT_LOCK, MyFrame::OnBookmarksSetAtLockPos)
 EVT_MENU(MENU_BOOKMARKS_SET_AT_STAR, MyFrame::OnBookmarksSetAtCurPos)
 EVT_MENU(MENU_BOOKMARKS_CLEAR_ALL, MyFrame::OnBookmarksClearAll)
-EVT_MENU(MENU_REFINEDEFECTMAP, MyFrame::OnRefineDefMap)
-EVT_MENU(MENU_IMPORTCAMCAL, MyFrame::OnImportCamCal)
 
 EVT_CHAR_HOOK(MyFrame::OnCharHook)
-
-#if defined (V4L_CAMERA)
-EVT_MENU(MENU_V4LSAVESETTINGS, MyFrame::OnSaveSettings)
-EVT_MENU(MENU_V4LRESTORESETTINGS, MyFrame::OnRestoreSettings)
-#endif
 
 EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
 EVT_MENU(MENU_GRAPH, MyFrame::OnGraph)
@@ -165,7 +137,6 @@ EVT_COMMAND(wxID_ANY, WXMESSAGEBOX_PROXY_EVENT, MyFrame::OnMessageBoxProxy)
 EVT_THREAD(SET_STATUS_TEXT_EVENT, MyFrame::OnStatusMsg)
 EVT_THREAD(ALERT_FROM_THREAD_EVENT, MyFrame::OnAlertFromThread)
 EVT_THREAD(RECONNECT_CAMERA_EVENT, MyFrame::OnReconnectCameraFromThread)
-EVT_THREAD(UPDATER_EVENT, MyFrame::OnUpdaterStateChanged)
 EVT_COMMAND(wxID_ANY, REQUEST_MOUNT_MOVE_EVENT, MyFrame::OnRequestMountMove)
 EVT_TIMER(STATUSBAR_TIMER_EVENT, MyFrame::OnStatusBarTimerEvent)
 
@@ -207,8 +178,7 @@ struct FileDropTarget : public wxFileDropTarget
 // ---------------------- Main Frame -------------------------------------
 // frame constructor
 MyFrame::MyFrame()
-    : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pStatsWin(nullptr),
-      m_upgradeMenuItem(nullptr)
+    : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pStatsWin(nullptr)
 {
     m_mgr.SetManagedWindow(this);
 
@@ -327,16 +297,7 @@ MyFrame::MyFrame()
 
     pDriftTool = nullptr;
     pPolarDriftTool = nullptr;
-    pManualGuide = nullptr;
-    pStarCrossDlg = nullptr;
-    pNudgeLock = nullptr;
-    pCometTool = nullptr;
     pGuidingAssistant = nullptr;
-    pRefineDefMap = nullptr;
-    pCalSanityCheckDlg = nullptr;
-    pCalReviewDlg = nullptr;
-    pCalibrationAssistant = nullptr;
-    pierFlipToolWin = nullptr;
     m_starFindMode = Star::FIND_CENTROID;
     m_rawImageMode = false;
     m_rawImageModeWarningDone = false;
@@ -422,16 +383,6 @@ MyFrame::~MyFrame()
         pDriftTool->Destroy();
     if (pPolarDriftTool)
         pPolarDriftTool->Destroy();
-    if (pRefineDefMap)
-        pRefineDefMap->Destroy();
-    if (pCalSanityCheckDlg)
-        pCalSanityCheckDlg->Destroy();
-    if (pCalReviewDlg)
-        pCalReviewDlg->Destroy();
-    if (pStarCrossDlg)
-        pStarCrossDlg->Destroy();
-    if (pierFlipToolWin)
-        pierFlipToolWin->Destroy();
 
     m_mgr.UnInit();
 
@@ -469,26 +420,7 @@ void MyFrame::SetupMenuBar()
     m_cameraMenuItem->Enable(false);
 
     tools_menu = new wxMenu;
-    tools_menu->Append(MENU_MANGUIDE, _("&Manual Guide"), _("Manual / test guide dialog"));
     m_autoSelectStarMenuItem = tools_menu->Append(MENU_AUTOSTAR, _("&Auto-select Star\tAlt-S"), _("Automatically select star"));
-    tools_menu->Append(MENU_CALIBRATIONASSIST, _("Calibration Assistant..."), _("Slew to a preferred calibration position"));
-    tools_menu->Append(EEGG_REVIEWCAL, _("&Review Calibration Data\tAlt-C"),
-                       _("Review calibration data from last successful calibration"));
-
-    wxMenu *calib_menu = new wxMenu;
-    calib_menu->Append(EEGG_RESTORECAL, _("Restore Calibration Data..."),
-                       _("Restore calibration data from last successful calibration"));
-    calib_menu->Append(EEGG_MANUALCAL, _("Enter Calibration Data..."), _("Manually enter the calibration data"));
-    calib_menu->Append(EEGG_FLIPCAL, _("Flip Calibration Now"), _("Flip the calibration data now"));
-    calib_menu->Append(EEGG_CLEARCAL, _("Clear Calibration Data..."), _("Clear calibration data currently in use"));
-    m_calibrationMenuItem = tools_menu->AppendSubMenu(calib_menu, _("Modify Calibration"));
-    m_calibrationMenuItem->Enable(false);
-
-    tools_menu->Append(EEGG_MANUALLOCK, _("Adjust &Lock Position"), _("Adjust the lock position"));
-    tools_menu->Append(MENU_COMETTOOL, _("&Comet Tracking"), _("Run the Comet Tracking tool"));
-    tools_menu->Append(MENU_STARCROSS_TEST, _("Star-Cross Test"), _("Run a star-cross test for mount diagnostics"));
-    tools_menu->Append(MENU_PIERFLIP_TOOL, _("Calibrate meridian flip"),
-                       _("Automatically determine the correct meridian flip settings"));
     tools_menu->Append(MENU_GUIDING_ASSISTANT, _("&Guiding Assistant"), _("Run the Guiding Assistant"));
     tools_menu->Append(MENU_DRIFTTOOL, _("&Drift Align"),
                        _("Align by analyzing star drift near the celestial equator (Accurate)"));
@@ -521,22 +453,11 @@ void MyFrame::SetupMenuBar()
 
     darks_menu = new wxMenu();
     m_takeDarksMenuItem = darks_menu->Append(MENU_TAKEDARKS, _("Dark &Library..."), _("Build a dark library for this profile"));
-    m_refineDefMapMenuItem = darks_menu->Append(MENU_REFINEDEFECTMAP, _("Bad-pixel &Map..."),
-                                                _("Adjust parameters to create or modify the bad-pixel map"));
-    m_importCamCalMenuItem = darks_menu->Append(MENU_IMPORTCAMCAL, _("Import From Profile..."),
-                                                _("Import existing dark library/bad-pixel map from a different profile"));
     (void) darks_menu->AppendSeparator();
     m_useDarksMenuItem =
         darks_menu->AppendCheckItem(MENU_LOADDARK, _("Use &Dark Library"), _("Use the the dark library for this profile"));
     m_useDefectMapMenuItem =
         darks_menu->AppendCheckItem(MENU_LOADDEFECTMAP, _("Use &Bad-pixel Map"), _("Use the bad-pixel map for this profile"));
-
-#if defined(V4L_CAMERA)
-    wxMenu *v4l_menu = new wxMenu();
-
-    v4l_menu->Append(MENU_V4LSAVESETTINGS, _("&Save settings"), _("Save current camera settings"));
-    v4l_menu->Append(MENU_V4LRESTORESETTINGS, _("&Restore settings"), _("Restore camera settings"));
-#endif
 
     bookmarks_menu = new wxMenu();
     m_showBookmarksMenuItem =
@@ -550,29 +471,13 @@ void MyFrame::SetupMenuBar()
                            _("Set a bookmark at the position of the currently selected star"));
     bookmarks_menu->Append(MENU_BOOKMARKS_CLEAR_ALL, _("&Delete all\tCtrl-B"), _("Remove all bookmarks"));
 
-    wxMenu *help_menu = new wxMenu;
-    help_menu->Append(wxID_ABOUT, _("&About..."), wxString::Format(_("About %s"), APPNAME));
-    help_menu->Append(MENU_HELP_ONLINE, _("Online Support"), _("Ask for help in the PHD2 Forum"));
-    help_menu->Append(MENU_HELP_LOG_FOLDER, _("Open Log Folder"), _("Open the log folder"));
-    help_menu->Append(MENU_HELP_UPLOAD_LOGS, _("Upload Log Files..."), _("Upload log files for review"));
-    help_menu->Append(wxID_HELP_PROCEDURES, _("&Impatient Instructions"), _("Quick instructions for the impatient"));
-
     Menubar = new wxMenuBar();
     Menubar->Append(file_menu, _("&File"));
     Menubar->Append(guide_menu, _("&Guide"));
-
-#if defined(V4L_CAMERA)
-    Menubar->Append(v4l_menu, _T("&V4L"));
-
-    Menubar->Enable(MENU_V4LSAVESETTINGS, false);
-    Menubar->Enable(MENU_V4LRESTORESETTINGS, false);
-#endif
-
     Menubar->Append(tools_menu, _("&Tools"));
     Menubar->Append(view_menu, _("&View"));
     Menubar->Append(darks_menu, _("&Darks"));
     Menubar->Append(bookmarks_menu, _("&Bookmarks"));
-    Menubar->Append(help_menu, _("&Help"));
     SetMenuBar(Menubar);
 }
 
@@ -772,24 +677,6 @@ wxString MyFrame::ExposureDurationLabel(int duration)
 
     int digits = duration < 100 ? 2 : 1;
     return wxString::Format(_("%.*f s"), digits, (double) duration / 1000.);
-}
-
-Star::FindMode MyFrame::SetStarFindMode(Star::FindMode mode)
-{
-    Star::FindMode prev = m_starFindMode;
-    Debug.Write(wxString::Format("Setting StarFindMode = %d\n", mode));
-    m_starFindMode = mode;
-    return prev;
-}
-
-bool MyFrame::SetRawImageMode(bool mode)
-{
-    bool prev = m_rawImageMode;
-    Debug.Write(wxString::Format("Setting RawImageMode = %d\n", mode));
-    m_rawImageMode = mode;
-    if (mode)
-        m_rawImageModeWarningDone = false;
-    return prev;
 }
 
 static void LoadImageLoggerSettings()
@@ -1007,13 +894,11 @@ void MyFrame::SetupStatusBar()
 void MyFrame::SetupKeyboardShortcuts()
 {
     wxAcceleratorEntry entries[] = {
-        wxAcceleratorEntry(wxACCEL_CTRL, (int) '0', EEGG_CLEARCAL),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'A', MENU_BRAIN),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'C', MENU_CONNECT),
         wxAcceleratorEntry(wxACCEL_CTRL | wxACCEL_SHIFT, (int) 'C', MENU_CONNECT),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'G', MENU_GUIDE),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', MENU_LOOP),
-        wxAcceleratorEntry(wxACCEL_CTRL | wxACCEL_SHIFT, (int) 'M', EEGG_MANUALCAL),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'S', MENU_STOP),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'D', BUTTON_ALERT_CLOSE),
     };
@@ -1069,19 +954,6 @@ void MyFrame::UpdateButtonsStatus()
         need_update = true;
     }
 
-    if (!guiding_active ^ m_refineDefMapMenuItem->IsEnabled())
-    {
-        m_refineDefMapMenuItem->Enable(!guiding_active);
-        need_update = true;
-    }
-
-    bool mod_calibration_ok = !guiding_active && pMount && pMount->IsConnected();
-    if (mod_calibration_ok ^ m_calibrationMenuItem->IsEnabled())
-    {
-        m_calibrationMenuItem->Enable(mod_calibration_ok);
-        need_update = true;
-    }
-
     bool bGuideable = pGuider->GetState() == STATE_SELECTED && pMount && pMount->IsConnected();
 
     if (cond_update_tool(MainToolbar, BUTTON_GUIDE, m_guideMenuItem, bGuideable))
@@ -1107,14 +979,8 @@ void MyFrame::UpdateButtonsStatus()
         wxPostEvent(pPolarDriftTool, event);
     }
 
-    if (pCometTool)
-        CometTool::UpdateCometToolControls(false);
-
     // also drives a headless (JSON-RPC) Guiding Assistant run, which has no window
     GuidingAssistant::UpdateUIControls();
-
-    if (pierFlipToolWin)
-        PierFlipTool::UpdateUIControls();
 
     if (need_update)
     {
@@ -1163,11 +1029,6 @@ void MyFrame::OnAlertButton(wxCommandEvent& evt)
     }
     if (evt.GetId() == BUTTON_ALERT_CLOSE)
         m_infoBar->Dismiss();
-}
-
-void MyFrame::ClearAlert()
-{
-    m_infoBar->Dismiss();
 }
 
 void MyFrame::OnAlertHelp(wxCommandEvent& evt)
@@ -1538,22 +1399,6 @@ void MyFrame::ClearStatusBarGuiderInfo()
 {
     assert(wxThread::IsMain());
     m_statusbar->ClearGuiderInfo();
-}
-
-void MyFrame::OnUpgrade(wxCommandEvent& evt)
-{
-    wxMessageBox(_("Software updates are disabled in this build."), _("Software Update"), wxOK | wxICON_INFORMATION, this);
-}
-
-void MyFrame::NotifyUpdaterStateChanged()
-{
-    wxThreadEvent *event = new wxThreadEvent(wxEVT_THREAD, UPDATER_EVENT);
-    wxQueueEvent(this, event);
-}
-
-void MyFrame::OnUpdaterStateChanged(wxThreadEvent& event)
-{
-    PHD2Updater::OnUpdaterStateChanged();
 }
 
 bool MyFrame::StartWorkerThread(WorkerThread *& pWorkerThread)
@@ -1972,12 +1817,6 @@ bool MyFrame::StartGuiding()
 {
     bool error = true;
 
-    if (pRefineDefMap && pRefineDefMap->IsShown())
-    {
-        Alert(_("Cannot guide while refining a Bad-pixel Map. Please close the Refine Bad-pixel Map window."));
-        return error;
-    }
-
     wxGetApp().CheckLogRollover();
 
     if (pMount && pMount->IsConnected() && pCamera && pCamera->Connected && pGuider->GetState() >= STATE_SELECTED)
@@ -2171,8 +2010,6 @@ void MyFrame::OnClose(wxCloseEvent& event)
 
     // disconnect all gear
     pGearDialog->Shutdown(killed);
-
-    PHD2Updater::StopUpdater();
 
     // stop the socket server and event server
     StartServer(false);

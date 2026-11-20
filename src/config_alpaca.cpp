@@ -38,7 +38,6 @@
 # include "config_alpaca.h"
 # include "alpaca_discovery.h"
 # include "alpaca_client.h"
-# include "profile_wizard.h"
 # include "json_parser.h"
 # include <wx/sizer.h>
 # include <wx/gbsizer.h>
@@ -175,7 +174,7 @@ AlpacaConfig::AlpacaConfig(wxWindow *parent, const wxString& title, AlpacaDevTyp
     SetSize(minSize);
 
     // Centre on the parent window so the dialog appears next to whatever
-    // spawned it (wizard or gear dialog) instead of at the OS-default position.
+    // spawned it (the gear dialog) instead of at the OS-default position.
     CentreOnParent();
 }
 
@@ -183,45 +182,25 @@ AlpacaConfig::~AlpacaConfig() { }
 
 void AlpacaConfig::SetSettings()
 {
-    if (IsProfileWizardActive())
-    {
-        host->SetValue(wxEmptyString);
-        port->SetValue(wxEmptyString);
-        if (serverList)
-        {
-            serverList->Clear();
-        }
-    }
-    else
-    {
-        host->SetValue(m_host);
-        // Render port=0 (unconfigured) as an empty field rather than literal "0"
-        port->SetValue(m_port > 0 ? wxString::Format("%ld", m_port) : wxString());
+    host->SetValue(m_host);
+    // Render port=0 (unconfigured) as an empty field rather than literal "0"
+    port->SetValue(m_port > 0 ? wxString::Format("%ld", m_port) : wxString());
 
-        // If we have a saved host and port, populate the server list with it
-        if (!m_host.IsEmpty() && m_port > 0)
-        {
-            wxString serverStr = wxString::Format("%s:%ld", m_host, m_port);
-            serverList->Clear();
-            serverList->Append(serverStr);
-            serverList->SetSelection(0);
-        }
+    // If we have a saved host and port, populate the server list with it
+    if (!m_host.IsEmpty() && m_port > 0)
+    {
+        wxString serverStr = wxString::Format("%s:%ld", m_host, m_port);
+        serverList->Clear();
+        serverList->Append(serverStr);
+        serverList->SetSelection(0);
     }
 
     wxComboBox *camCombo = wxDynamicCast(deviceNumber, wxComboBox);
     if (camCombo)
     {
-        if (IsProfileWizardActive())
-        {
-            camCombo->Clear();
-            camCombo->SetValue(wxEmptyString);
-        }
-        else
-        {
-            // Just set the device number as text initially
-            // Device query will happen when dialog is shown (in Show() override)
-            camCombo->SetValue(wxString::Format("%ld", m_deviceNumber));
-        }
+        // Just set the device number as text initially
+        // Device query will happen when dialog is shown (in Show() override)
+        camCombo->SetValue(wxString::Format("%ld", m_deviceNumber));
     }
 }
 
@@ -229,8 +208,7 @@ bool AlpacaConfig::Show(bool show)
 {
     bool result = wxDialog::Show(show);
 
-    // Wizard requires explicit discovery to populate fields.
-    if (!show || IsProfileWizardActive())
+    if (!show)
     {
         return result;
     }

@@ -476,11 +476,6 @@ bool PhdApp::OnInit()
     else
     {
         pFrame->Show(true);
-
-        if (pConfig->IsNewInstance() || (pConfig->NumProfiles() == 1 && pFrame->pGearDialog->IsEmptyProfile()))
-        {
-            pFrame->pGearDialog->ShowProfileWizard(); // First-light version of profile wizard
-        }
     }
 
     return true;

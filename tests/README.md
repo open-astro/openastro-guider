@@ -118,8 +118,8 @@ specific blocker.
   `calibration_transform.{h,cpp}`). Still deferred: the calibration
   *sequence* sign conventions / RA-Dec angle + rate derivation
   (`scope.cpp` calibration state machine) and step-size selection
-  (`calstep_dialog.cpp`, `calibration_assistant.cpp`), which are wired
-  through `Mount`/`Scope` virtuals and the GUI.
+  (`calstep_dialog.cpp`), which are wired through `Mount`/`Scope`
+  virtuals and the GUI.
 - **End-to-end test of `CameraAlpaca::Capture()`'s bounded-retry fix
   (e7a91ddc).** Lives inside the `WorkerThread` polling loop; can't be
   unit-tested without an integration harness against a fake Alpaca

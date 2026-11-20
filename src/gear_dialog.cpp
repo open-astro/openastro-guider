@@ -35,7 +35,6 @@
 #include "phd.h"
 #include "guiding_assistant.h"
 #include "imaging_gear_alpaca.h"
-#include "profile_wizard.h"
 #include "connect_probe.h"
 
 #include <wx/gbsizer.h>
@@ -52,7 +51,6 @@ wxBEGIN_EVENT_TABLE(GearDialog, wxDialog)
     EVT_MENU(GEAR_PROFILE_LOAD, GearDialog::OnProfileLoad)
     EVT_MENU(GEAR_PROFILE_SAVE, GearDialog::OnProfileSave)
     EVT_MENU(BUTTON_ADVANCED, GearDialog::OnAdvanced)
-    EVT_MENU(GEAR_PROFILE_WIZARD, GearDialog::OnButtonWizard)
 
     EVT_BUTTON(GEAR_BUTTON_CONNECT_ALL, GearDialog::OnButtonConnectAll)
     EVT_BUTTON(GEAR_BUTTON_DISCONNECT_ALL, GearDialog::OnButtonDisconnectAll)
@@ -202,8 +200,6 @@ void GearDialog::Initialize()
     profilesSizer->Add(m_profiles, sizerButtonFlags);
 
     m_menuProfileManage = new wxMenu();
-    m_menuProfileManage->Append(GEAR_PROFILE_WIZARD, _("New using Wizard..."),
-                                _("Run the first-light wizard to create a new profile"));
     m_menuProfileManage->Append(GEAR_PROFILE_NEW, _("New"), _("Create a new profile, optionally copying from another profile"));
     m_menuProfileManage->Append(GEAR_PROFILE_DELETE, _("Delete"), _("Delete the selected profile"));
     m_menuProfileManage->Append(GEAR_PROFILE_RENAME, _("Rename"), _("Rename the selected profile"));
@@ -1235,11 +1231,6 @@ void GearDialog::OnButtonDisconnectScope(wxCommandEvent& event)
 
         pFrame->StatusMsg(_("Mount Disconnected"));
         pFrame->UpdateStatusBarStateLabels();
-
-        if (pFrame->pManualGuide)
-        {
-            pFrame->pManualGuide->Destroy();
-        }
     }
     catch (const wxString& Msg)
     {
@@ -1382,77 +1373,6 @@ void GearDialog::OnButtonProfileManage(wxCommandEvent& event)
               m_btnProfileManage->GetPosition().y + m_btnProfileManage->GetSize().GetHeight());
 }
 
-void GearDialog::OnButtonWizard(wxCommandEvent& event)
-{
-    // these variables must be initialized before instantiating the ProfileWizard, since
-    // the instantiation has a side-effect of installing a temporary empty profile
-    bool firstLight = IsEmptyProfile();
-    wxString current = m_profiles->GetStringSelection();
-
-    bool showGreeting =
-        event.GetId() == 0; // Event id of 0 comes from "first light" launch; show first light UI panel only then
-    bool darks_requested;
-    if (EquipmentProfileWizard::ShowModal(this, showGreeting, &darks_requested))
-    {
-        // a new profile was created and set as the current profile
-        // if this was a first-light run, we may have left an empty "My Equipment" profile behind - if so, delete it
-        if (firstLight)
-        {
-            pConfig->DeleteProfile(current); // Can't be any dark/bpm files associated with it
-        }
-
-        wxArrayString profiles = pConfig->ProfileNames();
-        m_profiles->Set(profiles);
-        m_profiles->SetStringSelection(pConfig->GetCurrentProfile());
-        Layout();
-
-        wxCommandEvent dummy;
-        OnProfileChoice(dummy);
-
-        if (darks_requested)
-        {
-            m_showDarksDialog = true;
-            // if wizard was launched from dialog and darks are requested, connect-all and close dialog
-            if (IsVisible())
-            {
-                Debug.Write("gear_dialog: wizard connecting all gear\n");
-                wxCommandEvent dummyEvent;
-                OnButtonConnectAll(dummyEvent);
-            }
-        }
-    }
-}
-
-void GearDialog::ShowProfileWizard()
-{
-    wxCommandEvent dummy;
-    OnButtonWizard(dummy);
-    if (m_showDarksDialog)
-    {
-        ShowGearDialog(true); // connect equipment and launch darks dialog
-    }
-}
-
-void GearDialog::ShowProfileWizard(wxCommandEvent& evt)
-{
-    OnButtonWizard(evt);
-    if (!IsEmptyProfile()) // User didn't just cancel out
-    {
-        ShowGearDialog(m_showDarksDialog); // Maybe auto-connect, close, launch darks; or just display dialog
-    }
-}
-
-bool GearDialog::IsEmptyProfile()
-{
-    wxString lastCamera = pConfig->Profile.GetString("/camera/LastMenuChoice", wxEmptyString);
-    if (lastCamera.IsEmpty())
-        lastCamera = pConfig->Profile.GetString("/camera/LastMenuchoice", _("None"));
-    if (lastCamera.IsEmpty())
-        lastCamera = _("None");
-    wxString lastScope = pConfig->Profile.GetString("/scope/LastMenuChoice", _("None"));
-    return lastCamera == _("None") && lastScope == _("None");
-}
-
 void GearDialog::OnProfileChoice(wxCommandEvent& event)
 {
     wxString prev = pConfig->GetCurrentProfile();
@@ -1502,9 +1422,8 @@ bool GearDialog::SetProfile(int profileId, wxString *error)
 
     wxString profile = pConfig->GetProfileName(profileId);
 
-    // the choice list only refreshes when the dialog (or the profile wizard)
-    // runs, so a profile created over the API since then won't be in it yet —
-    // refresh before selecting
+    // the choice list only refreshes when the dialog runs, so a profile created
+    // over the API since then won't be in it yet — refresh before selecting
     if (!m_profiles->SetStringSelection(profile))
     {
         m_profiles->Set(pConfig->ProfileNames());

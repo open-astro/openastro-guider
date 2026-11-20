@@ -63,10 +63,8 @@ class ScopeConfigDialogCtrlSet : public MountConfigDialogCtrlSet
     wxSpinCtrlDouble *m_pBacklashFloor;
     wxSpinCtrlDouble *m_pBacklashCeiling;
     wxCheckBox *m_pUseDecComp;
-    int m_calibrationDistance;
     bool m_origBLCEnabled;
 
-    void OnCalcCalibrationStep(wxCommandEvent& evt);
     void OnDecModeChoice(wxCommandEvent& evt);
 
 public:
@@ -254,8 +252,6 @@ public:
     bool IsStopGuidingWhenSlewingEnabled() const;
     void SetAssumeOrthogonal(bool val);
     bool IsAssumeOrthogonal() const;
-    void HandleSanityCheckDialog();
-    void SetCalibrationWarning(CalibrationIssueType etype, bool val);
     bool ValidGuideRates(double RAGuideRate, double DecGuideRate);
 
     virtual double GetDeclinationRadians(); // declination in radians, or UNKNOWN_DECLINATION

@@ -229,7 +229,7 @@ public:
     bool SetLockPosToStarAtPosition(const PHD_Point& starPositionHint);
     bool ShiftLockPosition();
     void EnableLockPosShift(bool enable);
-    void SetLockPosShiftRate(const PHD_Point& rate, GRAPH_UNITS units, bool isMountCoords, bool updateToolWin);
+    void SetLockPosShiftRate(const PHD_Point& rate, GRAPH_UNITS units, bool isMountCoords);
     bool LockPosShiftEnabled() const { return m_lockPosShift.shiftEnabled; }
     void SetLockPosIsSticky(bool isSticky) { m_lockPosIsSticky = isSticky; }
     bool LockPosIsSticky() const { return m_lockPosIsSticky; }

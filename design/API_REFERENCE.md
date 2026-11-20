@@ -145,7 +145,7 @@ dialog does. While a run is active, `guide`, `dither`, `polardrift_start`,
   dialog's does); `backlash_ms`, `backlash_sigma_ms`, `backlash_px` once the backlash test produced a usable
   result (`valid` or `impaired`).
 - `recommendations` (when `done`): `min_move_ra_px`, `min_move_dec_px`, `min_move_seeing_based` (false = the
-  measurement wasn't credible and the profile-wizard defaults were used), `exposure_s` / `exposure_max_s` (the
+  measurement wasn't credible and the default min-move for the image scale was used), `exposure_s` / `exposure_max_s` (the
   recommended exposure range), `drift_limiting_exposure_s`?, `dec_backlash_ms`? (only when compensation is worth
   applying), `dec_guide_mode`? (`"North"`/`"South"` — only when the backlash is too large to compensate),
   `dec_algorithm`? (`"Lowpass2"`), and `messages` — the dialog's recommendation texts `[{id, text}]` in display order

@@ -34,16 +34,9 @@
 
 #include "phd.h"
 
-#include "about_dialog.h"
 #include "aui_controls.h"
-#include "camcal_import_dialog.h"
 #include "darks_dialog.h"
 #include "image_math.h"
-#include "log_uploader.h"
-#include "pierflip_tool.h"
-#include "Refine_DefMap.h"
-#include "starcross_test.h"
-#include "calibration_assistant.h"
 #include "capture_cleanup.h"
 
 #include <algorithm>
@@ -172,49 +165,6 @@ void MyFrame::OnAnyMenuClose(wxMenuEvent& evt)
 void MyFrame::OnQuit(wxCommandEvent& WXUNUSED(event))
 {
     Close(false);
-}
-
-void MyFrame::OnInstructions(wxCommandEvent& WXUNUSED(event))
-{
-    wxMessageBox(wxString::Format(_("Welcome to PHD2 (Push Here Dummy, Gen2) Guiding\n\n \
-Basic operation is quite simple (hence the 'PHD')\n\n \
-  1) Press the green 'USB' button, select your camera and mount, click on 'Connect All'\n \
-  2) Pick an exposure duration from the drop-down list. Try 2 seconds to start.\n \
-  3) Hit the 'Loop' button, adjust your focus if necessary\n \
-  4) Click on a star away from the edge or use Alt-S to auto-select a star\n \
-  5) Press the guide (green target) icon\n\n \
-PHD2 will then calibrate itself and begin guiding.  That's it!\n\n \
-To stop guiding, simply press the 'Loop' or 'Stop' buttons. If you need to \n \
-tweak any options, click on the 'Brain' button to bring up the 'Advanced' \n \
-panel. Use the 'View' menu to watch your guiding performance. If you have\n \
-problems, read the 'Best Practices' document and the help files! ")),
-                 _("Instructions"));
-}
-
-void MyFrame::OnAbout(wxCommandEvent& WXUNUSED(event))
-{
-    AboutDialog dlg;
-    dlg.ShowModal();
-}
-
-void MyFrame::OnHelpOnline(wxCommandEvent& evt)
-{
-    wxLaunchDefaultBrowser("https://openphdguiding.org/getting-help/");
-}
-
-static void _shell_open(const wxString& loc)
-{
-    ::wxExecute("xdg-open '" + loc + "'", wxEXEC_ASYNC);
-}
-
-void MyFrame::OnHelpLogFolder(wxCommandEvent& evt)
-{
-    _shell_open(Debug.GetLogDir());
-}
-
-void MyFrame::OnHelpUploadLogs(wxCommandEvent& evt)
-{
-    LogUploader::UploadLogs();
 }
 
 void MyFrame::OnOverlay(wxCommandEvent& evt)
@@ -856,43 +806,6 @@ void MyFrame::OnLoadDefectMap(wxCommandEvent& evt)
     pFrame->UpdateStatusBarStateLabels();
 }
 
-void MyFrame::OnRefineDefMap(wxCommandEvent& evt)
-{
-    if (!pCamera || !pCamera->Connected)
-    {
-        wxMessageBox(_("Please connect to a camera first"), _("Info"));
-        return;
-    }
-
-    if (!pRefineDefMap)
-        pRefineDefMap = new RefineDefMap(this);
-
-    if (pRefineDefMap->InitUI()) // Required data present, UI built and ready to go
-    {
-        pRefineDefMap->Show();
-
-        // Don't let the user build a new defect map while we're trying to refine one; and it almost certainly makes sense
-        // to have a defect map loaded if the user wants to refine it
-        m_takeDarksMenuItem->Enable(false); // Dialog restores it when its window is closed
-        LoadDefectMapHandler(true);
-    }
-    else
-        pRefineDefMap->Destroy(); // user cancelled out before starting the process
-}
-
-void MyFrame::OnImportCamCal(wxCommandEvent& evt)
-{
-    if (!pCamera)
-    {
-        wxMessageBox(_("Please connect a camera first."));
-        return;
-    }
-
-    CamCalImportDialog dlg(this);
-
-    dlg.ShowModal();
-}
-
 void MyFrame::OnToolBar(wxCommandEvent& evt)
 {
     if (evt.IsChecked())
@@ -995,16 +908,10 @@ void MyFrame::OnRestoreWindows(wxCommandEvent& evt)
     }
     m_mgr.Update();
 
-    if (pCometTool)
-        pCometTool->Center();
     if (pDriftTool)
         pDriftTool->Center();
     if (pGuidingAssistant)
         pGuidingAssistant->Center();
-    if (pierFlipToolWin)
-        pierFlipToolWin->Center();
-    if (pNudgeLock)
-        pNudgeLock->Center();
 }
 
 bool MyFrame::FlipCalibrationData()
@@ -1053,7 +960,6 @@ void MyFrame::OnAdvanced(wxCommandEvent& WXUNUSED(event))
         Debug.Write("User exited setup dialog with 'ok'\n");
         pAdvancedDialog->UnloadValues();
         pGraphLog->UpdateControls();
-        TestGuide::ManualGuideUpdateControls();
         pConfig->Flush();
     }
     else
@@ -1088,35 +994,6 @@ static void ValidateDarksLoaded(void)
     }
 }
 
-static bool UseCalibrationAssistant()
-{
-    bool dontUse = true;
-    double ra;
-    double dec;
-    double lst;
-    if (!pPointingSource->GetCoordinates(&ra, &dec, &lst))
-    {
-        double ha = norm(lst - ra, -12.0, 12.0);
-        if ((fabs(dec) > 20 && dec < degrees(Scope::DEC_COMP_LIMIT)) || fabs(ha) > 3)
-            dontUse = ConfirmDialog::Confirm(_("Scope isn't pointing in recommended sky area for calibration - run the "
-                                               "Calibration Assistant to improve results."),
-                                             "/v2_highdec_calibration_ok", _("Calibrate here"), _("Calibration Assistant..."));
-        else if (fabs(dec) > degrees(Scope::DEC_COMP_LIMIT))
-            dontUse = ConfirmDialog::Confirm(
-                _("With the scope pointing this close to the pole, calibration can be degraded and may ") + "\n" +
-                    _("fail altogether.  Run the Calibration Assistant and follow the instructions to eliminate these "
-                      "risks, ") +
-                    "\n" + _("including slewing the scope as close as practical to the recommended position."),
-                "/v2_very_highdec_calibration_ok", _("Calibrate here"), _("Calibration Assistant..."));
-    }
-    else
-    {
-        Debug.Write("Interactive calibration - scope did not return position info\n");
-    }
-
-    return !dontUse;
-}
-
 void MyFrame::GuideButtonClick(bool interactive, const wxString& context)
 {
     Debug.Write(wxString::Format(_T("GuideButtonClick i=%d ctx=%s\n"), interactive, context));
@@ -1147,7 +1024,6 @@ void MyFrame::GuideButtonClick(bool interactive, const wxString& context)
 
         ValidateDarksLoaded();
 
-        bool proceed = true;
         if (wxGetKeyState(WXK_SHIFT))
         {
             // Only if user did shift-click; calib may have been cleared by other means
@@ -1170,25 +1046,12 @@ void MyFrame::GuideButtonClick(bool interactive, const wxString& context)
         if (interactive && pPointingSource && pPointingSource->IsConnected() && pPointingSource->CanReportPosition())
         {
             // If it's being used, the ask-for-coordinates dialog will populate scope position info needed for
-            // UseCalibrationAssistant() and StartGuiding()
+            // StartGuiding()
             if (pPointingSource->PreparePositionInteractive()) // Returns true only if user cancels ask-for-coordinates dialog
                 return;
-            if (!TheScope()->IsCalibrated()) // Either cleared above or not calibrated for other reasons
-            {
-                if (UseCalibrationAssistant())
-                {
-                    proceed = false;
-                    if (!pCalibrationAssistant)
-                        pCalibrationAssistant = CalibrationAssistantFactory::MakeCalibrationAssistant();
-                    pCalibrationAssistant->Show();
-                }
-            }
         }
 
-        if (proceed)
-        {
-            StartGuiding();
-        }
+        StartGuiding();
     }
     catch (const wxString& Msg)
     {
@@ -1200,57 +1063,6 @@ void MyFrame::GuideButtonClick(bool interactive, const wxString& context)
 void MyFrame::OnButtonGuide(wxCommandEvent& WXUNUSED(event))
 {
     GuideButtonClick(true, _T("Guide button clicked"));
-}
-
-void MyFrame::OnTestGuide(wxCommandEvent& WXUNUSED(evt))
-{
-    if (!pMount || !pMount->IsConnected())
-    {
-        if (!pSecondaryMount || !pSecondaryMount->IsConnected())
-        {
-            wxMessageBox(_("Please connect a mount first."), _("Manual Guide"));
-            return;
-        }
-    }
-
-    if (!pManualGuide)
-        pManualGuide = TestGuide::CreateManualGuideWindow();
-
-    // Re-center each time the dialog goes from hidden to shown — it's cached
-    // for the life of the app, so without this it'd reappear wherever it last
-    // sat, possibly on a display the user isn't on anymore. Skip if it's
-    // already visible so we don't yank it out from under the user.
-    if (!pManualGuide->IsShown())
-        pManualGuide->CentreOnParent();
-    pManualGuide->Show();
-}
-
-void MyFrame::OnStarCrossTest(wxCommandEvent& evt)
-{
-    if (!pMount || !pMount->IsConnected())
-    {
-        if (!pSecondaryMount || !pSecondaryMount->IsConnected())
-        {
-            wxMessageBox(_("Please connect a mount first."), _("Star-Cross Test"));
-            return;
-        }
-    }
-
-    if (!pStarCrossDlg)
-        pStarCrossDlg = new StarCrossDialog(this);
-
-    pStarCrossDlg->Show();
-}
-
-void MyFrame::OnPierFlipTool(wxCommandEvent& evt)
-{
-    wxString error;
-    if (!PierFlipTool::CanRunTool(&error))
-    {
-        wxMessageBox(error, _("Meridian Flip Calibration Tool"));
-        return;
-    }
-    PierFlipTool::ShowPierFlipCalTool();
 }
 
 void MyFrame::OnPanelClose(wxAuiManagerEvent& evt)
@@ -1317,26 +1129,13 @@ static void CheckDecGuideModeAlert()
     }
 }
 
-void MyFrame::OnSelectGear(wxCommandEvent& evt)
+void MyFrame::OnSelectGear(wxCommandEvent& WXUNUSED(evt))
 {
     try
     {
         if (CaptureActive)
         {
             throw ERROR_INFO("OnSelectGear called while CaptureActive");
-        }
-
-        if (pConfig->NumProfiles() == 1 && pGearDialog->IsEmptyProfile())
-        {
-            if (ConfirmDialog::Confirm(
-                    _("It looks like this is a first-time connection to your camera and mount. The Setup Wizard can help\n"
-                      "you with that and will also establish baseline guiding parameters for your new configuration.\n"
-                      "Would you like to use the Setup Wizard now?"),
-                    "/use_new_profile_wizard", _("Yes"), _("No"), _("Setup Wizard Recommendation")))
-            {
-                pGearDialog->ShowProfileWizard(evt);
-                return;
-            }
         }
 
         pGearDialog->ShowGearDialog(wxGetKeyState(WXK_SHIFT));
