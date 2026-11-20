@@ -3324,6 +3324,13 @@ static void clear_calibration(JObj& response, const json_value *params)
         }
     }
 
+    // #137: a calibration cleared while it runs never finishes; the rule is in restore_calibration.cpp
+    if (const char *refusal = ClearCalibrationRefusal(pFrame->pGuider && pFrame->pGuider->IsCalibrating()))
+    {
+        response << jrpc_error(1, refusal);
+        return;
+    }
+
     Mount *mount = TheScope();
     Mount *ao = TheAO();
 
@@ -6307,22 +6314,26 @@ static void guide_pulse(JObj& response, const json_value *params)
     }
 
     int duration = amount->int_value;
-    if (duration < 0)
-    {
-        duration = -duration;
-        dir = opposite(dir);
-    }
 
     // cap well above any legitimate manual/calibration pulse so a bogus
-    // request cannot command a multi-hour slew
+    // request cannot command a multi-hour slew. Checked before the sign flip:
+    // -INT_MIN overflows and stays negative, so -2147483648 passed the cap and
+    // was accepted as a no-op (nothing moved), or for an AO hit StepGuider's
+    // assert(steps >= 0) and aborted a build with asserts (#137)
     enum
     {
         MAX_GUIDE_PULSE_MS = 60000
     };
-    if (duration > MAX_GUIDE_PULSE_MS)
+    if (duration > MAX_GUIDE_PULSE_MS || duration < -MAX_GUIDE_PULSE_MS)
     {
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "guide pulse amount exceeds 60000 ms");
         return;
+    }
+
+    if (duration < 0)
+    {
+        duration = -duration;
+        dir = opposite(dir);
     }
 
     pFrame->ScheduleManualMove(m, dir, duration);

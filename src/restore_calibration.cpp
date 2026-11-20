@@ -38,3 +38,11 @@ RestoreCalibrationDecision DecideRestoreCalibration(const RestoreCalibrationStat
 
     return { RestoreCalibrationAction::Restore, "" };
 }
+
+const char *ClearCalibrationRefusal(bool calibrating)
+{
+    // not translated, like the restore_calibration errors
+    if (calibrating)
+        return "cannot clear calibration while calibrating";
+    return nullptr;
+}

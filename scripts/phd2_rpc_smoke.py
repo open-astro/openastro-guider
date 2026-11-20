@@ -202,15 +202,80 @@ def profile_setup_live_checks(cli, fake, run_check):
             print(f"WARN #117 cleanup: {e}")
 
 
+def clear_calibration_live_checks(cli, fake, run_check):
+    """#137: clear_calibration is refused while calibrating and the calibration goes on; allowed while guiding.
+
+    On main the clear went through, and the calibration it cleared never finished (an assert abort with asserts
+    compiled in, Calibrating forever without). Runs in a temporary profile against scripts/fake_alpaca_camera.py and
+    needs the equipment disconnected. Restores the current profile."""
+    base = cli.call("get_profile")
+    temp_name = f"rpc_smoke_clearcal_{int(time.time())}"
+
+    def expect(cond, msg):
+        if not cond:
+            raise RuntimeError(msg)
+
+    def wait_state(want, timeout_s):
+        deadline = time.time() + timeout_s
+        while True:
+            state = cli.call("get_app_state")
+            if state == want:
+                return
+            if time.time() > deadline:
+                raise RuntimeError(f"app state {state}, expected {want} within {timeout_s} s")
+            time.sleep(0.25)
+
+    def refused_while_calibrating():
+        cli.call("guide", {"settle": {"pixels": 1.5, "time": 1, "timeout": 120}, "recalibrate": True}, timeout_s=30)
+        wait_state("Calibrating", 60)
+        err = cli.request("clear_calibration").get("error")
+        expect(err and err.get("code") == 1, f"clear_calibration while calibrating: expected error 1, got {err}")
+        expect(cli.call("get_app_state") == "Calibrating", "the refused clear_calibration ended the calibration")
+        wait_state("Guiding", 180)
+        expect(cli.call("get_calibrated") is True, "not calibrated after the calibration completed")
+        return err
+
+    def allowed_while_guiding():
+        expect(cli.call("get_app_state") == "Guiding", "not guiding")
+        expect(cli.call("clear_calibration") == 0, "clear_calibration while guiding did not return 0")
+        expect(cli.call("get_app_state") == "Guiding", "guiding stopped after clear_calibration")
+        expect(cli.call("get_calibrated") is False, "still calibrated after clear_calibration")
+        # guide corrections go on with the old calibration; dither needs one
+        err = cli.request("dither", {"amount": 3, "settle": {"pixels": 1.5, "time": 1, "timeout": 30}}).get("error")
+        expect(err and err.get("code") == 1, f"dither after clear_calibration: expected error 1, got {err}")
+        return "cleared; still guiding; dither refused"
+
+    try:
+        cli.call("create_profile", {"name": temp_name, "select": True})
+        cli.call("set_alpaca_server", {"host": fake.host, "port": fake.port, "camera_device": 0, "telescope_device": 0})
+        cli.call("set_selected_camera", {"camera": f"Alpaca Camera [{fake.host}:{fake.port}/0]"})
+        cli.call("set_selected_mount", {"mount": f"Alpaca Mount [{fake.host}:{fake.port}/0]"})
+        cli.call("set_exposure", {"exposure": 500})
+        cli.call("set_connected", {"connected": True}, timeout_s=30)
+
+        if run_check("#137 clear_calibration refused while calibrating", refused_while_calibrating) is not None:
+            run_check("#137 clear_calibration allowed while guiding", allowed_while_guiding)
+    finally:
+        try:
+            cli.call("stop_capture")
+            wait_state("Stopped", 30)
+            cli.call("set_connected", {"connected": False}, timeout_s=30)
+            cli.call("set_profile", {"id": base["id"]})
+            if temp_name in [p.get("name") for p in cli.call("get_profiles") or []]:
+                cli.call("delete_profile", {"name": temp_name, "delete_dark_files": True})
+        except Exception as e:
+            print(f"WARN #137 cleanup: {e}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="PHD2 JSON-RPC smoke test for PINS/NINA compatibility methods")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=4400)
     ap.add_argument("--timeout", type=float, default=5.0)
     ap.add_argument("--fake-alpaca-url", metavar="URL",
-                    help="also check that set_profile_setup reaches the live mount and camera (#117) against "
-                         "scripts/fake_alpaca_camera.py at URL (e.g. http://127.0.0.1:11111); needs the equipment "
-                         "disconnected")
+                    help="also check that set_profile_setup reaches the live mount and camera (#117), and "
+                         "clear_calibration during a calibration (#137), against scripts/fake_alpaca_camera.py at URL "
+                         "(e.g. http://127.0.0.1:11111); needs the equipment disconnected")
     args = ap.parse_args()
 
     failures = []
@@ -453,6 +518,7 @@ def main():
                 print("FAIL #117 profile setup checks: equipment is connected; disconnect it first")
             else:
                 profile_setup_live_checks(cli, FakeAlpaca(args.fake_alpaca_url), run_check)
+                clear_calibration_live_checks(cli, FakeAlpaca(args.fake_alpaca_url), run_check)
 
     finally:
         cli.close()
