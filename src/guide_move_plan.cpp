@@ -32,6 +32,17 @@ OffsetPlan PlanOffset(double xDistance, double yDistance, double xRate, double y
     return plan;
 }
 
+// The MAX_PULSE_MS ceiling of every move sized from a star offset
+static void CapPulse(AxisPlan& plan)
+{
+    if (plan.ms > MAX_PULSE_MS)
+    {
+        plan.ms = MAX_PULSE_MS;
+        plan.limited = true;
+        plan.capped = true;
+    }
+}
+
 // The clamp and the limit-reached count of one axis
 static void LimitAxis(Dir dir, int maxMs, AxisPlan& plan, LimitTracker& tracker)
 {
@@ -40,6 +51,7 @@ static void LimitAxis(Dir dir, int maxMs, AxisPlan& plan, LimitTracker& tracker)
         plan.ms = maxMs;
         plan.limited = true;
     }
+    CapPulse(plan);
 
     if (plan.limited && dir == tracker.lastLimited)
     {
@@ -64,9 +76,18 @@ AxisPlan PlanAxis(Dir dir, int ms, unsigned moveOptions, const AxisPolicy& polic
 
     plan.ms = ms;
 
-    // only guide steps and deduced moves are filtered and clamped
+    // Only guide steps and deduced moves are filtered by the Dec guide mode and clamped to the max
+    // duration. Recovery moves (a dither's fast recenter) and AO bumps are exempt, as upstream:
+    // they are sized by the search region and the bump step, PHD2 dithers in Dec with a North or
+    // South mode (PhdController sets Auto for the settle), and a bump has to unload the AO
+    // whichever way it leans. They still get the MAX_PULSE_MS ceiling (#152). Calibration and
+    // manual moves keep the length their caller chose.
     if ((moveOptions & (ALGO_RESULT | ALGO_DEDUCE)) == 0)
+    {
+        if ((moveOptions & USE_BLC) != 0)
+            CapPulse(plan);
         return plan;
+    }
 
     switch (dir)
     {

@@ -675,3 +675,24 @@ left `Calibrating`.
 
 ARA: no code change. The new `Reason` is one more failed calibration; a client that waits for
 `CalibrationComplete` or `CalibrationFailed` gets the failure instead of waiting forever.
+
+## 2026-11-20 — 25 s guide pulse ceiling (#152)
+
+No new method or field. A dither's fast recenter and an AO bump of the mount were sent at
+whatever length they were computed, so one computed with a rate of 0 asked the mount for
+`INT_MAX` ms, and a guide step was held only to the max RA/Dec duration, which
+`set_guide_limits` accepts up to 1 000 000 ms.
+
+- Every pulse sized from a star offset (guide step, deduced move while the star is lost,
+  fast-recenter step after a `dither`, AO bump) is now at most 25 000 ms, under the 30 s HTTP
+  timeout the Alpaca client gives a `PulseGuide` that blocks while it runs, the ceiling #141 gave
+  the calibration's grown RA step. A `GuideStep` whose RA or Dec pulse was cut to 25 000 ms has
+  `RALimited` / `DecLimited` set, as for the max duration.
+- `set_guide_limits` still accepts and stores up to 1 000 000 ms and `get_guide_limits` returns
+  what was set; a value over 25 000 now guides as 25 000.
+- Not changed: the fast-recenter step and the AO bump are still not held to the max RA/Dec
+  duration and still ignore `set_dec_guide_mode` (a `dither` with a North or South Dec mode and a
+  settle runs the settle in Auto, as before). Calibration pulses and `guide_pulse` (its own
+  `-60000..60000`) are not capped.
+
+ARA: no code change.
