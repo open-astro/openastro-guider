@@ -468,6 +468,22 @@ def main():
         )
         expect_raw_error("empty_batch_returns_invalid_request", "[]", None, -32600)
 
+        # set_algo_param without a value crashed the guider (#138). The value is
+        # checked before the algorithm is looked up, so these change nothing.
+        expect_error(
+            "set_algo_param_without_value_returns_invalid_params",
+            "set_algo_param",
+            params={"axis": "ra", "name": "minMove"},
+            code=-32602,
+        )
+        expect_error(
+            "set_algo_param_string_value_returns_invalid_params",
+            "set_algo_param",
+            params={"axis": "ra", "name": "minMove", "value": "0.2"},
+            code=-32602,
+        )
+        run_check("get_app_state (after set_algo_param without value)", lambda: cli.call("get_app_state"))
+
         is_connected = run_check("get_connected (final)", lambda: cli.call("get_connected"))
         if is_connected and isinstance(camera_choice, str):
             expect_error(

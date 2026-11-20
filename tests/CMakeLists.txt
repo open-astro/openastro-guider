@@ -381,3 +381,17 @@ add_executable(test_instance_lock
 target_link_libraries(test_instance_lock PRIVATE phd_test_common)
 set_property(TARGET test_instance_lock PROPERTY FOLDER "Unit tests")
 add_test(NAME test_instance_lock COMMAND test_instance_lock)
+
+############################################################################
+# test_guide_algorithm_gp_params  --  guide_algorithm_gp_params.cpp: the
+# Gaussian Process hyperparameters set_algo_param "periodLength" writes,
+# the current ones with only the period changed (#138), run through the
+# real GaussianProcessGuider (contrib GPGuider target). No wx coupling.
+############################################################################
+add_executable(test_guide_algorithm_gp_params
+  ${PHD_TESTS_DIR}/algorithms/test_guide_algorithm_gp_params.cpp
+  ${phd_src_dir}/guide_algorithm_gp_params.cpp
+)
+target_link_libraries(test_guide_algorithm_gp_params PRIVATE phd_test_common GPGuider)
+set_property(TARGET test_guide_algorithm_gp_params PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guide_algorithm_gp_params COMMAND test_guide_algorithm_gp_params)

@@ -43,6 +43,7 @@
 
 #include "guide_algorithm_gaussian_process.h"
 #include "gaussian_process_guider.h"
+#include "guide_algorithm_gp_params.h"
 
 #include <ctime>
 
@@ -572,9 +573,12 @@ bool GuideAlgorithmGaussianProcess::SetParam(const wxString& name, double val)
         err = SetControlGain(val);
     else if (name == "periodLength")
     {
-        std::vector<double> hyperparameters(NumParameters);
-        hyperparameters[PKPeriodLength] = val;
-        err = SetGPHyperparameters(hyperparameters);
+        // keep the others (#138). The periodic length scale comes from the
+        // profile: GetGPHyperparameters() rebuilds it from the current period
+        // and gets it wrong once it is over half that period.
+        double pkLengthScale =
+            pConfig->Profile.GetDouble(GetConfigPath() + "/gp_length_scale_per_kern", DefaultLengthScalePerKer);
+        err = SetGPHyperparameters(GPHyperparametersWithPeriodLength(GetGPHyperparameters(), pkLengthScale, val));
     }
     else
         err = true;

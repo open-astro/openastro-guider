@@ -2708,41 +2708,24 @@ static void get_calibrated(JObj& response, const json_value *params)
     response << jrpc_result(calibrated);
 }
 
+// v may be null (an absent param): false, as for a non-number (#138)
 static bool float_param(const json_value *v, double *p)
 {
-    if (v->type == JSON_INT)
-    {
-        *p = (double) v->int_value;
-        return true;
-    }
-    else if (v->type == JSON_FLOAT)
-    {
-        *p = v->float_value;
-        return true;
-    }
-
-    return false;
+    return JsonRpcFloatParam(v, p);
 }
 
 static bool float_param(const char *name, const json_value *v, double *p)
 {
-    if (strcmp(name, v->name) != 0)
+    if (!v || !v->name || strcmp(name, v->name) != 0)
         return false;
 
     return float_param(v, p);
 }
 
-inline static bool bool_value(const json_value *v)
-{
-    return v->int_value ? true : false;
-}
-
+// jv may be null (an absent param): false, as for a non-bool (#138)
 static bool bool_param(const json_value *jv, bool *val)
 {
-    if (jv->type != JSON_BOOL && jv->type != JSON_INT)
-        return false;
-    *val = bool_value(jv);
-    return true;
+    return JsonRpcBoolParam(jv, val);
 }
 
 static void get_paused(JObj& response, const json_value *params)
@@ -5077,11 +5060,12 @@ static void set_algo_param(JObj& response, const json_value *params)
         response << jrpc_error(1, "expected param name param");
         return;
     }
+    // a missing value used to crash the guider: float_param dereferenced the null param (#138)
     const json_value *val = p.param("value");
     double v;
     if (!float_param(val, &v))
     {
-        response << jrpc_error(1, "expected param value param");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected numeric value param");
         return;
     }
     bool ok = false;
