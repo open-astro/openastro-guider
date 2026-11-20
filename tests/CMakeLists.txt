@@ -155,9 +155,12 @@ add_test(NAME test_guide_algorithm_lowpass COMMAND test_guide_algorithm_lowpass)
 # calibration_transform.cpp, the camera<->mount coordinate transforms
 # extracted from Mount. No wx coupling. Verifies the rotation/skew math via
 # round-trip, length-preservation, known-rotation and sign-flip invariants.
+# test_dec_compensation.cpp: what entering Guiding does with the RA rate for
+# the Dec now, compensate, alert or nothing (#157).
 ############################################################################
 add_executable(test_calibration_transform
   ${PHD_TESTS_DIR}/calibration/test_calibration_transform.cpp
+  ${PHD_TESTS_DIR}/calibration/test_dec_compensation.cpp
   ${phd_src_dir}/calibration_transform.cpp
 )
 target_link_libraries(test_calibration_transform PRIVATE phd_test_common)
