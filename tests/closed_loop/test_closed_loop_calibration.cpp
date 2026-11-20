@@ -13,7 +13,10 @@
 // unknown, and test_high_dec_calibration.cpp covers a known Dec; and a
 // DEC_NONE calibration that fails when the mode was switched to one that
 // guides Dec before it completed (#148), where the twin kept completing on
-// every frame. The LegacyTwin tests pin the twin's old behaviour of each.
+// every frame; and the South nudge's cosine clamped to [-1, 1] (#154), where
+// the twin's acos gave NaN for one rounded past -1 and stopped a nudge that
+// went the right way. The LegacyTwin tests pin the twin's old behaviour of
+// each.
 //
 // Every test starts a fresh calibration with Begin: nothing here restores,
 // reuses or skips a calibration.
@@ -116,7 +119,8 @@ bool DebugShowsNanAfter(const CalOutcome& o, const std::string& fragment)
 // The South nudge compares the nudge with the North leg through acos of their
 // direction cosines. In a noiseless run the two are exactly antiparallel, so
 // the cosine sits on -1 and rounding (FMA contraction included) decides
-// whether acos returns pi or NaN. Tests of the nudge add a little noise.
+// whether the twin's acos returns pi or NaN; the run clamps the cosine
+// (#154). Tests of the nudge that run on both add a little noise.
 SimMountConfig WithLightNoise(SimMountConfig c)
 {
     c.noiseSigmaPx = 0.02;

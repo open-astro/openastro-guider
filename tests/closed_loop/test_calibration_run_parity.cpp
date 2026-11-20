@@ -33,6 +33,17 @@
 // everything before it: every call, the mount reads, the pulses and what was
 // measured. Every other scenario must still match the twin exactly.
 //
+// The South nudge is the other (#154). The twin took acos of the cosine
+// between the nudge and the North leg unclamped; a noiseless run puts the two
+// exactly antiparallel, and when rounding put the cosine a hair past -1 the
+// twin's angle was NaN and it stopped the nudge as "wrong direction". The run
+// clamps the cosine, so its angle is pi and it nudges. A scenario whose first
+// difference is that angle (NaN in the twin, pi or 0 in the run) must match
+// the twin exactly before it; past +1 (angle 0, the nudge stops as before)
+// everything else must match too, and past -1 the run may only add the
+// nudge's South pulses. Which scenarios reach it depends on the compiler's
+// rounding; NudgeCosinePastOne reaches both with exact positions.
+//
 // Since #141 the extracted run sizes the RA step for the Dec it reads at Begin,
 // which the twin never did. The differential therefore runs it with that read
 // failing (UNKNOWN_DECLINATION), where it must still be the twin exactly, and

@@ -226,10 +226,16 @@ int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad)
     return std::max(stepMs, (int) scaled);
 }
 
+// #154. Two unit vectors exactly antiparallel have a cosine of -1, but the
+// rounded direction cosines and products can put it a hair past -1 (or past
+// +1 for parallel ones), where acos gives NaN and the nudge would stop as
+// "wrong direction" when it is the right one. Clamped, the angle is pi (or
+// 0). std::clamp passes a NaN through (both comparisons are false), so the
+// star exactly on the lock (0/0) still gives NaN and ends the nudge there.
 double NudgeAngle(double nudgeDirCosX, double nudgeDirCosY, double northDirCosX, double northDirCosY)
 {
     double cos_theta = nudgeDirCosX * northDirCosX + nudgeDirCosY * northDirCosY;
-    return std::acos(cos_theta);
+    return std::acos(std::clamp(cos_theta, -1.0, 1.0));
 }
 
 void CalibrationRun::Begin(const Pt& initialLocation, std::optional<double> declinationRad)
@@ -277,7 +283,6 @@ FrameResult CalibrationRun::OnFrame(const Pt& currentLocation, const Settings& s
     double nudge_amt;
     double nudgeDirCosX;
     double nudgeDirCosY;
-    double cos_theta;
     double theta;
     double southDistMoved;
     double northDistMoved;
@@ -700,9 +705,8 @@ FrameResult CalibrationRun::OnFrame(const Pt& currentLocation, const Settings& s
         nudgeDirCosX = DX(currentLocation, m_calibrationInitialLocation) / nudge_amt;
         nudgeDirCosY = DY(currentLocation, m_calibrationInitialLocation) / nudge_amt;
         // Compute the angle between the nudge and north move vector - they should be reversed, i.e. something close to 180
-        // deg
-        cos_theta = nudgeDirCosX * m_northDirCosX + nudgeDirCosY * m_northDirCosY;
-        theta = std::acos(cos_theta);
+        // deg (the cosine clamped to [-1, 1], #154)
+        theta = NudgeAngle(nudgeDirCosX, nudgeDirCosY, m_northDirCosX, m_northDirCosY);
         Debug(sink, "Nudge: theta = %0.2f\n", theta);
         if (std::fabs(std::fabs(theta) * 180.0 / M_PI - 180.0) < 40.0) // We're going at least roughly in the right direction
         {
