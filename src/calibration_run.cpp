@@ -226,6 +226,36 @@ int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad)
     return std::max(stepMs, (int) scaled);
 }
 
+// #156. Backlash clearing looks for North pulses that move the star at least
+// 0.6 of a pulse's move. xRate is the RA image rate at the Dec, cos(Dec) times
+// the equator's, but a Dec pulse moves the star as far at every Dec, so the
+// RA rate made the step shrink toward the pole: 1.28 px at the equator on the
+// audit profile, 0.22 px at 80 deg, where centroid noise between two frames
+// passes for a move and clearing could end with backlash left for the North
+// leg to measure into yRate. Dividing the cos(Dec) back out gives the Dec
+// leg's move (OnFrame then applies the Dec/RA guide-rate ratio, as before).
+//
+// No cap like RA_STEP_MAX_SCALE: a step the mount cannot make only means no
+// move is accepted, and clearing goes on once the star has moved the
+// calibration distance (more than BL_MIN_CLEARING_DISTANCE), as for a mount
+// whose moves are all too small. That is also what a wrong Dec reading
+// costs: 85 deg reported at the equator looks for 11.5x the move, and any
+// reading whose cos is under 0.6 of the true one accepts none. Clearing then
+// uses up the calibration distance before the North leg, the star goes about
+// twice that distance North, and as the South leg only sends back the North
+// leg and the nudge is at most MAX_NUDGES + 1 pulses of a step, it ends about
+// one calibration distance from the lock. A cap would only bring the
+// near-pole step back toward noise. BACKLASH_MIN_COS_DEC keeps a Dec read at
+// the pole finite. An unknown or non-finite Dec keeps the RA-rate step, bit
+// for bit.
+double BacklashClearingStepPx(double xRate, int stepMs, std::optional<double> declinationRad)
+{
+    double rate = xRate;
+    if (declinationRad && std::isfinite(*declinationRad))
+        rate /= std::max(std::fabs(std::cos(*declinationRad)), BACKLASH_MIN_COS_DEC);
+    return rate * stepMs * 0.6;
+}
+
 // #154. Two unit vectors exactly antiparallel have a cosine of -1, but the
 // rounded direction cosines and products can put it a hair past -1 (or past
 // +1 for parallel ones), where acos gives NaN and the nudge would stop as
@@ -423,7 +453,8 @@ FrameResult CalibrationRun::OnFrame(const Pt& currentLocation, const Settings& s
         m_state = State::ClearBacklash;
         m_blMarkerPoint = currentLocation;
         GetRADecCoordinates(probe, &m_calibrationStartingCoords);
-        m_blExpectedBacklashStep = m_measured.xRate * s.stepMs * 0.6;
+        // the Dec leg's move estimated for the Dec at Begin, the RA leg's when it is not known (#156)
+        m_blExpectedBacklashStep = BacklashClearingStepPx(m_measured.xRate, s.stepMs, m_declinationRad);
 
         double RASpeed = 0.;
         double DecSpeed = 0.;

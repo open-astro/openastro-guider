@@ -149,6 +149,18 @@ constexpr int RA_STEP_MAX_MS = 25000;
 // max(stepMs, RA_STEP_MAX_MS).
 int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad);
 
+// The smallest |cos(Dec)| BacklashClearingStepPx divides by (#156): about
+// 89.4 deg, so a Dec read at the pole gives a finite step
+constexpr double BACKLASH_MIN_COS_DEC = 0.01;
+
+// The star motion (px) backlash clearing expects of one Dec pulse of stepMs,
+// before the guide-rate ratio is applied: 0.6 of a pulse's move at the Dec
+// image rate, estimated from xRate, the RA image rate the West leg measured
+// (px/ms), and declinationRad, the mount's Dec at Begin (nullopt when unknown):
+// xRate / max(|cos(Dec)|, BACKLASH_MIN_COS_DEC) * stepMs * 0.6. No Dec, or a
+// non-finite one, gives xRate * stepMs * 0.6, the RA leg's move, as before.
+double BacklashClearingStepPx(double xRate, int stepMs, std::optional<double> declinationRad);
+
 // The angle (radians) between the South nudge and the North leg, from their
 // direction cosines, as the nudge's direction test uses it: about pi when the
 // nudge goes back down the North leg. NaN direction cosines (the star exactly
