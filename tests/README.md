@@ -79,6 +79,10 @@ scratch `HOME`) and drives it over JSON-RPC:
 The job fails on a failed check, on the daemon crashing or exiting non-zero
 after `shutdown`, and on any sanitizer report; the daemon's debug log and
 output, the fake's log and every event received are uploaded when it does.
+Two checks are left out: LeakSanitizer is off (`detect_leaks=0`; the
+wxWidgets/GTK and PHD2 singletons are never freed, by design), and the UBSan
+vptr check is not compiled in (`-fno-sanitize=vptr`; see
+`scripts/e2e_ubsan.supp`).
 Locally, after an ASan build (see the job's Configure step):
 
 ```bash
