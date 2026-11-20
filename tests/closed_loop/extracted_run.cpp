@@ -289,7 +289,8 @@ FrameReport ExtractedRun::OnFrame(const Pt& star, const Settings& settings)
     case cr::Outcome::Complete:
     {
         // Scope copies what the run measured into m_calibration the first time;
-        // on a later frame in Complete (#148) it stores what it holds already
+        // on a later frame in Complete (Mount::IsCalibrated() false, say the
+        // mount disconnected) it stores what it holds already
         const cr::Measured& m = m_run.measured();
         if (r.firstComplete)
         {

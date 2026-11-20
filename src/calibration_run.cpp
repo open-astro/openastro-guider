@@ -738,8 +738,20 @@ FrameResult CalibrationRun::OnFrame(const Pt& currentLocation, const Settings& s
         [[fallthrough]];
 
     case State::Complete:
-        // Scope stores and reports the calibration. It does so again on every
-        // frame the run is entered in this state (#148).
+        // #148: the Dec leg was skipped for DEC_NONE (the only way yRate stays
+        // uncalibrated here) and the mode was switched to one that guides Dec
+        // before this frame. Scope's IsCalibrated() would stay false after it
+        // stored this RA-only calibration, so the guider would enter again on
+        // every frame. Fail before anything is stored; the run is left cleared,
+        // so a later frame fails too rather than reporting Complete.
+        if (s.decMode != DecMode::None && m_measured.yRate == RATE_UNCALIBRATED)
+        {
+            m_state = State::Cleared;
+            return Failed(Fail::DecModeChanged);
+        }
+        // Scope stores and reports the calibration. If Scope enters the run
+        // again in this state (Mount::IsCalibrated() is false while the mount
+        // is disconnected), it reports Complete again, with firstComplete false.
         result.outcome = Outcome::Complete;
         result.firstComplete = !m_completeReported;
         m_completeReported = true;

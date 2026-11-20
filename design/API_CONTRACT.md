@@ -653,3 +653,25 @@ cos(Dec) as far, and ran out of its 61 pulses.
 - Every calibration still starts from scratch; the scaled step is not stored anywhere.
 
 ARA: no code change.
+
+## 2026-11-20 — Dec guide mode switched from Off during a calibration (#148)
+
+A calibration started with Dec guide mode Off (`set_dec_guide_mode` "Off", `DEC_NONE`) skips the
+Dec leg and completes on the frame after the East leg with no Dec rate. A `set_dec_guide_mode`
+to Auto, North or South in that one frame left the mount uncalibrated for the new mode, so the
+guider ran the completion again on every frame, sending `CalibrationComplete` each time, and never
+left `Calibrating`.
+
+- That calibration now fails, before anything is stored: `CalibrationFailed` with `Reason`
+  "Calibration failed: the Dec guide mode was changed from Off during calibration", an `Alert`
+  with the same text, and the guider goes back to looping, as after any calibration failure. No
+  `CalibrationComplete` is sent and the RA-only calibration is not saved.
+- Not changed: `set_dec_guide_mode` is still accepted during a calibration. A mode set before the
+  East leg ends is used for the Dec leg, as before; a calibration that ran the Dec leg completes
+  whatever the mode is when it completes, Off included; Off throughout completes as before (an
+  RA-only calibration). The other `CalibrationFailed` reasons and the event order are unchanged.
+- The check is in the wx-free `CalibrationRun` (`src/calibration_run.cpp`,
+  `Fail::DecModeChanged`), so it holds whatever changed the mode.
+
+ARA: no code change. The new `Reason` is one more failed calibration; a client that waits for
+`CalibrationComplete` or `CalibrationFailed` gets the failure instead of waiting forever.

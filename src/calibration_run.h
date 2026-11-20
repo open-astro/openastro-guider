@@ -276,8 +276,12 @@ struct FrameResult
     Outcome outcome = Outcome::Continue;
     Fail fail = Fail::Cleared; // when Failed
     // Complete for the first time since Begin. A run in Complete stays there
-    // and reports Complete on every later frame too (Scope's IsCalibrated()
-    // can stay false after it, #148); those frames do not carry new results.
+    // and reports Complete on any later frame Scope enters it on; those frames
+    // do not carry new results. Since #148 the Dec guide mode cannot leave
+    // Scope's IsCalibrated() false after a completion (that run fails with
+    // DecModeChanged instead), but Mount::IsCalibrated() is also false while
+    // the mount is disconnected, so Scope still copies what the run measured
+    // only on the first.
     bool firstComplete = false;
 };
 
