@@ -1198,6 +1198,17 @@ bool Scope::UpdateCalibrationState(const PHD_Point& currentLocation)
                 EvtServer.NotifyCalibrationFailed(this, msg);
                 throw ERROR_INFO("Dec calibration failed");
             }
+            case calibration_run::Fail::DecModeChanged:
+            {
+                // #148: the Dec leg was skipped for DEC_NONE and the mode was then switched to one that
+                // guides Dec; a calibration with no Dec rate would leave IsCalibrated() false for good
+                wxString msg(wxTRANSLATE("Calibration failed: the Dec guide mode was changed from Off during calibration"));
+                const wxString& translated(wxGetTranslation(msg));
+                pFrame->Alert(translated);
+                GuideLog.CalibrationFailed(this, msg);
+                EvtServer.NotifyCalibrationFailed(this, msg);
+                throw ERROR_INFO("Dec guide mode changed from Off during calibration");
+            }
             }
             break;
 
@@ -1206,8 +1217,9 @@ bool Scope::UpdateCalibrationState(const PHD_Point& currentLocation)
             const calibration_run::Measured& measured = m_calRun.measured();
             if (result.firstComplete)
             {
-                // What the run measured. On a later frame in this state (#148) these
-                // members already hold the calibration stored on the first one.
+                // What the run measured. On a later frame in this state (the mount
+                // disconnected, so Mount::IsCalibrated() is false) these members
+                // already hold the calibration stored on the first one.
                 m_calibration.xAngle = measured.xAngle;
                 m_calibration.xRate = measured.xRate;
                 m_calibration.yAngle = measured.yAngle;

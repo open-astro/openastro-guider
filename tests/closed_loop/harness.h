@@ -63,6 +63,7 @@ enum class Fail
     RaDidNotMove,
     BacklashClearingFailed,
     DecDidNotMove,
+    DecModeChanged, // the extracted run only (#148)
     Other
 };
 
@@ -193,6 +194,8 @@ inline Fail ClassifyFailure(const std::string& msg)
         return Fail::DecDidNotMove;
     if (msg.rfind("Calibration failed: the calibration was cleared", 0) == 0)
         return Fail::Cleared;
+    if (msg.rfind("Calibration failed: the Dec guide mode was changed", 0) == 0)
+        return Fail::DecModeChanged;
     return Fail::Other;
 }
 

@@ -273,6 +273,9 @@ FrameReport ExtractedRun::OnFrame(const Pt& star, const Settings& settings)
         case cr::Fail::DecDidNotMove:
             msg = "DEC Calibration Failed: star did not move enough";
             break;
+        case cr::Fail::DecModeChanged:
+            msg = "Calibration failed: the Dec guide mode was changed from Off during calibration";
+            break;
         }
         if (alert)
             Add(Event::Alert, msg);
@@ -286,7 +289,8 @@ FrameReport ExtractedRun::OnFrame(const Pt& star, const Settings& settings)
     case cr::Outcome::Complete:
     {
         // Scope copies what the run measured into m_calibration the first time;
-        // on a later frame in Complete (#148) it stores what it holds already
+        // on a later frame in Complete (Mount::IsCalibrated() false, say the
+        // mount disconnected) it stores what it holds already
         const cr::Measured& m = m_run.measured();
         if (r.firstComplete)
         {
