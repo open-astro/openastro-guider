@@ -242,6 +242,8 @@ set(guiding_SRC
   ${phd_src_dir}/guide_algorithm_gp_params.h
   ${phd_src_dir}/guide_algorithm_identity.cpp
   ${phd_src_dir}/guide_algorithm_identity.h
+  ${phd_src_dir}/guide_algorithm_kernels.cpp
+  ${phd_src_dir}/guide_algorithm_kernels.h
   ${phd_src_dir}/guide_algorithm_lowpass.cpp
   ${phd_src_dir}/guide_algorithm_lowpass.h
   ${phd_src_dir}/guide_algorithm_lowpass_math.cpp

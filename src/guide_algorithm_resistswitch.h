@@ -40,15 +40,14 @@
 #ifndef GUIDE_ALGORITHM_RESISTSWITCH_H_INCLUDED
 #define GUIDE_ALGORITHM_RESISTSWITCH_H_INCLUDED
 
+#include "guide_algorithm_kernels.h"
+
 class GuideAlgorithmResistSwitch : public GuideAlgorithm
 {
-    static const unsigned int HISTORY_SIZE = 10;
-
-    ArrayOfDbl m_history;
+    guide_algorithm_kernels::ResistSwitchState m_state; // the history and the current side
     double m_minMove;
     double m_aggression;
     bool m_fastSwitchEnabled;
-    int m_currentSide;
 
 protected:
     class GuideAlgorithmResistSwitchConfigDialogPane : public ConfigDialogPane
