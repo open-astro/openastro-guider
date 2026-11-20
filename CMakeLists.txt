@@ -253,6 +253,7 @@ set(guiding_SRC
   ${phd_src_dir}/guider_multistar.h
   ${phd_src_dir}/guider.cpp
   ${phd_src_dir}/guider.h
+  ${phd_src_dir}/guider_state.h
   ${phd_src_dir}/guiders.h
   ${phd_src_dir}/zfilterfactory.cpp
   ${phd_src_dir}/zfilterfactory.h
@@ -321,6 +322,8 @@ set(phd2_SRC
   ${phd_src_dir}/phdconfig.h
   ${phd_src_dir}/phdcontrol.cpp
   ${phd_src_dir}/phdcontrol.h
+  ${phd_src_dir}/settle_frame.cpp
+  ${phd_src_dir}/settle_frame.h
   ${phd_src_dir}/point.h
 
   # rotators

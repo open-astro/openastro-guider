@@ -514,17 +514,13 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             // exposed again instead of failing the calibration. The step's move finished before its exposure
             // started, so skipping UpdateGuideState repeats that step's frame without moving the mount again.
             // The camera already raised its alert, and the #103 tracker keeps counting, so a 3rd 1280 in a row
-            // reconnects the camera instead. Guider::IsCalibrating excludes STATE_CALIBRATED: that state lasts
-            // past a frame only when guiding starts on an existing calibration, where no step is repeated.
+            // reconnects the camera instead. PhaseFor maps STATE_CALIBRATED to Other: that state lasts past a
+            // frame only when guiding starts on an existing calibration, where no step is repeated.
             // #136: a guiding frame (guiding or settling) that failed the same way is dropped like a lost-star
             // frame instead of stopping guiding: StarLost with the #97 text, no guide pulse and no deduced move
             // (a failure can take up to the 30 s call timeout), the lock untouched, and a settle in progress
             // counts it as a dropped frame while its timeout keeps running. The same budget applies.
-            CaptureFailures::FramePhase phase = CaptureFailures::FramePhase::Other;
-            if (pGuider->IsCalibrating())
-                phase = CaptureFailures::FramePhase::Calibrating;
-            else if (pGuider->IsGuiding())
-                phase = CaptureFailures::FramePhase::Guiding;
+            CaptureFailures::FramePhase phase = CaptureFailures::PhaseFor(pGuider->GetState());
             if (m_frameRetries.OnFailedFrame(captureFailure, phase, m_continueCapturing && !m_singleExposure.enabled,
                                              pCamera && pCamera->Connected))
             {

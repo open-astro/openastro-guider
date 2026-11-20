@@ -352,6 +352,27 @@ TEST(CalibrationFrameRetry, ACameraThatFailsEveryFrameEndsTheCalibration)
 // transient failure while guiding is now dropped like a lost-star frame, with the same budget as a
 // calibration step (#116); looping, a star selected and STATE_CALIBRATED still stop.
 
+TEST(FrameRetry, PhaseOfEachGuiderState)
+{
+    struct Case
+    {
+        GUIDER_STATE state;
+        FramePhase phase;
+    };
+    const Case cases[] = {
+        { STATE_UNINITIALIZED, FramePhase::Other }, // looping, no star
+        { STATE_SELECTING, FramePhase::Other }, // a guide request still selecting its star
+        { STATE_SELECTED, FramePhase::Other },
+        { STATE_CALIBRATING_PRIMARY, FramePhase::Calibrating },
+        { STATE_CALIBRATING_SECONDARY, FramePhase::Calibrating },
+        { STATE_CALIBRATED, FramePhase::Other }, // no step to repeat, not guiding yet
+        { STATE_GUIDING, FramePhase::Guiding }, // guiding, settling or paused
+        { STATE_STOP, FramePhase::Other },
+    };
+    for (const Case& c : cases)
+        EXPECT_EQ(CaptureFailures::PhaseFor(c.state), c.phase) << "state " << c.state;
+}
+
 TEST(FrameRetry, DecisionTable)
 {
     struct Case

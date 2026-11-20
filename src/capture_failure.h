@@ -14,6 +14,7 @@
 #define CAPTURE_FAILURE_H_INCLUDED
 
 #include "alpaca_errors.h"
+#include "guider_state.h"
 
 #include <string>
 
@@ -65,6 +66,12 @@ enum class FramePhase
     Calibrating, // a calibration step: the step's frame is exposed again (#116)
     Guiding, // guiding or settling: the frame is dropped, like a lost-star frame (#136)
 };
+
+// The phase of a guider state: STATE_CALIBRATING_PRIMARY and _SECONDARY (Guider::IsCalibrating) are
+// Calibrating, STATE_GUIDING (Guider::IsGuiding, including a settle and a paused guider) is Guiding,
+// every other state is Other. STATE_CALIBRATED is Other: it lasts past a frame only when guiding
+// starts on an existing calibration, where there is no step to repeat.
+FramePhase PhaseFor(GUIDER_STATE state);
 
 // True for a failure that a new exposure can clear: Alpaca 1280 (the driver's image
 // acquisition failed) and a call that timed out with no response. False for anything else:

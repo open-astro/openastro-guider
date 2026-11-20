@@ -68,6 +68,20 @@ bool IsTransient(const Failure& failure)
     }
 }
 
+FramePhase PhaseFor(GUIDER_STATE state)
+{
+    switch (state)
+    {
+    case STATE_CALIBRATING_PRIMARY:
+    case STATE_CALIBRATING_SECONDARY:
+        return FramePhase::Calibrating;
+    case STATE_GUIDING:
+        return FramePhase::Guiding;
+    default:
+        return FramePhase::Other;
+    }
+}
+
 bool ShouldRetryFrame(const Failure& failure, int retriesSoFar, FramePhase phase, bool continuing, bool cameraConnected)
 {
     return phase != FramePhase::Other && continuing && cameraConnected && retriesSoFar < kFrameRetries && IsTransient(failure);

@@ -35,13 +35,7 @@
 #ifndef PHDCONTROL_H
 #define PHDCONTROL_H
 
-struct SettleParams
-{
-    double tolerancePx; // settle threshold, pixels
-    int settleTimeSec; // time to be within tolerance
-    int timeoutSec; // timeout value
-    int frames; // number of frames
-};
+#include "settle_frame.h" // struct SettleParams
 
 enum ControlGuideOptions
 {

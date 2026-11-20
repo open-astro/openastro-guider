@@ -482,17 +482,24 @@ decision is #116's (`ShouldRetryFrame` in `src/capture_failure.cpp`, unit-tested
   `DroppedFrames` both go up, and a `Settling` event follows with `StarLocked` false). The settle
   timeout keeps running and is checked on that frame too. A dropped frame does not end a run of
   in-range frames, nor complete one: the next in-range frame measures the settle time from the
-  first in-range frame.
+  first in-range frame. The settle rule is in the wx-free `src/settle_frame.cpp`, unit-tested by
+  `test_settle_frame`.
 - A 3rd 1280 in a row now reaches the #103 camera reconnect mid-guide:
   `EquipmentDisconnected{reconnecting: true}`, `EquipmentReconnected`, then guiding resumes on
   the next exposure (a slow reconnect can time a settle out, which fails the request while
   guiding continues).
-- Unchanged, and the same as before: the 3rd failure in a row once the count is used up (a
-  camera that fails every frame stops guiding at the 7th, after 2 reconnects), 1031 and every
-  other non-transient failure (`GuidingStopped`, `SettleDone{Error: "camera error: …"}` when a
-  request is settling, `LoopingExposuresStopped`), any failure after `stop_capture`, and every
-  failure while looping, with a star selected (including a `guide` request still selecting its
-  star) or in `STATE_CALIBRATED`.
+- Unchanged: a 1031 is not dropped. It reconnects the camera at once (#103,
+  `EquipmentDisconnected{reconnecting: true}`) and, when the reconnect succeeds,
+  `EquipmentReconnected` follows and guiding resumes on the next exposure with no
+  `GuidingStopped`; guiding stops only when that reconnect fails or is throttled
+  (`EquipmentReconnectFailed`).
+- Unchanged, guiding stops as before (`GuidingStopped`, `SettleDone{Error: "camera error: …"}`
+  when a request is settling, `LoopingExposuresStopped`): every non-transient failure that does
+  not reconnect the camera (another Alpaca error, an HTTP status, a transport or parse failure),
+  a 1280 or timeout once the count is used up (a camera that fails every frame stops guiding at
+  the 7th, after 2 reconnects), a camera reconnect that fails or is throttled, and any failure
+  after `stop_capture`. Every failure while looping, with a star selected (including a `guide`
+  request still selecting its star) or in `STATE_CALIBRATED` stops capture as before.
 
 ARA: no code change. `StarLost` already raises a `star_lost` marker and sets the local state to
 `LostLock` until the next `GuideStep`; `Dither` and `StartGuiding` read `get_app_state` over
