@@ -47,6 +47,7 @@
 #include "extracted_run.h"
 #include "harness.h"
 #include "legacy/legacy_twin.h"
+#include "nudge_cosine.h"
 #include "sim_mount.h"
 
 #include <algorithm>
@@ -77,6 +78,13 @@ struct Plan
     int bumpAt = -1; // move the star without a pulse before this frame
     double bumpX = 0., bumpY = 0.;
     int homeAt = -1; // put the star back on the lock position before this frame
+    // move the star to an exact position before a frame (#154's nudge geometry, nudge_cosine.h)
+    struct Place
+    {
+        int at = -1;
+        double x = 0., y = 0.;
+    };
+    Place place[2];
 };
 
 struct Scenario
@@ -103,6 +111,9 @@ FrameHook<Run> HookFor(const Plan& p)
             sim.Displace(p.bumpX, p.bumpY);
         if (frame == p.homeAt)
             sim.MoveTo(sim.Config().startX, sim.Config().startY);
+        for (const Plan::Place& at : p.place)
+            if (frame == at.at)
+                sim.MoveTo(at.x, at.y);
         if (frame == p.clearAt)
             run.Clear();
     };
@@ -289,11 +300,108 @@ int DecModeChangedFrame(const Scenario& sc, const CalOutcome& legacy)
     return ::testing::AssertionSuccess();
 }
 
-// The comparison a scenario gets: the twin exactly, except on the #148 path
+// Whether a Debug line prints a NaN right after prefix ("nan" on arm64, "-nan" on x86-64 for 0/0)
+bool NanAfter(const Event& e, const std::string& prefix)
+{
+    if (e.kind != Event::Debug || e.text.rfind(prefix, 0) != 0)
+        return false;
+    std::string rest = e.text.substr(prefix.size());
+    return rest.rfind("nan", 0) == 0 || rest.rfind("-nan", 0) == 0;
+}
+
+// #154: the index of the event where the twin's South nudge took the acos of a
+// cosine rounded past -1 or +1 and the run's took it of the clamped cosine: the
+// first event that differs is the nudge's angle, NaN in the twin and pi or 0
+// in the run. -1 for any other scenario.
+int NudgeClampedEvent(const Pair& p)
+{
+    const std::vector<Event>& a = p.legacy.events;
+    const std::vector<Event>& b = p.extracted.events;
+    size_t n = std::min(a.size(), b.size());
+    size_t i = 0;
+    while (i < n && SameEvent(a[i], b[i]))
+        i++;
+    if (i == n || b[i].kind != Event::Debug || b[i].frame != a[i].frame)
+        return -1;
+    const std::string prefix = "Nudge: theta = ";
+    if (!NanAfter(a[i], prefix) || (b[i].text != prefix + "3.14\n" && b[i].text != prefix + "0.00\n"))
+        return -1;
+    return (int) i;
+}
+
+// Whether a frame hook of the scenario acts after frame f
+bool PlanActsAfter(const Plan& plan, int f)
+{
+    int last = std::max({ plan.clearAt, plan.modeAt, plan.stepAt, plan.distanceAt, plan.bumpAt, plan.homeAt, plan.place[0].at,
+                          plan.place[1].at });
+    return last > f;
+}
+
+// A #154 scenario, at event i (NudgeClampedEvent):
+//   - the cosine rounded past +1 (the star went past the lock along the North
+//     leg): the run's angle is 0 where the twin's was NaN; both stop the nudge
+//     as "wrong direction", so everything else, the angle in that line
+//     included, must be the twin's exactly;
+//   - past -1 (the star still north of the lock, straight back down the North
+//     leg): the run's angle is pi, and it goes on to nudge where the twin
+//     stopped. Everything before must be the twin's exactly, and the run may
+//     only add the nudge's South pulses: no other pulse, no mount read, the
+//     same calibration measured and the same outcome (unless a frame hook
+//     acts after that frame, which the twin's run never reached).
+::testing::AssertionResult IdenticalUntilNudgeClamped(const Scenario& sc, const Pair& p, size_t i)
+{
+    const CalOutcome& a = p.legacy;
+    const CalOutcome& b = p.extracted;
+    const std::string discontinued = "Nudging discontinued, wrong direction: ";
+    if (i + 1 >= a.events.size() || !NanAfter(a.events[i + 1], discontinued))
+        return ::testing::AssertionFailure() << "#154: the twin did not stop the nudge on its NaN angle";
+    if (b.events[i].text == "Nudge: theta = 0.00\n")
+    {
+        if (i + 1 >= b.events.size() || b.events[i + 1].text != discontinued + "0.00\n")
+            return ::testing::AssertionFailure() << "#154: the run did not stop the nudge on angle 0";
+        Pair q = p;
+        q.extracted.events[i].text = a.events[i].text;
+        q.extracted.events[i + 1].text = a.events[i + 1].text;
+        return Identical(q);
+    }
+
+    const int f = a.events[i].frame;
+    for (const Event& e : b.events)
+        if (e.kind == Event::Debug && e.frame == f && e.text.rfind(discontinued, 0) == 0)
+            return ::testing::AssertionFailure() << "#154: the run stopped the nudge at angle pi";
+    const std::vector<std::pair<Dir, int>>& pa = p.legacyPulses;
+    const std::vector<std::pair<Dir, int>>& pb = p.extractedPulses;
+    if (pb.size() < pa.size() || !std::equal(pa.begin(), pa.end(), pb.begin()))
+        return ::testing::AssertionFailure() << "#154: the twin's pulses are not the run's first ones";
+    const int stepMs = sc.plan.stepAt >= 0 && sc.plan.stepAt <= f ? sc.plan.stepTo : sc.settings.stepMs;
+    for (size_t k = pa.size(); k < pb.size(); k++)
+        if (pb[k].first != Dir::South || pb[k].second < 0 || pb[k].second > stepMs)
+            return ::testing::AssertionFailure() << "#154: pulse " << k << " is not a nudge";
+    const Measured& ma = a.measured;
+    const Measured& mb = b.measured;
+    if (!Same(ma.xAngle, mb.xAngle) || !Same(ma.xRate, mb.xRate) || !Same(ma.yAngle, mb.yAngle) || !Same(ma.yRate, mb.yRate) ||
+        ma.raParity != mb.raParity || ma.decParity != mb.decParity || ma.raStepCount != mb.raStepCount ||
+        ma.decStepCount != mb.decStepCount || !SameSteps(ma.raSteps, mb.raSteps) || !SameSteps(ma.decSteps, mb.decSteps))
+        return ::testing::AssertionFailure() << "#154: measured calibration differs";
+    if (PlanActsAfter(sc.plan, f))
+        return ::testing::AssertionSuccess();
+    if (a.outcome != b.outcome || a.fail != b.fail || b.frames < a.frames)
+        return ::testing::AssertionFailure()
+            << "#154: outcome " << (int) a.outcome << "/" << (int) b.outcome << " fail " << (int) a.fail << "/" << (int) b.fail;
+    if (p.legacyProbes != p.extractedProbes)
+        return ::testing::AssertionFailure()
+            << "#154: mount reads differ: " << p.legacyProbes.size() << "/" << p.extractedProbes.size();
+    return ::testing::AssertionSuccess();
+}
+
+// The comparison a scenario gets: the twin exactly, except on the #148 and #154 paths
 ::testing::AssertionResult Matches(const Scenario& sc, const Pair& p)
 {
     int f = DecModeChangedFrame(sc, p.legacy);
-    return f < 0 ? Identical(p) : IdenticalUntilDecModeChanged(sc, p, f);
+    if (f >= 0)
+        return IdenticalUntilDecModeChanged(sc, p, f);
+    int i = NudgeClampedEvent(p);
+    return i < 0 ? Identical(p) : IdenticalUntilNudgeClamped(sc, p, (size_t) i);
 }
 
 // What the scenarios exercised, so a passing run cannot be a vacuous one
@@ -301,11 +409,19 @@ struct Coverage
 {
     int complete = 0, completeDecNone = 0, reentered = 0, decModeChanged = 0, raFail = 0, decFail = 0, backlashFail = 0,
         cleared = 0, backlashProceed = 0, backlashAccepted = 0, nudges = 0, nudgeWrongWay = 0, eastAdvisory = 0,
-        southAdvisory = 0, assumeOrtho = 0, parityOdd = 0, noCoords = 0, ranOut = 0;
+        southAdvisory = 0, assumeOrtho = 0, parityOdd = 0, noCoords = 0, ranOut = 0, nudgeClampedPi = 0, nudgeClampedZero = 0;
 
     void Add(const Pair& p)
     {
         const CalOutcome& o = p.legacy;
+        // the twin's nudge angle was NaN for a cosine rounded past -1 or +1; the run's is pi or 0 (#154)
+        int clamped = NudgeClampedEvent(p);
+        if (clamped >= 0)
+        {
+            bool pi = p.extracted.events[(size_t) clamped].text == "Nudge: theta = 3.14\n";
+            nudgeClampedPi += pi;
+            nudgeClampedZero += !pi;
+        }
         // the twin re-entered Complete (#148); the run failed on that frame instead
         decModeChanged += p.extracted.fail == Fail::DecModeChanged;
         if (o.outcome == Outcome::Complete)
@@ -677,6 +793,32 @@ TEST(CalibrationRunParity, RandomScenarios)
     EXPECT_GT(cov.noCoords, 0);
 }
 
+TEST(CalibrationRunParity, NudgeCosinePastOne)
+{
+    // #154: the star put where the nudge's cosine rounds past -1 (still north
+    // of the lock) and past +1 (south of it), whatever the compiler fuses
+    // (nudge_cosine.h). The twin's angle is NaN in both; the run's is pi, and
+    // it nudges, or 0, and it stops as the twin did.
+    Coverage cov;
+    for (int pastLock = 0; pastLock < 2; pastLock++)
+    {
+        Scenario sc;
+        sc.cfg = nudge_cosine::Mount();
+        sc.settings = BaseSettings();
+        std::pair<int, int> f = nudge_cosine::Frames<LegacyTwinRun>(sc.cfg, sc.settings);
+        ASSERT_GE(f.first, 0);
+        ASSERT_GT(f.second, f.first);
+        Pt south = nudge_cosine::SouthStart(sc.cfg);
+        Pt nudge = nudge_cosine::NudgeStar(sc.cfg, pastLock != 0);
+        sc.plan.place[0] = { f.first, south.x, south.y };
+        sc.plan.place[1] = { f.second, nudge.x, nudge.y };
+        sc.name = pastLock ? "nudge cosine past +1" : "nudge cosine past -1";
+        Check(sc, &cov);
+    }
+    EXPECT_EQ(cov.nudgeClampedPi, 1);
+    EXPECT_EQ(cov.nudgeClampedZero, 1);
+}
+
 // ---------------------------------------------------------------------------
 // CalibrationRun's own contract
 // ---------------------------------------------------------------------------
@@ -953,4 +1095,52 @@ TEST(CalibrationRun, DecNoneCompletesWhenTheModeIsStillNone)
     r = Drive(run, sim2, s, 400);
     EXPECT_EQ(r.outcome, cr::Outcome::Complete);
     EXPECT_NE(run.measured().yRate, cr::RATE_UNCALIBRATED);
+}
+
+TEST(NudgeAngle, IsTheAngleBetweenTheNudgeAndTheNorthLeg)
+{
+    EXPECT_DOUBLE_EQ(cr::NudgeAngle(-1., 0., 1., 0.), M_PI);
+    EXPECT_DOUBLE_EQ(cr::NudgeAngle(1., 0., 1., 0.), 0.);
+    EXPECT_DOUBLE_EQ(cr::NudgeAngle(0., 1., 1., 0.), M_PI / 2);
+    EXPECT_DOUBLE_EQ(cr::NudgeAngle(-0.6, -0.8, 0.8, -0.6), M_PI / 2);
+    const double c = std::cos(Radians(150.));
+    const double s = std::sin(Radians(150.));
+    EXPECT_NEAR(cr::NudgeAngle(c, s, 1., 0.), Radians(150.), 1e-12);
+}
+
+TEST(NudgeAngle, ACosineRoundedPastMinusOneIsPi)
+{
+    // #154: exactly antiparallel directions along (115, 252), hypotenuse 277.
+    // Their rounded direction cosines give a cosine past -1 however the dot
+    // product is rounded: two rounded products and a sum, or either product
+    // fused into the add (the premise, checked here). acos of it was NaN.
+    const double a = 115. / 277.;
+    const double b = 252. / 277.;
+    volatile double aa = a * a;
+    volatile double bb = b * b;
+    EXPECT_GT(aa + bb, 1.);
+    EXPECT_GT(std::fma(a, a, bb), 1.);
+    EXPECT_GT(std::fma(b, b, aa), 1.);
+
+    EXPECT_EQ(cr::NudgeAngle(a, b, -a, -b), std::acos(-1.));
+    EXPECT_EQ(cr::NudgeAngle(-a, -b, a, b), std::acos(-1.));
+    EXPECT_EQ(cr::NudgeAngle(b, a, -b, -a), std::acos(-1.));
+}
+
+TEST(NudgeAngle, ACosineRoundedPastPlusOneIsZero)
+{
+    const double a = 115. / 277.;
+    const double b = 252. / 277.;
+    EXPECT_EQ(cr::NudgeAngle(a, b, a, b), 0.);
+    EXPECT_EQ(cr::NudgeAngle(-a, -b, -a, -b), 0.);
+}
+
+TEST(NudgeAngle, NanDirectionCosinesStayNan)
+{
+    // the star exactly on the lock: 0/0 direction cosines. The angle stays
+    // NaN, which fails the nudge's 40 deg test and ends the nudge, where it is
+    // not needed (pinned, not changed by #154)
+    const double nan = std::nan("");
+    EXPECT_TRUE(std::isnan(cr::NudgeAngle(nan, nan, 0.6, 0.8)));
+    EXPECT_TRUE(std::isnan(cr::NudgeAngle(nan, nan, -0.6, -0.8)));
 }

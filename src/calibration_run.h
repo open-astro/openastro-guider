@@ -149,6 +149,12 @@ constexpr int RA_STEP_MAX_MS = 25000;
 // max(stepMs, RA_STEP_MAX_MS).
 int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad);
 
+// The angle (radians) between the South nudge and the North leg, from their
+// direction cosines, as the nudge's direction test uses it: about pi when the
+// nudge goes back down the North leg. NaN direction cosines (the star exactly
+// on the lock position, 0/0) give NaN.
+double NudgeAngle(double nudgeDirCosX, double nudgeDirCosY, double northDirCosX, double northDirCosY);
+
 // What the run reads from Scope and the guider. Scope fills it from its members
 // on every frame; the run reads each field where the old code read the member.
 struct Settings

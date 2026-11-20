@@ -226,6 +226,12 @@ int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad)
     return std::max(stepMs, (int) scaled);
 }
 
+double NudgeAngle(double nudgeDirCosX, double nudgeDirCosY, double northDirCosX, double northDirCosY)
+{
+    double cos_theta = nudgeDirCosX * northDirCosX + nudgeDirCosY * northDirCosY;
+    return std::acos(cos_theta);
+}
+
 void CalibrationRun::Begin(const Pt& initialLocation, std::optional<double> declinationRad)
 {
     m_declinationRad = declinationRad;
