@@ -328,7 +328,7 @@ bool PhdController::CanGuide(wxString *error)
     return true;
 }
 
-void PhdController::UpdateControllerState(void)
+void PhdController::UpdateControllerState(bool frameDropped)
 {
     bool done = false;
 
@@ -532,7 +532,8 @@ void PhdController::UpdateControllerState(void)
 
         case STATE_SETTLE_WAIT:
         {
-            bool lockedOnStar = pFrame->pGuider->IsLocked();
+            // #136: a dropped frame (a transient capture failure while guiding) counts like a lost-star frame
+            bool lockedOnStar = !frameDropped && pFrame->pGuider->IsLocked();
             double currentError = pFrame->CurrentGuideError();
             bool inRange = lockedOnStar && currentError <= ctrl.settle.tolerancePx;
             bool aoBumpInProgress = IsAoBumpInProgress();
@@ -579,8 +580,13 @@ void PhdController::UpdateControllerState(void)
                 do_fail(_T("timed-out waiting for guider to settle"));
                 break;
             }
+            if (frameDropped && ctrl.settlePriorFrameInRange)
+                timeInRange = ctrl.settleInRange->Time();
             EvtServer.NotifySettling(currentError, (double) timeInRange / 1000., ctrl.settle.settleTimeSec, lockedOnStar);
-            ctrl.settlePriorFrameInRange = inRange;
+            // #136: a dropped frame neither ends nor completes an in-range run (it saw no star), while the
+            // settle timeout above keeps running
+            if (!frameDropped)
+                ctrl.settlePriorFrameInRange = inRange;
             done = true;
             break;
         }

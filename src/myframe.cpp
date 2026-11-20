@@ -1207,11 +1207,11 @@ void MyFrame::DoTryReconnect()
         if (exposurePending)
         {
             m_exposurePending = false; // exposure no longer pending
-            // #116: the reconnected camera starts a new count of 1280s (Connect resets the #103 tracker), so a
-            // calibration frame retried before the reconnect gets its full retry budget again, once per run of
-            // failed frames: the throttle above does not bound a camera that fails every frame when its 3 failed
-            // frames take longer than 20 s, so without the limit the calibration would never end.
-            m_calibrationFrameRetries.OnReconnect();
+            // #116, #136: the reconnected camera starts a new count of 1280s (Connect resets the #103 tracker), so
+            // a calibration or guiding frame retried before the reconnect gets its full retry budget again, once
+            // per run of failed frames: the throttle above does not bound a camera that fails every frame when its
+            // 3 failed frames take longer than 20 s, so without the limit the calibration or guiding would never end.
+            m_frameRetries.OnReconnect();
             ScheduleExposure();
         }
     }

@@ -59,7 +59,8 @@ public:
     static bool DitherCompat(double pixels, wxString *error);
 
     static void AbortController(const wxString& reason);
-    static void UpdateControllerState();
+    // frameDropped (#136): the frame failed and was dropped while guiding; a settle counts it as a dropped frame
+    static void UpdateControllerState(bool frameDropped = false);
     static void OnAppInit();
     static void OnAppExit();
 
