@@ -61,6 +61,31 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 | `test_guide_move_plan` | `src/guide_move_plan.cpp` — how a guide correction becomes mount pulses (#142): `PlanOffset` from `Mount::MoveOffset` (+x West, −x East, +y South, −y North; `ROUND(fabs(d / rate))`, with a zero rate giving `INT_MAX` and 0 / 0 giving 0 instead of undefined behaviour) and `PlanAxis` from `Scope::MoveAxis` (guiding disabled refuses all but manual moves, calibration moves included; only guide steps and deduced moves are filtered by the Dec guide mode and clamped to the max RA/Dec duration, recovery moves and AO bumps ignore both on purpose, calibration and manual moves pass as asked; every guide step, deduced move, recovery move and AO bump is capped at `MAX_PULSE_MS` (25 s, under the Alpaca 30 s HTTP timeout), so a zero-rate recenter no longer sends `INT_MAX` (#152); the limit-reached alert on the 5th clamp in a row in one direction (#153; it was the 6th), restarted by a clamp the other way, an unclamped or a zeroed step). `test_guide_sign_closed_loop.cpp` closes the loop through the real `calibration_transform.cpp`: a planar mount model calibrates as `Scope` measures, and a star moved West, North or both comes back to within 0.1 px in one step for camera angles 0/30/90/200/−135°, Dec normal or mirrored, and after a meridian flip with the flipped calibration (both Dec-flip modes); a stale calibration after a flip doubles the error; skewed axes converge; a runaway is corrected at most the max RA duration a step; Dec North-only and Dec None | Direct (extract-for-testability): wx-free planner linked unmodified; `Scope::MoveAxis` keeps the Debug lines, the alert and `Guide()`, `Mount::MoveOffset` the transform, algorithms and backlash comp |
 | `test_guiding_rms_baseline` | The default guiding chain closed loop (#142): `calibration_transform.cpp` (`CameraToMount`), `guide_algorithm_kernels.cpp` (Hysteresis on RA, ResistSwitch on Dec, with the production constructor defaults) and `guide_move_plan.cpp` (`PlanOffset`, `PlanAxis` with 2500 ms max pulses, Dec mode Auto), guiding a simulated star: sinusoidal RA periodic error (480 s, ±10"), constant RA and Dec drift (0.01 and 0.02 "/s), 0.5" Gaussian seeing per image axis, a 1.93"/px camera at 30°, 2 s exposures plus 0.5 s overhead, then the RA and Dec pulses at 0.5× sidereal while the sky keeps moving. Pins the unguided RMS of that sky (19.89": RA 10.36", Dec 16.98"); guiding at under a tenth of it on every seed; the guided RMS of the exposure-averaged true error in a ±11 % band around the measured baseline (20-seed means total 0.777", RA 0.510", Dec 0.586", measured at -O0 and -O3 on GCC 14.2, where they agree to the fourth decimal); every one of 60 seeds within 0.62-0.95" and within 1.35× of each other; the band catching a detuned default (RA aggression halved or doubled, RA minMove 0.5 px, hysteresis 0.5, Dec aggression 0.5); and a calibration flipped by 180° on either axis diverging to thousands of arcsec while the other axis still guides | Closed-loop simulation, deterministic (mt19937_64 and Box-Muller, so the noise is the same on every standard library), about 30 ms. Proves signs, wiring, gains and gating; it cannot prove the defaults are well tuned for a real mount, seeing or backlash, which needs rig data |
 
+## Daemon end-to-end (CI)
+
+Not a ctest target: the `Daemon e2e (arm64, ASan/UBSan)` CI job builds
+`phd2.bin` with `-fsanitize=address,undefined` in its own build dir and runs
+`scripts/e2e_guide_scenarios.py` (#142). The script starts
+`scripts/fake_alpaca_camera.py` and the daemon (headless under `xvfb-run`,
+scratch `HOME`) and drives it over JSON-RPC:
+
+| Scenario | Checks |
+|---|---|
+| smoke | `scripts/phd2_rpc_smoke.py --fake-alpaca-url` exits 0 (#155) |
+| calibrate and guide | connect the Alpaca camera and mount, `loop`, `find_star`, `guide` with `recalibrate: true`: a full calibration (West, East, North, South), one `SettleDone` with `Status` 0, then `GuideStep`s; the event order Ara consumes (`StartCalibration`, `Calibrating`…, `CalibrationComplete`, `StartGuiding`, `SettleBegin`, `Settling`/`GuideStep`…, one `SettleDone`, `GuideStep`…) |
+| recalibrate on a new target | `stop_capture`, slew the fake mount to Dec 50, `guide` with `recalibrate: true`: a second full calibration, made at Dec 50 |
+| frame drops while guiding | 1, then 2 frames in a row failing with Alpaca 1280: one `StarLost` each, guiding goes on (#136) |
+
+The job fails on a failed check, on the daemon crashing or exiting non-zero
+after `shutdown`, and on any sanitizer report; the daemon's debug log and
+output, the fake's log and every event received are uploaded when it does.
+Locally, after an ASan build (see the job's Configure step):
+
+```bash
+python3 scripts/e2e_guide_scenarios.py --phd2 build-asan/phd2.bin \
+    --instance 10 --fake-port 11150 --display 110 --work-dir /tmp/e2e
+```
+
 ## How the build infra works (and why)
 
 Almost every production `.cpp` opens with `#include "phd.h"`, which transitively

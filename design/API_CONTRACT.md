@@ -760,3 +760,23 @@ now comes on the 5th guide step in a row clamped in the same direction, instead 
   `GuideStep` event's `RALimited` / `DecLimited`, which are set on every clamped step as before.
 
 ARA: no code change.
+
+## 2026-11-20 — the event order of a guide request, checked in CI (#142)
+
+No API change. The order below is what the daemon sends today (inherited from PHD2's
+`PhdController`); the `Daemon e2e (arm64, ASan/UBSan)` CI job now checks it against the real
+daemon and the fake Alpaca server (`scripts/e2e_guide_scenarios.py`), so a change to it fails CI.
+
+For one `guide` request with `recalibrate: true` that calibrates and settles:
+
+- `StartCalibration`, one or more `Calibrating`, `CalibrationComplete`;
+- `StartGuiding`, then `SettleBegin` at once, before the first `GuideStep`;
+- `Settling` and `GuideStep` events, interleaved, while the settle runs;
+- exactly one `SettleDone` (`Status` 0 on success), then `GuideStep` events.
+
+`LockPositionSet` and `StarSelected` come before `StartCalibration` when the request selects
+the star, and `ConfigurationChange` / `AppState` can arrive in between; the check ignores those.
+A request that fails still ends with exactly one `SettleDone` (see `doc/jsonrpc_api.md` for the
+failure orders). A dropped frame while guiding (#136) is a `StarLost` and the `GuideStep`s go on.
+
+ARA: no code change. It waits for `SettleDone` as the end of the request, which this pins.
