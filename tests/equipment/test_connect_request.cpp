@@ -72,7 +72,8 @@ TEST(ConnectRequest, NothingChangesWhileTheGearDialogIsOpen)
 // #139: what one gear session saw of the camera. The headless daemon never ran ShowGearDialog, the only place the
 // latch was reset, so a connect that saw a wrong profile pixel size left it set for the rest of the process: every
 // later set_connected reset the calibration step and both MinMoves, and raised the pixel-size Alert again. Each gear
-// request now begins a session, and EndModal takes the scale change once.
+// request now begins a session (BeginRequest), and EndModal takes the scale change once. These tests cover the latch
+// and the begin decision; that GearDialog calls them is pinned by the fake-Alpaca live test.
 
 TEST(CameraChangeLatch, WrongProfilePixelSizeIsOneScaleChange)
 {
@@ -90,17 +91,81 @@ TEST(CameraChangeLatch, NextRequestBeginsAfresh)
     CameraChangeLatch latch;
     latch.Begin();
     latch.NotePixelSize(2.4, 3.75);
-    latch.camChanged = true;
+    latch.NoteCameraChange();
     latch.warningIssued = true;
     EXPECT_TRUE(latch.TakeScaleChange());
+    EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::Clear);
 
     // the reconnect: the profile now holds the driver's pixel size
-    latch.Begin();
-    EXPECT_FALSE(latch.camChanged); // else EndModal clears the calibration and never auto-loads one
+    latch.BeginRequest();
     EXPECT_FALSE(latch.warningIssued); // else a later real camera change is never noticed
     latch.NotePixelSize(3.75, 3.75);
     EXPECT_FALSE(latch.ScaleChanged());
     EXPECT_FALSE(latch.TakeScaleChange());
+}
+
+TEST(CameraChangeLatch, MountConnectedInALaterRequestClearsTheCalibration)
+{
+    // set_connected all while the mount is off: the camera connect sees the change, the mount fails, so that
+    // EndModal has no mount to clear
+    CameraChangeLatch latch;
+    latch.BeginRequest();
+    latch.NotePixelSize(2.4, 3.75);
+    latch.NoteCameraChange();
+    EXPECT_TRUE(latch.TakeScaleChange());
+    EXPECT_EQ(latch.TakeCalibrationAction(true, false), GearCalibrationAction::None);
+
+    // the #104 retry, guide's connect or set_connected mount connects it in a request of its own: the saved
+    // calibration was made with the old camera, so it is cleared, not auto-loaded
+    latch.BeginRequest();
+    EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::Clear);
+
+    // cleared once: a calibration made since is not wiped by a later request, and the old one is never auto-loaded
+    latch.BeginRequest();
+    EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::None);
+    latch.BeginRequest();
+    EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::None);
+
+    // another camera change is cleared again
+    latch.BeginRequest();
+    latch.NoteCameraChange();
+    EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::Clear);
+}
+
+TEST(CameraChangeLatch, AutoLoadWithoutACameraChange)
+{
+    CameraChangeLatch latch;
+    latch.BeginRequest();
+    EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::AutoLoad);
+    EXPECT_EQ(latch.TakeCalibrationAction(true, false), GearCalibrationAction::None);
+    EXPECT_EQ(latch.TakeCalibrationAction(false, true), GearCalibrationAction::None);
+    // every EndModal with the mount connected loads it again, as before
+    EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::AutoLoad);
+}
+
+TEST(CameraChangeLatch, ARunOfTheDialogStartsOver)
+{
+    // PHD2 behaviour, unchanged: a camera change does not outlive the dialog run that saw it
+    CameraChangeLatch latch;
+    latch.Begin();
+    latch.NoteCameraChange();
+    EXPECT_EQ(latch.TakeCalibrationAction(true, false), GearCalibrationAction::None);
+    latch.Begin();
+    EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::AutoLoad);
+
+    // the user cancelled at the camera-change warning
+    latch.Begin();
+    latch.NoteCameraChange();
+    latch.CancelCameraChange();
+    EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::AutoLoad);
+}
+
+TEST(CameraChangeLatch, OnlyAnOutermostRequestOutsideTheDialogBeginsASession)
+{
+    EXPECT_TRUE(BeginsGearRequest(0, false));
+    EXPECT_FALSE(BeginsGearRequest(1, false)); // nested in another request, from a nested event loop
+    // GUI: an RPC that the open Connect Equipment dialog refuses must not wipe the dialog's scale and camera change
+    EXPECT_FALSE(BeginsGearRequest(0, true));
 }
 
 TEST(CameraChangeLatch, ChangesAddUpWithinOneSession)
@@ -114,7 +179,7 @@ TEST(CameraChangeLatch, ChangesAddUpWithinOneSession)
     EXPECT_TRUE(latch.ScaleChanged());
 
     // and a change that is undone within the session is none
-    latch.Begin();
+    latch.BeginRequest();
     latch.NotePixelSize(3.75, 2.4);
     latch.NotePixelSize(2.4, 3.75);
     EXPECT_FALSE(latch.ScaleChanged());

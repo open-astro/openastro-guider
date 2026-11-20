@@ -442,24 +442,23 @@ void GearDialog::EndModal(int retCode)
     pFrame->pGraphLog->UpdateControls();
     pFrame->pTarget->UpdateControls();
 
-    if (pFrame->GetAutoLoadCalibration() && !m_camLatch.camChanged) // ok to reload calibration
+    // a camera change is acted on by the first EndModal with the mount connected, which may be a later request's
+    // (#139); until the end of the session the saved calibration, made with the old camera, is not auto-loaded
+    switch (m_camLatch.TakeCalibrationAction(pFrame->GetAutoLoadCalibration() &&
+                                                 (!pSecondaryMount || pSecondaryMount->IsConnected()),
+                                             pMount && pMount->IsConnected()))
     {
-        if (pMount && pMount->IsConnected() && (!pSecondaryMount || pSecondaryMount->IsConnected()))
-        {
-            Debug.Write("Auto-loading calibration data\n");
-            pFrame->LoadCalibration();
-        }
-    }
-    else
-    {
+    case GearCalibrationAction::AutoLoad:
+        Debug.Write("Auto-loading calibration data\n");
+        pFrame->LoadCalibration();
+        break;
+    case GearCalibrationAction::Clear:
         // Force a recalibration if the camera has changed
-        if (m_camLatch.camChanged)
-        {
-            Debug.Write("Clearing calibration data because camera was changed\n");
-
-            if (pMount && pMount->IsConnected())
-                pMount->ClearCalibration();
-        }
+        Debug.Write("Clearing calibration data because camera was changed\n");
+        pMount->ClearCalibration();
+        break;
+    case GearCalibrationAction::None:
+        break;
     }
 
     wxDialog::EndModal(retCode);
@@ -919,7 +918,7 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
                 wxString darkName = MyFrame::DarkLibFileName(currProfileId);
                 wxString bpmName = DefectMap::DefectMapFileName(currProfileId);
 
-                m_camLatch.camChanged = true;
+                m_camLatch.NoteCameraChange();
 
                 // Can't use standard checks because we don't want to consider sensor-size
                 if (wxFileExists(darkName) || wxFileExists(bpmName))
@@ -952,7 +951,7 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
                         wxCommandEvent dummy;
                         OnChoiceCamera(dummy);
                         canceled = true;
-                        m_camLatch.camChanged = false;
+                        m_camLatch.CancelCameraChange();
                         throw THROW_INFO("DoConnectCamera: user cancelled after camera-change warning");
                     }
                 }
@@ -1396,8 +1395,6 @@ void GearDialog::ReloadProfileGear()
 
 bool GearDialog::SetProfile(int profileId, wxString *error)
 {
-    BeginGearRequest();
-
     if (profileId == pConfig->GetCurrentProfileId())
         return false;
 
@@ -1434,6 +1431,8 @@ bool GearDialog::SetProfile(int profileId, wxString *error)
             return true;
         }
     }
+
+    BeginGearRequest();
 
     // need the side-effects for making the selection
     wxCommandEvent dummy;
@@ -1478,11 +1477,13 @@ const GearDevice kRetryDevices[] = { GearDevice::Camera, GearDevice::Mount, Gear
 // request (set_connected, set_profile, and the #104 retry and guide connects through SetDeviceConnected) begins its
 // own. Without that, one connect that saw the driver's pixel size differ from the profile's left the latch set for
 // the rest of the process: every later EndModal reset the calibration step and both MinMoves and raised the Alert
-// again. A request nested in another (from a nested event loop) is part of the outer one.
+// again. A camera change carries over to later requests until the mount's calibration is cleared for it (see
+// CameraChangeLatch). A request nested in another (from a nested event loop) is part of the outer one, and a request
+// that arrives while the dialog is open (GUI) leaves the dialog's session alone: the dialog refuses it anyway.
 void GearDialog::BeginGearRequest()
 {
-    if (m_connectDepth == 0)
-        m_camLatch.Begin();
+    if (BeginsGearRequest(m_connectDepth, IsModal()))
+        m_camLatch.BeginRequest();
 }
 
 bool GearDialog::ConnectAll(wxString *error)

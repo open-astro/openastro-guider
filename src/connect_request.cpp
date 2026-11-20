@@ -92,3 +92,18 @@ bool CameraChangeLatch::TakeScaleChange()
     scaleRatio = 1.0;
     return changed;
 }
+
+GearCalibrationAction CameraChangeLatch::TakeCalibrationAction(bool autoLoad, bool mountConnected)
+{
+    if (!camChanged)
+        return autoLoad && mountConnected ? GearCalibrationAction::AutoLoad : GearCalibrationAction::None;
+    if (!clearPending || !mountConnected)
+        return GearCalibrationAction::None;
+    clearPending = false;
+    return GearCalibrationAction::Clear;
+}
+
+bool BeginsGearRequest(int connectDepth, bool dialogOpen)
+{
+    return connectDepth == 0 && !dialogOpen;
+}
