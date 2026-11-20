@@ -189,6 +189,7 @@ public:
     void TerminateApp();
     void RestartApp();
     void HandleRestart();
+    wxSingleInstanceChecker *CreateInstanceChecker() const;
     void ResetConfiguration();
     virtual bool Yield(bool onlyIfNeeded = false);
     static void ExecInMainThread(std::function<void()> func);

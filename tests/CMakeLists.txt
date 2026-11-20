@@ -354,3 +354,15 @@ add_executable(test_restore_calibration
 target_link_libraries(test_restore_calibration PRIVATE phd_test_common)
 set_property(TARGET test_restore_calibration PROPERTY FOLDER "Unit tests")
 add_test(NAME test_restore_calibration COMMAND test_restore_calibration)
+
+############################################################################
+# test_instance_lock  --  instance_lock.cpp: where the single-instance lock
+# goes, $RUNTIME_DIRECTORY under systemd or wx's default (#135). std-only.
+############################################################################
+add_executable(test_instance_lock
+  ${PHD_TESTS_DIR}/startup/test_instance_lock.cpp
+  ${phd_src_dir}/instance_lock.cpp
+)
+target_link_libraries(test_instance_lock PRIVATE phd_test_common)
+set_property(TARGET test_instance_lock PROPERTY FOLDER "Unit tests")
+add_test(NAME test_instance_lock COMMAND test_instance_lock)

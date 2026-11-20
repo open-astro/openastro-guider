@@ -186,6 +186,8 @@ set(cam_SRC
   ${phd_src_dir}/capture_cleanup.h
   ${phd_src_dir}/capture_failure.cpp
   ${phd_src_dir}/capture_failure.h
+  ${phd_src_dir}/instance_lock.cpp
+  ${phd_src_dir}/instance_lock.h
   ${phd_src_dir}/jsonrpc_request.cpp
   ${phd_src_dir}/jsonrpc_request.h
   ${phd_src_dir}/alpaca_gain.cpp
