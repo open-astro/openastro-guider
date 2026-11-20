@@ -44,6 +44,12 @@ constexpr unsigned MANUAL = 1u << 4;
 // limit-reached alert, so the 6th clamped move in a row is the first to alert
 constexpr int LIMIT_REACHED_WARN_COUNT = 5;
 
+// The longest pulse PlanAxis lets a guide step, deduced move, recovery move or AO bump send
+// (#152): under the 30 s HTTP timeout AlpacaClient gives a PulseGuide that blocks while it runs,
+// the ceiling #141 gave the calibration's grown RA step (calibration_run.h, RA_STEP_MAX_MS).
+// A rate of 0 makes PulseMs return INT_MAX, which a recovery move or AO bump otherwise sends as is.
+constexpr int MAX_PULSE_MS = 25000;
+
 // ROUND(fabs(distance / rate)), the pulse Mount::MoveOffset asks for. A quotient that does
 // not fit an int (a rate of 0, or one Dec compensation made tiny) gives INT_MAX and a NaN
 // (0 / 0) gives 0, which is what the plain cast does on arm64; MoveAxis then clamps a guide
@@ -83,7 +89,8 @@ struct AxisPlan
     bool refused = false; // guiding is disabled and this is not a manual move: no pulse
     int ms = 0; // the pulse to send (0: none)
     bool zeroedByDecMode = false; // the Dec guide mode zeroed it
-    bool limited = false; // clamped to the axis's max duration
+    bool limited = false; // clamped to the axis's max duration or to MAX_PULSE_MS
+    bool capped = false; // MAX_PULSE_MS, not the max duration, set the pulse
     bool alert = false; // raise the limit-reached alert for this axis
 };
 
