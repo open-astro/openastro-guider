@@ -369,9 +369,6 @@ TEST(ConnectRetry, RetryBlockerGates)
         g.paSession = true;
         EXPECT_EQ(RetryBlocker(d, g), "polar-alignment session in progress");
         g = Gates();
-        g.alignmentTool = true;
-        EXPECT_EQ(RetryBlocker(d, g), "polar or drift alignment in progress");
-        g = Gates();
         g.guidingAssistant = true;
         EXPECT_EQ(RetryBlocker(d, g), "Guiding Assistant is running");
         g = Gates();
@@ -400,24 +397,6 @@ TEST(ConnectRetry, RetryBlockerGates)
     many.paSession = true;
     many.captureActive = true;
     EXPECT_EQ(RetryBlocker(GearDevice::Camera, many), "dark-frame capture in progress");
-}
-
-TEST(ConnectRetry, AlignmentToolsThatBlockARetry)
-{
-    EXPECT_FALSE(AlignmentToolBlocks(AlignmentTools()));
-
-    AlignmentTools pd;
-    pd.polarDriftDrifting = true;
-    EXPECT_TRUE(AlignmentToolBlocks(pd));
-
-    AlignmentTools drift;
-    drift.driftToolOpen = true;
-    EXPECT_TRUE(AlignmentToolBlocks(drift));
-
-    Gates g;
-    g.alignmentTool = AlignmentToolBlocks(pd);
-    for (GearDevice d : kDevices)
-        EXPECT_EQ(RetryBlocker(d, g), "polar or drift alignment in progress");
 }
 
 TEST(ConnectRetry, WithReason)

@@ -251,8 +251,6 @@ public:
     GearDialog *pGearDialog;
     ProfileWindow *pProfile;
     TargetWindow *pTarget;
-    wxWindow *pDriftTool;
-    wxWindow *pPolarDriftTool;
     wxWindow *pGuidingAssistant;
     bool CaptureActive; // Is camera looping captures?
     bool m_exposurePending; // exposure scheduled and not completed
@@ -289,8 +287,6 @@ public:
     void OnAdvanced(wxCommandEvent& evt);
     void OnIdle(wxIdleEvent& evt);
     void OnEEGG(wxCommandEvent& evt);
-    void OnDriftTool(wxCommandEvent& evt);
-    void OnPolarDriftTool(wxCommandEvent& evt);
     void OnGuidingAssistant(wxCommandEvent& evt);
     void OnSetupCamera(wxCommandEvent& evt);
     void OnExposureDurationSelected(wxCommandEvent& evt);
@@ -591,8 +587,6 @@ enum
     MENU_RESTORE_WINDOWS,
     MENU_TARGET,
     MENU_AUTOSTAR,
-    MENU_DRIFTTOOL,
-    MENU_POLARDRIFTTOOL,
     MENU_GUIDING_ASSISTANT,
     MENU_SAVESETTINGS,
     MENU_LOADSETTINGS,

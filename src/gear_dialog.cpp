@@ -1787,7 +1787,6 @@ ConnectRetry::Gates GearDialog::CurrentRetryGates() const
     gates.shuttingDown = m_connectRetryStopped;
     gates.darkBuild = DarkBuildActive();
     gates.paSession = PaSessionActive();
-    gates.alignmentTool = AlignmentToolActive();
     gates.guidingAssistant = GuidingAssistant::ApiIsRunning();
     gates.connectInProgress = m_connectDepth > 0;
     gates.captureActive = pFrame->CaptureActive;
@@ -1915,7 +1914,7 @@ void GearDialog::OnConnectRetryTimer(wxTimerEvent& event)
     if (m_probeRunning)
     {
         // The gates were checked when the probe started. One that has closed since (a dark build, calibration,
-        // polar drift starting...) cancels the probe before its Connected=true PUT if that is not sent yet;
+        // a Guiding Assistant run starting...) cancels the probe before its Connected=true PUT if that is not sent yet;
         // the device then waits on the gate like any other due attempt. A connect on the stack is left out: that
         // connect records its own result.
         ConnectRetry::Gates now = CurrentRetryGates();

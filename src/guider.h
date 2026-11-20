@@ -143,7 +143,6 @@ class Guider : public wxWindow
     OverlaySlitCoords m_overlaySlitCoords;
     const DefectMap *m_defectMapPreview;
     double m_polarAlignCircleRadius;
-    double m_polarAlignCircleCorrection;
     PHD_Point m_polarAlignCircleCenter;
     PauseType m_paused;
     ShiftPoint m_lockPosition;
@@ -161,7 +160,6 @@ class Guider : public wxWindow
     usImage *m_pCurrentImage;
     bool m_scaleImage;
     bool m_lockPosIsSticky;
-    bool m_ignoreLostStarLooping;
     bool m_fastRecenterEnabled;
     LockPosShiftParams m_lockPosShift;
     bool m_measurementMode;
@@ -233,7 +231,6 @@ public:
     bool LockPosShiftEnabled() const { return m_lockPosShift.shiftEnabled; }
     void SetLockPosIsSticky(bool isSticky) { m_lockPosIsSticky = isSticky; }
     bool LockPosIsSticky() const { return m_lockPosIsSticky; }
-    void SetIgnoreLostStarLooping(bool ignore);
     const ShiftPoint& LockPosition() const;
     const LockPosShiftParams& GetLockPosShiftParams() const { return m_lockPosShift; }
     void ForceFullFrame();
@@ -243,8 +240,6 @@ public:
     void SetOverlaySlitCoords(const wxPoint& center, const wxSize& size, int angle);
     void SetDefectMapPreview(const DefectMap *preview);
     void SetPolarAlignCircle(const PHD_Point& center, double radius);
-    void SetPolarAlignCircleCorrection(double val);
-    double GetPolarAlignCircleCorrection() const;
     bool SaveCurrentImage(const wxString& fileName);
 
     void StartGuiding();
@@ -385,16 +380,6 @@ inline int Guider::GetSearchRegion() const
 inline bool Guider::IsFastRecenterEnabled() const
 {
     return m_fastRecenterEnabled;
-}
-
-inline double Guider::GetPolarAlignCircleCorrection() const
-{
-    return m_polarAlignCircleCorrection;
-}
-
-inline void Guider::SetPolarAlignCircleCorrection(double val)
-{
-    m_polarAlignCircleCorrection = val;
 }
 
 inline usImage *Guider::CurrentImage() const

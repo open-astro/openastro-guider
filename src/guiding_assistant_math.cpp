@@ -371,8 +371,8 @@ PaAdvice RecommendPolarAlignment(double errorArcmin, bool likelyBacklash)
         return PaAdvice::None;
     // If the mount looks like it has large Dec backlash, ignore alignment error below 10 arc-min
     if (likelyBacklash)
-        return errorArcmin > 10.0 ? PaAdvice::UseDriftAlign : PaAdvice::None;
-    return errorArcmin < 10.0 ? PaAdvice::Improve : PaAdvice::UseDriftAlign;
+        return errorArcmin > 10.0 ? PaAdvice::Redo : PaAdvice::None;
+    return errorArcmin < 10.0 ? PaAdvice::Improve : PaAdvice::Redo;
 }
 
 bool RecommendLowpass2ForDec(bool hpEncoders, bool smallBacklash, const std::string& decAlgoClass)

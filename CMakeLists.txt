@@ -275,8 +275,6 @@ set(phd2_SRC
   ${phd_src_dir}/darks_dialog.h
   ${phd_src_dir}/debuglog.cpp
   ${phd_src_dir}/debuglog.h
-  ${phd_src_dir}/drift_tool.cpp
-  ${phd_src_dir}/drift_tool.h
   ${phd_src_dir}/eegg.cpp
   ${phd_src_dir}/event_server.cpp
   ${phd_src_dir}/event_server.h
@@ -321,9 +319,6 @@ set(phd2_SRC
   ${phd_src_dir}/phdconfig.h
   ${phd_src_dir}/phdcontrol.cpp
   ${phd_src_dir}/phdcontrol.h
-  ${phd_src_dir}/polardrift_tool.h
-  ${phd_src_dir}/polardrift_toolwin.h
-  ${phd_src_dir}/polardrift_toolwin.cpp
   ${phd_src_dir}/point.h
 
   # rotators

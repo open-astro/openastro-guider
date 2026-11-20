@@ -132,9 +132,4 @@ void DeferCameraReconnectUntilDarkBuildEnds();
 // True while a set_pa_session lease is held. The background connect retry (#104) waits on it.
 bool PaSessionActive();
 
-// True while polar drift alignment is drifting or the drift-alignment tool is open. The background connect retry
-// (#104) waits on it: a connect runs GearDialog::EndModal, which can reload the calibration and the image scale under
-// the routine (ConnectRetry::AlignmentToolBlocks).
-bool AlignmentToolActive();
-
 #endif

@@ -33,8 +33,6 @@
  */
 
 #include "phd.h"
-#include "drift_tool.h"
-#include "polardrift_tool.h"
 #include "guiding_assistant.h"
 
 void MyFrame::OnEEGG(wxCommandEvent& evt)
@@ -48,32 +46,6 @@ void MyFrame::OnEEGG(wxCommandEvent& evt)
     else
     {
         evt.Skip();
-    }
-}
-
-void MyFrame::OnDriftTool(wxCommandEvent& WXUNUSED(evt))
-{
-    if (!pDriftTool)
-    {
-        pDriftTool = DriftTool::CreateDriftToolWindow();
-    }
-
-    if (pDriftTool)
-    {
-        pDriftTool->Show();
-    }
-}
-
-void MyFrame::OnPolarDriftTool(wxCommandEvent& WXUNUSED(evt))
-{
-    if (!pPolarDriftTool)
-    {
-        pPolarDriftTool = PolarDriftTool::CreatePolarDriftToolWindow();
-    }
-
-    if (pPolarDriftTool)
-    {
-        pPolarDriftTool->Show();
     }
 }
 

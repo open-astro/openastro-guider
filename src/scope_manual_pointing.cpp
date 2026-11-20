@@ -34,20 +34,12 @@
 
 #include "phd.h"
 
-#include <wx/valnum.h>
-
 struct ScopePointingDlg : public wxDialog
 {
-    double m_latitudeVal, m_longitudeVal;
-
     wxSpinCtrl *m_dec;
     wxRadioButton *m_radioBtnWest;
     wxRadioButton *m_radioBtnEast;
     wxRadioButton *m_radioBtnUnspecified;
-    wxSpinCtrl *m_raHr;
-    wxSpinCtrl *m_raMin;
-    wxTextCtrl *m_latitude;
-    wxTextCtrl *m_longitude;
     wxButton *m_OK;
     wxButton *m_Cancel;
 
@@ -119,80 +111,6 @@ ScopePointingDlg::ScopePointingDlg(wxWindow *parent, wxWindowID id, const wxStri
     sbSizer2->Add(bSizer2, 1, wxEXPAND, 5);
 
     bSizer1->Add(sbSizer2, 0, wxALL | wxEXPAND, 5);
-
-    m_raHr = 0;
-    if (pFrame->pDriftTool)
-    {
-        wxStaticBoxSizer *sbSizer3;
-        sbSizer3 = new wxStaticBoxSizer(new wxStaticBox(this, wxID_ANY, _("Drift Alignment")), wxVERTICAL);
-
-        wxBoxSizer *bSizer31;
-        bSizer31 = new wxBoxSizer(wxHORIZONTAL);
-
-        wxStaticText *staticText11 =
-            new wxStaticText(sbSizer3->GetStaticBox(), wxID_ANY, _("Right Ascension"), wxDefaultPosition, wxDefaultSize, 0);
-        staticText11->Wrap(-1);
-        bSizer31->Add(staticText11, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-
-        wxStaticText *staticText111 =
-            new wxStaticText(sbSizer3->GetStaticBox(), wxID_ANY, _("hr"), wxDefaultPosition, wxDefaultSize, 0);
-        staticText111->Wrap(-1);
-        bSizer31->Add(staticText111, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-
-        m_raHr = pFrame->MakeSpinCtrl(sbSizer3->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition,
-                                      pFrame->GetTextExtent("999"), wxSP_ARROW_KEYS, 0, 23, 0);
-        m_raHr->SetToolTip(_("Telescope's Right Ascension, hours"));
-
-        bSizer31->Add(m_raHr, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-
-        wxStaticText *staticText1111 =
-            new wxStaticText(sbSizer3->GetStaticBox(), wxID_ANY, _("min"), wxDefaultPosition, wxDefaultSize, 0);
-        staticText1111->Wrap(-1);
-        bSizer31->Add(staticText1111, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-
-        m_raMin = pFrame->MakeSpinCtrl(sbSizer3->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition,
-                                       pFrame->GetTextExtent("999"), wxSP_ARROW_KEYS, 0, 59, 0);
-        m_raMin->SetToolTip(_("Telescope's Right Ascension, minutes"));
-
-        bSizer31->Add(m_raMin, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-
-        sbSizer3->Add(bSizer31, 0, 0, 5);
-
-        wxBoxSizer *bSizer8;
-        bSizer8 = new wxBoxSizer(wxHORIZONTAL);
-
-        wxStaticText *staticText13 =
-            new wxStaticText(sbSizer3->GetStaticBox(), wxID_ANY, wxString::Format(_("Latitude (%s)"), DEGREES_SYMBOL));
-        staticText13->Wrap(-1);
-        bSizer8->Add(staticText13, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-
-        wxFloatingPointValidator<double> val1(3, &m_latitudeVal, wxNUM_VAL_ZERO_AS_BLANK);
-        val1.SetRange(-90.0, 90.0);
-        m_latitude =
-            new wxTextCtrl(sbSizer3->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0, val1);
-        m_latitude->SetToolTip(_("Site latitude"));
-        m_latitude->SetMaxSize(wxSize(70, -1));
-
-        bSizer8->Add(m_latitude, 0, wxALL, 5);
-
-        wxStaticText *staticText131 =
-            new wxStaticText(sbSizer3->GetStaticBox(), wxID_ANY, wxString::Format(_("Longitude (%s)"), DEGREES_SYMBOL));
-        staticText131->Wrap(-1);
-        bSizer8->Add(staticText131, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-
-        wxFloatingPointValidator<double> val2(3, &m_longitudeVal, wxNUM_VAL_ZERO_AS_BLANK);
-        val2.SetRange(-180.0, 180.0);
-        m_longitude =
-            new wxTextCtrl(sbSizer3->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0, val2);
-        m_longitude->SetToolTip(_("Site longitude, degrees East of Greenwich.  Longitudes West of Greenwich are negative."));
-        m_longitude->SetMaxSize(wxSize(70, -1));
-
-        bSizer8->Add(m_longitude, 0, wxALL, 5);
-
-        sbSizer3->Add(bSizer8, 1, wxEXPAND, 5);
-
-        bSizer1->Add(sbSizer3, 0, wxALL | wxEXPAND, 5);
-    }
 
     wxStdDialogButtonSizer *sdbSizer2 = new wxStdDialogButtonSizer();
     m_OK = new wxButton(this, wxID_OK);
@@ -295,18 +213,6 @@ bool ScopeManualPointing::PreparePositionInteractive(void)
         break;
     }
     btn->SetValue(true);
-    if (dlg.m_raHr)
-    {
-        int hr = (int) m_ra;
-        int min = (int) ((m_ra - (double) hr) * 60.0);
-        dlg.m_raHr->SetValue(hr);
-        dlg.m_raMin->SetValue(min);
-        dlg.m_latitudeVal = m_latitude;
-        dlg.m_longitudeVal = m_longitude;
-        // not sure why data transfer is not working?!
-        dlg.m_latitude->SetValue(wxString::Format("%.3f", m_latitude));
-        dlg.m_longitude->SetValue(wxString::Format("%.3f", m_longitude));
-    }
 
     // show
     int result = dlg.ShowModal();
@@ -325,25 +231,8 @@ bool ScopeManualPointing::PreparePositionInteractive(void)
     else
         m_sideOfPier = PIER_SIDE_UNKNOWN;
 
-    if (dlg.m_raHr)
-    {
-        m_ra = (double) dlg.m_raHr->GetValue() + (double) dlg.m_raMin->GetValue() / 60.0;
-
-        // TODO: figure out why data transfer not working
-#if 0
-        m_latitude = dlg.m_latitudeVal;
-        m_longitude = dlg.m_longitudeVal;
-#else
-        dlg.m_latitude->GetValue().ToDouble(&m_latitude);
-        dlg.m_longitude->GetValue().ToDouble(&m_longitude);
-#endif
-        pConfig->Profile.SetDouble("/scope/manual_pointing/latitude", m_latitude);
-        pConfig->Profile.SetDouble("/scope/manual_pointing/longitude", m_longitude);
-    }
-
-    Debug.Write(wxString::Format("ScopeManualPointing%s coords %.3f,%.3f pierside %d site %.3f,%.3f\n",
-                                 dlg.m_raHr ? " (driftalign)" : "", m_ra, degrees(m_dec), m_sideOfPier, m_latitude,
-                                 m_longitude));
+    Debug.Write(wxString::Format("ScopeManualPointing coords %.3f,%.3f pierside %d site %.3f,%.3f\n", m_ra, degrees(m_dec),
+                                 m_sideOfPier, m_latitude, m_longitude));
 
     return false;
 }

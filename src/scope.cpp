@@ -438,35 +438,6 @@ void Scope::EnableStopGuidingWhenSlewing(bool enable)
     m_stopGuidingWhenSlewing = enable;
 }
 
-void Scope::StartDecDrift()
-{
-    m_saveDecGuideMode = m_decGuideMode;
-    m_decGuideMode = DEC_NONE;
-
-    Debug.Write(
-        wxString::Format("StartDecDrift: DecGuideMode set to %s (%d)\n", DecGuideModeStr(m_decGuideMode), m_decGuideMode));
-
-    if (m_graphControlPane)
-    {
-        m_graphControlPane->m_pDecMode->SetSelection(DEC_NONE);
-        m_graphControlPane->m_pDecMode->Enable(false);
-    }
-}
-
-void Scope::EndDecDrift()
-{
-    m_decGuideMode = m_saveDecGuideMode;
-
-    Debug.Write(
-        wxString::Format("EndDecDrift: DecGuideMode set to %s (%d)\n", DecGuideModeStr(m_decGuideMode), m_decGuideMode));
-
-    if (m_graphControlPane)
-    {
-        m_graphControlPane->m_pDecMode->SetSelection(m_decGuideMode);
-        m_graphControlPane->m_pDecMode->Enable(true);
-    }
-}
-
 bool Scope::IsDecDrifting() const
 {
     return m_decGuideMode == DEC_NONE;
@@ -1687,16 +1658,6 @@ bool Scope::GetSiteLatLong(double *latitude, double *longitude)
     return true; // error
 }
 
-bool Scope::CanSlew()
-{
-    return false;
-}
-
-bool Scope::CanSlewAsync()
-{
-    return false;
-}
-
 bool Scope::PreparePositionInteractive()
 {
     return false; // no error
@@ -1711,18 +1672,6 @@ bool Scope::CanPulseGuide()
 {
     return false;
 }
-
-bool Scope::SlewToCoordinates(double ra, double dec)
-{
-    return true; // error
-}
-
-bool Scope::SlewToCoordinatesAsync(double ra, double dec)
-{
-    return true; // error
-}
-
-void Scope::AbortSlew() { }
 
 bool Scope::CanCheckSlewing()
 {
