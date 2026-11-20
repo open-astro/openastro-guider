@@ -322,10 +322,13 @@ def guide_with_recalibration(cli, guide_steps_after, timeout):
 
 
 def calibration_summary(evs):
+    """Calibrating steps per leg, by the event's "dir": West, East, Backlash, North, South or NudgeSouth.
+
+    Not by "State", which is the translatable status message ("Clearing backlash step 1")."""
     legs = {}
     for e in evs:
         if e["Event"] == "Calibrating":
-            leg = str(e.get("Direction") or e.get("State", "").split()[0])
+            leg = str(e.get("dir"))
             legs[leg] = legs.get(leg, 0) + 1
     return legs
 
