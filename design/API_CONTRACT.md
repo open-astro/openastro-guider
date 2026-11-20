@@ -748,3 +748,15 @@ the Dec rate could be measured with backlash still in it.
   order, the `CalibrationFailed` reasons, `get_calibration_data`.
 
 ARA: no code change.
+
+## 2026-11-20 — max-duration alert one guide step earlier (#153)
+
+No API change. The `Alert` event the guider sends when its guide steps keep hitting the max RA or
+Dec duration ("PHD2 is not able to make sufficient corrections in RA/Dec..." and its variants)
+now comes on the 5th guide step in a row clamped in the same direction, instead of the 6th.
+
+- Not changed: the alert text and flags, the 30 s minimum between two of them, what starts a new
+  run (a clamp the other way, an unclamped step, a step the Dec guide mode zeroes), and the
+  `GuideStep` event's `RALimited` / `DecLimited`, which are set on every clamped step as before.
+
+ARA: no code change.

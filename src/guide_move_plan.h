@@ -40,8 +40,8 @@ constexpr unsigned USE_BLC = 1u << 2;
 constexpr unsigned GRAPH = 1u << 3;
 constexpr unsigned MANUAL = 1u << 4;
 
-// A clamp in the same direction as the last one counts; the count reaching this raises the
-// limit-reached alert, so the 6th clamped move in a row is the first to alert
+// The clamped guide steps in a row in one direction reaching this raises the limit-reached
+// alert, so the 5th is the first to alert (#153; the first clamp of a run used to count 0)
 constexpr int LIMIT_REACHED_WARN_COUNT = 5;
 
 // The longest pulse PlanAxis lets a guide step, deduced move, recovery move or AO bump send
@@ -69,7 +69,8 @@ struct OffsetPlan
 // calibration's Dec rate, both in pixels per ms.
 OffsetPlan PlanOffset(double xDistance, double yDistance, double xRate, double yRate);
 
-// Scope's m_ra/decLimitReachedDirection and count
+// Scope's m_ra/decLimitReachedDirection and count: the direction of the last guide step's clamp
+// (None when it was not clamped) and the clamped steps in a row in that direction
 struct LimitTracker
 {
     Dir lastLimited = Dir::None;
