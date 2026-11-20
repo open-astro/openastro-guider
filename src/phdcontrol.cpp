@@ -415,7 +415,9 @@ void PhdController::UpdateControllerState(bool frameDropped)
 
         case STATE_SELECT_STAR:
         {
-            bool error = pFrame->AutoSelectStar(ctrl.roi);
+            // STATE_CALIBRATE clears the calibration of a forced recalibration only after this selection, so
+            // tell the auto-select to keep the star far enough from the edge for the calibration walk (#140)
+            bool error = pFrame->AutoSelectStar(ctrl.roi, ctrl.forceCalibration);
             if (error)
             {
                 Debug.Write(

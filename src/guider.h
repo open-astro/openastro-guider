@@ -291,7 +291,8 @@ public:
     virtual void OnPaint(wxPaintEvent& evt) = 0;
 
     virtual bool IsLocked() const = 0;
-    virtual bool AutoSelect(const wxRect& roi = wxRect()) = 0;
+    // willForceRecal: the guide request selecting the star will clear the calibration before it calibrates (#140)
+    virtual bool AutoSelect(const wxRect& roi = wxRect(), bool willForceRecal = false) = 0;
 
     virtual const PHD_Point& CurrentPosition() const = 0;
     virtual wxRect GetBoundingBox() const = 0;
