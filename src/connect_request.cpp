@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 bool ParseGearDevice(const std::string& name, GearDevice *device)
 {
@@ -72,4 +73,37 @@ std::string ConnectRefusal(GearDevice device, bool connect, bool captureActive, 
                 " while calibrating or guiding";
         return "";
     }
+}
+
+void CameraChangeLatch::NotePixelSize(double profilePixelSize, double devicePixelSize)
+{
+    if (profilePixelSize > 0.0)
+        scaleRatio *= devicePixelSize / profilePixelSize;
+}
+
+bool CameraChangeLatch::ScaleChanged() const
+{
+    return std::fabs(scaleRatio - 1.0) >= 0.01;
+}
+
+bool CameraChangeLatch::TakeScaleChange()
+{
+    bool changed = ScaleChanged();
+    scaleRatio = 1.0;
+    return changed;
+}
+
+GearCalibrationAction CameraChangeLatch::TakeCalibrationAction(bool autoLoad, bool mountConnected)
+{
+    if (!camChanged)
+        return autoLoad && mountConnected ? GearCalibrationAction::AutoLoad : GearCalibrationAction::None;
+    if (!clearPending || !mountConnected)
+        return GearCalibrationAction::None;
+    clearPending = false;
+    return GearCalibrationAction::Clear;
+}
+
+bool BeginsGearRequest(int connectDepth, bool dialogOpen)
+{
+    return connectDepth == 0 && !dialogOpen;
 }

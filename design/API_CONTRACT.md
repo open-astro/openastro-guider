@@ -564,3 +564,70 @@ that drove the mount; no RPC method reached it.
 
 ARA: no code change. Nothing calls the `polardrift_*` or `driftalign_*` methods; the unused
 classes in `PHD2Methods.PolarAlign.cs` go in an ARA follow-up.
+
+## 2026-11-20 — clear_calibration refused while calibrating (#137)
+
+`clear_calibration` during a calibration erased the state the calibration was stepping through,
+so the next frame hit `assert(false)` in `Scope::UpdateCalibrationState` (the packaged guider,
+built with asserts, aborted) or, with `NDEBUG`, left the guider in `Calibrating` forever.
+
+- `clear_calibration` → error 1 "cannot clear calibration while calibrating", nothing changed,
+  while the guider is calibrating. Still allowed while guiding, as in PHD2: guide corrections keep
+  the calibration guiding started with, but `dither` and `flip_calibration` fail until the next
+  `guide` calibrates again. The rule is in the wx-free
+  `src/restore_calibration.cpp` (`test_restore_calibration`).
+- A calibration cleared some other way while it runs (the legacy socket server's CLEARCAL) now
+  ends as a failed calibration: `CalibrationFailed` with `Reason` "Calibration failed: the
+  calibration was cleared while calibrating" ("AO calibration failed: ..." for an AO), and the
+  guider goes back to looping, as after any calibration failure.
+- `guide_pulse` refuses an `amount` outside `-60000..60000` with `-32602` before the sign flip;
+  `-2147483648` used to pass the cap as a negative duration (a no-op that returned `0`; for an
+  AO, an abort on `assert(steps >= 0)` in the packaged guider).
+- The `.deb` is now built as Release (`NDEBUG`), like CI and dev builds.
+
+ARA: no code change. `ClearCalibrationAsync` (the live clear button) already throws on an error
+response; `ClearCalibration` (mediator) returns false.
+
+## 2026-11-20 — set_algo_param value check, Predictive PEC period (#138)
+
+- `set_algo_param` without `value` crashed the guider (the missing param was dereferenced). A
+  missing or non-numeric `value` (a string, a bool, `null`) now gets JSON-RPC `-32602` "expected
+  numeric value param"; a non-numeric one got error `1` "expected param value param" before. A bad
+  axis or name and a failed set keep error `1`. The other handlers already checked their params
+  before reading them; the readers they share (`float_param`, `bool_param`) now refuse a missing
+  param themselves too, in the wx-free `src/jsonrpc_request.cpp`.
+- `set_algo_param` `periodLength` on Predictive PEC (Gaussian Process) now changes only the
+  period. It wrote every other GP hyperparameter as 0: the three signal variances were saved to
+  the profile as 0, which turned the PEC prediction off across restarts, the three length scales
+  went back to their defaults, and the call answered "could not set param" although the period was
+  set. The periodic length scale is the one saved in the profile, not the GP guider's own read of
+  it, which is wrong once the length scale is over half the old period. A period below 1 is still
+  refused with error `1` (the period goes back to its default).
+
+ARA: no code change. It always sends a numeric `value` and does not set `periodLength`.
+
+## 2026-11-20 — pixel-scale change acted on once per request (#139)
+
+A camera connect that reads a pixel size 1% or more off the profile's makes the guider adjust for
+the new image scale (PHD2 behaviour): it recomputes `/scope/CalibrationDuration`, sets both axes'
+`minMove` to `SmartDefaultMinMove`, clears the calibration and raises the "Binning or camera pixel
+size changed unexpectedly" `Alert`. The Gear dialog reset what triggers it only when the dialog
+opened, which the headless daemon never does, so after one such connect every later
+`set_connected` (one device or all, connect or disconnect, the #104 retry and `guide`'s connect
+included) and `set_profile` did it again, wiping the `calibration_duration` and `minMove` the client
+had set since, and a connect of all equipment raised the `Alert` twice.
+
+- Each gear request (`set_connected`, `set_profile`, and the #104 retry and `guide` connects) now
+  begins afresh, as a run of the dialog does, and the adjustment is made once, by the request whose
+  camera connect saw the change.
+- The camera change itself carries over to later requests: the mount's calibration is cleared once,
+  by the first request that has the mount connected (the camera's own, or a later one when the mount
+  was off), and the calibration saved in the profile is not auto-loaded for the rest of the process,
+  as before, because it was made at the old image scale. A calibration made since is kept.
+- A request refused because the GUI's Connect Equipment dialog is open leaves the dialog's latch alone.
+- The latch is the wx-free `CameraChangeLatch` in `src/connect_request.cpp`, unit-tested by
+  `test_connect_request`; that the gear requests drive it is checked live against the fake Alpaca
+  camera.
+
+ARA: no code change. Its `set_profile_setup` `pixel_size` and its `set_algo_param` `minMove`
+now survive later connects and the #104 automatic reconnects.

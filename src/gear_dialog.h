@@ -58,9 +58,7 @@ class GearDialog : public wxDialog
     bool m_showDarksDialog;
     bool m_ascomScopeSelected;
     wxString m_lastCamera;
-    bool m_camWarningIssued;
-    bool m_camChanged;
-    double m_imageScaleRatio;
+    CameraChangeLatch m_camLatch; // what this dialog run, or this headless gear request, saw of the camera (#139)
     wxArrayString m_cameraIds;
 
     wxGridBagSizer *m_gearSizer;
@@ -173,6 +171,7 @@ private:
 
     void OnButtonSetupCamera(wxCommandEvent& event);
     bool DoConnectCamera(bool autoReconnecting);
+    void BeginGearRequest(); // #139: the headless daemon's ShowGearDialog
     void OnButtonConnectCamera(wxCommandEvent& event);
     void OnButtonDisconnectCamera(wxCommandEvent& event);
 

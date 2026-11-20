@@ -2708,41 +2708,24 @@ static void get_calibrated(JObj& response, const json_value *params)
     response << jrpc_result(calibrated);
 }
 
+// v may be null (an absent param): false, as for a non-number (#138)
 static bool float_param(const json_value *v, double *p)
 {
-    if (v->type == JSON_INT)
-    {
-        *p = (double) v->int_value;
-        return true;
-    }
-    else if (v->type == JSON_FLOAT)
-    {
-        *p = v->float_value;
-        return true;
-    }
-
-    return false;
+    return JsonRpcFloatParam(v, p);
 }
 
 static bool float_param(const char *name, const json_value *v, double *p)
 {
-    if (strcmp(name, v->name) != 0)
+    if (!v || !v->name || strcmp(name, v->name) != 0)
         return false;
 
     return float_param(v, p);
 }
 
-inline static bool bool_value(const json_value *v)
-{
-    return v->int_value ? true : false;
-}
-
+// jv may be null (an absent param): false, as for a non-bool (#138)
 static bool bool_param(const json_value *jv, bool *val)
 {
-    if (jv->type != JSON_BOOL && jv->type != JSON_INT)
-        return false;
-    *val = bool_value(jv);
-    return true;
+    return JsonRpcBoolParam(jv, val);
 }
 
 static void get_paused(JObj& response, const json_value *params)
@@ -3322,6 +3305,13 @@ static void clear_calibration(JObj& response, const json_value *params)
             response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected param \"mount\", \"ao\", or \"both\"");
             return;
         }
+    }
+
+    // #137: a calibration cleared while it runs never finishes; the rule is in restore_calibration.cpp
+    if (const char *refusal = ClearCalibrationRefusal(pFrame->pGuider && pFrame->pGuider->IsCalibrating()))
+    {
+        response << jrpc_error(1, refusal);
+        return;
     }
 
     Mount *mount = TheScope();
@@ -5070,11 +5060,12 @@ static void set_algo_param(JObj& response, const json_value *params)
         response << jrpc_error(1, "expected param name param");
         return;
     }
+    // a missing value used to crash the guider: float_param dereferenced the null param (#138)
     const json_value *val = p.param("value");
     double v;
     if (!float_param(val, &v))
     {
-        response << jrpc_error(1, "expected param value param");
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected numeric value param");
         return;
     }
     bool ok = false;
@@ -6300,22 +6291,26 @@ static void guide_pulse(JObj& response, const json_value *params)
     }
 
     int duration = amount->int_value;
-    if (duration < 0)
-    {
-        duration = -duration;
-        dir = opposite(dir);
-    }
 
     // cap well above any legitimate manual/calibration pulse so a bogus
-    // request cannot command a multi-hour slew
+    // request cannot command a multi-hour slew. Checked before the sign flip:
+    // -INT_MIN overflows and stays negative, so -2147483648 passed the cap and
+    // was accepted as a no-op (nothing moved), or for an AO hit StepGuider's
+    // assert(steps >= 0) and aborted a build with asserts (#137)
     enum
     {
         MAX_GUIDE_PULSE_MS = 60000
     };
-    if (duration > MAX_GUIDE_PULSE_MS)
+    if (duration > MAX_GUIDE_PULSE_MS || duration < -MAX_GUIDE_PULSE_MS)
     {
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "guide pulse amount exceeds 60000 ms");
         return;
+    }
+
+    if (duration < 0)
+    {
+        duration = -duration;
+        dir = opposite(dir);
     }
 
     pFrame->ScheduleManualMove(m, dir, duration);

@@ -290,7 +290,8 @@ add_test(NAME test_alpaca_errors COMMAND test_alpaca_errors)
 
 ############################################################################
 # test_connect_request  --  connect_request.cpp: device names and the
-# refuse-while-busy rules for per-device set_connected (#84). std-only.
+# refuse-while-busy rules for per-device set_connected (#84), and the
+# per-request camera-change latch (#139). std-only.
 ############################################################################
 add_executable(test_connect_request
   ${PHD_TESTS_DIR}/equipment/test_connect_request.cpp
@@ -374,7 +375,8 @@ add_test(NAME test_settle_frame COMMAND test_settle_frame)
 ############################################################################
 # test_restore_calibration  --  restore_calibration.cpp: when
 # restore_calibration is refused, returns false or ends a stale guide
-# request before restoring (#102). std-only.
+# request before restoring (#102); clear_calibration is refused while
+# calibrating (#137). std-only.
 ############################################################################
 add_executable(test_restore_calibration
   ${PHD_TESTS_DIR}/calibration/test_restore_calibration.cpp
@@ -395,3 +397,17 @@ add_executable(test_instance_lock
 target_link_libraries(test_instance_lock PRIVATE phd_test_common)
 set_property(TARGET test_instance_lock PROPERTY FOLDER "Unit tests")
 add_test(NAME test_instance_lock COMMAND test_instance_lock)
+
+############################################################################
+# test_guide_algorithm_gp_params  --  guide_algorithm_gp_params.cpp: the
+# Gaussian Process hyperparameters set_algo_param "periodLength" writes,
+# the current ones with only the period changed (#138), run through the
+# real GaussianProcessGuider (contrib GPGuider target). No wx coupling.
+############################################################################
+add_executable(test_guide_algorithm_gp_params
+  ${PHD_TESTS_DIR}/algorithms/test_guide_algorithm_gp_params.cpp
+  ${phd_src_dir}/guide_algorithm_gp_params.cpp
+)
+target_link_libraries(test_guide_algorithm_gp_params PRIVATE phd_test_common GPGuider)
+set_property(TARGET test_guide_algorithm_gp_params PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guide_algorithm_gp_params COMMAND test_guide_algorithm_gp_params)

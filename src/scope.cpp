@@ -1078,8 +1078,14 @@ bool Scope::UpdateCalibrationState(const PHD_Point& currentLocation)
         switch (m_calibrationState)
         {
         case CALIBRATION_STATE_CLEARED:
-            assert(false);
-            break;
+        {
+            // #137: the calibration was cleared while it ran (the legacy socket server's CLEARCAL still can);
+            // end it as failed instead of aborting, or staying in a state that has no next step
+            wxString msg(wxTRANSLATE("Calibration failed: the calibration was cleared while calibrating"));
+            GuideLog.CalibrationFailed(this, msg);
+            EvtServer.NotifyCalibrationFailed(this, msg);
+            throw ERROR_INFO("calibration cleared while calibrating");
+        }
 
         case CALIBRATION_STATE_GO_WEST:
         {

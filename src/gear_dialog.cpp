@@ -106,10 +106,9 @@ wxEND_EVENT_TABLE();
  */
 GearDialog::GearDialog(wxWindow *pParent)
     : wxDialog(pParent, wxID_ANY, _("Connect Equipment"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX),
-      m_cameraUpdated(false), m_mountUpdated(false), m_rotatorUpdated(false), m_showDarksDialog(false),
-      m_camWarningIssued(false), m_camChanged(false), m_imageScaleRatio(1.0), m_flushConfig(false), m_connectDepth(0),
-      m_connectRetryStopped(false), m_probeCancel(false), m_probeRunning(false), m_probeDevice(GearDevice::Camera),
-      m_probeToken(0)
+      m_cameraUpdated(false), m_mountUpdated(false), m_rotatorUpdated(false), m_showDarksDialog(false), m_flushConfig(false),
+      m_connectDepth(0), m_connectRetryStopped(false), m_probeCancel(false), m_probeRunning(false),
+      m_probeDevice(GearDevice::Camera), m_probeToken(0)
 {
     m_connectRetryTimer.SetOwner(this);
     Bind(wxEVT_TIMER, &GearDialog::OnConnectRetryTimer, this, m_connectRetryTimer.GetId());
@@ -387,8 +386,7 @@ int GearDialog::ShowGearDialog(bool autoConnect)
 
     assert(pCamera == nullptr || pCamera == m_pCamera);
 
-    m_camChanged = false;
-    m_camWarningIssued = false;
+    m_camLatch.Begin();
 
     assert(pMount == nullptr || pMount == m_pScope);
     assert(pSecondaryMount == nullptr);
@@ -409,7 +407,7 @@ int GearDialog::ShowGearDialog(bool autoConnect)
 
     if (callSuper)
     {
-        m_imageScaleRatio = 1.0;
+        m_camLatch.scaleRatio = 1.0;
         UpdateButtonState();
 
         GetSizer()->Fit(this);
@@ -442,31 +440,32 @@ void GearDialog::EndModal(int retCode)
 
     pFrame->UpdateButtonsStatus();
 
-    if (pFrame->GetAutoLoadCalibration() && !m_camChanged) // ok to reload calibration
+    // a camera change is acted on by the first EndModal with the mount connected, which may be a later request's
+    // (#139); until the end of the session the saved calibration, made with the old camera, is not auto-loaded
+    switch (m_camLatch.TakeCalibrationAction(pFrame->GetAutoLoadCalibration() &&
+                                                 (!pSecondaryMount || pSecondaryMount->IsConnected()),
+                                             pMount && pMount->IsConnected()))
     {
-        if (pMount && pMount->IsConnected() && (!pSecondaryMount || pSecondaryMount->IsConnected()))
-        {
-            Debug.Write("Auto-loading calibration data\n");
-            pFrame->LoadCalibration();
-        }
-    }
-    else
-    {
+    case GearCalibrationAction::AutoLoad:
+        Debug.Write("Auto-loading calibration data\n");
+        pFrame->LoadCalibration();
+        break;
+    case GearCalibrationAction::Clear:
         // Force a recalibration if the camera has changed
-        if (m_camChanged)
-        {
-            Debug.Write("Clearing calibration data because camera was changed\n");
-
-            if (pMount && pMount->IsConnected())
-                pMount->ClearCalibration();
-        }
+        Debug.Write("Clearing calibration data because camera was changed\n");
+        pMount->ClearCalibration();
+        break;
+    case GearCalibrationAction::None:
+        break;
     }
 
     wxDialog::EndModal(retCode);
 
     UpdateAdvancedDialog(true);
 
-    if (fabs(m_imageScaleRatio - 1.0) >= 0.01)
+    // taken, so the second EndModal of a connect all, or a later request, does not redo it over what the client has
+    // set since (#139)
+    if (m_camLatch.TakeScaleChange())
     {
         Debug.Write("GearDialog::EndModal: imageScaleRatio changed\n");
         pFrame->HandleImageScaleChange();
@@ -899,26 +898,25 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
         if (!err)
         {
             m_pCamera->SetCameraPixelSize(pixelSize);
-            if (prevPixelSize != GuideCamera::UnknownPixelSize)
-                m_imageScaleRatio *= pixelSize / prevPixelSize;
+            m_camLatch.NotePixelSize(prevPixelSize, pixelSize);
         }
 
         Debug.Write(wxString::Format("DoConnectCamera: reconnecting=%d warningIssued=%d lastCam=[%s] scaleRatio=%.3f\n",
-                                     autoReconnecting, m_camWarningIssued, m_lastCamera, m_imageScaleRatio));
+                                     autoReconnecting, m_camLatch.warningIssued, m_lastCamera, m_camLatch.scaleRatio));
 
         // No very reliable way to know if cam selection has changed - id's and name strings may be the same for different cams
         // from same mfr so do what we can here including consideration of image scale change Purpose is to warn user of
         // potential loss of dark/bpm files and later, to adjust guide params as best we can
-        if (!m_camWarningIssued && !autoReconnecting)
+        if (!m_camLatch.warningIssued && !autoReconnecting)
         {
             if ((m_lastCamera != _("None") && newCam != _("None") && !DeviceSelectionMatches(m_lastCamera, newCam)) ||
-                (fabs(m_imageScaleRatio - 1.0) >= 0.01))
+                m_camLatch.ScaleChanged())
             {
                 int currProfileId = pConfig->GetCurrentProfileId();
                 wxString darkName = MyFrame::DarkLibFileName(currProfileId);
                 wxString bpmName = DefectMap::DefectMapFileName(currProfileId);
 
-                m_camChanged = true;
+                m_camLatch.NoteCameraChange();
 
                 // Can't use standard checks because we don't want to consider sensor-size
                 if (wxFileExists(darkName) || wxFileExists(bpmName))
@@ -936,12 +934,12 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
                         // non-modal alert
                         pFrame->Alert(_("Camera changed in this profile - the existing dark library / bad-pixel map "
                                         "may no longer match. Consider a separate profile per camera."));
-                        m_camWarningIssued = true;
+                        m_camLatch.warningIssued = true;
                         m_lastCamera = newCam;
                     }
                     else if (wxMessageBox(msg, _("Camera Change Warning"), wxYES_NO, this) == wxYES)
                     {
-                        m_camWarningIssued = true;
+                        m_camLatch.warningIssued = true;
                         m_lastCamera = newCam; // make consistent with what's in the UI
                     }
                     else
@@ -951,7 +949,7 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
                         wxCommandEvent dummy;
                         OnChoiceCamera(dummy);
                         canceled = true;
-                        m_camChanged = false;
+                        m_camLatch.CancelCameraChange();
                         throw THROW_INFO("DoConnectCamera: user cancelled after camera-change warning");
                     }
                 }
@@ -1429,6 +1427,8 @@ bool GearDialog::SetProfile(int profileId, wxString *error)
         }
     }
 
+    BeginGearRequest();
+
     // need the side-effects for making the selection
     wxCommandEvent dummy;
     OnProfileChoice(dummy);
@@ -1467,8 +1467,23 @@ int DeviceIndex(GearDevice dev)
 const GearDevice kRetryDevices[] = { GearDevice::Camera, GearDevice::Mount, GearDevice::Rotator };
 } // namespace
 
+// #139: what EndModal acts on (the image-scale change, the camera change, the camera-change warning) belongs to one
+// session. ShowGearDialog begins one for each run of the dialog; the headless daemon never runs it, so each gear
+// request (set_connected, set_profile, and the #104 retry and guide connects through SetDeviceConnected) begins its
+// own. Without that, one connect that saw the driver's pixel size differ from the profile's left the latch set for
+// the rest of the process: every later EndModal reset the calibration step and both MinMoves and raised the Alert
+// again. A camera change carries over to later requests until the mount's calibration is cleared for it (see
+// CameraChangeLatch). A request nested in another (from a nested event loop) is part of the outer one, and a request
+// that arrives while the dialog is open (GUI) leaves the dialog's session alone: the dialog refuses it anyway.
+void GearDialog::BeginGearRequest()
+{
+    if (BeginsGearRequest(m_connectDepth, IsModal()))
+        m_camLatch.BeginRequest();
+}
+
 bool GearDialog::ConnectAll(wxString *error)
 {
+    BeginGearRequest();
     ConnectDepthGuard depthGuard(m_connectDepth);
 
     if (m_pCamera && m_pCamera->Connected && (!m_pScope || m_pScope->IsConnected()) &&
@@ -1530,6 +1545,7 @@ bool GearDialog::ConnectAll(wxString *error)
 
 bool GearDialog::DisconnectAll(wxString *error)
 {
+    BeginGearRequest();
     ConnectDepthGuard depthGuard(m_connectDepth);
 
     if ((!m_pCamera || !m_pCamera->Connected) && (!m_pScope || !m_pScope->IsConnected()) &&
@@ -1570,6 +1586,7 @@ bool GearDialog::SetDeviceConnected(GearDevice device, bool connect, wxString *e
     if (device == GearDevice::All)
         return connect ? ConnectAll(error) : DisconnectAll(error);
 
+    BeginGearRequest();
     ConnectDepthGuard depthGuard(m_connectDepth);
 
     bool selected, connected;

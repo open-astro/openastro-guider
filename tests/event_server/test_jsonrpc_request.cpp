@@ -217,3 +217,114 @@ TEST(JsonRpcRequest, ANonStringMethodDoesNotHideAStringOne)
     ASSERT_NE(c.chk.method, nullptr);
     EXPECT_STREQ(c.chk.method->string_value, "get_app_state");
 }
+
+// The param readers the method handlers use (#138). set_algo_param read
+// "value" with float_param without checking it was there, and float_param
+// dereferenced the null param: {"axis":"ra","name":"minMove"} crashed the
+// guider. A missing param is now false, like a param of the wrong type, and
+// the handler answers -32602.
+namespace
+{
+
+// the member of params named name, null when absent (as Params::param())
+const json_value *Member(const json_value *params, const char *name)
+{
+    const json_value *found = nullptr;
+    json_for_each(t, params)
+    {
+        if (t->name && std::strcmp(t->name, name) == 0)
+            found = t;
+    }
+    return found;
+}
+
+const json_value *ParseValue(JsonParser& parser, const std::string& value)
+{
+    const std::string doc = R"({"value":)" + value + "}";
+    if (!parser.Parse(doc))
+    {
+        ADD_FAILURE() << doc << ": " << parser.ErrorDesc();
+        return nullptr;
+    }
+    return Member(parser.Root(), "value");
+}
+
+} // namespace
+
+// The reader set_algo_param hands its value to; the handler's -32602 answer
+// and that the guider keeps running are checked by scripts/phd2_rpc_smoke.py.
+TEST(JsonRpcParams, ASetAlgoParamWithoutValueIsRefusedNotDereferenced)
+{
+    JsonParser parser;
+    ASSERT_TRUE(parser.Parse(std::string(R"({"axis":"ra","name":"minMove"})")));
+    const json_value *value = Member(parser.Root(), "value");
+    ASSERT_EQ(value, nullptr);
+
+    double v = 7.;
+    EXPECT_FALSE(JsonRpcFloatParam(value, &v));
+    EXPECT_EQ(v, 7.); // untouched
+}
+
+TEST(JsonRpcParams, AMissingParamIsFalseForEveryReader)
+{
+    double d = 1.;
+    bool b = true;
+    EXPECT_FALSE(JsonRpcFloatParam(nullptr, &d));
+    EXPECT_FALSE(JsonRpcBoolParam(nullptr, &b));
+    EXPECT_EQ(d, 1.);
+    EXPECT_TRUE(b);
+}
+
+TEST(JsonRpcParams, FloatParamTakesIntsAndFloatsOnly)
+{
+    struct Case
+    {
+        const char *json;
+        bool ok;
+        double value;
+    };
+    const Case cases[] = {
+        { "0", true, 0. },      { "3", true, 3. },         { "-12", true, -12. }, { "0.25", true, 0.25 },
+        { "-1.5", true, -1.5 }, { "1e2", true, 100. },     { "true", false, 0. }, { "false", false, 0. },
+        { "null", false, 0. },  { R"("1.5")", false, 0. }, { "[1]", false, 0. },  { R"({"v":1})", false, 0. },
+    };
+    for (const Case& c : cases)
+    {
+        JsonParser parser;
+        const json_value *jv = ParseValue(parser, c.json);
+        ASSERT_NE(jv, nullptr) << c.json;
+        double v = -999.;
+        EXPECT_EQ(JsonRpcFloatParam(jv, &v), c.ok) << c.json;
+        if (c.ok)
+            EXPECT_FLOAT_EQ(v, c.value) << c.json;
+        else
+            EXPECT_EQ(v, -999.) << c.json;
+    }
+}
+
+TEST(JsonRpcParams, BoolParamTakesBoolsAndInts)
+{
+    struct Case
+    {
+        const char *json;
+        bool ok;
+        bool value;
+    };
+    const Case cases[] = {
+        { "true", true, true }, { "false", true, false }, { "1", true, true },      { "0", true, false },
+        { "-2", true, true },   { "1.0", false, false },  { "null", false, false }, { R"("true")", false, false },
+        { "[]", false, false }, { "{}", false, false },
+    };
+    for (const Case& c : cases)
+    {
+        JsonParser parser;
+        const json_value *jv = ParseValue(parser, c.json);
+        ASSERT_NE(jv, nullptr) << c.json;
+        bool v = !c.value;
+        EXPECT_EQ(JsonRpcBoolParam(jv, &v), c.ok) << c.json;
+        if (c.ok)
+            EXPECT_EQ(v, c.value) << c.json;
+        else
+            EXPECT_EQ(v, !c.value) << c.json; // untouched
+    }
+}

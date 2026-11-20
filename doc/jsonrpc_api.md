@@ -159,6 +159,15 @@ Application/runtime errors:
     - at connect, a camera that reports its pixel size replaces `pixel_size` with it (and saves it in the profile),
       a hardware binning above the camera's maximum is lowered to it, and a binning the camera cannot offer at all is
       reset to 1, with `calibration_duration` divided by the old binning
+    - when that pixel size differs from the profile's by 1% or more, the request that connected the camera
+      (`set_connected`, `guide`'s connect, the #104 automatic retry or `--auto-connect`) recomputes
+      `calibration_duration`, sets both axes' `minMove` to the default for the new image scale and raises one `Alert`
+      ("Binning or camera pixel size changed unexpectedly..."). Only that request: a later connect, disconnect or
+      `set_profile` keeps the `calibration_duration` and `minMove` a client set since (#139; before, every later
+      `set_connected` in the process reset them and raised the `Alert` again, and a connect of all equipment raised
+      it twice). The mount's calibration is cleared once, by that request or, when the mount is not connected yet,
+      by the first later request that connects it; the calibration saved in the profile is not restored automatically
+      for the rest of the process, since it was made at the old image scale (a new calibration is kept)
     - at the start of a calibration (PHD2 behaviour), when the binning differs from the one the saved calibration
       was made with (1 when there is none), `calibration_distance` is recomputed for the new binning; with a saved
       calibration, `calibration_duration` is recomputed too, and also when the mount's guide speed differs by more
@@ -480,6 +489,7 @@ Alpaca discovery/query:
 
 - `clear_calibration`
   - params: optional `which` = `mount|ao|both` (default both)
+  - error `1` "cannot clear calibration while calibrating" (nothing changed): a calibration is running (`AppState` `Calibrating`). Allowed while guiding, as in PHD2: guide corrections go on with the calibration guiding started with, but `dither` (and `flip_calibration`) fail with error 1 until the next `guide` calibrates again
 
 - `flip_calibration`
   - flips calibration data for pier-side style inversion
@@ -493,7 +503,7 @@ Alpaca discovery/query:
 
 - `guide_pulse`
   - params:
-    - `amount` (int ms; negative amount flips direction)
+    - `amount` (int ms, `-60000..60000`; negative amount flips direction; outside the range: `-32602` "guide pulse amount exceeds 60000 ms")
     - `direction` (`n|s|e|w|north|south|east|west|up|down|left|right`)
     - optional `which` (`mount|ao`, default mount)
   - restrictions:
@@ -520,6 +530,8 @@ Alpaca discovery/query:
 
 - `set_algo_param`
   - params: `{"axis":"...","name":"...","value":number}`
+  - a missing or non-numeric `value` gets `-32602` "expected numeric value param" (#138; it used to crash the guider)
+  - Predictive PEC `periodLength` changes only the period; the other GP hyperparameters keep their values (#138)
 
 - `get_dec_guide_mode`
 - `set_dec_guide_mode`
@@ -949,16 +961,16 @@ This section is normative for integrator behavior. Each method entry describes:
 |---|---|---|---|---|---|
 | `get_guide_output_enabled` | none | mount object should exist | `bool` | `1` mount not defined | none |
 | `set_guide_output_enabled` | `enabled:bool` | mount object should exist | `0` | `-32602` invalid boolean; `1` mount not defined | guide output enable state changes |
-| `get_algo_param_names` | `axis:string` (`ra|dec|x|y`) | none | string[] incl. `algorithmName` | `1` invalid axis | none. `get_algo_param_names` stays the authoritative per-profile list (names depend on the selected algorithm); as a static reference, the common writable names are — Hysteresis: `hysteresis`,`aggression`,`minMove`; ResistSwitch: `aggression`,`minMove`,`fastSwitch`; LowPass: `minMove`,`slopeWeight`; LowPass2: `aggressiveness`,`minMove`; ZFilter: `expFactor`,`minMove`; GaussianProcess: `minMove` + the GP hyperparameters. Verify against the live list before writing |
+| `get_algo_param_names` | `axis:string` (`ra|dec|x|y`) | none | string[] incl. `algorithmName` | `1` invalid axis | none. `get_algo_param_names` stays the authoritative per-profile list (names depend on the selected algorithm); as a static reference, the common writable names are — Hysteresis: `hysteresis`,`aggression`,`minMove`; ResistSwitch: `aggression`,`minMove`,`fastSwitch`; LowPass: `minMove`,`slopeWeight`; LowPass2: `aggressiveness`,`minMove`; ZFilter: `expFactor`,`minMove`; GaussianProcess (Predictive PEC, RA only): `minMove`,`predictiveWeight`,`reactiveWeight`,`periodLength` (`periodLength` changes only the period; the other GP hyperparameters keep their values). Verify against the live list before writing |
 | `get_algo_param` | `axis:string`, `name:string` | none | number or string (`algorithmName`) | `1` invalid args or unknown param | none |
-| `set_algo_param` | `axis:string`, `name:string`, `value:number` | none | `0` | `1` invalid args or set failure | algorithm parameter updated |
+| `set_algo_param` | `axis:string`, `name:string`, `value:number` | none | `0` | `-32602` `value` missing or not a number ("expected numeric value param"); `1` invalid axis or name, or set failure | algorithm parameter updated |
 | `get_dec_guide_mode` | none | none | mode string (`Scope::DecGuideModeStr`) | none expected | none |
 | `set_dec_guide_mode` | `mode:string` | none | `0` | `1` invalid mode | DEC guide mode updated |
 | `get_calibrated` | none | none | `bool` | none expected | none |
-| `clear_calibration` | optional `which:string` (`mount|ao|both`) | none | `0` | `-32602` invalid `which` | mount/AO calibration cleared |
+| `clear_calibration` | optional `which:string` (`mount|ao|both`) | not calibrating (allowed while guiding) | `0` | `-32602` invalid `which`; `1` calibrating | mount/AO calibration cleared |
 | `flip_calibration` | none | none | `0` | `1` flip failure | calibration parity/geometry flipped; `CalibrationDataFlipped` event |
 | `restore_calibration` | none | guider context must exist; not calibrating or guiding; mount (and AO, if used) connected; no guide/dither request in progress other than one waiting on a failed calibration | `true` restored and every mount calibrated; `false` some mount has no saved calibration (nothing changed) or the restored calibration is not usable with the current Dec guide mode (`get_calibrated` agrees) | `1` calibrating or guiding, mount/AO not connected, or a guide/dither request in progress | saved calibration loaded on every mount; a `guide` request still waiting on the failed calibration is ended first with `SettleDone` `Status:1`, `Error:"calibration failed; saved calibration restored"`, `TotalFrames:0`, `DroppedFrames:0`, and the sticky-lock setting it forced on for the calibration put back |
-| `guide_pulse` | `amount:int`, `direction:string`, optional `which` (`mount|ao`) | target device connected; guider must not be calibrating/guiding; target not busy | `0` | `1` invalid args, invalid `which`, not connected, busy/calibrating/guiding | manual pulse scheduled |
+| `guide_pulse` | `amount:int` (`-60000..60000`), `direction:string`, optional `which` (`mount|ao`) | target device connected; guider must not be calibrating/guiding; target not busy | `0` | `1` invalid args, invalid `which`, not connected, busy/calibrating/guiding; `-32602` `amount` out of range | manual pulse scheduled |
 | `get_calibration_data` | optional `which` (`mount|ao`) | selected device must be connected | `{calibrated,...}` | `1` invalid `which` or device not connected | none |
 
 ### G) Lock Shift, Delay, ROI Frame Limiting
