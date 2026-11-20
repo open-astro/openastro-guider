@@ -98,3 +98,35 @@ TEST(CalibrationTransform, ZeroVectorMapsToZero)
     EXPECT_EQ(r.mount.x, 0.0);
     EXPECT_EQ(r.mount.y, 0.0);
 }
+
+TEST(CalibrationTransform, YAngleErrorIsZeroForOrthogonalAxes)
+{
+    // xAngle points opposite the West motion; North moves the star at the West motion - pi/2
+    double xAngle = 30. * M_PI / 180.;
+    EXPECT_NEAR(YAngleError(xAngle, xAngle - M_PI / 2. - M_PI), 0., 1e-12);
+    EXPECT_NEAR(YAngleError(xAngle, xAngle + M_PI / 2.), 0., 1e-12);
+}
+
+TEST(CalibrationTransform, YAngleErrorIsPiForAMirroredDecAxis)
+{
+    // North moves the star at the West motion + pi/2
+    double xAngle = -135. * M_PI / 180.;
+    EXPECT_NEAR(std::fabs(YAngleError(xAngle, xAngle - M_PI / 2.)), M_PI, 1e-12);
+}
+
+TEST(CalibrationTransform, YAngleErrorIsNormAngleOfTheOldExpression)
+{
+    // Mount::SetCalibration's norm_angle(xAngle - yAngle + pi/2), image_math.h's norm() over [-pi, pi)
+    for (double x = -M_PI; x < M_PI; x += 0.37)
+    {
+        for (double y = -M_PI; y < M_PI; y += 0.29)
+        {
+            double val = x - y + M_PI / 2.;
+            double expected = val - floor((val + M_PI) / (2. * M_PI)) * (2. * M_PI);
+            double got = YAngleError(x, y);
+            EXPECT_NEAR(got, expected, 1e-12) << "x=" << x << " y=" << y;
+            EXPECT_GE(got, -M_PI);
+            EXPECT_LT(got, M_PI);
+        }
+    }
+}

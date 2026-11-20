@@ -36,6 +36,8 @@
 #ifndef SCOPE_H_INCLUDED
 #define SCOPE_H_INCLUDED
 
+#include "guide_move_plan.h"
+
 #define CALIBRATION_RATE_UNCALIBRATED 123e4
 
 class Scope;
@@ -89,10 +91,8 @@ class Scope : public Mount
     DEC_GUIDE_MODE m_decGuideMode;
 
     time_t m_limitReachedDeferralTime;
-    GUIDE_DIRECTION m_raLimitReachedDirection;
-    int m_raLimitReachedCount;
-    GUIDE_DIRECTION m_decLimitReachedDirection;
-    int m_decLimitReachedCount;
+    guide_move_plan::LimitTracker m_raLimitReached;
+    guide_move_plan::LimitTracker m_decLimitReached;
 
     // Calibration variables
     int m_calibrationSteps;

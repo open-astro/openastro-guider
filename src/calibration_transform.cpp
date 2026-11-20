@@ -87,4 +87,14 @@ MountToCam MountToCamera(double mountX, double mountY, double calXAngle, double 
     return out;
 }
 
+double YAngleError(double calXAngle, double calYAngle)
+{
+    // norm_angle() from image_math.h: norm(val, -pi, pi)
+    double const val = calXAngle - calYAngle + M_PI / 2.;
+    double const start = -M_PI;
+    double const range = M_PI - start;
+    double const ofs = val - start;
+    return val - std::floor(ofs / range) * range;
+}
+
 } // namespace calibration_transform

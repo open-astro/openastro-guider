@@ -213,6 +213,8 @@ source_group(Cameras FILES ${cam_SRC})
 set(scopes_SRC
   ${phd_src_dir}/calibration_transform.cpp
   ${phd_src_dir}/calibration_transform.h
+  ${phd_src_dir}/guide_move_plan.cpp
+  ${phd_src_dir}/guide_move_plan.h
   ${phd_src_dir}/mount.cpp
   ${phd_src_dir}/mount.h
   ${phd_src_dir}/scope.cpp
