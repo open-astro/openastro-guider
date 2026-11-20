@@ -69,21 +69,13 @@ GUIDE_ALGORITHM GuideAlgorithmHysteresis::Algorithm() const
 }
 void GuideAlgorithmHysteresis::reset(void)
 {
-    m_lastMove = 0;
+    m_state.lastMove = 0;
 }
 
 double GuideAlgorithmHysteresis::result(double input)
 {
-    double dReturn = (1.0 - m_hysteresis) * input + m_hysteresis * m_lastMove;
-
-    dReturn *= m_aggression;
-
-    if (fabs(input) < m_minMove)
-    {
-        dReturn = 0.0;
-    }
-
-    m_lastMove = dReturn;
+    // the math is in guide_algorithm_kernels.cpp (#142)
+    double dReturn = guide_algorithm_kernels::HysteresisResult(m_state, { m_minMove, m_hysteresis, m_aggression }, input);
 
     Debug.Write(wxString::Format("GuideAlgorithmHysteresis::Result() returns %.2f from input %.2f\n", dReturn, input));
 
@@ -160,7 +152,7 @@ bool GuideAlgorithmHysteresis::SetAggression(double aggression)
         m_aggression = DefaultAggression;
     }
 
-    m_lastMove = 0.0;
+    m_state.lastMove = 0.0;
     pConfig->Profile.SetDouble(GetConfigPath() + "/aggression", m_aggression);
 
     return bError;
