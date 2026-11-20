@@ -109,6 +109,23 @@ set_property(TARGET test_guide_algorithm_math PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_algorithm_math COMMAND test_guide_algorithm_math)
 
 ############################################################################
+# test_guide_algorithm_kernels  --  characterization of the Hysteresis and
+# ResistSwitch guide algorithms (#142), the RA and Dec defaults. Every test
+# is a typed test that runs on a frozen copy of the production result(),
+# reset() and setters (tests/algorithms/legacy, compiled against mechanical
+# wx stand-ins; check_twin.sh diffs it against the source).
+############################################################################
+add_executable(test_guide_algorithm_kernels
+  ${PHD_TESTS_DIR}/algorithms/test_algorithm_characterization.cpp
+  ${PHD_TESTS_DIR}/algorithms/legacy/algorithm_twin.cpp
+  ${PHD_TESTS_DIR}/algorithms/legacy/hysteresis_legacy.cpp
+  ${PHD_TESTS_DIR}/algorithms/legacy/resistswitch_legacy.cpp
+)
+target_link_libraries(test_guide_algorithm_kernels PRIVATE phd_test_common)
+set_property(TARGET test_guide_algorithm_kernels PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guide_algorithm_kernels COMMAND test_guide_algorithm_kernels)
+
+############################################################################
 # test_guiding_stats  --  links the REAL production guiding_stats.cpp, which
 # has zero wx/Mount coupling. Exercises DescriptiveStats, the HPF/LPF
 # filters, AxisStats (incl. linear fit) and WindowedAxisStats windowing.
