@@ -9,6 +9,9 @@
 // forwarded to its SimMount. The PHD types the code uses are copied from
 // mount.h, scope.h and guidinglog.h with the same names and values.
 //
+// Each mount read is also recorded as a Probe event, so the order of the reads
+// among the other calls is compared too.
+//
 // Everything lives in namespace legacy, so the copied lines compile verbatim.
 
 #ifndef CLOSED_LOOP_LEGACY_SHIM_H
@@ -303,19 +306,26 @@ struct TwinPointingSource
     // true = error, as in Scope
     bool GetCoordinates(double *ra, double *dec, double *siderealTime)
     {
+        g_twin->Add(closed_loop::Event::Probe, "Coordinates");
         *siderealTime = 0.;
         return !g_twin->sim->Coordinates(ra, dec);
     }
     bool GetGuideRates(double *pRAGuideRate, double *pDecGuideRate)
     {
+        g_twin->Add(closed_loop::Event::Probe, "GuideRates");
         return !g_twin->sim->GuideRates(pRAGuideRate, pDecGuideRate);
     }
     double GetDeclinationRadians()
     {
+        g_twin->Add(closed_loop::Event::Probe, "Declination");
         std::optional<double> d = g_twin->sim->ReportedDecRad();
         return d ? *d : UNKNOWN_DECLINATION;
     }
-    PierSide SideOfPier() { return PIER_SIDE_UNKNOWN; }
+    PierSide SideOfPier()
+    {
+        g_twin->Add(closed_loop::Event::Probe, "SideOfPier");
+        return PIER_SIDE_UNKNOWN;
+    }
 };
 extern TwinPointingSource *pPointingSource;
 
@@ -365,7 +375,13 @@ struct TwinEvtServer
     void NotifyCalibrationStep(const CalibrationStepInfo& info)
     {
         closed_loop::Event& e = g_twin->Add(closed_loop::Event::NotifyStep, info.msg);
+        e.direction = info.direction.str();
         e.step = info.stepNumber;
+        e.dx = info.dx;
+        e.dy = info.dy;
+        e.x = info.pos.X;
+        e.y = info.pos.Y;
+        e.dist = info.dist;
     }
     void NotifyCalibrationFailed(const Mount *, const wxString& msg) { g_twin->Add(closed_loop::Event::NotifyFailed, msg); }
     void NotifyCalibrationComplete(const Mount *) { g_twin->Add(closed_loop::Event::NotifyComplete); }

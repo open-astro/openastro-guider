@@ -52,6 +52,11 @@ public:
         closed_loop::Event& e = g_twin->Add(closed_loop::Event::SetCalibration);
         e.angle = cal.xAngle;
         e.rate = cal.xRate;
+        e.parity = cal.raGuideParity;
+        e.yAngle = cal.yAngle;
+        e.yRate = cal.yRate;
+        e.decParity = cal.decGuideParity;
+        e.declination = cal.declination;
     }
 
     void GetLastCalibration(Calibration *cal) const { *cal = m_cal; }
@@ -127,7 +132,11 @@ public:
 
     // Stand-ins for what the copied code calls on Scope
     int GetCalibrationDistance() const { return m_calibrationDistance; }
-    bool CanPulseGuide() { return g_twin->sim->CanPulseGuide(); }
+    bool CanPulseGuide()
+    {
+        g_twin->Add(closed_loop::Event::Probe, "CanPulseGuide");
+        return g_twin->sim->CanPulseGuide();
+    }
     // Scope::CheckCalibrationDuration reads the profile and the camera and may
     // change the step or the distance; that stays in Scope and is not modelled.
     void CheckCalibrationDuration(int) { }

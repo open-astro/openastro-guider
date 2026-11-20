@@ -411,18 +411,24 @@ set_property(TARGET test_edge_allowance PROPERTY FOLDER "Unit tests")
 add_test(NAME test_edge_allowance COMMAND test_edge_allowance)
 
 ############################################################################
-# test_closed_loop_calibration  --  closed-loop characterization of Scope's
+# test_closed_loop_calibration  --  closed-loop tests of the mount
 # calibration state machine (#142): a SimMount (camera angle, Dec mirror,
 # cos(Dec) RA rate, Dec backlash, non-orthogonal axes, seeded noise) drives
-# a frozen copy of scope.cpp's BeginCalibration/UpdateCalibrationState (the
-# legacy twin, compiled against mechanical wx stand-ins) frame by frame.
-# std-only; no production source is linked.
+# it frame by frame. Links the REAL production calibration_run.cpp (the
+# state machine Scope delegates to) and runs every behaviour test on it and
+# on a frozen copy of the scope.cpp code it replaced (the legacy twin,
+# compiled against mechanical wx stand-ins); a differential test compares
+# the two effect by effect over a scenario matrix and 5000 seeded scenarios.
 ############################################################################
 add_executable(test_closed_loop_calibration
   ${PHD_TESTS_DIR}/closed_loop/test_closed_loop_calibration.cpp
+  ${PHD_TESTS_DIR}/closed_loop/test_calibration_run_parity.cpp
   ${PHD_TESTS_DIR}/closed_loop/sim_mount.cpp
+  ${PHD_TESTS_DIR}/closed_loop/extracted_run.cpp
   ${PHD_TESTS_DIR}/closed_loop/legacy/legacy_twin.cpp
   ${PHD_TESTS_DIR}/closed_loop/legacy/scope_calibration_legacy.cpp
+  ${phd_src_dir}/calibration_run.cpp
+  ${phd_src_dir}/calibration_transform.cpp
 )
 target_link_libraries(test_closed_loop_calibration PRIVATE phd_test_common)
 set_property(TARGET test_closed_loop_calibration PROPERTY FOLDER "Unit tests")

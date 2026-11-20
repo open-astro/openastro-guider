@@ -36,6 +36,7 @@
 #ifndef SCOPE_H_INCLUDED
 #define SCOPE_H_INCLUDED
 
+#include "calibration_run.h"
 #include "guide_move_plan.h"
 
 #define CALIBRATION_RATE_UNCALIBRATED 123e4
@@ -95,41 +96,12 @@ class Scope : public Mount
     guide_move_plan::LimitTracker m_decLimitReached;
 
     // Calibration variables
-    int m_calibrationSteps;
     int m_calibrationDistance;
-    int m_recenterRemaining;
-    int m_recenterDuration;
-    PHD_Point m_calibrationInitialLocation; // initial position of guide star
-    PHD_Point
-        m_calibrationStartingLocation; // position of guide star at start of calibration measurement (after clear backlash etc.)
-    PHD_Point m_calibrationStartingCoords; // ra,dec coordinates at start of calibration measurement
-    PHD_Point m_southStartingLocation; // Needed to be sure nudging is in south-only direction
-    PHD_Point m_eastStartingLocation; // For basic sanity check that east moves worked at all
-    PHD_Point m_lastLocation;
-    double m_totalSouthAmt;
-    double m_northDirCosX;
-    double m_northDirCosY;
-    bool m_eastAlertShown;
-
-    // backlash-related variables
-    PHD_Point m_blMarkerPoint;
-    double m_blExpectedBacklashStep;
-    double m_blLastCumDistance;
-    int m_blAcceptedMoves;
-    double m_blDistanceMoved;
-    int m_blMaxClearingPulses;
-    enum blConstants
-    {
-        BL_BACKLASH_MIN_COUNT = 3,
-        BL_MAX_CLEARING_TIME = 60000,
-        BL_MIN_CLEARING_DISTANCE = 3
-    };
+    calibration_run::CalibrationRun m_calRun; // the calibration in progress (#142)
 
     Calibration m_calibration;
     CalibrationDetails m_calibrationDetails;
     bool m_assumeOrthogonal;
-    int m_raSteps;
-    int m_decSteps;
 
     bool m_calibrationFlipRequiresDecFlip;
     bool m_stopGuidingWhenSlewing;
@@ -139,19 +111,6 @@ class Scope : public Mount
 
     bool m_useDecCompensation;
     bool m_hasHPEncoders;
-
-    enum CALIBRATION_STATE
-    {
-        CALIBRATION_STATE_CLEARED,
-        CALIBRATION_STATE_GO_WEST,
-        CALIBRATION_STATE_GO_EAST,
-        CALIBRATION_STATE_CLEAR_BACKLASH,
-        CALIBRATION_STATE_GO_NORTH,
-        CALIBRATION_STATE_GO_SOUTH,
-        CALIBRATION_STATE_NUDGE_SOUTH,
-        CALIBRATION_STATE_COMPLETE
-    };
-    CALIBRATION_STATE m_calibrationState;
 
 public:
     bool m_CalDetailsValidated;

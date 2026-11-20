@@ -12,9 +12,9 @@
 //     scheduled move before the next exposure.
 // A frame that schedules no move is allowed (the DEC_NONE frame).
 //
-// The implementation (Run) is the frozen legacy twin today
-// (legacy/legacy_twin.h); the extracted CalibrationRun (#142 PR-B) gets an
-// adapter with the same three calls, so one suite runs against both:
+// The implementation (Run) is the frozen legacy twin (legacy/legacy_twin.h)
+// or the extracted calibration_run::CalibrationRun driven as Scope drives it
+// (extracted_run.h). Both have the same calls, so one suite runs against both:
 //   void Begin(const Pt& lock, const Settings&);
 //   void Clear();                                  // Scope::ClearCalibration
 //   FrameReport OnFrame(const Pt& star, const Settings&); // UpdateCalibrationState + IsCalibrated
@@ -110,16 +110,21 @@ struct Event
         NotifyComplete, // EvtServer.NotifyCalibrationComplete
         SetCalibration, // Mount::SetCalibration
         SanityCheck, // Scope::SanityCheckCalibration
+        Probe, // a mount read: text = "Coordinates", "GuideRates", "CanPulseGuide", "Declination", "SideOfPier"
     } kind = Debug;
     int frame = -1; // index of the OnFrame call, -1 for Begin/Clear
     std::string text;
+    std::string direction; // NotifyStep: info.direction (LogStep has it in text)
     int step = 0;
     double dx = 0., dy = 0., x = 0., y = 0., dist = 0.;
     Dir dir = Dir::North;
     int ms = 0;
     unsigned int moveOptions = 0;
-    double angle = 0., rate = 0.;
-    int parity = 0;
+    double angle = 0., rate = 0.; // DirectComplete; SetCalibration: xAngle, xRate
+    int parity = 0; // DirectComplete; SetCalibration: raGuideParity
+    double yAngle = 0., yRate = 0.; // SetCalibration
+    int decParity = 0; // SetCalibration
+    double declination = 0.; // SetCalibration
 };
 
 struct FrameReport

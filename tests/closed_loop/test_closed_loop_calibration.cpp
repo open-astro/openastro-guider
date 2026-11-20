@@ -1,11 +1,13 @@
 // Closed-loop characterization of Scope's calibration state machine (#142).
 //
 // A SimMount (sim_mount.h) stands in for the mount and the guide camera, and
-// the harness (harness.h) drives the frozen legacy twin of
-// Scope::BeginCalibration / UpdateCalibrationState (legacy/) frame by frame,
-// the way the guider does. These tests pin what the calibration does TODAY,
-// quirks included, so the extraction of a wx-free CalibrationRun can be shown
-// to change nothing; the same suite will run against both.
+// the harness (harness.h) drives the calibration frame by frame, the way the
+// guider does. Every Calibration test is a typed test that runs twice: on the
+// frozen legacy twin of Scope::BeginCalibration / UpdateCalibrationState
+// (legacy/), and on the extracted calibration_run::CalibrationRun driven as
+// Scope drives it (extracted_run.h). They pin what the calibration does,
+// quirks included, and hold for both, so the extraction changed none of it;
+// test_calibration_run_parity.cpp compares the two effect by effect.
 //
 // Every test starts a fresh calibration with Begin: nothing here restores,
 // reuses or skips a calibration.
@@ -17,20 +19,20 @@
 
 #include <gtest/gtest.h>
 
+#include "extracted_run.h"
 #include "harness.h"
 #include "legacy/legacy_twin.h"
 #include "sim_mount.h"
 
 #include <cmath>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 using namespace closed_loop;
 
 namespace
 {
-
-using Twin = LegacyTwinRun;
 
 constexpr double kRate = 0.003878; // px/ms at Dec 0, the audit profile
 constexpr int kStepMs = 550;
@@ -52,10 +54,11 @@ Settings ProfileSettings()
     return s;
 }
 
-CalOutcome Calibrate(const SimMountConfig& cfg, const Settings& s, int maxFrames = 2000, const FrameHook<Twin>& hook = nullptr)
+template<class Run>
+CalOutcome Calibrate(const SimMountConfig& cfg, const Settings& s, int maxFrames = 2000, const FrameHook<Run>& hook = nullptr)
 {
     SimMount sim(cfg);
-    return RunCalibration<Twin>(sim, s, maxFrames, hook);
+    return RunCalibration<Run>(sim, s, maxFrames, hook);
 }
 
 double AngleErrDeg(double a, double b)
@@ -136,6 +139,24 @@ std::vector<int> NudgePulses(const CalOutcome& o)
     }
     return v;
 }
+
+// The two implementations every Calibration test runs on
+template<class Run>
+class Calibration : public ::testing::Test
+{
+};
+
+struct ImplementationName
+{
+    template<class T>
+    static std::string GetName(int)
+    {
+        return std::is_same_v<T, LegacyTwinRun> ? "LegacyTwin" : "CalibrationRun";
+    }
+};
+
+using Implementations = ::testing::Types<LegacyTwinRun, ExtractedRun>;
+TYPED_TEST_SUITE(Calibration, Implementations, ImplementationName);
 
 } // namespace
 
@@ -300,7 +321,7 @@ TEST(SimMount, PierFlipReversesDecParityOnlyWhenItMirrorsDec)
 // Calibration geometry (audit cal-state-machine a, b)
 // ---------------------------------------------------------------------------
 
-TEST(LegacyCalibration, GeometryOverCameraAnglesNormalAndMirrored)
+TYPED_TEST(Calibration, GeometryOverCameraAnglesNormalAndMirrored)
 {
     const double angles[] = { 0., 30., 90., 200., -135. };
     for (double angle : angles)
@@ -311,7 +332,7 @@ TEST(LegacyCalibration, GeometryOverCameraAnglesNormalAndMirrored)
             c.westAngleDeg = angle;
             c.decMirrored = mirrored != 0;
             SimMount sim(c);
-            CalOutcome o = RunCalibration<Twin>(sim, ProfileSettings());
+            CalOutcome o = RunCalibration<TypeParam>(sim, ProfileSettings());
             SCOPED_TRACE("west " + std::to_string(angle) + (mirrored ? " mirrored" : ""));
             ASSERT_EQ(o.outcome, Outcome::Complete);
             const Measured& m = o.measured;
@@ -337,7 +358,7 @@ TEST(LegacyCalibration, GeometryOverCameraAnglesNormalAndMirrored)
     }
 }
 
-TEST(LegacyCalibration, StepCountIsDistanceOverStep)
+TYPED_TEST(Calibration, StepCountIsDistanceOverStep)
 {
     // audit case (a): theta 30, both rates 0.02 px/ms, 100 ms steps: 2 px a step
     SimMountConfig c;
@@ -347,7 +368,7 @@ TEST(LegacyCalibration, StepCountIsDistanceOverStep)
     Settings s;
     s.stepMs = 100;
     s.distancePx = 25;
-    CalOutcome o = Calibrate(c, s);
+    CalOutcome o = Calibrate<TypeParam>(c, s);
     ASSERT_EQ(o.outcome, Outcome::Complete);
     EXPECT_EQ(o.measured.raStepCount, 13); // ceil(25 / 2)
     EXPECT_EQ(o.Moves(Dir::West).size(), 13u);
@@ -367,7 +388,7 @@ TEST(LegacyCalibration, StepCountIsDistanceOverStep)
     EXPECT_EQ(o.Count(Event::Alert), 0);
 }
 
-TEST(LegacyCalibration, NoisyCentroidsStayWithinTolerance)
+TYPED_TEST(Calibration, NoisyCentroidsStayWithinTolerance)
 {
     // 0.1 px of noise on each end of a 25 px leg: about 0.3 deg of angle error at 1 sigma
     const double angles[] = { 0., 30., 90., 200., -135. };
@@ -379,7 +400,7 @@ TEST(LegacyCalibration, NoisyCentroidsStayWithinTolerance)
         c.noiseSigmaPx = 0.1;
         c.seed = (uint64_t) seed;
         SimMount sim(c);
-        CalOutcome o = RunCalibration<Twin>(sim, ProfileSettings());
+        CalOutcome o = RunCalibration<TypeParam>(sim, ProfileSettings());
         SCOPED_TRACE("seed " + std::to_string(seed));
         ASSERT_EQ(o.outcome, Outcome::Complete);
         EXPECT_LT(AngleErrDeg(o.measured.xAngle, sim.ExpectedXAngle()), 1.0);
@@ -393,11 +414,11 @@ TEST(LegacyCalibration, NoisyCentroidsStayWithinTolerance)
 // The 61-pulse limits (audit c)
 // ---------------------------------------------------------------------------
 
-TEST(LegacyCalibration, RaThatNeverMovesFailsAfter61WestPulses)
+TYPED_TEST(Calibration, RaThatNeverMovesFailsAfter61WestPulses)
 {
     SimMountConfig c = ProfileMount();
     c.raPxPerMsAtEquator = 0.;
-    CalOutcome o = Calibrate(c, ProfileSettings());
+    CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings());
     ASSERT_EQ(o.outcome, Outcome::Failed);
     EXPECT_EQ(o.fail, Fail::RaDidNotMove);
     // `m_calibrationSteps++ > MAX_CALIBRATION_STEPS`: 61 pulses, the 62nd frame fails
@@ -413,7 +434,7 @@ TEST(LegacyCalibration, RaThatNeverMovesFailsAfter61WestPulses)
     EXPECT_EQ(o.Of(Event::LogStep).back().step, 61);
 }
 
-TEST(LegacyCalibration, DecThatBarelyMovesFailsAfter61NorthSteps)
+TYPED_TEST(Calibration, DecThatBarelyMovesFailsAfter61NorthSteps)
 {
     // 0.4 px a North pulse: the backlash clearing accepts it (Dec guide rate a
     // tenth of RA's shrinks the expected step to 0.12 px), but 61 steps give 24.4 px
@@ -424,7 +445,7 @@ TEST(LegacyCalibration, DecThatBarelyMovesFailsAfter61NorthSteps)
     Settings s;
     s.stepMs = 100;
     s.distancePx = 25;
-    CalOutcome o = Calibrate(c, s);
+    CalOutcome o = Calibrate<TypeParam>(c, s);
     ASSERT_EQ(o.outcome, Outcome::Failed);
     EXPECT_EQ(o.fail, Fail::DecDidNotMove);
     // 3 clearing pulses (the last is North step 1), then steps 2..61
@@ -444,13 +465,13 @@ TEST(LegacyCalibration, DecThatBarelyMovesFailsAfter61NorthSteps)
 // Dec backlash (audit d, e)
 // ---------------------------------------------------------------------------
 
-TEST(LegacyCalibration, BacklashIsClearedBeforeTheDecRateIsMeasured)
+TYPED_TEST(Calibration, BacklashIsClearedBeforeTheDecRateIsMeasured)
 {
     for (double backlashMs : { 0., 600., 2000., 3500. })
     {
         SimMountConfig c = ProfileMount();
         c.decBacklashMs = backlashMs;
-        CalOutcome o = Calibrate(c, ProfileSettings());
+        CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings());
         SCOPED_TRACE("backlash " + std::to_string(backlashMs));
         ASSERT_EQ(o.outcome, Outcome::Complete);
         EXPECT_NEAR(o.measured.xRate, kRate, 0.02 * kRate);
@@ -472,7 +493,7 @@ TEST(LegacyCalibration, BacklashIsClearedBeforeTheDecRateIsMeasured)
     }
 }
 
-TEST(LegacyCalibration, BacklashClearingFailsAfterMaxClearingPulses)
+TYPED_TEST(Calibration, BacklashClearingFailsAfterMaxClearingPulses)
 {
     // max(8, 60000 / step) North pulses without the star moving
     const int cases[][2] = { { 550, 109 }, { 750, 80 }, { 10000, 8 } };
@@ -482,7 +503,7 @@ TEST(LegacyCalibration, BacklashClearingFailsAfterMaxClearingPulses)
         c.decPxPerMs = 0.;
         Settings s = ProfileSettings();
         s.stepMs = tc[0];
-        CalOutcome o = Calibrate(c, s);
+        CalOutcome o = Calibrate<TypeParam>(c, s);
         SCOPED_TRACE("step " + std::to_string(tc[0]));
         ASSERT_EQ(o.outcome, Outcome::Failed);
         EXPECT_EQ(o.fail, Fail::BacklashClearingFailed);
@@ -493,14 +514,14 @@ TEST(LegacyCalibration, BacklashClearingFailsAfterMaxClearingPulses)
     }
 }
 
-TEST(LegacyCalibration, BacklashClearingProceedsWhenTheStarMovedThreePixels)
+TYPED_TEST(Calibration, BacklashClearingProceedsWhenTheStarMovedThreePixels)
 {
     // 1.1 px a pulse is under the 1.28 px expected step, so no move is accepted;
     // the clearing stops at 25 px and, having moved 3 px or more, the North leg
     // starts over from there
     SimMountConfig c = ProfileMount();
     c.decPxPerMs = 0.002;
-    CalOutcome o = Calibrate(c, ProfileSettings());
+    CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings());
     ASSERT_EQ(o.outcome, Outcome::Complete);
     EXPECT_TRUE(o.HasDebug("Backlash: Reached clearing limit but total displacement > 3px"));
     EXPECT_FALSE(o.HasDebug("Backlash: Accepted clearing move"));
@@ -509,12 +530,12 @@ TEST(LegacyCalibration, BacklashClearingProceedsWhenTheStarMovedThreePixels)
     EXPECT_NEAR(o.measured.yRate, 0.002, 1e-9);
 }
 
-TEST(LegacyCalibration, BacklashClearingProceedsThenDecFailsWhenItMovedTooLittle)
+TYPED_TEST(Calibration, BacklashClearingProceedsThenDecFailsWhenItMovedTooLittle)
 {
     // 0.055 px a pulse: 6 px after 109 clearing pulses, enough to go on, too little to calibrate
     SimMountConfig c = ProfileMount();
     c.decPxPerMs = 0.0001;
-    CalOutcome o = Calibrate(c, ProfileSettings());
+    CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings());
     ASSERT_EQ(o.outcome, Outcome::Failed);
     EXPECT_EQ(o.fail, Fail::DecDidNotMove);
     EXPECT_TRUE(o.HasDebug("Backlash: Reached clearing limit but total displacement > 3px"));
@@ -525,11 +546,11 @@ TEST(LegacyCalibration, BacklashClearingProceedsThenDecFailsWhenItMovedTooLittle
 // DEC_NONE (audit f) and the recentering legs (audit g)
 // ---------------------------------------------------------------------------
 
-TEST(LegacyCalibration, DecNoneSkipsTheDecLegAndCompletesOnTheNextFrame)
+TYPED_TEST(Calibration, DecNoneSkipsTheDecLegAndCompletesOnTheNextFrame)
 {
     Settings s = ProfileSettings();
     s.decMode = DecMode::None;
-    CalOutcome o = Calibrate(ProfileMount(), s);
+    CalOutcome o = Calibrate<TypeParam>(ProfileMount(), s);
     ASSERT_EQ(o.outcome, Outcome::Complete);
     EXPECT_TRUE(o.Moves(Dir::North).empty());
     EXPECT_TRUE(o.Moves(Dir::South).empty());
@@ -548,23 +569,23 @@ TEST(LegacyCalibration, DecNoneSkipsTheDecLegAndCompletesOnTheNextFrame)
     EXPECT_EQ(o.Of(Event::LogComplete)[0].frame, lastEast + 2);
 }
 
-TEST(LegacyCalibration, DecModeAutoAfterDecNoneSkipReentersCompleteEveryFrame)
+TYPED_TEST(Calibration, DecModeAutoAfterDecNoneSkipReentersCompleteEveryFrame)
 {
     // #148, pinned as today's behaviour: switching DEC_NONE to Auto after the
     // Dec leg was skipped leaves yRate uncalibrated, so IsCalibrated() stays
     // false and COMPLETE runs again on every frame
     Settings s = ProfileSettings();
     s.decMode = DecMode::None;
-    CalOutcome base = Calibrate(ProfileMount(), s);
+    CalOutcome base = Calibrate<TypeParam>(ProfileMount(), s);
     ASSERT_EQ(base.outcome, Outcome::Complete);
     const int completeFrame = base.frames - 1;
 
-    FrameHook<Twin> toAuto = [&](int frame, Settings& st, SimMount&, Twin&)
+    FrameHook<TypeParam> toAuto = [&](int frame, Settings& st, SimMount&, TypeParam&)
     {
         if (frame == completeFrame)
             st.decMode = DecMode::Auto;
     };
-    CalOutcome o = Calibrate(ProfileMount(), s, completeFrame + 10, toAuto);
+    CalOutcome o = Calibrate<TypeParam>(ProfileMount(), s, completeFrame + 10, toAuto);
     EXPECT_EQ(o.outcome, Outcome::Continue);
     EXPECT_EQ(o.Count(Event::LogComplete), 10);
     EXPECT_EQ(o.Count(Event::NotifyComplete), 10);
@@ -572,7 +593,7 @@ TEST(LegacyCalibration, DecModeAutoAfterDecNoneSkipReentersCompleteEveryFrame)
     EXPECT_EQ(LastMoveFrame(o), LastMoveFrame(base));
 }
 
-TEST(LegacyCalibration, EastAndSouthRecenterSendBackWhatWestAndNorthSent)
+TYPED_TEST(Calibration, EastAndSouthRecenterSendBackWhatWestAndNorthSent)
 {
     struct Case
     {
@@ -594,7 +615,7 @@ TEST(LegacyCalibration, EastAndSouthRecenterSendBackWhatWestAndNorthSent)
         s.maxMovePx = tc.maxMovePx;
         s.maxRaMs = tc.maxRaMs;
         s.maxDecMs = tc.maxDecMs;
-        CalOutcome o = Calibrate(WithLightNoise(ProfileMount()), s);
+        CalOutcome o = Calibrate<TypeParam>(WithLightNoise(ProfileMount()), s);
         SCOPED_TRACE("fast " + std::to_string(tc.fast) + " maxMove " + std::to_string(tc.maxMovePx) + " maxRa " +
                      std::to_string(tc.maxRaMs));
         ASSERT_EQ(o.outcome, Outcome::Complete);
@@ -636,12 +657,12 @@ TEST(LegacyCalibration, EastAndSouthRecenterSendBackWhatWestAndNorthSent)
     }
 }
 
-TEST(LegacyCalibration, EastAdvisoryOnlyWhenTheMountCannotPulseGuide)
+TYPED_TEST(Calibration, EastAdvisoryOnlyWhenTheMountCannotPulseGuide)
 {
     // the star is put back where the East leg started, as if no East pulse had
     // moved it; only a mount that cannot pulse guide (an ST-4 cable) is alerted
     SimMountConfig c = ProfileMount();
-    CalOutcome base = Calibrate(c, ProfileSettings());
+    CalOutcome base = Calibrate<TypeParam>(c, ProfileSettings());
     int lastEast = -1;
     for (const Event& e : base.events)
         if (e.kind == Event::Move && e.dir == Dir::East)
@@ -651,7 +672,7 @@ TEST(LegacyCalibration, EastAdvisoryOnlyWhenTheMountCannotPulseGuide)
     for (int canPulse = 0; canPulse < 2; canPulse++)
     {
         c.canPulseGuide = canPulse != 0;
-        FrameHook<Twin> noEast = [&](int frame, Settings&, SimMount& sim, Twin&)
+        FrameHook<TypeParam> noEast = [&](int frame, Settings&, SimMount& sim, TypeParam&)
         {
             if (frame == lastEast + 1)
             {
@@ -660,7 +681,7 @@ TEST(LegacyCalibration, EastAdvisoryOnlyWhenTheMountCannotPulseGuide)
                 sim.MoveTo(c.startX + d * std::cos(a), c.startY + d * std::sin(a));
             }
         };
-        CalOutcome o = Calibrate(c, ProfileSettings(), 2000, noEast);
+        CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings(), 2000, noEast);
         SCOPED_TRACE(canPulse ? "pulse guide" : "ST-4");
         ASSERT_EQ(o.outcome, Outcome::Complete);
         if (canPulse)
@@ -680,11 +701,11 @@ TEST(LegacyCalibration, EastAdvisoryOnlyWhenTheMountCannotPulseGuide)
 // The South nudge (audit h)
 // ---------------------------------------------------------------------------
 
-TEST(LegacyCalibration, NudgeSouthBringsTheStarBackWhenItCan)
+TYPED_TEST(Calibration, NudgeSouthBringsTheStarBackWhenItCan)
 {
     SimMountConfig c = WithLightNoise(ProfileMount());
     c.decBacklashMs = 600.;
-    CalOutcome o = Calibrate(c, ProfileSettings());
+    CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings());
     ASSERT_EQ(o.outcome, Outcome::Complete);
     std::vector<int> nudges = NudgePulses(o);
     ASSERT_FALSE(nudges.empty());
@@ -697,28 +718,28 @@ TEST(LegacyCalibration, NudgeSouthBringsTheStarBackWhenItCan)
     EXPECT_LT(Dist(o.finalTrue, o.lock), 2.0);
 }
 
-TEST(LegacyCalibration, NudgeSouthStopsAfterFourPulses)
+TYPED_TEST(Calibration, NudgeSouthStopsAfterFourPulses)
 {
     // a lot of backlash leaves the star further north than 4 step-sized nudges reach
     SimMountConfig c = WithLightNoise(ProfileMount());
     c.decBacklashMs = 3500.;
-    CalOutcome o = Calibrate(c, ProfileSettings());
+    CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings());
     ASSERT_EQ(o.outcome, Outcome::Complete);
     std::vector<int> nudges = NudgePulses(o);
     EXPECT_EQ(nudges, std::vector<int>(4, kStepMs));
     EXPECT_GT(Dist(o.finalTrue, o.lock), 2.0);
 }
 
-TEST(LegacyCalibration, NudgeSouthIsSkippedWhenTheStarIsOffTheNorthLine)
+TYPED_TEST(Calibration, NudgeSouthIsSkippedWhenTheStarIsOffTheNorthLine)
 {
     SimMountConfig c = ProfileMount();
     c.decBacklashMs = 600.;
-    CalOutcome base = Calibrate(c, ProfileSettings());
+    CalOutcome base = Calibrate<TypeParam>(c, ProfileSettings());
     const int nudgeFrame = FirstDebugFrame(base, "Nudge: theta");
     ASSERT_GE(nudgeFrame, 0);
 
     // push the star 30 px along RA just before the frame the nudge starts on
-    FrameHook<Twin> bump = [&](int frame, Settings&, SimMount& sim, Twin&)
+    FrameHook<TypeParam> bump = [&](int frame, Settings&, SimMount& sim, TypeParam&)
     {
         if (frame == nudgeFrame)
         {
@@ -726,31 +747,31 @@ TEST(LegacyCalibration, NudgeSouthIsSkippedWhenTheStarIsOffTheNorthLine)
             sim.Displace(30. * std::cos(a), 30. * std::sin(a));
         }
     };
-    CalOutcome o = Calibrate(c, ProfileSettings(), 2000, bump);
+    CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings(), 2000, bump);
     ASSERT_EQ(o.outcome, Outcome::Complete);
     EXPECT_TRUE(NudgePulses(o).empty());
     EXPECT_TRUE(o.HasDebug("Nudging discontinued, wrong direction"));
 }
 
-TEST(LegacyCalibration, NudgeSouthEndsOnANanAngleWhenTheStarIsOnTheLock)
+TYPED_TEST(Calibration, NudgeSouthEndsOnANanAngleWhenTheStarIsOnTheLock)
 {
     // nudge_amt == 0 gives 0/0 direction cosines and a NaN theta, which fails
     // the 40 deg test and ends the nudge as "wrong direction" (pinned, not fixed)
     SimMountConfig c = ProfileMount();
     c.decBacklashMs = 600.;
-    CalOutcome base = Calibrate(c, ProfileSettings());
+    CalOutcome base = Calibrate<TypeParam>(c, ProfileSettings());
     const int nudgeFrame = FirstDebugFrame(base, "Nudge: theta");
     ASSERT_GE(nudgeFrame, 0);
 
     Pt lock;
-    FrameHook<Twin> home = [&](int frame, Settings&, SimMount& sim, Twin&)
+    FrameHook<TypeParam> home = [&](int frame, Settings&, SimMount& sim, TypeParam&)
     {
         if (frame == 0)
             lock = sim.TruePosition();
         if (frame == nudgeFrame)
             sim.MoveTo(lock.x, lock.y);
     };
-    CalOutcome o = Calibrate(c, ProfileSettings(), 2000, home);
+    CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings(), 2000, home);
     ASSERT_EQ(o.outcome, Outcome::Complete);
     EXPECT_TRUE(NudgePulses(o).empty());
     EXPECT_TRUE(DebugShowsNanAfter(o, "Nudge: theta = "));
@@ -761,7 +782,7 @@ TEST(LegacyCalibration, NudgeSouthEndsOnANanAngleWhenTheStarIsOnTheLock)
 // assumeOrthogonal (audit i) and parity (audit j)
 // ---------------------------------------------------------------------------
 
-TEST(LegacyCalibration, AssumeOrthogonalSnapsYAngleToTheNearerRightAngle)
+TYPED_TEST(Calibration, AssumeOrthogonalSnapsYAngleToTheNearerRightAngle)
 {
     for (int assume = 0; assume < 2; assume++)
     {
@@ -771,7 +792,7 @@ TEST(LegacyCalibration, AssumeOrthogonalSnapsYAngleToTheNearerRightAngle)
         Settings s = ProfileSettings();
         s.assumeOrthogonal = assume != 0;
         SimMount sim(c);
-        CalOutcome o = RunCalibration<Twin>(sim, s);
+        CalOutcome o = RunCalibration<TypeParam>(sim, s);
         ASSERT_EQ(o.outcome, Outcome::Complete);
         const Measured& m = o.measured;
         if (assume)
@@ -790,7 +811,7 @@ TEST(LegacyCalibration, AssumeOrthogonalSnapsYAngleToTheNearerRightAngle)
     }
 }
 
-TEST(LegacyCalibration, GuideParityFromTheMountCoordinates)
+TYPED_TEST(Calibration, GuideParityFromTheMountCoordinates)
 {
     struct Case
     {
@@ -817,7 +838,7 @@ TEST(LegacyCalibration, GuideParityFromTheMountCoordinates)
         c.decParityOdd = tc.decOdd;
         c.raGuideDegPerSec = tc.rateDegPerSec;
         c.decGuideDegPerSec = tc.rateDegPerSec;
-        CalOutcome o = Calibrate(c, ProfileSettings());
+        CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings());
         ASSERT_EQ(o.outcome, Outcome::Complete);
         EXPECT_EQ(o.measured.raParity, tc.ra);
         EXPECT_EQ(o.measured.decParity, tc.dec);
@@ -829,13 +850,13 @@ TEST(LegacyCalibration, GuideParityFromTheMountCoordinates)
     }
 }
 
-TEST(LegacyCalibration, MountReadsHappenAtTodaysCallSites)
+TYPED_TEST(Calibration, MountReadsHappenAtTodaysCallSites)
 {
     // start coords, West-end coords, East cable check, East-end coords and
     // guide rates, coords before each clearing pulse after the first, North-end coords
     SimMountConfig c = ProfileMount();
     SimMount sim(c);
-    CalOutcome o = RunCalibration<Twin>(sim, ProfileSettings());
+    CalOutcome o = RunCalibration<TypeParam>(sim, ProfileSettings());
     ASSERT_EQ(o.outcome, Outcome::Complete);
     using P = ProbeKind;
     EXPECT_EQ(sim.ProbeLog(),
@@ -846,13 +867,13 @@ TEST(LegacyCalibration, MountReadsHappenAtTodaysCallSites)
     SimMount sim2(c);
     Settings s = ProfileSettings();
     s.decMode = DecMode::None;
-    ASSERT_EQ(RunCalibration<Twin>(sim2, s).outcome, Outcome::Complete);
+    ASSERT_EQ(RunCalibration<TypeParam>(sim2, s).outcome, Outcome::Complete);
     EXPECT_EQ(sim2.ProbeLog(), (std::vector<P> { P::Coordinates, P::Coordinates, P::CanPulseGuide }));
 
     // no coordinates: the West and North ends do not read again
     c.coordinates = false;
     SimMount sim3(c);
-    ASSERT_EQ(RunCalibration<Twin>(sim3, ProfileSettings()).outcome, Outcome::Complete);
+    ASSERT_EQ(RunCalibration<TypeParam>(sim3, ProfileSettings()).outcome, Outcome::Complete);
     EXPECT_EQ(
         sim3.ProbeLog(),
         (std::vector<P> { P::Coordinates, P::CanPulseGuide, P::Coordinates, P::GuideRates, P::Coordinates, P::Coordinates }));
@@ -862,14 +883,14 @@ TEST(LegacyCalibration, MountReadsHappenAtTodaysCallSites)
 // Cleared mid-run (#137, #145)
 // ---------------------------------------------------------------------------
 
-TEST(LegacyCalibration, ClearedWhileCalibratingFailsWithoutAnAlert)
+TYPED_TEST(Calibration, ClearedWhileCalibratingFailsWithoutAnAlert)
 {
-    FrameHook<Twin> clear = [](int frame, Settings&, SimMount&, Twin& run)
+    FrameHook<TypeParam> clear = [](int frame, Settings&, SimMount&, TypeParam& run)
     {
         if (frame == 5)
             run.Clear();
     };
-    CalOutcome o = Calibrate(ProfileMount(), ProfileSettings(), 2000, clear);
+    CalOutcome o = Calibrate<TypeParam>(ProfileMount(), ProfileSettings(), 2000, clear);
     ASSERT_EQ(o.outcome, Outcome::Failed);
     EXPECT_EQ(o.fail, Fail::Cleared);
     EXPECT_EQ(o.frames, 6);
@@ -889,7 +910,7 @@ TEST(LegacyCalibration, ClearedWhileCalibratingFailsWithoutAnAlert)
 // it needs more than 61. PR-D flips these pins.
 // ---------------------------------------------------------------------------
 
-TEST(LegacyCalibration, HighDecRaStepsTodayGrowWithOneOverCosDec)
+TYPED_TEST(Calibration, HighDecRaStepsTodayGrowWithOneOverCosDec)
 {
     const int cases[][2] = { { 0, 12 }, { 45, 17 }, { 60, 24 }, { 70, 35 }, { 75, 46 }, { 78, 57 }, { -78, 57 } };
     for (const auto& tc : cases)
@@ -897,7 +918,7 @@ TEST(LegacyCalibration, HighDecRaStepsTodayGrowWithOneOverCosDec)
         SimMountConfig c = ProfileMount();
         c.trueDecDeg = tc[0];
         SimMount sim(c);
-        CalOutcome o = RunCalibration<Twin>(sim, ProfileSettings());
+        CalOutcome o = RunCalibration<TypeParam>(sim, ProfileSettings());
         SCOPED_TRACE("dec " + std::to_string(tc[0]));
         ASSERT_EQ(o.outcome, Outcome::Complete);
         EXPECT_EQ(o.measured.raStepCount, tc[1]);
@@ -908,13 +929,13 @@ TEST(LegacyCalibration, HighDecRaStepsTodayGrowWithOneOverCosDec)
     }
 }
 
-TEST(LegacyCalibration, HighDecTodayFailsAt79DegreesAndAbove)
+TYPED_TEST(Calibration, HighDecTodayFailsAt79DegreesAndAbove)
 {
     for (int dec : { 79, 80, 85, -80 })
     {
         SimMountConfig c = ProfileMount();
         c.trueDecDeg = dec;
-        CalOutcome o = Calibrate(c, ProfileSettings());
+        CalOutcome o = Calibrate<TypeParam>(c, ProfileSettings());
         SCOPED_TRACE("dec " + std::to_string(dec));
         ASSERT_EQ(o.outcome, Outcome::Failed);
         EXPECT_EQ(o.fail, Fail::RaDidNotMove);
@@ -922,18 +943,18 @@ TEST(LegacyCalibration, HighDecTodayFailsAt79DegreesAndAbove)
     }
 }
 
-TEST(LegacyCalibration, HighDecTodayIgnoresTheReportedDec)
+TYPED_TEST(Calibration, HighDecTodayIgnoresTheReportedDec)
 {
     // the twin never reads the Dec before or during the legs; a missing or wrong
     // reading changes nothing but the Dec stored with the result
     SimMountConfig c = ProfileMount();
     c.trueDecDeg = 75.;
-    CalOutcome reported = Calibrate(c, ProfileSettings());
+    CalOutcome reported = Calibrate<TypeParam>(c, ProfileSettings());
     c.reportDec = false;
-    CalOutcome unknown = Calibrate(c, ProfileSettings());
+    CalOutcome unknown = Calibrate<TypeParam>(c, ProfileSettings());
     c.reportDec = true;
     c.reportedDecDeg = 0.;
-    CalOutcome wrong = Calibrate(c, ProfileSettings());
+    CalOutcome wrong = Calibrate<TypeParam>(c, ProfileSettings());
     for (const CalOutcome *o : { &unknown, &wrong })
     {
         ASSERT_EQ(o->events.size(), reported.events.size());
