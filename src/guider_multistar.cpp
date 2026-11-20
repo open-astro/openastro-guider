@@ -41,7 +41,6 @@
  */
 
 #include "phd.h"
-#include "edge_allowance.h"
 
 #include <wx/dir.h>
 #include <algorithm>
@@ -460,14 +459,7 @@ bool GuiderMultiStar::AutoSelect(const wxRect& roi, bool willForceRecal)
         // will clear its calibration first, #140), we need to choose a star a bit farther from the edge
         // to allow for the motion of the star during calibration
         //
-        int edgeAllowance = 0;
-        if (pMount && pMount->IsConnected())
-            edgeAllowance =
-                wxMax(edgeAllowance, EdgeAllowance(pMount->IsCalibrated(), willForceRecal, pMount->CalibrationTotDistance()));
-        if (pSecondaryMount && pSecondaryMount->IsConnected())
-            edgeAllowance = wxMax(
-                edgeAllowance,
-                EdgeAllowance(pSecondaryMount->IsCalibrated(), willForceRecal, pSecondaryMount->CalibrationTotDistance()));
+        int edgeAllowance = CalibrationEdgeAllowance(willForceRecal);
 
         GuideStar newStar;
         if (!newStar.AutoFind(*image, edgeAllowance, m_searchRegion, roi, m_guideStars,

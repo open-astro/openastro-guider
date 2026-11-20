@@ -395,7 +395,20 @@ void PhdController::UpdateControllerState(bool frameDropped)
             }
             else if (pFrame->pGuider->GetState() == STATE_SELECTED)
             {
-                SETSTATE(STATE_CALIBRATE);
+                if (ctrl.forceCalibration && !pFrame->pGuider->SelectedStarClearForRecalibration())
+                {
+                    // #140: the star (find_star while looping on a calibrated mount) was picked with no margin for
+                    // the calibration walk; select again on the next full frame, keeping the margin
+                    Debug.AddLine("PhdController: selected star too close to the edge for the recalibration, reselect");
+                    pFrame->pGuider->Reset(true);
+                    pFrame->pGuider->ForceFullFrame();
+                    SETSTATE(STATE_SELECT_STAR);
+                    done = true;
+                }
+                else
+                {
+                    SETSTATE(STATE_CALIBRATE);
+                }
             }
             else
             {

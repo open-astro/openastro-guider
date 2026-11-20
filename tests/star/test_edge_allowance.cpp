@@ -9,8 +9,6 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
-
 #include "edge_allowance.h"
 
 namespace
@@ -18,12 +16,16 @@ namespace
 constexpr int kScopeDist = 25; // Scope::CalibrationTotDistance, the profile's calibration distance
 constexpr int kAoDist = 25; // StepGuider::CalibrationTotDistance
 
-// GuiderMultiStar::AutoSelect: the largest allowance over the connected mount and AO
-int AutoSelectAllowance(bool scopeCalibrated, int scopeDist, bool aoCalibrated, bool willForceRecal)
+CalibrationGear Gear(bool calibrated, int calTotDist)
 {
-    return std::max(EdgeAllowance(aoCalibrated, willForceRecal, kAoDist),
-                    EdgeAllowance(scopeCalibrated, willForceRecal, scopeDist));
+    CalibrationGear gear;
+    gear.connected = true;
+    gear.calibrated = calibrated;
+    gear.calTotDist = calTotDist;
+    return gear;
 }
+
+const CalibrationGear kNoAo; // pSecondaryMount null
 } // namespace
 
 TEST(EdgeAllowance, ForcedRecalibrationOfACalibratedMountKeepsTheCalibrationDistance)
@@ -67,10 +69,53 @@ TEST(EdgeAllowance, FollowsTheCalibrationDistance)
 TEST(EdgeAllowance, AoAndMountTakeTheLarger)
 {
     // a forced recalibration clears both the AO and the mount, so both walks count
-    EXPECT_EQ(AutoSelectAllowance(true, 40, true, true), 40);
-    EXPECT_EQ(AutoSelectAllowance(true, 10, true, true), kAoDist);
+    EXPECT_EQ(EdgeAllowance(Gear(true, 40), Gear(true, kAoDist), true), 40);
+    EXPECT_EQ(EdgeAllowance(Gear(true, 10), Gear(true, kAoDist), true), kAoDist);
     // no recalibration: only the uncalibrated one counts
-    EXPECT_EQ(AutoSelectAllowance(true, 40, false, false), kAoDist);
-    EXPECT_EQ(AutoSelectAllowance(false, 40, true, false), 40);
-    EXPECT_EQ(AutoSelectAllowance(true, 40, true, false), 0);
+    EXPECT_EQ(EdgeAllowance(Gear(true, 40), Gear(false, kAoDist), false), kAoDist);
+    EXPECT_EQ(EdgeAllowance(Gear(false, 40), Gear(true, kAoDist), false), 40);
+    EXPECT_EQ(EdgeAllowance(Gear(true, 40), Gear(true, kAoDist), false), 0);
+}
+
+TEST(EdgeAllowance, MountWithoutAo)
+{
+    // #140: the previous target's calibration is still loaded when guide recalibrate: true selects its star
+    EXPECT_EQ(EdgeAllowance(Gear(true, kScopeDist), kNoAo, true), kScopeDist);
+    EXPECT_EQ(EdgeAllowance(Gear(false, kScopeDist), kNoAo, false), kScopeDist);
+    EXPECT_EQ(EdgeAllowance(Gear(true, kScopeDist), kNoAo, false), 0);
+}
+
+TEST(EdgeAllowance, DisconnectedGearDoesNotCount)
+{
+    CalibrationGear mount = Gear(false, 40);
+    mount.connected = false;
+    EXPECT_EQ(EdgeAllowance(mount, kNoAo, true), 0);
+    EXPECT_EQ(EdgeAllowance(mount, Gear(true, kAoDist), true), kAoDist);
+}
+
+TEST(ClearOfEdge, MatchesAutoFindsRule)
+{
+    // AutoFind drops a peak at x <= edgeDist or x >= width - edgeDist (and the same for y)
+    EXPECT_FALSE(ClearOfEdge(40, 240, 640, 480, 40));
+    EXPECT_TRUE(ClearOfEdge(41, 240, 640, 480, 40));
+    EXPECT_FALSE(ClearOfEdge(600, 240, 640, 480, 40));
+    EXPECT_TRUE(ClearOfEdge(599, 240, 640, 480, 40));
+    EXPECT_FALSE(ClearOfEdge(320, 40, 640, 480, 40));
+    EXPECT_FALSE(ClearOfEdge(320, 440, 640, 480, 40));
+    EXPECT_TRUE(ClearOfEdge(320, 240, 640, 480, 40));
+    EXPECT_TRUE(ClearOfEdge(320.5, 439.5, 640, 480, 40));
+}
+
+TEST(ClearOfEdge, StarSelectedByFindStarIsReselectedForARecalibration)
+{
+    // #140, Ara's GuiderFull meridian flip: find_star while looping on a calibrated mount keeps only the 15 px
+    // search region, then guide recalibrate: true would walk that star 25 px off the frame
+    const int kSearch = 15;
+    EXPECT_TRUE(ClearOfEdge(20, 240, 640, 480, kSearch + EdgeAllowance(Gear(true, kScopeDist), kNoAo, false)));
+    EXPECT_FALSE(StarClearForRecalibration(20, 240, 640, 480, kSearch, Gear(true, kScopeDist), kNoAo));
+    EXPECT_FALSE(StarClearForRecalibration(620, 240, 640, 480, kSearch, Gear(true, kScopeDist), kNoAo));
+    EXPECT_FALSE(StarClearForRecalibration(320, 30, 640, 480, kSearch, Gear(true, 10), Gear(true, kAoDist)));
+    // far enough for the walk: kept, so a good star the client chose is not replaced
+    EXPECT_TRUE(StarClearForRecalibration(41, 240, 640, 480, kSearch, Gear(true, kScopeDist), kNoAo));
+    EXPECT_TRUE(StarClearForRecalibration(320, 240, 640, 480, kSearch, Gear(true, kScopeDist), Gear(true, kAoDist)));
 }

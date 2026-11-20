@@ -253,6 +253,10 @@ public:
     void BookmarkCurPosition();
 
     void Reset(bool fullReset);
+    // how far beyond the search region auto-select keeps a star from the frame edge for the calibration (#140)
+    static int CalibrationEdgeAllowance(bool willForceRecal);
+    // whether the selected star is far enough from the edge for the calibration of a forced recalibration (#140)
+    bool SelectedStarClearForRecalibration() const;
     void EnableMeasurementMode(bool enabled);
     double GetMinStarHFD() const;
     double GetMinStarHFDFloor() const;
