@@ -572,7 +572,14 @@ bool GuideAlgorithmGaussianProcess::SetParam(const wxString& name, double val)
     else if (name == "reactiveWeight")
         err = SetControlGain(val);
     else if (name == "periodLength")
-        err = SetGPHyperparameters(GPHyperparametersWithPeriodLength(GetGPHyperparameters(), val)); // keep the others (#138)
+    {
+        // keep the others (#138). The periodic length scale comes from the
+        // profile: GetGPHyperparameters() rebuilds it from the current period
+        // and gets it wrong once it is over half that period.
+        double pkLengthScale =
+            pConfig->Profile.GetDouble(GetConfigPath() + "/gp_length_scale_per_kern", DefaultLengthScalePerKer);
+        err = SetGPHyperparameters(GPHyperparametersWithPeriodLength(GetGPHyperparameters(), pkLengthScale, val));
+    }
     else
         err = true;
 

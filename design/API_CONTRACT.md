@@ -588,8 +588,6 @@ built with asserts, aborted) or, with `NDEBUG`, left the guider in `Calibrating`
 ARA: no code change. `ClearCalibrationAsync` (the live clear button) already throws on an error
 response; `ClearCalibration` (mediator) returns false.
 
-## 2026-11-20 — set_algo_param value check (#138)
-
 ## 2026-11-20 — set_algo_param value check, Predictive PEC period (#138)
 
 - `set_algo_param` without `value` crashed the guider (the missing param was dereferenced). A
@@ -602,6 +600,8 @@ response; `ClearCalibration` (mediator) returns false.
   period. It wrote every other GP hyperparameter as 0: the three signal variances were saved to
   the profile as 0, which turned the PEC prediction off across restarts, the three length scales
   went back to their defaults, and the call answered "could not set param" although the period was
-  set. A period below 1 is still refused with error `1` (the period goes back to its default).
+  set. The periodic length scale is the one saved in the profile, not the GP guider's own read of
+  it, which is wrong once the length scale is over half the old period. A period below 1 is still
+  refused with error `1` (the period goes back to its default).
 
 ARA: no code change. It always sends a numeric `value` and does not set `periodLength`.

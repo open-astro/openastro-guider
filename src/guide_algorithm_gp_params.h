@@ -17,9 +17,14 @@
 #include <vector>
 
 // current is GetGPHyperparameters(), indexed by the Hyperparameters enum of
-// gaussian_process_guider.h. Returns current with only PKPeriodLength
-// replaced by period_length; a vector too short to hold the period is
+// gaussian_process_guider.h. Returns current with PKPeriodLength replaced by
+// period_length and PKLengthScale by pk_length_scale, the periodic length
+// scale (natural units) the algorithm last validated and saved to the
+// profile: GaussianProcessGuider::GetGPHyperparameters() rebuilds that one
+// through asin(sin(L * pi / P)), which gives L back only while L <= P / 2
+// (P - L above that, about 0 once L > P). A vector too short to hold both is
 // returned unchanged (SetGPHyperparameters rejects a vector of the wrong size).
-std::vector<double> GPHyperparametersWithPeriodLength(std::vector<double> current, double period_length);
+std::vector<double> GPHyperparametersWithPeriodLength(std::vector<double> current, double pk_length_scale,
+                                                      double period_length);
 
 #endif

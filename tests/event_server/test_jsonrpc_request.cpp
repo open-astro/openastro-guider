@@ -251,7 +251,9 @@ const json_value *ParseValue(JsonParser& parser, const std::string& value)
 
 } // namespace
 
-TEST(JsonRpcParams, IssueReproSetAlgoParamWithoutValueIsRefusedNotDereferenced)
+// The reader set_algo_param hands its value to; the handler's -32602 answer
+// and that the guider keeps running are checked by scripts/phd2_rpc_smoke.py.
+TEST(JsonRpcParams, ASetAlgoParamWithoutValueIsRefusedNotDereferenced)
 {
     JsonParser parser;
     ASSERT_TRUE(parser.Parse(std::string(R"({"axis":"ra","name":"minMove"})")));
