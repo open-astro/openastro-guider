@@ -20,6 +20,14 @@
 //
 // It also unit-tests CalibrationRun's own contract: Begin resets, Clear fails
 // the next frame, and a run in Complete reports Complete again (#148).
+//
+// Since #141 the extracted run sizes the RA step for the Dec it reads at Begin,
+// which the twin never did. The differential therefore runs it with that read
+// failing (UNKNOWN_DECLINATION), where it must still be the twin exactly, and
+// leaves out the two records of that read (the Declination read and its Debug
+// line at Begin), which the twin has no counterpart for. The mount's Dec is
+// still random and still stored with the result. test_high_dec_calibration.cpp
+// covers a known Dec.
 
 #include <gtest/gtest.h>
 
@@ -33,6 +41,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
@@ -138,6 +147,13 @@ struct Pair
     std::vector<std::pair<Dir, int>> legacyPulses, extractedPulses;
 };
 
+// The extracted run as Scope drives it when the mount's Dec cannot be read at Begin
+class ExtractedRunDecUnknown : public ExtractedRun
+{
+public:
+    explicit ExtractedRunDecUnknown(SimMount& sim) : ExtractedRun(sim, false) { }
+};
+
 Pair RunBoth(const Scenario& sc)
 {
     Pair p;
@@ -146,7 +162,12 @@ Pair RunBoth(const Scenario& sc)
     p.legacyProbes = a.ProbeLog();
     p.legacyPulses = a.Pulses();
     SimMount b(sc.cfg);
-    p.extracted = RunCalibration<ExtractedRun>(b, sc.settings, sc.maxFrames, HookFor<ExtractedRun>(sc.plan));
+    p.extracted =
+        RunCalibration<ExtractedRunDecUnknown>(b, sc.settings, sc.maxFrames, HookFor<ExtractedRunDecUnknown>(sc.plan));
+    std::vector<Event>& ev = p.extracted.events;
+    size_t beginReads = (size_t) std::count_if(ev.begin(), ev.end(), IsBeginDecRead);
+    EXPECT_EQ(beginReads, 2u) << sc.name;
+    ev.erase(std::remove_if(ev.begin(), ev.end(), IsBeginDecRead), ev.end());
     p.extractedProbes = b.ProbeLog();
     p.extractedPulses = b.Pulses();
     return p;
@@ -640,14 +661,14 @@ TEST(CalibrationRun, BeginResetsARunThatWasUnderWay)
 {
     SimMount sim(BaseMount());
     cr::CalibrationRun run;
-    run.Begin(ToRun(sim.Observe()));
+    run.Begin(ToRun(sim.Observe()), std::nullopt);
     // into the North leg, with measurements made
     for (int i = 0; i < 40 && run.state() != cr::State::GoNorth; i++)
         Drive(run, sim, RunSettings(), 1);
     ASSERT_EQ(run.state(), cr::State::GoNorth);
     ASSERT_FALSE(run.measured().raSteps.empty());
 
-    run.Begin(ToRun(sim.Observe()));
+    run.Begin(ToRun(sim.Observe()), std::nullopt);
     EXPECT_EQ(run.state(), cr::State::GoWest);
     EXPECT_TRUE(run.measured().raSteps.empty());
     EXPECT_TRUE(run.measured().decSteps.empty());
@@ -679,7 +700,7 @@ TEST(CalibrationRun, ClearFromAnyStateFailsTheNextFrameWithNothingElse)
         c.noiseSigmaPx = 0.05;
         SimMount sim(c);
         cr::CalibrationRun run;
-        run.Begin(ToRun(sim.Observe()));
+        run.Begin(ToRun(sim.Observe()), std::nullopt);
         Drive(run, sim, RunSettings(), 1); // past the first frame, which takes the starting location
         for (int i = 0; i < 400 && run.state() != target; i++)
             Drive(run, sim, RunSettings(), 1);
@@ -702,7 +723,7 @@ TEST(CalibrationRun, CompleteIsReportedAgainOnEveryLaterFrame)
 {
     SimMount sim(BaseMount());
     cr::CalibrationRun run;
-    run.Begin(ToRun(sim.Observe()));
+    run.Begin(ToRun(sim.Observe()), std::nullopt);
     cr::FrameResult r = Drive(run, sim, RunSettings(), 400);
     ASSERT_EQ(r.outcome, cr::Outcome::Complete);
     EXPECT_TRUE(r.firstComplete);
@@ -723,7 +744,7 @@ TEST(CalibrationRun, CompleteIsReportedAgainOnEveryLaterFrame)
     }
 
     // a new Begin starts over: the next completion is a first one again
-    run.Begin(ToRun(sim.Observe()));
+    run.Begin(ToRun(sim.Observe()), std::nullopt);
     r = Drive(run, sim, RunSettings(), 400);
     ASSERT_EQ(r.outcome, cr::Outcome::Complete);
     EXPECT_TRUE(r.firstComplete);
@@ -735,7 +756,7 @@ TEST(CalibrationRun, DecNoneCompletesOnTheFrameAfterTheEastLeg)
     cr::CalibrationRun run;
     cr::Settings s = RunSettings();
     s.decMode = cr::DecMode::None;
-    run.Begin(ToRun(sim.Observe()));
+    run.Begin(ToRun(sim.Observe()), std::nullopt);
     RecordingSink all;
     cr::FrameResult r;
     int frames = 0;

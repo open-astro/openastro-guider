@@ -1,6 +1,7 @@
 #include "extracted_run.h"
 
 #include <cstdio>
+#include <optional>
 
 namespace closed_loop
 {
@@ -221,7 +222,15 @@ void ExtractedRun::Begin(const Pt& lock, const Settings& settings)
     m_frame = -1;
     m_decMode = settings.decMode;
     ClearCalibration();
-    m_run.Begin(cr::Pt { lock.x, lock.y, lock.valid });
+
+    // Scope reads the mount's Dec once and sizes the RA step for it (#141)
+    Add(Event::Probe, "Declination");
+    std::optional<double> dec = m_readDeclination ? m_sim.ReportedDecRad() : std::nullopt;
+    std::string decStr = dec ? Format("%.1f", Degrees(*dec)) : std::string("Unknown");
+    Add(Event::Debug,
+        Format("RA calibration step %d ms for Dec %s (Dec step %d ms)\n", cr::RaCalibrationStepMs(settings.stepMs, dec),
+               decStr.c_str(), settings.stepMs));
+    m_run.Begin(cr::Pt { lock.x, lock.y, lock.valid }, dec);
 }
 
 void ExtractedRun::Clear()

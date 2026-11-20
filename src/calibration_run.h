@@ -47,6 +47,7 @@
 #ifndef CALIBRATION_RUN_H_INCLUDED
 #define CALIBRATION_RUN_H_INCLUDED
 
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -127,6 +128,20 @@ constexpr int MAX_CALIBRATION_STEPS = 60;
 constexpr int MAX_NUDGES = 3;
 constexpr double NUDGE_TOLERANCE = 2.0;
 constexpr double RATE_UNCALIBRATED = 123e4; // CALIBRATION_RATE_UNCALIBRATED (scope.h)
+
+// The largest factor RaCalibrationStepMs grows the RA step by (#141)
+constexpr double RA_STEP_MAX_SCALE = 4.0;
+// The longest RA pulse that scaling makes (#141): under the 30 s HTTP timeout of
+// a blocking Alpaca PulseGuide. A step already longer than this is not grown.
+constexpr int RA_STEP_MAX_MS = 25000;
+
+// The pulse the West and East legs use for a calibration step of stepMs at
+// declinationRad (#141). A star's RA motion per ms of guide pulse shrinks with
+// cos(Dec), so a step that suits the equator needs 1/cos(Dec) as many pulses
+// near the pole and runs out of its MAX_CALIBRATION_STEPS above about 79 deg.
+// No declination (nullopt) gives stepMs. The result is at most
+// max(stepMs, RA_STEP_MAX_MS).
+int RaCalibrationStepMs(int stepMs, std::optional<double> declinationRad);
 
 // What the run reads from Scope and the guider. Scope fills it from its members
 // on every frame; the run reads each field where the old code read the member.
@@ -263,8 +278,11 @@ struct FrameResult
 class CalibrationRun
 {
 public:
-    // Starts a calibration at the lock position, as Scope::BeginCalibration did
-    void Begin(const Pt& initialLocation);
+    // Starts a calibration at the lock position, as Scope::BeginCalibration did.
+    // declinationRad is the mount's Dec when the calibration starts, nullopt when
+    // it is not known; the West and East legs pulse
+    // RaCalibrationStepMs(Settings.stepMs, declinationRad) (#141).
+    void Begin(const Pt& initialLocation, std::optional<double> declinationRad);
     // The calibration was cleared (Scope::ClearCalibration): the next frame fails with Fail::Cleared
     void Clear();
     // One camera frame: what Scope::UpdateCalibrationState did with the star's position
@@ -282,6 +300,7 @@ private:
         ;
 
     State m_state = State::Cleared;
+    std::optional<double> m_declinationRad; // the mount's Dec at Begin, radians (#141)
     int m_calibrationSteps = 0;
     int m_recenterRemaining = 0;
     int m_recenterDuration = 0;
