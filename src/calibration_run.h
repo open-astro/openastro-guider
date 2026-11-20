@@ -122,6 +122,12 @@ enum class Fail
     RaDidNotMove, // "RA Calibration Failed: star did not move enough"
     BacklashClearingFailed, // "Backlash Clearing Failed: star did not move enough"
     DecDidNotMove, // "DEC Calibration Failed: star did not move enough"
+    // #148: the run skipped the Dec leg for Dec guide mode None, and the mode
+    // was Auto, North or South when it reached Complete. A calibration with no
+    // Dec rate cannot serve those modes, so nothing is stored and the run ends
+    // here instead of reporting Complete on every frame.
+    // "Calibration failed: the Dec guide mode was changed from Off during calibration"
+    DecModeChanged,
 };
 
 constexpr int MAX_CALIBRATION_STEPS = 60;
@@ -270,8 +276,12 @@ struct FrameResult
     Outcome outcome = Outcome::Continue;
     Fail fail = Fail::Cleared; // when Failed
     // Complete for the first time since Begin. A run in Complete stays there
-    // and reports Complete on every later frame too (Scope's IsCalibrated()
-    // can stay false after it, #148); those frames do not carry new results.
+    // and reports Complete on any later frame Scope enters it on; those frames
+    // do not carry new results. Since #148 the Dec guide mode cannot leave
+    // Scope's IsCalibrated() false after a completion (that run fails with
+    // DecModeChanged instead), but Mount::IsCalibrated() is also false while
+    // the mount is disconnected, so Scope still copies what the run measured
+    // only on the first.
     bool firstComplete = false;
 };
 
