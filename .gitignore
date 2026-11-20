@@ -21,6 +21,8 @@ obj-*/
 # Local CMake build output (build/run-clang-format is tracked)
 /build/*
 !/build/run-clang-format
+# the sanitizer build of the daemon e2e job (.github/workflows/ci.yml)
+/build-asan/
 
 # Built .deb and related files (if built from repo root)
 *.deb

@@ -675,3 +675,108 @@ left `Calibrating`.
 
 ARA: no code change. The new `Reason` is one more failed calibration; a client that waits for
 `CalibrationComplete` or `CalibrationFailed` gets the failure instead of waiting forever.
+
+## 2026-11-20 — 25 s guide pulse ceiling (#152)
+
+No new method or field. A dither's fast recenter and an AO bump of the mount were sent at
+whatever length they were computed, so one computed with a rate of 0 asked the mount for
+`INT_MAX` ms, and a guide step was held only to the max RA/Dec duration, which
+`set_guide_limits` accepts up to 1 000 000 ms.
+
+- Every pulse sized from a star offset (guide step, deduced move while the star is lost,
+  fast-recenter step after a `dither`, AO bump) is now at most 25 000 ms, under the 30 s HTTP
+  timeout the Alpaca client gives a `PulseGuide` that blocks while it runs, the ceiling #141 gave
+  the calibration's grown RA step. A `GuideStep` whose RA or Dec pulse was cut to 25 000 ms has
+  `RALimited` / `DecLimited` set, as for the max duration.
+- `set_guide_limits` still accepts and stores up to 1 000 000 ms and `get_guide_limits` returns
+  what was set; a value over 25 000 now guides as 25 000.
+- Not changed: the fast-recenter step and the AO bump are still not held to the max RA/Dec
+  duration and still ignore `set_dec_guide_mode` (a `dither` with a North or South Dec mode and a
+  settle runs the settle in Auto, as before). Calibration pulses and `guide_pulse` (its own
+  `-60000..60000`) are not capped.
+
+ARA: no code change.
+
+## 2026-11-20 — "Calibration was too far from equator" Alert on Dec jitter (#157)
+
+No API change. Every entry to `Guiding` (each `guide`, after its calibration when one runs)
+checks the Dec the mount reports against the calibration's Dec. For a calibration above Dec 60°,
+any difference at all raised an `Alert` "Calibration was too far from equator, recalibration is
+needed.", so a calibration that had just completed at Dec 70° or 80° alerted as soon as the
+reported Dec moved by a driver's rounding.
+
+- A Dec within 0.02° (72") of the calibration's is now unchanged. Above 60° the `Alert` is raised
+  only when the Dec moved enough to change the RA rate by more than 5%,
+  |cos(Dec now) / cos(calibration Dec) − 1| > 0.05: about 0.5° at Dec 80°, and a move from 70° to
+  75° still raises it. A smaller move raises no `Alert`, and the guider guides with the
+  calibration's RA rate as measured, as it did when the Dec had not changed.
+- Below 60° a Dec that moved more than 0.02° scales the RA rate by cos(Dec now) / cos(calibration
+  Dec) when Dec compensation is on, as before; a smaller move keeps the calibration's RA rate
+  (under 0.07% different).
+- A Dec that is not finite is treated like an unknown Dec: no `Alert` and no scaling.
+- Not changed: the `Alert` text, the 60° limit, `get_calibration_data`, the `Guiding`/`GuideStep`
+  events, and every other `Alert` of the same check (guide speeds, side of pier, pixel size,
+  rotator).
+
+ARA: no code change. It recalibrates on every new target, so the `Alert` it showed after a fresh
+high-Dec calibration goes away; it still appears for a calibration reused after a real Dec move.
+
+## 2026-11-20 — backlash clearing at high Dec (#156)
+
+No API change. Before the Dec leg, backlash clearing pulses North until three pulses in a row each
+move the star at least 0.6 of a pulse's expected move. That move came from the RA rate the West
+leg measured, which shrinks with cos(Dec) while a Dec pulse does not: 1.3 px at the equator on the
+FL 400 mm / 3.75 µm / 0.5x profile, 0.2 px at Dec 80°, where centroid noise passed for a move and
+the Dec rate could be measured with backlash still in it.
+
+- With the Dec the guider reads from the mount at the start of the calibration (#141), clearing
+  now expects the Dec leg's move at every Dec (the RA rate divided by cos(Dec), times the Dec/RA
+  guide-rate ratio as before). An unknown Dec keeps the old step.
+- A client may see more `Calibrating` steps with `dir` "Backlash" at high Dec, while the backlash
+  is taken up; clearing still sends at most max(8, 60000 / step) pulses and still goes on once the
+  star has moved the calibration distance. A wrong Dec reading (85° reported at the equator) makes
+  clearing accept no move and go on after the calibration distance; the calibration completes.
+- What a wrong Dec reading costs: one whose cos(Dec) is under 0.6 of the true one (55° reported at
+  the equator already, or a mount in a false Home that reports 90°) makes clearing use up the
+  calibration distance North before the North leg starts. The star then travels up to about twice
+  the calibration distance North, beyond the edge margin auto-select keeps (#140: the calibration
+  distance plus the search region), so a star picked near that margin can be lost and the
+  calibration fail. The South leg sends back only the North leg's pulses and the nudge is at most 4
+  pulses of one step, so a completed calibration leaves the star about one calibration distance from
+  the lock instead of about 2 px; the `Calibrating` steps show it, and guiding brings it back.
+- Not changed: the clearing pulse (the calibration step), the `Calibrating` event fields and their
+  order, the `CalibrationFailed` reasons, `get_calibration_data`.
+
+ARA: no code change.
+
+## 2026-11-20 — max-duration alert one guide step earlier (#153)
+
+No API change. The `Alert` event the guider sends when its guide steps keep hitting the max RA or
+Dec duration ("PHD2 is not able to make sufficient corrections in RA/Dec..." and its variants)
+now comes on the 5th guide step in a row clamped in the same direction, instead of the 6th.
+
+- Not changed: the alert text and flags, the 30 s minimum between two of them, what starts a new
+  run (a clamp the other way, an unclamped step, a step the Dec guide mode zeroes), and the
+  `GuideStep` event's `RALimited` / `DecLimited`, which are set on every clamped step as before.
+
+ARA: no code change.
+
+## 2026-11-20 — the event order of a guide request, checked in CI (#142)
+
+No API change. The order below is what the daemon sends today (inherited from PHD2's
+`PhdController`); the `Daemon e2e (arm64, ASan/UBSan)` CI job now checks it against the real
+daemon and the fake Alpaca server (`scripts/e2e_guide_scenarios.py`), so a change to it fails CI.
+
+For one `guide` request with `recalibrate: true` that calibrates and settles:
+
+- `StartCalibration`, one or more `Calibrating`, `CalibrationComplete`;
+- `StartGuiding`, then `SettleBegin` at once, before the first `GuideStep`;
+- `Settling` and `GuideStep` events, interleaved, while the settle runs;
+- exactly one `SettleDone` (`Status` 0 on success), then `GuideStep` events.
+
+`LockPositionSet` and `StarSelected` come before `StartCalibration` when the request selects
+the star, and `ConfigurationChange` / `AppState` can arrive in between; the check ignores those.
+A request that fails still ends with exactly one `SettleDone` (see `doc/jsonrpc_api.md` for the
+failure orders). A dropped frame while guiding (#136) is a `StarLost` and the `GuideStep`s go on.
+
+ARA: no code change. It waits for `SettleDone` as the end of the request, which this pins.

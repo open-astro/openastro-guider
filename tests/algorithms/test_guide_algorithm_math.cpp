@@ -1,50 +1,34 @@
-// Math-twin tests for the simple guide algorithms.
+// Tests of the simple guide algorithms' math.
 //
-// The production GuideAlgorithm subclasses sit on top of pConfig, Debug,
-// pFrame, Mount, ConfigDialogPane and the rest of the
-// wxWidgets/PHD2 globals universe. Standing up the full link surface for
-// a unit test is a significant infrastructure project; instead, this file
-// reimplements each algorithm's pure math/state machine here, alongside
-// the production line numbers. The test verifies the formula on a fixed
-// scenario.
+// Hysteresis and ResistSwitch (the RA and Dec defaults) run on the REAL
+// guide_algorithm_kernels.cpp, the per-frame math GuideAlgorithmHysteresis::result() and
+// GuideAlgorithmResistSwitch::result() delegate to (#142). These replaced copies of the
+// formulas that had drifted from production: the ResistSwitch copy had neither the overshoot
+// veto nor the "not getting worse" check. test_guide_algorithm_kernels holds the wider
+// characterization and the differential test against the code before the extraction.
 //
-// What this catches:
-//   - Anyone changing the formula in the production .cpp without updating
-//     this test (and vice versa). The PR diff makes the formula change
-//     visible; CI failure forces a deliberate update on both sides.
-//
-// What this DOESN'T catch:
-//   - Wiring drift between SetMinMove() and m_minMove in the production
-//     class (e.g. someone adds rounding only on the setter).
-//   - Subtle wx-side effects in the dialog pane.
-//
-// For the algorithms covered here (identity, hysteresis, resistswitch)
-// the formula IS the load-bearing thing. Lowpass / Lowpass2 / ZFilter
-// depend on WindowedAxisStats / ZFilterFactory respectively and are left
-// as follow-up — see the (deferred) "stats and filter math twin tests"
-// task.
-//
-// Source-of-truth references (update in lockstep):
-//   identity:     src/guide_algorithm_identity.cpp ~line 50
-//   hysteresis:   src/guide_algorithm_hysteresis.cpp ~line 75
-//   resistswitch: src/guide_algorithm_resistswitch.cpp ~line 78
+// Identity has nothing to extract (result() returns its input), so its one-line formula is
+// still mirrored here: src/guide_algorithm_identity.cpp, GuideAlgorithmIdentity::result().
 
 #include <gtest/gtest.h>
 
+#include "guide_algorithm_kernels.h"
+
 #include <cmath>
 #include <vector>
+
+using namespace guide_algorithm_kernels;
 
 namespace identity_twin
 {
 
 // Mirrors GuideAlgorithmIdentity::result()
-// Source: src/guide_algorithm_identity.cpp ~line 50
 inline double result(double input)
 {
     return input;
 }
 
-}
+} // namespace identity_twin
 
 TEST(IdentityAlgo, ReturnsInputUnchanged)
 {
@@ -57,286 +41,263 @@ TEST(IdentityAlgo, ReturnsInputUnchanged)
 // ---------------------------------------------------------------------------
 // Hysteresis
 // ---------------------------------------------------------------------------
-namespace hysteresis_twin
-{
 
-// Mirrors GuideAlgorithmHysteresis. Source: src/guide_algorithm_hysteresis.cpp
-// ~line 42-91. Defaults at ~line 42.
-struct Params
+TEST(HysteresisAlgo, DefaultsAreTheConstructors)
 {
-    double minMove = 0.2; // DefaultMinMove
-    double hysteresis = 0.1; // DefaultHysteresis (0..0.99)
-    double aggression = 0.7; // DefaultAggression (0..2.0)
-};
-
-struct State
-{
-    double lastMove = 0.0;
-};
-
-// result() body verbatim:
-//     double dReturn = (1.0 - m_hysteresis) * input + m_hysteresis * m_lastMove;
-//     dReturn *= m_aggression;
-//     if (fabs(input) < m_minMove) dReturn = 0.0;
-//     m_lastMove = dReturn;
-inline double step(State& s, const Params& p, double input)
-{
-    double dReturn = (1.0 - p.hysteresis) * input + p.hysteresis * s.lastMove;
-    dReturn *= p.aggression;
-    if (std::fabs(input) < p.minMove)
-        dReturn = 0.0;
-    s.lastMove = dReturn;
-    return dReturn;
-}
-
+    HysteresisParams p;
+    EXPECT_EQ(p.minMove, 0.2);
+    EXPECT_EQ(p.hysteresis, 0.1);
+    EXPECT_EQ(p.aggression, 0.7);
+    EXPECT_EQ(HysteresisState().lastMove, 0.);
 }
 
 TEST(HysteresisAlgo, ZeroBelowMinMove)
 {
-    hysteresis_twin::State s;
-    hysteresis_twin::Params p; // defaults: minMove=0.2
-    EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, 0.0), 0.0);
-    EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, 0.1), 0.0);
-    EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, 0.19), 0.0);
-    EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, -0.19), 0.0);
+    HysteresisState s;
+    HysteresisParams p; // minMove 0.2
+    EXPECT_EQ(HysteresisResult(s, p, 0.0), 0.0);
+    EXPECT_EQ(HysteresisResult(s, p, 0.1), 0.0);
+    EXPECT_EQ(HysteresisResult(s, p, 0.19), 0.0);
+    EXPECT_EQ(HysteresisResult(s, p, -0.19), 0.0);
 }
 
 TEST(HysteresisAlgo, FirstStepBlendsAgainstZeroLastMove)
 {
-    hysteresis_twin::State s; // lastMove = 0
-    hysteresis_twin::Params p; // h=0.1, agg=0.7
-    // dReturn = (1-0.1)*1.0 + 0.1*0  = 0.9
-    // dReturn *= 0.7                  = 0.63
-    EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, 1.0), 0.63);
+    HysteresisState s;
+    HysteresisParams p; // h 0.1, aggression 0.7
+    // (1 - 0.1) * 1.0 + 0.1 * 0 = 0.9, times 0.7
+    EXPECT_DOUBLE_EQ(HysteresisResult(s, p, 1.0), 0.63);
     EXPECT_DOUBLE_EQ(s.lastMove, 0.63);
 }
 
 TEST(HysteresisAlgo, BlendsLastMoveOnSubsequentSteps)
 {
-    hysteresis_twin::State s;
-    hysteresis_twin::Params p; // h=0.1, agg=0.7
-    hysteresis_twin::step(s, p, 1.0); // lastMove now 0.63
-    // Step 2: dReturn = (0.9 * 1.0 + 0.1 * 0.63) * 0.7
-    //                 = (0.9 + 0.063) * 0.7
-    //                 = 0.963 * 0.7
-    //                 = 0.6741
-    EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, 1.0), (0.9 + 0.1 * 0.63) * 0.7);
+    HysteresisState s;
+    HysteresisParams p;
+    HysteresisResult(s, p, 1.0); // lastMove 0.63
+    EXPECT_DOUBLE_EQ(HysteresisResult(s, p, 1.0), (0.9 + 0.1 * 0.63) * 0.7);
 }
 
-TEST(HysteresisAlgo, ZeroInputZeroOutputAndClearsState)
+TEST(HysteresisAlgo, GatedStepClearsLastMove)
 {
-    hysteresis_twin::State s;
-    hysteresis_twin::Params p;
-    hysteresis_twin::step(s, p, 1.0); // lastMove = 0.63
-    EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, 0.0), 0.0);
-    // |input| < minMove path zeroes the return AND lastMove (because
-    // m_lastMove = dReturn after the clamp).
-    EXPECT_DOUBLE_EQ(s.lastMove, 0.0);
+    HysteresisState s;
+    HysteresisParams p;
+    HysteresisResult(s, p, 1.0);
+    EXPECT_EQ(HysteresisResult(s, p, 0.0), 0.0);
+    EXPECT_EQ(s.lastMove, 0.0);
 }
 
 TEST(HysteresisAlgo, NegativeInputProducesNegativeOutput)
 {
-    hysteresis_twin::State s;
-    hysteresis_twin::Params p;
-    // dReturn = 0.9 * -1.0 + 0 = -0.9, *= 0.7 = -0.63
-    EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, -1.0), -0.63);
+    HysteresisState s;
+    HysteresisParams p;
+    EXPECT_DOUBLE_EQ(HysteresisResult(s, p, -1.0), -0.63);
 }
 
 TEST(HysteresisAlgo, AggressionScalesProportionally)
 {
-    {
-        hysteresis_twin::State s;
-        hysteresis_twin::Params p;
-        p.aggression = 1.0; // full
-        // dReturn = 0.9 * 1.0 + 0 = 0.9, *= 1.0 = 0.9
-        EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, 1.0), 0.9);
-    }
-    {
-        hysteresis_twin::State s;
-        hysteresis_twin::Params p;
-        p.aggression = 0.5;
-        // 0.9 * 0.5 = 0.45
-        EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, 1.0), 0.45);
-    }
+    HysteresisParams p;
+    p.aggression = 1.0;
+    HysteresisState s1;
+    EXPECT_DOUBLE_EQ(HysteresisResult(s1, p, 1.0), 0.9);
+    p.aggression = 0.5;
+    HysteresisState s2;
+    EXPECT_DOUBLE_EQ(HysteresisResult(s2, p, 1.0), 0.45);
+    p.aggression = 0.;
+    HysteresisState s3;
+    EXPECT_EQ(HysteresisResult(s3, p, 1.0), 0.);
 }
 
-TEST(HysteresisAlgo, FullHysteresisTrapsLastMove)
+TEST(HysteresisAlgo, MaxHysteresisIsMostlyLastMove)
 {
-    // hysteresis = 1.0 would mean output = aggression * lastMove (input
-    // ignored). Production caps hysteresis at MaxHysteresis=0.99 so we
-    // exercise the boundary.
-    hysteresis_twin::State s;
-    hysteresis_twin::Params p;
+    HysteresisState s;
+    s.lastMove = 5.0;
+    HysteresisParams p;
     p.hysteresis = 0.99;
     p.aggression = 1.0;
-    s.lastMove = 5.0;
-    // dReturn = (1-0.99)*1.0 + 0.99*5.0 = 0.01 + 4.95 = 4.96
-    EXPECT_DOUBLE_EQ(hysteresis_twin::step(s, p, 1.0), 4.96);
+    EXPECT_DOUBLE_EQ(HysteresisResult(s, p, 1.0), 4.96);
 }
 
-TEST(HysteresisAlgo, ResetClearsLastMove)
+TEST(HysteresisAlgo, MinMoveZeroPassesAZeroInputsShareOfTheLastMove)
 {
-    // GuideAlgorithmHysteresis::reset() sets m_lastMove = 0 (line 70-73).
-    hysteresis_twin::State s;
-    hysteresis_twin::Params p;
-    hysteresis_twin::step(s, p, 1.0);
-    EXPECT_NE(s.lastMove, 0.0);
-    s.lastMove = 0.0; // == reset()
-    EXPECT_EQ(s.lastMove, 0.0);
+    HysteresisState s;
+    HysteresisParams p;
+    p.minMove = 0.;
+    HysteresisResult(s, p, 1.0);
+    EXPECT_DOUBLE_EQ(HysteresisResult(s, p, 0.), 0.1 * 0.63 * 0.7);
 }
 
 // ---------------------------------------------------------------------------
 // Resist Switch
 // ---------------------------------------------------------------------------
-namespace resistswitch_twin
-{
 
-// Mirrors GuideAlgorithmResistSwitch. Source:
-// src/guide_algorithm_resistswitch.cpp ~line 42-184
-//
-// Constants:
-constexpr unsigned int HISTORY_SIZE = 10;
-
-struct Params
+namespace
 {
-    double minMove = 0.2;
-    double aggression = 1.0; // DefaultAggression (~line 43)
-    bool fastSwitchEnabled = true;
-};
-
-struct State
+ResistSwitchParams NoFastSwitch()
 {
-    std::vector<double> history; // size = HISTORY_SIZE; oldest..newest
-    int currentSide = 0; // -1, 0, +1
-    State() : history(HISTORY_SIZE, 0.0) { }
-};
-
-inline int sign(double x)
-{
-    return (x > 0) - (x < 0);
+    ResistSwitchParams p;
+    p.fastSwitchEnabled = false;
+    return p;
 }
 
-// result() body (paraphrased — exception-control-flow flattened to
-// straight-line):
-//   1. push input onto history (drop oldest)
-//   2. if |input| < minMove: result = 0, currentSide unchanged (early
-//      return via THROW_INFO("input < m_minMove"))
-//   3. fast-switch: if input flips sign and |input| > 3*minMove, force
-//      reset of history to all-input and currentSide=0
-//   4. tally decHistory = sum of sign(h[i]) for |h[i]| > minMove
-//   5. if currentSide == 0 OR opposite of decHistory:
-//        if |decHistory| < 3: result = 0 (not compelling)
-//        else: pick direction from decHistory and use a few-sample mean
-//   6. else: scale result by aggression
-//
-// For the test we exercise the OUTER contract: small inputs return 0;
-// strong, sustained motion eventually triggers a switch; isolated noise
-// doesn't.
-inline double step(State& s, const Params& p, double input)
+std::vector<double> Feed(ResistSwitchState& s, const ResistSwitchParams& p, const std::vector<double>& inputs)
 {
-    // step 1: history push
-    s.history.push_back(input);
-    s.history.erase(s.history.begin());
+    std::vector<double> out;
+    for (double in : inputs)
+        out.push_back(ResistSwitchResult(s, p, in).result);
+    return out;
+}
+} // namespace
 
-    // step 2: below minMove
-    if (std::fabs(input) < p.minMove)
-        return 0.0;
-
-    // step 3: fast switch (large reverse)
-    if (p.fastSwitchEnabled)
-    {
-        double thresh = 3.0 * p.minMove;
-        if (sign(input) != s.currentSide && std::fabs(input) > thresh)
-        {
-            s.currentSide = 0;
-            for (unsigned i = 0; i < HISTORY_SIZE - 3; ++i)
-                s.history[i] = 0.0;
-            for (unsigned i = HISTORY_SIZE - 3; i < HISTORY_SIZE; ++i)
-                s.history[i] = input;
-        }
-    }
-
-    // step 4: tally
-    int decHistory = 0;
+TEST(ResistSwitchAlgo, DefaultsAreTheConstructors)
+{
+    ResistSwitchParams p;
+    EXPECT_EQ(p.minMove, 0.2);
+    EXPECT_EQ(p.aggression, 1.0);
+    EXPECT_TRUE(p.fastSwitchEnabled);
+    ResistSwitchState s;
+    s.currentSide = 1;
+    s.history[3] = 2.;
+    ResistSwitchReset(s);
+    EXPECT_EQ(s.currentSide, 0);
     for (double h : s.history)
-        if (std::fabs(h) > p.minMove)
-            decHistory += sign(h);
-
-    // step 5: decision
-    double rslt = input;
-    if (s.currentSide == 0 || sign(s.currentSide) == -sign(decHistory))
-    {
-        if (std::abs(decHistory) < 3)
-            return 0.0;
-        // commit to direction
-        s.currentSide = sign(decHistory);
-    }
-
-    // step 6: scale by aggression
-    return rslt * p.aggression;
-}
-
+        EXPECT_EQ(h, 0.);
+    EXPECT_EQ(RESIST_SWITCH_HISTORY_SIZE, 10u);
 }
 
 TEST(ResistSwitchAlgo, BelowMinMoveReturnsZero)
 {
-    resistswitch_twin::State s;
-    resistswitch_twin::Params p;
-    EXPECT_DOUBLE_EQ(resistswitch_twin::step(s, p, 0.0), 0.0);
-    EXPECT_DOUBLE_EQ(resistswitch_twin::step(s, p, 0.1), 0.0);
-    EXPECT_DOUBLE_EQ(resistswitch_twin::step(s, p, -0.19), 0.0);
+    ResistSwitchState s;
+    ResistSwitchParams p;
+    for (double in : { 0.0, 0.1, -0.19 })
+    {
+        ResistSwitchStep step = ResistSwitchResult(s, p, in);
+        EXPECT_EQ(step.result, 0.0);
+        EXPECT_EQ(step.veto, ResistSwitchVeto::BelowMinMove);
+    }
+    EXPECT_EQ(s.history[RESIST_SWITCH_HISTORY_SIZE - 1], -0.19); // still recorded
 }
 
 TEST(ResistSwitchAlgo, IsolatedSpikeDoesNotSwitch)
 {
-    // One large-but-isolated input shouldn't change side from 0 — needs
-    // sustained evidence (decHistory >= 3).
-    resistswitch_twin::State s;
-    resistswitch_twin::Params p;
-    p.fastSwitchEnabled = false; // disable fast-switch to test resist behavior
-    double r = resistswitch_twin::step(s, p, 0.5);
-    EXPECT_DOUBLE_EQ(r, 0.0); // not yet 3 in a row
+    ResistSwitchState s;
+    ResistSwitchStep step = ResistSwitchResult(s, NoFastSwitch(), 0.5);
+    EXPECT_EQ(step.result, 0.0);
+    EXPECT_EQ(step.veto, ResistSwitchVeto::NotCompelling);
     EXPECT_EQ(s.currentSide, 0);
 }
 
-TEST(ResistSwitchAlgo, SustainedDirectionEventuallySwitches)
+TEST(ResistSwitchAlgo, SustainedDirectionSwitches)
 {
-    resistswitch_twin::State s;
-    resistswitch_twin::Params p;
-    p.fastSwitchEnabled = false;
-    double r = 0;
-    // 3 consecutive significant pushes the same way → direction commits
-    r = resistswitch_twin::step(s, p, 0.5);
-    r = resistswitch_twin::step(s, p, 0.5);
-    r = resistswitch_twin::step(s, p, 0.5);
-    EXPECT_DOUBLE_EQ(r, 0.5);
+    ResistSwitchState s;
+    ResistSwitchParams p = NoFastSwitch();
+    ResistSwitchResult(s, p, 0.5);
+    ResistSwitchResult(s, p, 0.5);
+    ResistSwitchStep step = ResistSwitchResult(s, p, 0.5);
+    EXPECT_EQ(step.result, 0.5);
+    EXPECT_EQ(step.veto, ResistSwitchVeto::None);
+    EXPECT_TRUE(step.switched);
+    EXPECT_EQ(step.switchFrom, 0);
+    EXPECT_EQ(step.switchTo, 1);
+    EXPECT_EQ(step.decHistory, 3);
+    EXPECT_EQ(step.oldest, 0.);
+    EXPECT_DOUBLE_EQ(step.newest, 1.5);
     EXPECT_EQ(s.currentSide, 1);
+}
+
+TEST(ResistSwitchAlgo, OvershootVetoBlocksASmallReversal)
+{
+    // On the committed side, a reversal under the fast-switch threshold (3 x minMove = 0.6)
+    // is taken for an overshoot and not corrected while the history still points the other way.
+    // The old copy of the formula here had no veto and passed -0.4 straight through.
+    ResistSwitchState s;
+    ResistSwitchParams p; // fast switch on
+    Feed(s, p, { 0.5, 0.5, 0.5 });
+    ASSERT_EQ(s.currentSide, 1);
+    ResistSwitchStep step = ResistSwitchResult(s, p, -0.4);
+    EXPECT_EQ(step.result, 0.0);
+    EXPECT_EQ(step.veto, ResistSwitchVeto::Overshoot);
+    EXPECT_FALSE(step.fastSwitched);
+    EXPECT_FALSE(step.switched);
+    EXPECT_EQ(s.currentSide, 1);
+    // the veto holds until the history turns: decHistory 1, 0 still veto, then -1, -2 are
+    // not compelling, then -3 with the newest three worse than the oldest switches
+    EXPECT_EQ(Feed(s, p, { -0.4, -0.4, -0.4, -0.4, -0.4 }), (std::vector<double> { 0., 0., 0., 0., -0.4 }));
+    EXPECT_EQ(s.currentSide, -1);
+}
+
+TEST(ResistSwitchAlgo, OvershootVetoEvenWithAHugeReversalWhenFastSwitchIsOff)
+{
+    ResistSwitchState s;
+    ResistSwitchParams p = NoFastSwitch();
+    Feed(s, p, { 0.5, 0.5, 0.5 });
+    ResistSwitchStep step = ResistSwitchResult(s, p, -5.0);
+    EXPECT_EQ(step.result, 0.0);
+    EXPECT_EQ(step.veto, ResistSwitchVeto::Overshoot);
+}
+
+TEST(ResistSwitchAlgo, OvershootVetoOnTheFrameTheHistorySwitches)
+{
+    // decHistory reaches 3 on a frame whose own input is negative: the side switches to +1 and
+    // the input is vetoed in the same step
+    ResistSwitchState s;
+    ResistSwitchParams p = NoFastSwitch();
+    Feed(s, p, { 1.0, 2.0, -1.0, 0.5, 0.5 });
+    ResistSwitchStep step = ResistSwitchResult(s, p, -0.2);
+    EXPECT_TRUE(step.switched);
+    EXPECT_EQ(step.switchTo, 1);
+    EXPECT_EQ(step.veto, ResistSwitchVeto::Overshoot);
+    EXPECT_EQ(step.result, 0.);
+    EXPECT_EQ(s.currentSide, 1);
+}
+
+TEST(ResistSwitchAlgo, NotGettingWorseHoldsTheSide)
+{
+    ResistSwitchState s;
+    ResistSwitchParams p = NoFastSwitch();
+    Feed(s, p, { 0.9, 0.9, 0.9 });
+    std::vector<ResistSwitchVeto> vetoes;
+    for (int i = 0; i < 8; i++)
+        vetoes.push_back(ResistSwitchResult(s, p, -0.5).veto);
+    EXPECT_EQ(vetoes,
+              (std::vector<ResistSwitchVeto> { ResistSwitchVeto::Overshoot, ResistSwitchVeto::Overshoot,
+                                               ResistSwitchVeto::Overshoot, ResistSwitchVeto::NotCompelling,
+                                               ResistSwitchVeto::NotCompelling, ResistSwitchVeto::NotGettingWorse,
+                                               ResistSwitchVeto::NotGettingWorse, ResistSwitchVeto::None }));
+    EXPECT_EQ(s.currentSide, -1);
 }
 
 TEST(ResistSwitchAlgo, FastSwitchOnLargeReverseImmediate)
 {
-    // With fastSwitchEnabled (default), a reversal larger than 3*minMove
-    // forces a switch even from a committed side.
-    resistswitch_twin::State s;
-    resistswitch_twin::Params p; // fastSwitchEnabled=true, minMove=0.2 => thresh=0.6
-    s.currentSide = 1; // pretend we're already locked in +
-    // input -0.7 (< -3*minMove and opposite sign) triggers the fast-switch
-    double r = resistswitch_twin::step(s, p, -0.7);
-    // After fast-switch, currentSide is reset to 0; decHistory is now ~3 negs
-    // (because step set the last 3 history entries to input). With
-    // currentSide==0 OR opposite-of-decHistory==-1 == opposite-of-tally,
-    // the decision branch is entered; |decHistory| >= 3 → commits negative.
-    EXPECT_LT(r, 0.0);
+    ResistSwitchState s;
+    ResistSwitchParams p; // minMove 0.2, thresh 0.6
+    s.currentSide = 1;
+    ResistSwitchStep step = ResistSwitchResult(s, p, -0.7);
+    EXPECT_TRUE(step.fastSwitched);
+    EXPECT_EQ(step.thresh, 3.0 * 0.2);
+    EXPECT_EQ(step.fastSwitchFrom, 1);
+    EXPECT_EQ(step.fastSwitchTo, -1);
+    EXPECT_TRUE(step.switched);
+    EXPECT_EQ(step.switchFrom, 0);
+    EXPECT_EQ(step.result, -0.7);
+    EXPECT_EQ(s.currentSide, -1);
+    for (unsigned i = 0; i < RESIST_SWITCH_HISTORY_SIZE; i++)
+        EXPECT_EQ(s.history[i], i < RESIST_SWITCH_HISTORY_SIZE - 3 ? 0. : -0.7);
 }
 
 TEST(ResistSwitchAlgo, AggressionScalesResult)
 {
-    resistswitch_twin::State s;
-    resistswitch_twin::Params p;
-    p.fastSwitchEnabled = false;
+    ResistSwitchState s;
+    ResistSwitchParams p = NoFastSwitch();
     p.aggression = 0.5;
-    resistswitch_twin::step(s, p, 0.5);
-    resistswitch_twin::step(s, p, 0.5);
-    double r = resistswitch_twin::step(s, p, 0.5);
-    EXPECT_DOUBLE_EQ(r, 0.5 * 0.5);
+    EXPECT_EQ(Feed(s, p, { 0.5, 0.5, 0.5 }), (std::vector<double> { 0., 0., 0.25 }));
+}
+
+TEST(ResistSwitchAlgo, SignOfNaNIsZero)
+{
+    EXPECT_EQ(ResistSwitchSign(2.), 1);
+    EXPECT_EQ(ResistSwitchSign(-1e-300), -1);
+    EXPECT_EQ(ResistSwitchSign(0.), 0);
+    EXPECT_EQ(ResistSwitchSign(-0.), 0);
+    EXPECT_EQ(ResistSwitchSign(std::nan("")), 0);
 }

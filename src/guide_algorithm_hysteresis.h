@@ -40,12 +40,14 @@
 #ifndef GUIDE_ALGORITHM_HYSTERESIS_H_INCLUDED
 #define GUIDE_ALGORITHM_HYSTERESIS_H_INCLUDED
 
+#include "guide_algorithm_kernels.h"
+
 class GuideAlgorithmHysteresis : public GuideAlgorithm
 {
     double m_minMove;
     double m_hysteresis;
     double m_aggression;
-    double m_lastMove;
+    guide_algorithm_kernels::HysteresisState m_state; // the last move
 
 protected:
     class GuideAlgorithmHysteresisConfigDialogPane : public ConfigDialogPane

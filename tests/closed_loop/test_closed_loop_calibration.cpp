@@ -13,7 +13,10 @@
 // unknown, and test_high_dec_calibration.cpp covers a known Dec; and a
 // DEC_NONE calibration that fails when the mode was switched to one that
 // guides Dec before it completed (#148), where the twin kept completing on
-// every frame. The LegacyTwin tests pin the twin's old behaviour of each.
+// every frame; and the South nudge's cosine clamped to [-1, 1] (#154), where
+// the twin's acos gave NaN for one rounded past -1 and stopped a nudge that
+// went the right way. The LegacyTwin tests pin the twin's old behaviour of
+// each.
 //
 // Every test starts a fresh calibration with Begin: nothing here restores,
 // reuses or skips a calibration.
@@ -28,11 +31,13 @@
 #include "extracted_run.h"
 #include "harness.h"
 #include "legacy/legacy_twin.h"
+#include "nudge_cosine.h"
 #include "sim_mount.h"
 
 #include <cmath>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 using namespace closed_loop;
@@ -114,7 +119,8 @@ bool DebugShowsNanAfter(const CalOutcome& o, const std::string& fragment)
 // The South nudge compares the nudge with the North leg through acos of their
 // direction cosines. In a noiseless run the two are exactly antiparallel, so
 // the cosine sits on -1 and rounding (FMA contraction included) decides
-// whether acos returns pi or NaN. Tests of the nudge add a little noise.
+// whether the twin's acos returns pi or NaN; the run clamps the cosine
+// (#154). Tests of the nudge that run on both add a little noise.
 SimMountConfig WithLightNoise(SimMountConfig c)
 {
     c.noiseSigmaPx = 0.02;
@@ -879,6 +885,81 @@ TYPED_TEST(Calibration, NudgeSouthEndsOnANanAngleWhenTheStarIsOnTheLock)
     EXPECT_TRUE(NudgePulses(o).empty());
     EXPECT_TRUE(DebugShowsNanAfter(o, "Nudge: theta = "));
     EXPECT_TRUE(DebugShowsNanAfter(o, "Nudging discontinued, wrong direction: "));
+}
+
+namespace
+{
+
+// #154: a noiseless calibration whose nudge cosine rounds past -1 (or, with
+// pastLock, past +1) on the frame the nudge starts (nudge_cosine.h)
+template<class Run>
+CalOutcome CalibrateWithNudgeCosinePastOne(bool pastLock, int *nudgeFrame)
+{
+    const SimMountConfig c = nudge_cosine::Mount();
+    // the geometry's premise: hypot of the placed vectors is exact
+    EXPECT_EQ(std::hypot(nudge_cosine::kDirX / 8., nudge_cosine::kDirY / 8.), nudge_cosine::kLength / 8.);
+    EXPECT_EQ(std::hypot(nudge_cosine::kDirX / 64., nudge_cosine::kDirY / 64.), nudge_cosine::kLength / 64.);
+    std::pair<int, int> f = nudge_cosine::Frames<Run>(c, ProfileSettings());
+    EXPECT_GE(f.first, 0);
+    EXPECT_GT(f.second, f.first);
+    *nudgeFrame = f.second;
+    return Calibrate<Run>(c, ProfileSettings(), 2000, nudge_cosine::Placing<Run>(c, f.first, f.second, pastLock));
+}
+
+} // namespace
+
+TEST(LegacyTwin, NudgeCosinePastMinusOneGaveNanAndStoppedTheNudge)
+{
+    // #154, before the fix: the star 4.3 px north of the lock, exactly back
+    // down the North leg, gave a cosine of -1.0000000000000002, acos gave
+    // NaN, and the nudge ended as "wrong direction" with the star left there.
+    // The extracted run clamps the cosine (CalibrationRunNudge below).
+    int nudgeFrame = -1;
+    CalOutcome o = CalibrateWithNudgeCosinePastOne<LegacyTwinRun>(false, &nudgeFrame);
+    ASSERT_EQ(o.outcome, Outcome::Complete);
+    EXPECT_EQ(nudge_cosine::FirstDebugFrame(o, "Nudge: theta"), nudgeFrame);
+    EXPECT_TRUE(DebugShowsNanAfter(o, "Nudge: theta = "));
+    EXPECT_TRUE(DebugShowsNanAfter(o, "Nudging discontinued, wrong direction: "));
+    EXPECT_TRUE(NudgePulses(o).empty());
+    EXPECT_EQ(Dist(o.finalTrue, o.lock), nudge_cosine::kLength / 64.);
+}
+
+TEST(CalibrationRunNudge, CosinePastMinusOneStillNudgesBackToTheLock)
+{
+    // #154: the same frame on the extracted run. The cosine is clamped to -1,
+    // the angle is pi, and the nudge takes the star back to the lock.
+    int nudgeFrame = -1;
+    CalOutcome o = CalibrateWithNudgeCosinePastOne<ExtractedRun>(false, &nudgeFrame);
+    ASSERT_EQ(o.outcome, Outcome::Complete);
+    bool sawTheta = false;
+    for (const Event& e : o.events)
+        if (e.kind == Event::Debug && e.frame == nudgeFrame && StartsWith(e.text, "Nudge: theta = "))
+        {
+            EXPECT_EQ(e.text, "Nudge: theta = 3.14\n");
+            sawTheta = true;
+        }
+    EXPECT_TRUE(sawTheta);
+    EXPECT_FALSE(o.HasDebug("Nudging discontinued"));
+    std::vector<int> nudges = NudgePulses(o);
+    ASSERT_FALSE(nudges.empty());
+    EXPECT_LE(nudges.size(), 4u);
+    EXPECT_EQ(nudges[0], kStepMs); // 4.3 px is more than a step's 2.1 px
+    EXPECT_LT(Dist(o.finalTrue, o.lock), 2.0);
+}
+
+TEST(CalibrationRunNudge, CosinePastPlusOneStillStopsAsWrongDirection)
+{
+    // #154: the star past the lock, exactly down the North leg's direction
+    // beyond it: the cosine is +1.0000000000000002, clamped to 1, so the angle
+    // is 0 instead of NaN. The nudge stops as "wrong direction" as before, and
+    // the Debug line shows the angle.
+    int nudgeFrame = -1;
+    CalOutcome o = CalibrateWithNudgeCosinePastOne<ExtractedRun>(true, &nudgeFrame);
+    ASSERT_EQ(o.outcome, Outcome::Complete);
+    EXPECT_TRUE(NudgePulses(o).empty());
+    EXPECT_TRUE(o.HasDebug("Nudge: theta = 0.00\n"));
+    EXPECT_TRUE(o.HasDebug("Nudging discontinued, wrong direction: 0.00\n"));
+    EXPECT_EQ(Dist(o.finalTrue, o.lock), nudge_cosine::kLength / 64.);
 }
 
 // ---------------------------------------------------------------------------

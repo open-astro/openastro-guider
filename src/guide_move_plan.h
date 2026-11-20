@@ -40,9 +40,15 @@ constexpr unsigned USE_BLC = 1u << 2;
 constexpr unsigned GRAPH = 1u << 3;
 constexpr unsigned MANUAL = 1u << 4;
 
-// A clamp in the same direction as the last one counts; the count reaching this raises the
-// limit-reached alert, so the 6th clamped move in a row is the first to alert
+// The clamped guide steps in a row in one direction reaching this raises the limit-reached
+// alert, so the 5th is the first to alert (#153; the first clamp of a run used to count 0)
 constexpr int LIMIT_REACHED_WARN_COUNT = 5;
+
+// The longest pulse PlanAxis lets a guide step, deduced move, recovery move or AO bump send
+// (#152): under the 30 s HTTP timeout AlpacaClient gives a PulseGuide that blocks while it runs,
+// the ceiling #141 gave the calibration's grown RA step (calibration_run.h, RA_STEP_MAX_MS).
+// A rate of 0 makes PulseMs return INT_MAX, which a recovery move or AO bump otherwise sends as is.
+constexpr int MAX_PULSE_MS = 25000;
 
 // ROUND(fabs(distance / rate)), the pulse Mount::MoveOffset asks for. A quotient that does
 // not fit an int (a rate of 0, or one Dec compensation made tiny) gives INT_MAX and a NaN
@@ -63,7 +69,8 @@ struct OffsetPlan
 // calibration's Dec rate, both in pixels per ms.
 OffsetPlan PlanOffset(double xDistance, double yDistance, double xRate, double yRate);
 
-// Scope's m_ra/decLimitReachedDirection and count
+// Scope's m_ra/decLimitReachedDirection and count: the direction of the last guide step's clamp
+// (None when it was not clamped) and the clamped steps in a row in that direction
 struct LimitTracker
 {
     Dir lastLimited = Dir::None;
@@ -83,14 +90,16 @@ struct AxisPlan
     bool refused = false; // guiding is disabled and this is not a manual move: no pulse
     int ms = 0; // the pulse to send (0: none)
     bool zeroedByDecMode = false; // the Dec guide mode zeroed it
-    bool limited = false; // clamped to the axis's max duration
+    bool limited = false; // clamped to the axis's max duration or to MAX_PULSE_MS
+    bool capped = false; // MAX_PULSE_MS, not the max duration, set the pulse
     bool alert = false; // raise the limit-reached alert for this axis
 };
 
 // Scope::MoveAxis's pulse for a requested one. Only guide steps and deduced moves
-// (ALGO_RESULT or ALGO_DEDUCE) are filtered by the Dec guide mode, clamped and counted;
-// calibration (no bits), recovery and AO-bump moves pass through as asked. The tracker of the
-// move's axis is updated.
+// (ALGO_RESULT or ALGO_DEDUCE) are filtered by the Dec guide mode, clamped to the max duration
+// and counted; recovery and AO-bump moves (USE_BLC alone) are not, but they and the guide steps
+// are capped at MAX_PULSE_MS. Calibration (no bits) and manual moves pass through as asked. The
+// tracker of the move's axis is updated.
 AxisPlan PlanAxis(Dir dir, int ms, unsigned moveOptions, const AxisPolicy& policy, LimitTracker& ra, LimitTracker& dec);
 
 } // namespace guide_move_plan

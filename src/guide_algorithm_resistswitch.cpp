@@ -64,116 +64,51 @@ GUIDE_ALGORITHM GuideAlgorithmResistSwitch::Algorithm() const
 }
 void GuideAlgorithmResistSwitch::reset(void)
 {
-    m_history.Empty();
-
-    while (m_history.GetCount() < HISTORY_SIZE)
-    {
-        m_history.Add(0.0);
-    }
-
-    m_currentSide = 0;
-}
-
-static int sign(double x)
-{
-    int iReturn = 0;
-
-    if (x > 0.0)
-    {
-        iReturn = 1;
-    }
-    else if (x < 0.0)
-    {
-        iReturn = -1;
-    }
-
-    return iReturn;
+    guide_algorithm_kernels::ResistSwitchReset(m_state);
 }
 
 double GuideAlgorithmResistSwitch::result(double input)
 {
-    double rslt = input;
+    using guide_algorithm_kernels::ResistSwitchVeto;
 
-    m_history.Add(input);
-    m_history.RemoveAt(0);
+    // the math is in guide_algorithm_kernels.cpp (#142); the Debug lines are written here in
+    // the order the step made them
+    guide_algorithm_kernels::ResistSwitchStep step =
+        guide_algorithm_kernels::ResistSwitchResult(m_state, { m_minMove, m_aggression, m_fastSwitchEnabled }, input);
 
-    try
+    if (step.fastSwitched)
     {
-        if (fabs(input) < m_minMove)
-        {
-            throw THROW_INFO("input < m_minMove");
-        }
-
-        if (m_fastSwitchEnabled)
-        {
-            double thresh = 3.0 * m_minMove;
-            if (sign(input) != m_currentSide && fabs(input) > thresh)
-            {
-                Debug.Write(wxString::Format("resist switch: large excursion: input %.2f thresh %.2f direction from %d to %d\n",
-                                             input, thresh, m_currentSide, sign(input)));
-                // force switch
-                m_currentSide = 0;
-                unsigned int i;
-                for (i = 0; i < HISTORY_SIZE - 3; i++)
-                    m_history[i] = 0.0;
-                for (; i < HISTORY_SIZE; i++)
-                    m_history[i] = input;
-            }
-        }
-
-        int decHistory = 0;
-
-        for (unsigned int i = 0; i < m_history.GetCount(); i++)
-        {
-            if (fabs(m_history[i]) > m_minMove)
-            {
-                decHistory += sign(m_history[i]);
-            }
-        }
-
-        if (m_currentSide == 0 || sign(m_currentSide) == -sign(decHistory))
-        {
-            if (abs(decHistory) < 3)
-            {
-                throw THROW_INFO("not compelling enough");
-            }
-
-            double oldest = 0.0;
-            double newest = 0.0;
-
-            for (int i = 0; i < 3; i++)
-            {
-                oldest += m_history[i];
-                newest += m_history[m_history.GetCount() - (i + 1)];
-            }
-
-            if (fabs(newest) <= fabs(oldest))
-            {
-                throw THROW_INFO("Not getting worse");
-            }
-
-            Debug.Write(wxString::Format("switching direction from %d to %d - decHistory=%d oldest=%.2f newest=%.2f\n",
-                                         m_currentSide, sign(decHistory), decHistory, oldest, newest));
-
-            m_currentSide = sign(decHistory);
-        }
-
-        if (m_currentSide != sign(input))
-        {
-            throw THROW_INFO("must have overshot -- vetoing move");
-        }
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        rslt = 0.0;
+        Debug.Write(wxString::Format("resist switch: large excursion: input %.2f thresh %.2f direction from %d to %d\n", input,
+                                     step.thresh, step.fastSwitchFrom, step.fastSwitchTo));
     }
 
-    rslt *= m_aggression;
+    if (step.switched)
+    {
+        Debug.Write(wxString::Format("switching direction from %d to %d - decHistory=%d oldest=%.2f newest=%.2f\n",
+                                     step.switchFrom, step.switchTo, step.decHistory, step.oldest, step.newest));
+    }
 
-    Debug.Write(wxString::Format("GuideAlgorithmResistSwitch::result() returns %.2f from input %.2f\n", rslt, input));
+    switch (step.veto)
+    {
+    case ResistSwitchVeto::None:
+        break;
+    case ResistSwitchVeto::BelowMinMove:
+        THROW_INFO("input < m_minMove");
+        break;
+    case ResistSwitchVeto::NotCompelling:
+        THROW_INFO("not compelling enough");
+        break;
+    case ResistSwitchVeto::NotGettingWorse:
+        THROW_INFO("Not getting worse");
+        break;
+    case ResistSwitchVeto::Overshoot:
+        THROW_INFO("must have overshot -- vetoing move");
+        break;
+    }
 
-    return rslt;
+    Debug.Write(wxString::Format("GuideAlgorithmResistSwitch::result() returns %.2f from input %.2f\n", step.result, input));
+
+    return step.result;
 }
 
 bool GuideAlgorithmResistSwitch::SetMinMove(double minMove)
@@ -188,7 +123,7 @@ bool GuideAlgorithmResistSwitch::SetMinMove(double minMove)
         }
 
         m_minMove = minMove;
-        m_currentSide = 0;
+        m_state.currentSide = 0;
     }
     catch (const wxString& Msg)
     {

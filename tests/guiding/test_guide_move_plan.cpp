@@ -165,13 +165,132 @@ TEST(PlanAxis, DecGuideStepIsClampedToMaxDec)
     EXPECT_TRUE(plan.limited);
 }
 
-TEST(PlanAxis, RecoveryMoveBypassesTheClamp)
+TEST(PlanAxis, RecoveryMoveIsNotClampedToTheMaxDuration)
 {
-    // pinned: a recovery move (and an AO bump) is sent as asked
+    // A dither's fast recenter sizes each step to 70% of the search region and an AO bump to the
+    // bump step, so neither is held to the max duration a guide step is (#152)
     AxisPlan plan = Plan(Dir::West, 4000, RECOVERY_MOVE, Policy(DecMode::Auto, 2500));
     EXPECT_EQ(plan.ms, 4000);
     EXPECT_FALSE(plan.limited);
+    EXPECT_FALSE(plan.capped);
     EXPECT_EQ(Plan(Dir::North, 4000, AO_BUMP, Policy(DecMode::Auto, 2500, 1000)).ms, 4000);
+}
+
+// --- PlanAxis: the MAX_PULSE_MS ceiling (#152) ---
+
+TEST(PlanAxis, MaxPulseIsUnderTheAlpacaHttpTimeout)
+{
+    // AlpacaClient's 30 s timeout for a PulseGuide that blocks; #141's RA_STEP_MAX_MS is the same
+    EXPECT_EQ(MAX_PULSE_MS, 25000);
+}
+
+TEST(PlanAxis, RecoveryMoveOverTheMaxPulseIsCapped)
+{
+    AxisPlan plan = Plan(Dir::West, 30000, RECOVERY_MOVE, Policy(DecMode::Auto, 2500));
+    EXPECT_EQ(plan.ms, MAX_PULSE_MS);
+    EXPECT_TRUE(plan.limited);
+    EXPECT_TRUE(plan.capped);
+    EXPECT_FALSE(plan.alert);
+
+    AxisPlan atTheMax = Plan(Dir::East, MAX_PULSE_MS, RECOVERY_MOVE, Policy(DecMode::Auto, 2500));
+    EXPECT_EQ(atTheMax.ms, MAX_PULSE_MS);
+    EXPECT_FALSE(atTheMax.limited);
+    EXPECT_FALSE(atTheMax.capped);
+}
+
+TEST(PlanAxis, AoBumpOverTheMaxPulseIsCapped)
+{
+    AxisPlan plan = Plan(Dir::South, INT_MAX, AO_BUMP, Policy(DecMode::Auto, 2500, 1000));
+    EXPECT_EQ(plan.ms, MAX_PULSE_MS);
+    EXPECT_TRUE(plan.limited);
+    EXPECT_TRUE(plan.capped);
+    EXPECT_FALSE(plan.alert);
+}
+
+TEST(PlanAxis, GuideStepIsCappedWhateverTheMaxDuration)
+{
+    // set_guide_limits accepts up to 1e6 ms
+    AxisPlan plan = Plan(Dir::West, INT_MAX, GUIDE_STEP, Policy(DecMode::Auto, 1000000, 1000000));
+    EXPECT_EQ(plan.ms, MAX_PULSE_MS);
+    EXPECT_TRUE(plan.limited);
+    EXPECT_TRUE(plan.capped);
+
+    AxisPlan deduced = Plan(Dir::North, 40000, DEDUCED_MOVE, Policy(DecMode::Auto, 2500, 30000));
+    EXPECT_EQ(deduced.ms, MAX_PULSE_MS);
+    EXPECT_TRUE(deduced.capped);
+
+    // under the ceiling the max duration clamps, as before
+    AxisPlan clamped = Plan(Dir::West, 40000, GUIDE_STEP, Policy(DecMode::Auto, 2500));
+    EXPECT_EQ(clamped.ms, 2500);
+    EXPECT_TRUE(clamped.limited);
+    EXPECT_FALSE(clamped.capped);
+    AxisPlan atTheMax = Plan(Dir::West, 40000, GUIDE_STEP, Policy(DecMode::Auto, MAX_PULSE_MS));
+    EXPECT_EQ(atTheMax.ms, MAX_PULSE_MS);
+    EXPECT_FALSE(atTheMax.capped);
+}
+
+TEST(PlanAxis, CappedGuideStepsAreCountedLikeClampedOnes)
+{
+    LimitTracker ra, dec;
+    PlanAxis(Dir::West, INT_MAX, GUIDE_STEP, Policy(DecMode::Auto, 1000000), ra, dec);
+    PlanAxis(Dir::West, INT_MAX, GUIDE_STEP, Policy(DecMode::Auto, 1000000), ra, dec);
+    EXPECT_EQ(ra.lastLimited, Dir::West);
+    EXPECT_EQ(ra.count, 2);
+}
+
+TEST(PlanAxis, CappedRecoveryMoveLeavesTheTrackersAlone)
+{
+    LimitTracker ra, dec;
+    PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
+    PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
+    ASSERT_EQ(ra.count, 2);
+
+    EXPECT_TRUE(PlanAxis(Dir::West, INT_MAX, RECOVERY_MOVE, Policy(), ra, dec).capped);
+    EXPECT_TRUE(PlanAxis(Dir::North, INT_MAX, AO_BUMP, Policy(), ra, dec).capped);
+    EXPECT_EQ(ra.lastLimited, Dir::West);
+    EXPECT_EQ(ra.count, 2);
+    EXPECT_EQ(dec.lastLimited, Dir::None);
+    EXPECT_EQ(dec.count, 0);
+}
+
+TEST(PlanAxis, CalibrationAndManualMovesAreNotCapped)
+{
+    // Their length is the caller's: calibration_duration (#141 does not shrink a step over 25 s)
+    // and guide_pulse, which refuses more than 60000 ms itself (#137)
+    AxisPlan calibration = Plan(Dir::West, 30000, CALIBRATION_MOVE, Policy());
+    EXPECT_EQ(calibration.ms, 30000);
+    EXPECT_FALSE(calibration.capped);
+    AxisPlan manual = Plan(Dir::South, 60000, MANUAL, Policy(DecMode::Auto, 2500, 2500, false));
+    EXPECT_EQ(manual.ms, 60000);
+    EXPECT_FALSE(manual.capped);
+}
+
+TEST(PlanAxis, NoMoveSizedFromAnOffsetExceedsTheMaxPulse)
+{
+    // Every combination of move bits: one with ALGO_RESULT, ALGO_DEDUCE or USE_BLC (a guide step,
+    // deduced move, recovery move or AO bump) is at most MAX_PULSE_MS; the rest pass as asked
+    const Dir dirs[] = { Dir::North, Dir::South, Dir::East, Dir::West };
+    const int requests[] = { 0, 1, 2500, 24999, 25000, 25001, 60000, 1000000, INT_MAX };
+    const int maxima[] = { 0, 2500, 25000, 30000, 1000000 };
+    for (unsigned opts = 0; opts < 32; opts++)
+    {
+        bool fromAnOffset = (opts & (ALGO_RESULT | ALGO_DEDUCE | USE_BLC)) != 0;
+        for (Dir dir : dirs)
+            for (int ms : requests)
+                for (int maxMs : maxima)
+                {
+                    AxisPlan plan = Plan(dir, ms, opts, Policy(DecMode::Auto, maxMs, maxMs));
+                    if (fromAnOffset)
+                        EXPECT_LE(plan.ms, MAX_PULSE_MS) << "opts " << opts << " ms " << ms << " max " << maxMs;
+                    else
+                        EXPECT_EQ(plan.ms, ms) << "opts " << opts << " ms " << ms;
+                    EXPECT_GE(plan.ms, 0);
+                    // a guide step's max duration clamps first when it is the lower
+                    bool guideStep = (opts & (ALGO_RESULT | ALGO_DEDUCE)) != 0;
+                    EXPECT_EQ(plan.capped, fromAnOffset && ms > MAX_PULSE_MS && (!guideStep || maxMs > MAX_PULSE_MS))
+                        << "opts " << opts << " ms " << ms << " max " << maxMs;
+                }
+    }
 }
 
 TEST(PlanAxis, CalibrationMoveBypassesTheClampAndTheDecMode)
@@ -227,12 +346,23 @@ TEST(PlanAxis, DecAutoZeroesNothing)
     EXPECT_EQ(Plan(Dir::South, 500, GUIDE_STEP, Policy(DecMode::Auto)).ms, 500);
 }
 
-TEST(PlanAxis, SouthRecoveryMoveIsNotFilteredInDecNorth)
+TEST(PlanAxis, RecoveryAndBumpMovesIgnoreTheDecGuideMode)
 {
-    // pinned: only guide steps and deduced moves honour the Dec guide mode
-    AxisPlan plan = Plan(Dir::South, 500, RECOVERY_MOVE, Policy(DecMode::North));
-    EXPECT_EQ(plan.ms, 500);
-    EXPECT_FALSE(plan.zeroedByDecMode);
+    // On purpose, as upstream (#152). The only recovery move is a dither's fast recenter, and PHD2
+    // dithers in Dec with a North or South guide mode: PhdController switches the mode to Auto for
+    // the settle (or dithers RA only when there is no settle, or the mode is Off), so the filter
+    // would only ever zero a recenter step that outlives the settle, stranding the star on the far
+    // side of the new lock position where one-way guide steps cannot bring it back. An AO bump
+    // unloads the AO, which corrects both ways whatever the mount's Dec mode; a zeroed bump lets
+    // the AO run into its limit.
+    const DecMode modes[] = { DecMode::None, DecMode::North, DecMode::South };
+    for (DecMode mode : modes)
+    {
+        AxisPlan south = Plan(Dir::South, 500, RECOVERY_MOVE, Policy(mode));
+        EXPECT_EQ(south.ms, 500);
+        EXPECT_FALSE(south.zeroedByDecMode);
+        EXPECT_EQ(Plan(Dir::North, 500, AO_BUMP, Policy(mode)).ms, 500);
+    }
 }
 
 TEST(PlanAxis, ZeroedStepIsNotLimitedEvenWithMaxDecZero)
@@ -280,29 +410,30 @@ TEST(PlanAxis, RefusedMoveLeavesTheTrackersAlone)
     PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
     PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
     ASSERT_EQ(ra.lastLimited, Dir::West);
-    ASSERT_EQ(ra.count, 1);
+    ASSERT_EQ(ra.count, 2);
 
     PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(DecMode::Auto, 2500, 2500, false), ra, dec);
     EXPECT_EQ(ra.lastLimited, Dir::West);
-    EXPECT_EQ(ra.count, 1);
+    EXPECT_EQ(ra.count, 2);
 }
 
 // --- PlanAxis: limit-reached count ---
 
-TEST(PlanAxis, SixthClampInARowInOneDirectionRaisesTheAlert)
+TEST(PlanAxis, FifthClampInARowInOneDirectionRaisesTheAlert)
 {
-    // The first clamp only records the direction; each later one in the same direction counts,
-    // and the count reaching LIMIT_REACHED_WARN_COUNT (5) alerts, so the 6th clamp in a row is
-    // the first to alert. Scope::AlertLimitReached shows it at most every 30 s.
+    // The count is the clamped guide steps in a row in one direction, the first included, and
+    // it reaching LIMIT_REACHED_WARN_COUNT (5) alerts, so the 5th clamp in a row is the first to
+    // alert (#153; it was the 6th). Scope::AlertLimitReached shows it at most every 30 s.
     LimitTracker ra, dec;
-    for (int i = 1; i <= 5; i++)
+    for (int i = 1; i <= 4; i++)
     {
         AxisPlan plan = PlanAxis(Dir::North, 4000, GUIDE_STEP, Policy(), ra, dec);
         EXPECT_TRUE(plan.limited);
         EXPECT_FALSE(plan.alert) << "clamp " << i;
-        EXPECT_EQ(dec.count, i - 1);
+        EXPECT_EQ(dec.count, i);
         EXPECT_EQ(dec.lastLimited, Dir::North);
     }
+    EXPECT_EQ(LIMIT_REACHED_WARN_COUNT, 5);
     EXPECT_TRUE(PlanAxis(Dir::North, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
     EXPECT_TRUE(PlanAxis(Dir::North, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
     EXPECT_EQ(ra.lastLimited, Dir::None);
@@ -312,21 +443,26 @@ TEST(PlanAxis, SixthClampInARowInOneDirectionRaisesTheAlert)
 TEST(PlanAxis, ClampInTheOtherDirectionRestartsTheCount)
 {
     LimitTracker ra, dec;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
         PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
     ASSERT_EQ(ra.count, 4);
 
     AxisPlan east = PlanAxis(Dir::East, 4000, GUIDE_STEP, Policy(), ra, dec);
     EXPECT_TRUE(east.limited);
     EXPECT_FALSE(east.alert);
-    EXPECT_EQ(ra.count, 0);
+    EXPECT_EQ(ra.count, 1);
     EXPECT_EQ(ra.lastLimited, Dir::East);
+
+    // the East clamp is the first of a new run, so the 5th East clamp alerts
+    for (int i = 2; i <= 4; i++)
+        EXPECT_FALSE(PlanAxis(Dir::East, 4000, GUIDE_STEP, Policy(), ra, dec).alert) << "clamp " << i;
+    EXPECT_TRUE(PlanAxis(Dir::East, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
 }
 
 TEST(PlanAxis, UnclampedGuideStepRestartsTheCount)
 {
     LimitTracker ra, dec;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
         PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec);
     ASSERT_EQ(dec.count, 4);
 
@@ -335,17 +471,19 @@ TEST(PlanAxis, UnclampedGuideStepRestartsTheCount)
     EXPECT_EQ(dec.count, 0);
     EXPECT_EQ(dec.lastLimited, Dir::None);
 
-    // so the next five clamps do not alert
-    for (int i = 0; i < 5; i++)
+    // so the next four clamps do not alert, and the fifth does
+    for (int i = 0; i < 4; i++)
         EXPECT_FALSE(PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
+    EXPECT_TRUE(PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec).alert);
 }
 
 TEST(PlanAxis, StepZeroedByDecModeRestartsTheCount)
 {
     LimitTracker ra, dec;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
         PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec);
-    PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(DecMode::North), ra, dec);
+    AxisPlan zeroed = PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(DecMode::North), ra, dec);
+    EXPECT_FALSE(zeroed.alert);
     EXPECT_EQ(dec.count, 0);
     EXPECT_EQ(dec.lastLimited, Dir::None);
 }
@@ -353,7 +491,7 @@ TEST(PlanAxis, StepZeroedByDecModeRestartsTheCount)
 TEST(PlanAxis, MovesThatAreNotGuideStepsDoNotTouchTheCount)
 {
     LimitTracker ra, dec;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
     {
         PlanAxis(Dir::West, 4000, GUIDE_STEP, Policy(), ra, dec);
         PlanAxis(Dir::West, 100, RECOVERY_MOVE, Policy(), ra, dec);
@@ -371,8 +509,8 @@ TEST(PlanAxis, RaAndDecCountSeparately)
     {
         AxisPlan r = PlanAxis(Dir::East, 4000, GUIDE_STEP, Policy(), ra, dec);
         AxisPlan d = PlanAxis(Dir::South, 4000, GUIDE_STEP, Policy(), ra, dec);
-        EXPECT_EQ(r.alert, i == 6);
-        EXPECT_EQ(d.alert, i == 6);
+        EXPECT_EQ(r.alert, i >= 5);
+        EXPECT_EQ(d.alert, i >= 5);
     }
     EXPECT_EQ(ra.lastLimited, Dir::East);
     EXPECT_EQ(dec.lastLimited, Dir::South);
@@ -383,7 +521,7 @@ TEST(PlanAxis, RaAndDecCountSeparately)
 TEST(PlanOffsetAndAxis, ZeroRateGuideStepIsClampedAndAlerts)
 {
     // A zero RA rate asks for an INT_MAX pulse: a guide step is clamped to maxRa, counted, and
-    // alerts on the 6th step, like any runaway
+    // alerts from the 5th step, like any runaway
     LimitTracker ra, dec;
     for (int i = 1; i <= 6; i++)
     {
@@ -392,7 +530,7 @@ TEST(PlanOffsetAndAxis, ZeroRateGuideStepIsClampedAndAlerts)
         AxisPlan plan = PlanAxis(offset.raDir, offset.raMs, GUIDE_STEP, Policy(DecMode::Auto, 2500), ra, dec);
         EXPECT_EQ(plan.ms, 2500);
         EXPECT_TRUE(plan.limited);
-        EXPECT_EQ(plan.alert, i == 6);
+        EXPECT_EQ(plan.alert, i >= 5);
     }
 }
 
@@ -401,4 +539,19 @@ TEST(PlanOffsetAndAxis, UncalibratedDecRateGivesNoDecPulse)
     // An RA-only calibration stores yRate CALIBRATION_RATE_UNCALIBRATED (123e4 px/ms)
     OffsetPlan offset = PlanOffset(0.0, 25.0, 0.005, 123e4);
     EXPECT_EQ(offset.decMs, 0);
+}
+
+TEST(PlanOffsetAndAxis, ZeroRateRecoveryMoveIsCappedNotSentAsIntMax)
+{
+    // A dither recenter or an AO bump at a zero rate asked for INT_MAX ms (24 days) and sent it (#152)
+    OffsetPlan offset = PlanOffset(-1.0, 1.0, 0.0, 0.0);
+    ASSERT_EQ(offset.raMs, INT_MAX);
+    ASSERT_EQ(offset.decMs, INT_MAX);
+    LimitTracker ra, dec;
+    AxisPlan raPlan = PlanAxis(offset.raDir, offset.raMs, RECOVERY_MOVE, Policy(), ra, dec);
+    AxisPlan decPlan = PlanAxis(offset.decDir, offset.decMs, AO_BUMP, Policy(), ra, dec);
+    EXPECT_EQ(raPlan.ms, MAX_PULSE_MS);
+    EXPECT_TRUE(raPlan.capped);
+    EXPECT_EQ(decPlan.ms, MAX_PULSE_MS);
+    EXPECT_TRUE(decPlan.capped);
 }
