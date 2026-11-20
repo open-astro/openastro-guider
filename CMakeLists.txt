@@ -260,8 +260,6 @@ source_group(Guiding FILES ${guiding_SRC})
 set(phd2_SRC
   ${phd_src_dir}/advanced_dialog.cpp
   ${phd_src_dir}/advanced_dialog.h
-  ${phd_src_dir}/aui_controls.cpp
-  ${phd_src_dir}/aui_controls.h
 
   ${phd_src_dir}/calstep_dialog.cpp
   ${phd_src_dir}/calstep_dialog.h

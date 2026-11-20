@@ -40,7 +40,6 @@
 class WorkerThread;
 class MyFrame;
 struct alert_params;
-class PHDStatusBar;
 
 enum E_MYFRAME_WORKER_THREAD_MESSAGES
 {
@@ -52,7 +51,6 @@ wxDECLARE_EVENT(REQUEST_EXPOSURE_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(REQUEST_MOUNT_MOVE_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(WXMESSAGEBOX_PROXY_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(STATUSBAR_ENQUEUE_EVENT, wxCommandEvent);
-wxDECLARE_EVENT(STATUSBAR_TIMER_EVENT, wxTimerEvent);
 wxDECLARE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDECLARE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
 
@@ -206,7 +204,6 @@ private:
     bool m_autoLoadCalibration;
 
     wxAuiManager m_mgr;
-    PHDStatusBar *m_statusbar;
 
     bool m_continueCapturing; // should another image be captured?
     SingleExposure m_singleExposure;
@@ -262,9 +259,6 @@ public:
 
     void RegisterTextCtrl(wxTextCtrl *ctrl);
 
-    void OnMenuHighlight(wxMenuEvent& evt);
-    void OnAnyMenu(wxCommandEvent& evt);
-    void OnAnyMenuClose(wxMenuEvent& evt);
     void OnQuit(wxCommandEvent& evt);
     void OnClose(wxCloseEvent& evt);
     void OnOverlay(wxCommandEvent& evt);
@@ -444,7 +438,6 @@ private:
     WorkerThread *m_pSecondaryWorkerThread;
 
     wxSocketServer *SocketServer;
-    wxTimer m_statusbarTimer;
 
     int m_exposureDuration;
     AutoExposureCfg m_autoExp;
@@ -463,10 +456,8 @@ private:
     void OnAlertHelp(wxCommandEvent& evt);
     void OnAlertFromThread(wxThreadEvent& event);
     void OnReconnectCameraFromThread(wxThreadEvent& event);
-    void OnStatusBarTimerEvent(wxTimerEvent& evt);
     void OnMessageBoxProxy(wxCommandEvent& evt);
     void SetupMenuBar();
-    void SetupStatusBar();
     void SetupToolBar();
     void SetupKeyboardShortcuts();
     int GetTextWidth(wxControl *pControl, const wxString& string);

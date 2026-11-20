@@ -34,7 +34,6 @@
 
 #include "phd.h"
 
-#include "aui_controls.h"
 #include "darks_dialog.h"
 #include "image_math.h"
 #include "capture_cleanup.h"
@@ -134,32 +133,6 @@ int MyFrame::RequestedExposureDuration()
         return 0;
 
     return m_singleExposure.enabled ? m_singleExposure.duration : m_exposureDuration;
-}
-
-void MyFrame::OnMenuHighlight(wxMenuEvent& evt)
-{
-    wxMenuItem *mi = pFrame->GetMenuBar()->FindItem(evt.GetMenuId());
-    if (mi)
-    {
-        const wxString& help = mi->GetHelp();
-        m_statusbar->OverlayMsg(help);
-    }
-    else
-    {
-        m_statusbar->ClearOverlayMsg();
-    }
-}
-
-void MyFrame::OnAnyMenu(wxCommandEvent& evt)
-{
-    m_statusbar->ClearOverlayMsg();
-    evt.Skip();
-}
-
-void MyFrame::OnAnyMenuClose(wxMenuEvent& evt)
-{
-    m_statusbar->ClearOverlayMsg();
-    evt.Skip();
 }
 
 void MyFrame::OnQuit(wxCommandEvent& WXUNUSED(event))
@@ -548,10 +521,6 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             UpdateButtonsStatus();
             PhdController::AbortController(stopping ? wxString("Image capture stopped") : failure);
             StatusMsg(_("Stopped."));
-
-            // some camera drivers disconnect the camera on error
-            if (!pCamera->Connected)
-                m_statusbar->UpdateStates();
 
             throw ERROR_INFO("Error reported capturing image");
         }

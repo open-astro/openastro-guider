@@ -36,7 +36,6 @@
 
 #include "phd.h"
 
-#include "aui_controls.h"
 #include "guiding_assistant.h"
 
 #include <algorithm>
@@ -66,7 +65,6 @@ wxDEFINE_EVENT(REQUEST_EXPOSURE_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(REQUEST_MOUNT_MOVE_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(WXMESSAGEBOX_PROXY_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(STATUSBAR_ENQUEUE_EVENT, wxCommandEvent);
-wxDEFINE_EVENT(STATUSBAR_TIMER_EVENT, wxTimerEvent);
 wxDEFINE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDEFINE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
 wxDEFINE_EVENT(RECONNECT_CAMERA_EVENT, wxThreadEvent);
@@ -74,9 +72,6 @@ wxDEFINE_EVENT(RECONNECT_CAMERA_EVENT, wxThreadEvent);
 // clang-format off
 // clang-format off
 wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
-EVT_MENU_HIGHLIGHT_ALL(MyFrame::OnMenuHighlight)
-EVT_MENU_CLOSE(MyFrame::OnAnyMenuClose)
-EVT_MENU(wxID_ANY, MyFrame::OnAnyMenu)
 EVT_MENU(wxID_EXIT, MyFrame::OnQuit)
 EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
 EVT_MENU(MENU_GUIDING_ASSISTANT, MyFrame::OnGuidingAssistant)
@@ -131,7 +126,6 @@ EVT_THREAD(SET_STATUS_TEXT_EVENT, MyFrame::OnStatusMsg)
 EVT_THREAD(ALERT_FROM_THREAD_EVENT, MyFrame::OnAlertFromThread)
 EVT_THREAD(RECONNECT_CAMERA_EVENT, MyFrame::OnReconnectCameraFromThread)
 EVT_COMMAND(wxID_ANY, REQUEST_MOUNT_MOVE_EVENT, MyFrame::OnRequestMountMove)
-EVT_TIMER(STATUSBAR_TIMER_EVENT, MyFrame::OnStatusBarTimerEvent)
 
 EVT_AUI_PANE_CLOSE(MyFrame::OnPanelClose)
 wxEND_EVENT_TABLE();
@@ -206,8 +200,6 @@ MyFrame::MyFrame()
     m_pSecondaryWorkerThread = nullptr;
     StartWorkerThread(m_pSecondaryWorkerThread);
 
-    m_statusbarTimer.SetOwner(this, STATUSBAR_TIMER_EVENT);
-
     SocketServer = nullptr;
 
     bool serverMode = pConfig->Global.GetBoolean("/ServerMode", DefaultServerMode);
@@ -229,9 +221,6 @@ MyFrame::MyFrame()
 
     // Setup button panel
     SetupToolBar();
-
-    // Setup Status bar
-    SetupStatusBar();
 
     LoadProfileSettings();
 
@@ -846,16 +835,6 @@ void MyFrame::SetupToolBar()
     MainToolbar->EnableTool(BUTTON_GUIDE, false);
     MainToolbar->EnableTool(BUTTON_STOP, false);
     MainToolbar->Realize();
-
-    MainToolbar->SetArtProvider(new PHDToolBarArt); // Get the custom background we want
-}
-
-void MyFrame::SetupStatusBar()
-{
-    m_statusbar = PHDStatusBar::CreateInstance(this, wxSTB_DEFAULT_STYLE);
-    SetStatusBar(m_statusbar);
-    PositionStatusBar();
-    UpdateStatusBarCalibrationStatus();
 }
 
 void MyFrame::SetupKeyboardShortcuts()
@@ -936,10 +915,6 @@ void MyFrame::UpdateButtonsStatus()
 
     if (need_update)
     {
-        if (pGuider->GetState() < STATE_SELECTED)
-            m_statusbar->ClearStarInfo();
-        if (!guiding_active)
-            m_statusbar->ClearGuiderInfo();
         Update();
         Refresh();
     }
@@ -1037,7 +1012,6 @@ void MyFrame::DoAlert(const alert_params& params)
     }
     int showMessageFlags = params.flags;
     m_infoBar->ShowMessage(wrappedText, showMessageFlags);
-    m_statusbar->UpdateStates(); // might have disconnected a device
     EvtServer.NotifyAlert(params.msg, params.flags);
 }
 
@@ -1207,33 +1181,23 @@ void MyFrame::DoTryReconnect()
  *
  */
 
-// Use a timer to show a status message for 10 seconds, then revert back to basic state info
-static void StartStatusBarTimer(wxTimer& timer)
-{
-    const int DISPLAY_MS = 10000;
-    timer.Start(DISPLAY_MS, wxTIMER_ONE_SHOT);
-}
-
-static void SetStatusMsg(PHDStatusBar *statusbar, const wxString& text)
+// There is no status bar since #115 step 2; a status message is only written to the debug log
+static void SetStatusMsg(const wxString& text)
 {
     Debug.Write(wxString::Format("Status Line: %s\n", text));
-    statusbar->StatusMsg(text);
 }
 
 enum StatusBarThreadMsgType
 {
     THR_SB_MSG_TEXT,
-    THR_SB_STATE_LABELS,
-    THR_SB_CALIBRATION,
     THR_SB_BUTTON_STATE,
 };
 
-static void QueueStatusBarTextMsg(wxEvtHandler *frame, const wxString& text, bool withTimeout)
+static void QueueStatusBarTextMsg(wxEvtHandler *frame, const wxString& text)
 {
     wxThreadEvent *event = new wxThreadEvent(wxEVT_THREAD, SET_STATUS_TEXT_EVENT);
     event->SetExtraLong(THR_SB_MSG_TEXT);
     event->SetString(text);
-    event->SetInt(withTimeout);
     wxQueueEvent(frame, event);
 }
 
@@ -1247,20 +1211,17 @@ static void QueueStatusBarUpdateMsg(wxEvtHandler *frame, StatusBarThreadMsgType 
 void MyFrame::StatusMsg(const wxString& text)
 {
     if (wxThread::IsMain())
-    {
-        SetStatusMsg(m_statusbar, text);
-        StartStatusBarTimer(m_statusbarTimer);
-    }
+        SetStatusMsg(text);
     else
-        QueueStatusBarTextMsg(this, text, true);
+        QueueStatusBarTextMsg(this, text);
 }
 
 void MyFrame::StatusMsgNoTimeout(const wxString& text)
 {
     if (wxThread::IsMain())
-        SetStatusMsg(m_statusbar, text);
+        SetStatusMsg(text);
     else
-        QueueStatusBarTextMsg(this, text, false);
+        QueueStatusBarTextMsg(this, text);
 }
 
 void MyFrame::OnStatusMsg(wxThreadEvent& event)
@@ -1268,21 +1229,7 @@ void MyFrame::OnStatusMsg(wxThreadEvent& event)
     switch (event.GetExtraLong())
     {
     case THR_SB_MSG_TEXT:
-    {
-        wxString msg(event.GetString());
-        bool withTimeout = event.GetInt() ? true : false;
-
-        SetStatusMsg(m_statusbar, msg);
-
-        if (withTimeout)
-            StartStatusBarTimer(m_statusbarTimer);
-        break;
-    }
-    case THR_SB_STATE_LABELS:
-        m_statusbar->UpdateStates();
-        break;
-    case THR_SB_CALIBRATION:
-        UpdateStatusBarCalibrationStatus();
+        SetStatusMsg(event.GetString());
         break;
     case THR_SB_BUTTON_STATE:
         UpdateButtonsStatus();
@@ -1290,30 +1237,19 @@ void MyFrame::OnStatusMsg(wxThreadEvent& event)
     }
 }
 
-void MyFrame::UpdateStatusBarStarInfo(double SNR, bool Saturated)
+void MyFrame::UpdateStatusBarStarInfo(double, bool)
 {
-    assert(wxThread::IsMain());
-    m_statusbar->UpdateStarInfo(SNR, Saturated);
+    // no status bar since #115 step 2; MyFrame goes in step 6
 }
 
 void MyFrame::UpdateStatusBarStateLabels()
 {
-    if (wxThread::IsMain())
-        m_statusbar->UpdateStates();
-    else
-        QueueStatusBarUpdateMsg(this, THR_SB_STATE_LABELS);
+    // no status bar since #115 step 2; MyFrame goes in step 6
 }
 
 void MyFrame::UpdateStatusBarCalibrationStatus()
 {
-    if (wxThread::IsMain())
-    {
-        m_statusbar->UpdateStates();
-    }
-    else
-    {
-        QueueStatusBarUpdateMsg(this, THR_SB_CALIBRATION);
-    }
+    // no status bar since #115 step 2; MyFrame goes in step 6
 }
 
 void MyFrame::NotifyUpdateButtonsStatus()
@@ -1333,15 +1269,11 @@ void MyFrame::UpdateStatusBarGuiderInfo(const GuideStepInfo& info)
     Debug.Write(wxString::Format("GuideStep: %.1f px %d ms %s, %.1f px %d ms %s\n", info.mountOffset.X, info.durationRA,
                                  info.directionRA == EAST ? "EAST" : "WEST", info.mountOffset.Y, info.durationDec,
                                  info.directionDec == NORTH ? "NORTH" : "SOUTH"));
-
-    assert(wxThread::IsMain());
-    m_statusbar->UpdateGuiderInfo(info);
 }
 
 void MyFrame::ClearStatusBarGuiderInfo()
 {
-    assert(wxThread::IsMain());
-    m_statusbar->ClearGuiderInfo();
+    // no status bar since #115 step 2; MyFrame goes in step 6
 }
 
 bool MyFrame::StartWorkerThread(WorkerThread *& pWorkerThread)
@@ -1458,16 +1390,6 @@ void MyFrame::OnRequestMountMove(wxCommandEvent& evt)
 
     request->semaphore->Post();
     Debug.Write("OnRequestMountMove() ends\n");
-}
-
-void MyFrame::OnStatusBarTimerEvent(wxTimerEvent& evt)
-{
-    if (pGuider->IsGuiding())
-        m_statusbar->StatusMsg(_("Guiding"));
-    else if (CaptureActive)
-        m_statusbar->StatusMsg(_("Looping"));
-    else
-        m_statusbar->StatusMsg(wxEmptyString);
 }
 
 void MyFrame::ScheduleExposure()
@@ -2450,7 +2372,6 @@ void MyFrame::CheckDarkFrameGeometry()
     }
 
     m_prevDarkFrameSize = pCamera->DarkFrameSize();
-    m_statusbar->UpdateStates();
 }
 
 void MyFrame::SetDarkMenuState()
@@ -2463,7 +2384,6 @@ void MyFrame::SetDarkMenuState()
     m_useDefectMapMenuItem->Enable(haveDefectMap);
     if (!haveDefectMap)
         m_useDefectMapMenuItem->Check(false);
-    m_statusbar->UpdateStates();
 }
 
 bool MyFrame::LoadDarkLibrary()
