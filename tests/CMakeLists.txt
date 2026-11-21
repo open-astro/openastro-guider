@@ -500,7 +500,9 @@ add_test(NAME test_edge_allowance COMMAND test_edge_allowance)
 # test_monotonic_timers  --  monotonic_timers.cpp: how long ago Guider last
 # found the star (the 100 px large distance after 20 s) and MyFrame's camera
 # reconnect throttle (3 attempts in 60 s), on an injected clock, and the
-# clock their callers read (#226). std-only.
+# clock their callers read (#226); the set_pa_session lease on an injected
+# clock, and that ClockMs is the same steady clock in milliseconds (#231).
+# std-only.
 ############################################################################
 add_executable(test_monotonic_timers
   ${PHD_TESTS_DIR}/guiding/test_monotonic_timers.cpp

@@ -41,6 +41,7 @@
  */
 
 #include "phd.h"
+#include "monotonic_timers.h"
 
 #include <wx/dir.h>
 #include <algorithm>
@@ -107,7 +108,7 @@ public:
 
     void AppendData(double mass)
     {
-        wxLongLong_t now = ::wxGetUTCTimeMillis().GetValue();
+        wxLongLong_t now = monotonic_timers::ClockMs();
         wxLongLong_t oldest = now - m_timeWindow;
 
         while (m_data.size() > 0 && m_data.front().time < oldest)
@@ -627,7 +628,7 @@ struct DistanceChecker
         {
             Debug.Write("DistanceChecker: activated\n");
             m_state = ST_WAITING;
-            m_expires = ::wxGetUTCTimeMillis().GetValue() + WAIT_INTERVAL_MS;
+            m_expires = monotonic_timers::ClockMs() + WAIT_INTERVAL_MS;
             m_forceTolerance = 2.0;
         }
     }
@@ -671,7 +672,7 @@ struct DistanceChecker
 
             Debug.Write("DistanceChecker: activated\n");
             m_state = ST_WAITING;
-            m_expires = ::wxGetUTCTimeMillis().GetValue() + WAIT_INTERVAL_MS;
+            m_expires = monotonic_timers::ClockMs() + WAIT_INTERVAL_MS;
             return false;
 
         case ST_WAITING:
@@ -684,7 +685,7 @@ struct DistanceChecker
                 return true;
             }
             // large distance
-            wxLongLong_t now = ::wxGetUTCTimeMillis().GetValue();
+            wxLongLong_t now = monotonic_timers::ClockMs();
             if (now < m_expires)
             {
                 // reject frame

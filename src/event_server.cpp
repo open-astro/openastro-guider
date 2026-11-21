@@ -41,6 +41,7 @@
 #include "connect_retry.h"
 #include "restore_calibration.h"
 #include "capture_cleanup.h"
+#include "monotonic_timers.h"
 #include "variable_delay.h"
 
 #include <wx/dir.h>
@@ -993,12 +994,13 @@ static bool any_equipment_connected()
 // the mount (guide/loop/dither/guide_pulse/dark-building/connect changes) are
 // rejected, so a stray client can't silently violate the single-camera-client
 // rule mid-routine. The lease auto-expires so a crashed orchestrator can't
-// wedge the daemon; renew by calling set_pa_session again.
-static wxLongLong s_paSessionExpiresMs(0);
+// wedge the daemon; renew by calling set_pa_session again. Timed on
+// monotonic_timers::ClockMs, not the wall clock (monotonic_timers.cpp, #231).
+static monotonic_timers::PaSessionLease s_paSession;
 
 static bool pa_session_active()
 {
-    return s_paSessionExpiresMs != 0 && wxGetUTCTimeMillis() < s_paSessionExpiresMs;
+    return s_paSession.Active(monotonic_timers::ClockMs());
 }
 
 // clang-format off
@@ -1275,13 +1277,12 @@ static bool json_to_bool(const json_value *val, bool *out)
 
 static void pa_session_status(JObj& rslt)
 {
-    // snapshot the clock once so a session expiring mid-call cannot yield
+    // one clock reading, so a session expiring mid-call cannot yield
     // {"active":true,"expires_in_s":<negative>}
-    wxLongLong now = wxGetUTCTimeMillis();
-    bool active = s_paSessionExpiresMs != 0 && now < s_paSessionExpiresMs;
-    rslt << NV("active", active);
-    if (active)
-        rslt << NV("expires_in_s", (int) ((s_paSessionExpiresMs - now).GetValue() / 1000));
+    monotonic_timers::PaSessionLease::Status st = s_paSession.StatusAt(monotonic_timers::ClockMs());
+    rslt << NV("active", st.active);
+    if (st.active)
+        rslt << NV("expires_in_s", st.expiresInS);
 }
 
 static void get_pa_session(JObj& response, const json_value *params)
@@ -1320,12 +1321,12 @@ static void set_pa_session(JObj& response, const json_value *params)
             response << jrpc_error(1, "cannot start polar-alignment session while calibrating or guiding");
             return;
         }
-        s_paSessionExpiresMs = wxGetUTCTimeMillis() + timeoutS * 1000;
+        s_paSession.Start(monotonic_timers::ClockMs(), timeoutS);
         Debug.Write(wxString::Format("PA session started/renewed, timeout %ld s\n", timeoutS));
     }
     else
     {
-        s_paSessionExpiresMs = 0;
+        s_paSession.End();
         Debug.Write("PA session ended\n");
     }
 

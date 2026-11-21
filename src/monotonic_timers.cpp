@@ -19,6 +19,11 @@ int64_t ClockS()
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+int64_t ClockMs()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 void StarFoundTimer::Found(int64_t nowS)
 {
     m_found = true;
@@ -40,6 +45,32 @@ bool ReconnectThrottle::TryAttempt(int64_t nowS)
         return false;
     m_attemptsS.push_back(nowS);
     return true;
+}
+
+void PaSessionLease::Start(int64_t nowMs, long timeoutS)
+{
+    m_held = true;
+    m_expiresMs = nowMs + static_cast<int64_t>(timeoutS) * 1000;
+}
+
+void PaSessionLease::End()
+{
+    m_held = false;
+    m_expiresMs = 0;
+}
+
+bool PaSessionLease::Active(int64_t nowMs) const
+{
+    return m_held && nowMs < m_expiresMs;
+}
+
+PaSessionLease::Status PaSessionLease::StatusAt(int64_t nowMs) const
+{
+    Status s;
+    s.active = Active(nowMs);
+    if (s.active)
+        s.expiresInS = static_cast<int>((m_expiresMs - nowMs) / 1000);
+    return s;
 }
 
 } // namespace monotonic_timers

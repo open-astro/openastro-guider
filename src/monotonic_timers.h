@@ -2,12 +2,15 @@
  *  monotonic_timers.h
  *  PHD Guiding
  *
- *  Two timers the guider keeps in whole seconds, and the clock they run on (#226):
- *  how long ago Guider last found the star (StarFoundTimer, behind
- *  Guider::CurrentError's 100 px "large distance"), and MyFrame's camera
- *  reconnect throttle (ReconnectThrottle, 3 attempts in 60 s). The timers take
- *  the time from their caller, so they are tested on an injected clock; the
- *  callers read it from ClockS. Kept free of wx so it can be unit tested
+ *  The guider's monotonic clock, in whole seconds (ClockS) and in milliseconds
+ *  (ClockMs), both readings of the same steady_clock, and the timers that run
+ *  on it. In whole seconds (#226): how long ago Guider last found the star
+ *  (StarFoundTimer, behind Guider::CurrentError's 100 px "large distance") and
+ *  MyFrame's camera reconnect throttle (ReconnectThrottle, 3 attempts in 60 s).
+ *  In milliseconds (#231): the set_pa_session lease (PaSessionLease); the
+ *  multi-star DistanceChecker's wait and the star mass-change window read
+ *  ClockMs. The timers take the time from their caller, so they are tested on
+ *  an injected clock. Kept free of wx so it can be unit tested
  *  (tests/guiding/test_monotonic_timers.cpp).
  */
 
@@ -24,6 +27,10 @@ namespace monotonic_timers
 // monotonic one, which a wall-clock step does not move. Its zero is arbitrary, so it only measures
 // time between two of its own readings.
 int64_t ClockS();
+
+// The same clock in milliseconds, for the set_pa_session lease, the multi-star DistanceChecker's
+// wait and the star mass-change window
+int64_t ClockMs();
 
 // When Guider last found the star (Guider::UpdateCurrentDistance), for Guider::CurrentError and
 // CurrentErrorSmoothed: their averaged distance, or LARGE_DISTANCE when no star has been found yet
@@ -57,6 +64,30 @@ public:
 
 private:
     std::vector<int64_t> m_attemptsS;
+};
+
+// The set_pa_session lease (design/POLAR_ALIGNMENT_DESIGN.md §4): Start holds it for timeoutS
+// from nowMs (a renewal starts it again from nowMs), End drops it, and it is active until the
+// clock reaches its expiry
+class PaSessionLease
+{
+public:
+    struct Status
+    {
+        bool active = false;
+        int expiresInS = 0; // whole seconds left, rounded down; 0 when not active
+    };
+
+    void Start(int64_t nowMs, long timeoutS);
+    void End();
+    bool Active(int64_t nowMs) const;
+    // Active and expiresInS from one reading, so a lease expiring mid-call is not reported
+    // active with a negative expiresInS
+    Status StatusAt(int64_t nowMs) const;
+
+private:
+    bool m_held = false;
+    int64_t m_expiresMs = 0;
 };
 
 } // namespace monotonic_timers
