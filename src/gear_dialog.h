@@ -112,6 +112,9 @@ public:
     void EndModal(int retCode) override;
 
     bool SetProfile(int profileId, wxString *error);
+    // SetProfile's refusals, the Connect Equipment dialog open or the camera, mount or rotator connected:
+    // true with the error text it would give (#185)
+    bool ProfileSwitchRefused(wxString *error) const;
     // The current profile changed without a profile choice (delete_profile of the current profile): rebuild the
     // camera, mount and rotator from the new current profile, as a profile choice does (#117).
     void ReloadProfileGear();

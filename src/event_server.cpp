@@ -2203,16 +2203,12 @@ static void set_profile_by_name(JObj& response, const json_value *params)
 // clone_profile before they create a profile they are asked to select, so a refusal leaves nothing behind (#185).
 static bool refuse_profile_switch(JObj& response)
 {
-    // The same refusals GearDialog::SetProfile makes, in its order, before anything is created (#185): the
-    // dialog one can only happen in --gui mode with the Connect Equipment dialog open
-    if (pFrame->pGearDialog && pFrame->pGearDialog->IsModal())
-    {
-        response << jrpc_error(1, "cannot set profile when Connect Equipment dialog is open");
-        return true;
-    }
-    if (!any_equipment_connected())
+    // GearDialog::SetProfile's own refusals, made before anything is created (#185), so the two cannot
+    // drift apart: the Connect Equipment dialog open (--gui only), or the camera, mount or rotator connected
+    wxString error;
+    if (!pFrame->pGearDialog->ProfileSwitchRefused(&error))
         return false;
-    response << jrpc_error(1, "cannot set profile when equipment is connected");
+    response << jrpc_error(1, error);
     return true;
 }
 

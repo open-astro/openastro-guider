@@ -1395,11 +1395,8 @@ void GearDialog::ReloadProfileGear()
     LoadGearChoices();
 }
 
-bool GearDialog::SetProfile(int profileId, wxString *error)
+bool GearDialog::ProfileSwitchRefused(wxString *error) const
 {
-    if (profileId == pConfig->GetCurrentProfileId())
-        return false;
-
     if (IsModal())
     {
         // these error messages are internal to the event server and are not translated
@@ -1413,6 +1410,17 @@ bool GearDialog::SetProfile(int profileId, wxString *error)
         *error = "cannot set profile when equipment is connected";
         return true;
     }
+
+    return false;
+}
+
+bool GearDialog::SetProfile(int profileId, wxString *error)
+{
+    if (profileId == pConfig->GetCurrentProfileId())
+        return false;
+
+    if (ProfileSwitchRefused(error))
+        return true;
 
     if (!pConfig->ProfileExists(profileId))
     {
