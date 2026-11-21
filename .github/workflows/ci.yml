@@ -406,9 +406,11 @@ jobs:
     # UndefinedBehaviorSanitizer, run headless under xvfb-run against scripts/fake_alpaca_camera.py,
     # and driven over JSON-RPC by scripts/e2e_guide_scenarios.py the way Ara drives it: the RPC
     # smoke script, calibrate and guide (with the event order Ara consumes), recalibration on a
-    # new target, and dropped frames while guiding; then scripts/e2e_persistence.py checks that
-    # settings survive SIGTERM and SIGKILL. A separate job beside the Release build, in its own
-    # build dir, so the GTest job above is unchanged and the two run in parallel.
+    # new target, and dropped frames while guiding; and, in a second daemon beside it on a fake
+    # with mount and sky physics, the calibration measured against the fake's truth, a dither
+    # and settle, and clouds; then scripts/e2e_persistence.py checks that settings survive
+    # SIGTERM and SIGKILL. A separate job beside the Release build, in its own build dir, so
+    # the GTest job above is unchanged and the two run in parallel.
     name: Daemon e2e (arm64, ASan/UBSan)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
@@ -472,7 +474,9 @@ jobs:
         # never freed by design, which is not a bug; the memory-error and UB checks stay on.
         # The script has its own whole-run timeout (--timeout) under the step's. Under ASan the
         # ubuntu-24.04-arm runner is about 3x slower than a local run: a calibration takes about
-        # 270 s and the whole run about 15 min.
+        # 270 s and the whole run about 15 min. The physics lane (calibration truth, dither,
+        # clouds) runs at the same time as a second daemon on instance 11, fake port 11151 and
+        # display 111, about 7 min, so it adds no wall time.
         timeout-minutes: 45
         env:
           ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0:print_stacktrace=1

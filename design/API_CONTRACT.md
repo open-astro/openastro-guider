@@ -779,6 +779,18 @@ the star, and `ConfigurationChange` / `AppState` can arrive in between; the chec
 A request that fails still ends with exactly one `SettleDone` (see `doc/jsonrpc_api.md` for the
 failure orders). A dropped frame while guiding (#136) is a `StarLost` and the `GuideStep`s go on.
 
+The job's second lane (a fake with a camera angle, cos(Dec), backlash, drift, periodic error and
+seeing) also pins, with no API change:
+
+- `get_calibration_data` `xAngle`/`yAngle` within 2° and `xRate`/`yRate` within 5 % of the fake's
+  true values (`xRate`/`yRate` in px/s, the RA rate at the calibration's Dec);
+- a `dither` while guiding: `LockPositionSet`, `GuidingDithered` (`dx`/`dy`, the dither in RA/Dec
+  px), `SettleBegin`, `Settling` and `GuideStep` events, exactly one `SettleDone` (`Status` 0),
+  then `GuideStep`s; `get_lock_position` moves by the dither;
+- frames with no star while guiding (clouds): one `StarLost` each (today `Status` "Star lost - low
+  SNR", not a camera error), `get_app_state` `LostLock` (or `Guiding`) meanwhile, no
+  `GuidingStopped`, and a `GuideStep` on the first frame with the star again.
+
 ARA: no code change. It waits for `SettleDone` as the end of the request, which this pins.
 
 ## 2026-11-20 — settings on disk when the call returns (#142)
