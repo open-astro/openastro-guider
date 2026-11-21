@@ -59,6 +59,8 @@
 #include <sstream>
 #include <thread>
 #include <string.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 #if defined(ALPACA_CAMERA) || defined(GUIDE_ALPACA) || defined(ROTATOR_ALPACA)
 # include "alpaca_client.h"
@@ -2472,7 +2474,7 @@ static void get_profile_setup(JObj& response, const json_value *params)
          << NV("calibration_distance", pConfig->Profile.GetInt("/scope/CalibrationDistance", DEFAULT_CALIBRATION_DISTANCE))
          << NV("high_res_encoders", pConfig->Profile.GetBoolean("/scope/HiResEncoders", false))
          << NV("auto_restore_calibration", pConfig->Profile.GetBoolean("/AutoLoadCalibration", false))
-         << NV("multistar_enabled", pConfig->Profile.GetBoolean("/guider/multistar/enabled", true))
+         << NV("multistar_enabled", pConfig->Profile.GetBoolean("/guider/multistar/enabled", false))
          << NV("mass_change_threshold_enabled",
                pConfig->Profile.GetBoolean("/guider/onestar/MassChangeThresholdEnabled", true));
 
@@ -7286,6 +7288,16 @@ void EventServer::EventServerStop()
     Debug.AddLine("event server stopped");
 }
 
+// A request's events and its response go out as separate small writes. With Nagle's algorithm on, a write made while
+// an earlier one is unacknowledged waits for the client's ACK, which Linux delays by about 40 ms, so every setter that
+// sends ConfigurationChange before its response took about 45 ms (#175). Send every write at once.
+static void set_no_delay(wxSocketBase *sock, const char *server)
+{
+    int one = 1;
+    if (!sock->SetOption(IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)))
+        Debug.Write(wxString::Format("%s: cli %p: TCP_NODELAY not set\n", server, sock));
+}
+
 void EventServer::OnEventServerEvent(wxSocketEvent& event)
 {
     wxSocketServer *server = static_cast<wxSocketServer *>(event.GetSocket());
@@ -7306,6 +7318,7 @@ void EventServer::OnEventServerEvent(wxSocketEvent& event)
     // the client is keeping up.
     client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG);
     client->SetFlags(wxSOCKET_NOWAIT);
+    set_no_delay(client, "evsrv");
     client->Notify(true);
     client->SetClientData(new ClientData(client));
 
@@ -7358,6 +7371,7 @@ void EventServer::OnHttpServerEvent(wxSocketEvent& event)
     client->SetEventHandler(*this, HTTP_SERVER_CLIENT_ID);
     client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG | wxSOCKET_OUTPUT_FLAG);
     client->SetFlags(wxSOCKET_NOWAIT);
+    set_no_delay(client, "httpsrv");
     client->Notify(true);
     client->SetClientData(new HttpClientData(client));
 

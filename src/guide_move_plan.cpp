@@ -135,6 +135,17 @@ bool LimitAlertThrottle::ShouldRaise(Axis axis, int64_t nowS, int64_t deferredUn
     return true;
 }
 
+bool PulseFailedAlertThrottle::ShouldRaise(int64_t nowS)
+{
+    // One alert per failed pulse, two a frame when both axes correct, flooded the client (#188)
+    if (m_raised && nowS < m_lastRaisedS + PULSE_FAILED_ALERT_THROTTLE_S)
+        return false;
+
+    m_raised = true;
+    m_lastRaisedS = nowS;
+    return true;
+}
+
 double MovedPx(double distancePx, int requestedMs, int sentMs, double rate)
 {
     double distance = std::fabs(distancePx);
@@ -158,6 +169,18 @@ RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double 
     progress.done =
         (progress.remainingX < 0.5 && progress.remainingY < 0.5) || progress.stalledSteps >= RECENTER_MAX_STALLED_STEPS;
     return progress;
+}
+
+bool SendDecAfter(MoveResult ra)
+{
+    return ra != MoveResult::ErrorSlewing && ra != MoveResult::ErrorAoLimitReached;
+}
+
+MoveResult OffsetResult(MoveResult ra, MoveResult dec)
+{
+    // A failed Dec pulse fails the move; else the RA pulse's result stands. With the Dec pulse
+    // sent, RA was Ok or Error, so a Dec slew or AO limit, which OnMoveComplete acts on, wins
+    return dec != MoveResult::Ok ? dec : ra;
 }
 
 } // namespace guide_move_plan
