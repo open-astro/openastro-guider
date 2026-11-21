@@ -633,6 +633,13 @@ def main():
                 run_check(f"get_variable_delay_settings reads back {label} seconds",
                           lambda delay=delay: expect_typed(cli.call("get_variable_delay_settings"), delay))
 
+            # get_exposure reads the selected exposure with the camera disconnected too (#176); it read 0
+            for exposure in (2500, 1000):
+                run_check(f"set_exposure {exposure} while disconnected",
+                          lambda exposure=exposure: cli.call("set_exposure", {"exposure": exposure}))
+                run_check(f"get_exposure reads {exposure} while disconnected",
+                          lambda exposure=exposure: expect_equal(cli.call("get_exposure"), exposure))
+
             run_check("delete_profile clone", lambda: cli.call("delete_profile", {"name": test_name3, "delete_dark_files": False}))
             run_check("delete_profile renamed", lambda: cli.call("delete_profile", {"name": test_name2, "delete_dark_files": False}))
             if isinstance(base_id, int) and base_id > 0:
