@@ -43,6 +43,8 @@
 # include "pulse_wait.h"
 # include <wx/stopwatch.h>
 
+# include <chrono>
+
 ScopeAlpaca::ScopeAlpaca() : m_client(nullptr), m_host(pConfig->Profile.GetString("/alpaca/host", _T("localhost")))
 {
     m_port = pConfig->Profile.GetLong("/alpaca/port", 0);
@@ -339,6 +341,12 @@ static wxString PulseGuideFailedAlertEnabledKey()
     return wxString::Format("/Confirm/%d/PulseGuideFailedAlertEnabled", pConfig->GetCurrentProfileId());
 }
 
+// A clock the wall-clock steps (a Pi syncing its time) do not move, for the alert throttle
+static int64_t SteadySeconds()
+{
+    return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 static void SuppressPulseGuideFailedAlert(intptr_t)
 {
     pConfig->Global.SetBoolean(PulseGuideFailedAlertEnabledKey(), false);
@@ -518,7 +526,8 @@ Mount::MOVE_RESULT ScopeAlpaca::Guide(GUIDE_DIRECTION direction, int duration)
         {
             result = MOVE_ERROR;
 
-            if (!WorkerThread::InterruptRequested())
+            // At most one alert every 30 s, not one per failed pulse (guide_move_plan.h, #188)
+            if (!WorkerThread::InterruptRequested() && m_pulseFailedAlertThrottle.ShouldRaise(SteadySeconds()))
             {
                 pFrame->SuppressibleAlert(PulseGuideFailedAlertEnabledKey(),
                                           _("PulseGuide command to mount has failed - guiding is likely to be ineffective."),

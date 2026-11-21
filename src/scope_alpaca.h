@@ -53,6 +53,9 @@ private:
     bool m_canPulseGuide;
     bool m_canGetSiteLatLong;
 
+    // The PulseGuide-failed alert's, at most one every 30 s (guide_move_plan.h, #188)
+    guide_move_plan::PulseFailedAlertThrottle m_pulseFailedAlertThrottle;
+
     // Private helper functions
     bool IsGuiding();
     bool IsSlewing();

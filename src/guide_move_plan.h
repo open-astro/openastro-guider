@@ -6,8 +6,9 @@
  *  length of each axis's pulse from Mount::MoveOffset (PlanOffset), and the
  *  guiding-disabled refusal, Dec guide mode filter, max-duration clamp and
  *  limit-reached counting from Scope::MoveAxis (PlanAxis), the limit-reached
- *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle), what a
- *  dither's fast-recenter step moved (MovedPx, AfterRecenterStep), and the result
+ *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle), the
+ *  PulseGuide-failed alert's throttle from ScopeAlpaca::Guide (PulseFailedAlertThrottle),
+ *  what a dither's fast-recenter step moved (MovedPx, AfterRecenterStep), and the result
  *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult).
  *  Kept free of wx so it can be unit tested (tests/guiding/test_guide_move_plan.cpp).
  */
@@ -130,6 +131,24 @@ public:
 private:
     bool m_raised[2] = { false, false };
     int64_t m_lastRaisedS[2] = { 0, 0 };
+};
+
+// The shortest time between two PulseGuide-failed alerts of one mount
+constexpr int64_t PULSE_FAILED_ALERT_THROTTLE_S = 30;
+
+// ScopeAlpaca::Guide's throttle for its "PulseGuide command to mount has failed" alert (#188), on
+// the caller's clock in seconds. The first failed pulse raises it, then at most one is raised every
+// PULSE_FAILED_ALERT_THROTTLE_S, whichever axis failed: the alert names no axis, and a mount that
+// stops taking pulses fails both axes' every frame. Only a raised alert restarts the throttle.
+class PulseFailedAlertThrottle
+{
+public:
+    // Whether to raise the alert for a pulse that failed at nowS
+    bool ShouldRaise(int64_t nowS);
+
+private:
+    bool m_raised = false;
+    int64_t m_lastRaisedS = 0;
 };
 
 // The px one axis of a Mount::MoveOffset moved of distancePx (#165). MoveOffset asked MoveAxis for
