@@ -30,6 +30,10 @@ name: CI
 
 on:
   pull_request:
+  # The merge queue builds each queued PR on the latest main and waits for the
+  # required checks to report on this event. The PR-diff jobs skip themselves
+  # on it (they are gated on `pull_request`), which counts as satisfied.
+  merge_group:
   push:
     branches:
       - main
