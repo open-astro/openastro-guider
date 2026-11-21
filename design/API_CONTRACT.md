@@ -951,6 +951,10 @@ throttle running out (`EquipmentReconnectFailed`) each ended with two.
   `Alert`, then `GuidingStopped` when guiding, `LoopingExposuresStopped`, then `LockPositionLost`
   when the lock is lost; and `EquipmentDisconnected`, `EquipmentReconnectFailed`,
   `LoopingExposuresStopped` for the throttle.
+- With a `guide` request in flight, its `SettleDone` follows the one `LoopingExposuresStopped` when
+  looping or selecting a star, and no event comes after it (the second stop used to come after it);
+  when calibrating or guiding the order is `GuidingStopped`, `SettleDone`, `LoopingExposuresStopped`.
+  `doc/jsonrpc_api.md` gives the same order.
 - Not changed: a frame that fails after a `stop_capture`, or a `capture_single_frame` that fails,
   still sends one; the failure reasons in the `Alert` and in a failed guide request's `SettleDone`;
   `get_app_state` reading `Stopped`.
