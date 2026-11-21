@@ -34,6 +34,7 @@
 #include "phd.h"
 #include "guiding_assistant.h"
 #include "edge_allowance.h"
+#include "guide_move_plan.h"
 
 // un-comment to log star deflections to a file
 // #define CAPTURE_DEFLECTIONS
@@ -166,6 +167,7 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_showBookmarks = true;
     m_displayedImage = new wxImage(XWinSize, YWinSize, true);
     m_paused = PAUSE_NONE;
+    m_ditherRecenterStepsPending = 0;
     m_starFoundTimestamp = 0;
     m_avgDistanceNeedReset = false;
     m_avgDistanceCnt = 0;
@@ -891,6 +893,7 @@ bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
         if (IsFastRecenterEnabled() && dist != 0)
         {
             m_ditherRecenterRemaining.SetXY(fabs(mountDelta.X), fabs(mountDelta.Y));
+            m_ditherRecenterStepsPending = 0; // a step of an earlier recenter no longer counts
             m_ditherRecenterDir.x = mountDelta.X < 0.0 ? 1 : -1;
             m_ditherRecenterDir.y = mountDelta.Y < 0.0 ? 1 : -1;
             // make each step a bit less than the full search region distance to avoid losing the star
@@ -905,6 +908,39 @@ bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
     }
 
     return err;
+}
+
+// A fast-recenter step's move has completed (MyFrame::OnMoveComplete). mountMoved is what the mount
+// moved of it (Mount::MoveOffset), invalid when MoveOffset failed before it sent a pulse (#165).
+void Guider::NotifyRecenterMoveComplete(const PHD_Point& mountMoved)
+{
+    if (m_ditherRecenterStepsPending <= 0 || !m_ditherRecenterRemaining.IsValid())
+    {
+        Debug.Write("dither recenter: move completed for a recenter that has ended, ignored\n");
+        return;
+    }
+    --m_ditherRecenterStepsPending;
+
+    double movedX = mountMoved.IsValid() ? fabs(mountMoved.X) : 0.0;
+    double movedY = mountMoved.IsValid() ? fabs(mountMoved.Y) : 0.0;
+    guide_move_plan::RecenterProgress progress =
+        guide_move_plan::AfterRecenterStep(m_ditherRecenterRemaining.X, m_ditherRecenterRemaining.Y, movedX, movedY);
+
+    const char *outcome = !progress.done ? "" : movedX > 0.0 || movedY > 0.0 ? ", done" : ", step moved nothing, done";
+    Debug.Write(wxString::Format("dither recenter: moved=(%.1f,%.1f) remaining=(%.1f,%.1f)%s\n", movedX * m_ditherRecenterDir.x,
+                                 movedY * m_ditherRecenterDir.y, progress.remainingX * m_ditherRecenterDir.x,
+                                 progress.remainingY * m_ditherRecenterDir.y, outcome));
+
+    if (progress.done)
+    {
+        // fast recenter is done; the guide algorithm corrects what is left
+        m_ditherRecenterRemaining.Invalidate();
+        m_ditherRecenterStepsPending = 0;
+        // reset distance tracker
+        m_avgDistanceNeedReset = true;
+    }
+    else
+        m_ditherRecenterRemaining.SetXY(progress.remainingX, progress.remainingY);
 }
 
 void Guider::SetState(GUIDER_STATE newState)
@@ -999,6 +1035,7 @@ void Guider::SetState(GUIDER_STATE newState)
             assert(pMount);
 
             m_ditherRecenterRemaining.Invalidate(); // reset dither fast recenter state
+            m_ditherRecenterStepsPending = 0;
 
             pMount->AdjustCalibrationForScopePointing();
             if (pSecondaryMount)
@@ -1488,17 +1525,11 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
                                              m_ditherRecenterRemaining.Y * m_ditherRecenterDir.y,
                                              step.X * m_ditherRecenterDir.x, step.Y * m_ditherRecenterDir.y));
 
-                m_ditherRecenterRemaining -= step;
-                if (m_ditherRecenterRemaining.X < 0.5 && m_ditherRecenterRemaining.Y < 0.5)
-                {
-                    // fast recenter is done
-                    m_ditherRecenterRemaining.Invalidate();
-                    // reset distance tracker
-                    m_avgDistanceNeedReset = true;
-                }
-
+                // The remaining distance goes down by what the mount moved of the step, when its move
+                // completes (NotifyRecenterMoveComplete), not by the step: MoveAxis can cut or refuse it (#165)
                 ofs.mountOfs.SetXY(step.X * m_ditherRecenterDir.x, step.Y * m_ditherRecenterDir.y);
                 pMount->TransformMountCoordinatesToCameraCoordinates(ofs.mountOfs, ofs.cameraOfs);
+                ++m_ditherRecenterStepsPending;
                 pFrame->SchedulePrimaryMove(pMount, ofs, MOVEOPTS_RECOVERY_MOVE);
                 // let guide algorithms know about the direct move
                 pMount->NotifyDirectMove(ofs.mountOfs);

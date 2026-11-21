@@ -124,6 +124,7 @@ struct GuiderOffset
 {
     PHD_Point cameraOfs;
     PHD_Point mountOfs;
+    PHD_Point mountMoved; // Mount::MoveOffset: what the mount moved of the offset, per mount axis (#165)
 };
 
 class Guider : public wxWindow
@@ -139,6 +140,7 @@ class Guider : public wxWindow
     PHD_Point m_ditherRecenterStep;
     wxPoint m_ditherRecenterDir;
     PHD_Point m_ditherRecenterRemaining;
+    int m_ditherRecenterStepsPending; // recenter steps sent whose moves have not completed (#165)
     time_t m_starFoundTimestamp; // timestamp when star was last found
     double m_avgDistance; // averaged distance for distance reporting
     double m_avgDistanceRA; // averaged distance, RA only
@@ -207,6 +209,7 @@ public:
     bool IsCalibratingOrGuiding() const;
     bool IsCalibrating() const;
     bool IsRecentering() const { return m_ditherRecenterRemaining.IsValid(); }
+    void NotifyRecenterMoveComplete(const PHD_Point& mountMoved);
     bool IsGuiding() const;
     void OnClose(wxCloseEvent& evt);
     void OnErase(wxEraseEvent& evt);
