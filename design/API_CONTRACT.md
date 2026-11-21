@@ -939,3 +939,25 @@ event. The event server now sets `TCP_NODELAY` on every accepted JSON-RPC (`:440
 
 ARA: no code change. Its connect and profile-change setter sequences finish about 45 ms per call
 sooner.
+
+## 2026-11-21 — one `LoopingExposuresStopped` per failed capture frame (#186)
+
+No new method or field. A capture frame that failed for good (not one of the #116 / #136 retried
+frames) while the guider was looping, calibrating or guiding sent `LoopingExposuresStopped` twice in
+a row: a 1280 while looping, the Alpaca server going away while guiding, and the camera reconnect
+throttle running out (`EquipmentReconnectFailed`) each ended with two.
+
+- It is now sent once, in the same place as the first one was, so the order is otherwise unchanged:
+  `Alert`, then `GuidingStopped` when guiding, `LoopingExposuresStopped`, then `LockPositionLost`
+  when the lock is lost; and `EquipmentDisconnected`, `EquipmentReconnectFailed`,
+  `LoopingExposuresStopped` for the throttle.
+- With a `guide` request in flight, its `SettleDone` follows the one `LoopingExposuresStopped` when
+  looping or selecting a star, and no event comes after it (the second stop used to come after it);
+  when calibrating or guiding the order is `GuidingStopped`, `SettleDone`, `LoopingExposuresStopped`.
+  `doc/jsonrpc_api.md` gives the same order.
+- Not changed: a frame that fails after a `stop_capture`, or a `capture_single_frame` that fails,
+  still sends one; the failure reasons in the `Alert` and in a failed guide request's `SettleDone`;
+  `get_app_state` reading `Stopped`.
+
+ARA: no code change. A client that counted the stops, or took the second one as a new stop after it
+had already started looping again, now sees one.
