@@ -6,8 +6,10 @@
  *  length of each axis's pulse from Mount::MoveOffset (PlanOffset), and the
  *  guiding-disabled refusal, Dec guide mode filter, max-duration clamp and
  *  limit-reached counting from Scope::MoveAxis (PlanAxis), the limit-reached
- *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle), and what a
- *  dither's fast-recenter step moved (MovedPx, AfterRecenterStep).
+ *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle), the
+ *  PulseGuide-failed alert's throttle from ScopeAlpaca::Guide (PulseFailedAlertThrottle),
+ *  what a dither's fast-recenter step moved (MovedPx, AfterRecenterStep), and the result
+ *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult).
  *  Kept free of wx so it can be unit tested (tests/guiding/test_guide_move_plan.cpp).
  */
 
@@ -131,6 +133,24 @@ private:
     int64_t m_lastRaisedS[2] = { 0, 0 };
 };
 
+// The shortest time between two PulseGuide-failed alerts of one mount
+constexpr int64_t PULSE_FAILED_ALERT_THROTTLE_S = 30;
+
+// ScopeAlpaca::Guide's throttle for its "PulseGuide command to mount has failed" alert (#188), on
+// the caller's clock in seconds. The first failed pulse raises it, then at most one is raised every
+// PULSE_FAILED_ALERT_THROTTLE_S, whichever axis failed: the alert names no axis, and a mount that
+// stops taking pulses fails both axes' every frame. Only a raised alert restarts the throttle.
+class PulseFailedAlertThrottle
+{
+public:
+    // Whether to raise the alert for a pulse that failed at nowS
+    bool ShouldRaise(int64_t nowS);
+
+private:
+    bool m_raised = false;
+    int64_t m_lastRaisedS = 0;
+};
+
 // The px one axis of a Mount::MoveOffset moved of distancePx (#165). MoveOffset asked MoveAxis for
 // requestedMs (the axis's PulseMs, plus any Dec backlash compensation) and MoveAxis sent sentMs
 // (MoveResultInfo::amountMoved), which is less when PlanAxis caps the pulse at MAX_PULSE_MS or an
@@ -156,6 +176,24 @@ struct RecenterProgress
 // steps in a row moved nothing (they failed or were refused), so a mount that does not move ends
 // the recenter and a single failed step is made up by the next ones.
 RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double movedX, double movedY, int stalledSteps);
+
+// == Mount::MOVE_RESULT (mount.h); mount.cpp static_asserts the values
+enum class MoveResult
+{
+    Ok = 0,
+    Error, // failed for an unspecified reason
+    ErrorSlewing, // the scope is slewing
+    ErrorAoLimitReached, // the AO hit its travel limit
+};
+
+// Whether Mount::MoveOffset sends its Dec pulse after its RA move returned ra: not when the
+// scope is slewing or the AO hit its travel limit
+bool SendDecAfter(MoveResult ra);
+
+// Mount::MoveOffset's result for its RA move's ra and its Dec move's dec (Ok when SendDecAfter
+// said not to send it) (#181): dec when it failed, else ra, so an RA pulse error is not hidden
+// by a Dec pulse that went through
+MoveResult OffsetResult(MoveResult ra, MoveResult dec);
 
 } // namespace guide_move_plan
 
