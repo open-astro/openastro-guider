@@ -2474,7 +2474,7 @@ static void get_profile_setup(JObj& response, const json_value *params)
          << NV("calibration_distance", pConfig->Profile.GetInt("/scope/CalibrationDistance", DEFAULT_CALIBRATION_DISTANCE))
          << NV("high_res_encoders", pConfig->Profile.GetBoolean("/scope/HiResEncoders", false))
          << NV("auto_restore_calibration", pConfig->Profile.GetBoolean("/AutoLoadCalibration", false))
-         << NV("multistar_enabled", pConfig->Profile.GetBoolean("/guider/multistar/enabled", true))
+         << NV("multistar_enabled", pConfig->Profile.GetBoolean("/guider/multistar/enabled", false))
          << NV("mass_change_threshold_enabled",
                pConfig->Profile.GetBoolean("/guider/onestar/MassChangeThresholdEnabled", true));
 
