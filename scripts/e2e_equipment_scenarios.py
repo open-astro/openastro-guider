@@ -35,7 +35,7 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
                           reconnects the camera (EquipmentDisconnected reconnecting, EquipmentReconnected) and the
                           loop goes on
   mount read errors       declination and sideofpier failing through the whole calibration: the calibration
-  during calibration      completes, get_calibration_data reporting the unknown Dec as 57123.9 (997 rad in degrees);
+  during calibration      completes, get_calibration_data reporting the unknown Dec and pierSide as null (#189);
                           the profile's first calibration turns auto_restore_calibration on
   pulseguide errors       pulseguide failing while guiding: the first failed pulse raises an Alert, and then at most
                           one every 30 s (#188), not one per failed pulse; guiding goes on, the mount stays connected
@@ -106,8 +106,6 @@ GA_DURATION_S = 60
 GUIDE_FAILURES = e2e.GUIDE_FAILURES
 # the abort list of a scenario whose camera is to be disconnected and reconnected while guiding
 GUIDING_ENDED = ("CalibrationFailed", "GuidingStopped", "LoopingExposuresStopped", "EquipmentReconnectFailed")
-# UNKNOWN_DECLINATION (src/mount.h) in degrees, as get_calibration_data reports it
-UNKNOWN_DEC_DEG = 997.0 * 180.0 / 3.141592653589793
 
 
 def camera_choice(fake):
@@ -741,18 +739,20 @@ def scenario_mount_read_errors_calibration(lane, args):
     # its position), with no Alert
     expect(setup(cli)["auto_restore_calibration"] is True, "auto_restore_calibration still off after the new "
                                                            "profile's first calibration")
-    # an unknown Dec is UNKNOWN_DECLINATION (997 rad, src/mount.h) to the guider, and get_calibration_data reports
-    # it through degrees() like a real one, not as null
-    expect(abs(cal.get("declination", 0) - UNKNOWN_DEC_DEG) < 0.01,
-           f"calibration declination {cal.get('declination')!r}, expected {UNKNOWN_DEC_DEG:.2f} (unknown)")
-    # get_calibration_data has no side of pier; the driver's reads are in the debug log
+    # an unknown Dec and side of pier are null in get_calibration_data (#189), not UNKNOWN_DECLINATION (997 rad,
+    # src/mount.h) through degrees(), 57123.9, and the field there, so Ara can tell the calibration lacks them
+    expect("declination" in cal and cal["declination"] is None,
+           f"calibration declination {cal.get('declination', '(missing)')!r}, expected null (unknown)")
+    expect("pierSide" in cal and cal["pierSide"] is None,
+           f"calibration pierSide {cal.get('pierSide', '(missing)')!r}, expected null (unknown)")
+    # the driver's reads are in the debug log
     pier = set(lane.debug.wait(r"ScopeAlpaca::SideOfPier\(\) returns (-?\d+)", 1, count=1))
     expect(pier == {"-1"}, f"SideOfPier() returned {sorted(pier)} during the calibration, expected only -1 "
                            "(PIER_SIDE_UNKNOWN)")
     names = names_of(evs)
     expect(not alerts(evs), f"Alerts during the calibration: {names}")
-    return (f"calibration completed ({legs}), get_calibration_data declination {cal.get('declination')!r} "
-            f"(UNKNOWN_DECLINATION in degrees), SideOfPier() {sorted(pier)}, no Alert; guiding")
+    return (f"calibration completed ({legs}), get_calibration_data declination {cal['declination']!r} "
+            f"pierSide {cal['pierSide']!r}, SideOfPier() {sorted(pier)}, no Alert; guiding")
 
 
 def scenario_pulseguide_errors(lane):
