@@ -176,6 +176,13 @@ def min_moves(cli):
             cli.call("get_algo_param", {"axis": "dec", "name": "minMove"}))
 
 
+def smart_default_min_move(pixel_um, focal_mm=FOCAL_MM, binning=1):
+    """GuideAlgorithm::SmartDefaultMinMove (src/guide_algorithm.cpp): the MinMove an image scale change resets both
+    axes to (AdvancedDialog::MakeImageScaleAdjustments); 0.2316 px for the fake's 3.75 um at 400 mm."""
+    scale = 206.265 * pixel_um * binning / focal_mm
+    return max(0.1515 + 0.1548 / scale, 0.15)
+
+
 def setup(cli):
     return cli.call("get_profile_setup")
 
@@ -383,6 +390,12 @@ def scenario_connect_side_effects(lane):
     expect(abs(scale0 - want0) < 0.01, f"get_pixel_scale {scale0} before connecting, expected {want0:.3f} "
                                        "(the profile's pixel size)")
 
+    # the new profile's MinMoves, read before the connect: the guide algorithms' own default, not the image scale's
+    mm0 = min_moves(cli)
+    want_mm1 = smart_default_min_move(FAKE_PIXEL_UM)
+    expect(all(abs(m - want_mm1) > 0.01 for m in mm0),
+           f"MinMoves {mm0} before connecting already the new scale's default {want_mm1:.4f}: the reset is not seen")
+
     # connect all: the camera's pixel size is not the profile's, so the #139 adjustment is made, once
     start = cli.mark()
     expect(cli.call("set_connected", {"connected": True}, timeout=60) == 0, "set_connected true did not return 0")
@@ -391,6 +404,8 @@ def scenario_connect_side_effects(lane):
     scale_alerts = alerts(evs, SCALE_ALERT)
     expect(len(scale_alerts) == 1, f"{len(scale_alerts)} pixel-size Alerts for the connect, expected 1: {names}")
     expect(not [e for e in evs if e["Event"].startswith("Equipment")], f"Equipment* events on a first connect: {names}")
+    expect(names == ["ConfigurationChange", "Alert"], f"events of a first connect: {names}, expected "
+                                                      "['ConfigurationChange', 'Alert']")
     expect(connected_by_device(cli) == {"all": True, "camera": True, "mount": True, "rotator": False},
            f"get_connected after connecting: {connected_by_device(cli)}")
     eq = equipment(cli)
@@ -405,10 +420,13 @@ def scenario_connect_side_effects(lane):
     cal_step1 = after["calibration_duration"]
     expect(cal_step1 != cal_step0, f"calibration_duration {cal_step1} not recomputed for the new image scale")
     mm1 = min_moves(cli)
-    expect(mm1[0] == mm1[1] and 0 < mm1[0] < 1, f"MinMoves {mm1} after the scale change, expected one default")
+    expect(all(abs(m - want_mm1) < 1e-3 for m in mm1),
+           f"MinMoves {mm0} -> {mm1} after the scale change, expected both reset to the new scale's default "
+           f"{want_mm1:.4f} (#139)")
     expect(cli.call("get_calibrated") is False, "calibrated on a new profile")
     out.append(f"connect: events {names}, 1 scale Alert, calibration_duration {cal_step0} -> {cal_step1}, "
-               f"MinMove {mm1[0]:.4f}, pixel scale {scale0:.3f} -> {scale1:.3f}\"/px")
+               f"MinMove {mm0[0]:.4f}/{mm0[1]:.4f} -> {mm1[0]:.4f}/{mm1[1]:.4f}, pixel scale {scale0:.3f} -> "
+               f"{scale1:.3f}\"/px")
 
     # what the client sets since is kept by every later request (#139)
     cli.call("set_algo_param", {"axis": "ra", "name": "minMove", "value": 0.42})
@@ -422,7 +440,7 @@ def scenario_connect_side_effects(lane):
     expect(eq == {"camera": (camera_connected_name(fake), False), "mount": (mount_connected_name(fake), False)},
            f"get_current_equipment after disconnecting: {eq}")
     disconnect_names = names_of(evs)
-    expect(not alerts(evs), f"Alerts on a disconnect: {disconnect_names}")
+    expect(disconnect_names == [], f"events on a disconnect: {disconnect_names}, expected none")
     cli.call("set_profile_setup", {"calibration_duration": 1234})
     for label, params in (("all", {}), ("camera", {"device": "camera"}), ("mount", {"device": "mount"})):
         for connect in (True, False, True) if label == "all" else (False, True):
@@ -539,8 +557,8 @@ def scenario_camera_change_mount_off(lane, args):
     fake.request("PUT", "/fake/unplug", {"device": "telescope", "unplugged": "true"})
     start = cli.mark()
     code, msg = call_error(cli, "set_connected", {"connected": True}, timeout=60)
-    expect(code == 1 and msg.startswith("equipment failed to connect: mount (") and "did not reply" in msg,
-           f"set_connected with the mount refusing: {code} {msg!r}")
+    expect(code == 1 and msg.startswith("equipment failed to connect: mount (") and "did not reply" in msg and
+           msg.endswith(" (Alpaca 1280))"), f"set_connected with the mount refusing: {code} {msg!r}")
     evs = settle_events(cli, start)
     expect(connected_by_device(cli) == {"all": False, "camera": True, "mount": False, "rotator": False},
            f"get_connected with the mount refusing: {connected_by_device(cli)}")
@@ -669,9 +687,14 @@ def scenario_camera_drop_loop(lane):
     fake.inject("imagearray", 1280, 1, "e2e loop drop")
     cli.wait_events(mark, "LoopingExposuresStopped", timeout=60)
     evs = settle_events(cli, mark)
+    drop_names = names_of(evs)
+    # a failed frame stops the loop with LoopingExposuresStopped twice (a quirk, pinned as it is)
+    expect(drop_names == ["Alert", "LoopingExposuresStopped", "LoopingExposuresStopped"],
+           f"events of a 1280 while looping: {drop_names}, expected ['Alert', 'LoopingExposuresStopped', "
+           "'LoopingExposuresStopped']")
     expect(cli.call("get_app_state") == "Stopped", f"app state {cli.call('get_app_state')} after a 1280 while looping")
     expect(cli.call("get_connected") is True, "the camera disconnected after a 1280 while looping")
-    out.append(f"1280 while looping: {names_of(evs)}, Stopped")
+    out.append(f"1280 while looping: {drop_names}, Stopped")
 
     start = cli.mark()
     cli.call("loop")
@@ -689,7 +712,8 @@ def scenario_camera_drop_loop(lane):
            f"reason {disc[0].get('reason')!r}")
     expect(rec[0].get("device_type") == "camera", f"EquipmentReconnected {strip(rec[0])}")
     order = [n for n in names_of(evs) if n in ("EquipmentDisconnected", "EquipmentReconnected", "Alert")]
-    expect(order[:1] == ["EquipmentDisconnected"] and "EquipmentReconnected" in order, f"order {order}")
+    expect(order == ["EquipmentDisconnected", "Alert", "EquipmentReconnected"],
+           f"order {order}, expected ['EquipmentDisconnected', 'Alert', 'EquipmentReconnected']")
     expect(cli.call("get_app_state") == "Looping", "not looping after the camera reconnected")
     cli.call("stop_capture")
     cli.wait_state("Stopped", 30)
@@ -731,7 +755,7 @@ def scenario_mount_read_errors_calibration(lane, args):
 
 
 def scenario_pulseguide_errors(lane):
-    """pulseguide failing while guiding: one Alert, guiding goes on, the mount stays connected."""
+    """pulseguide failing while guiding: an Alert for each failed pulse, guiding goes on, the mount stays connected."""
     cli, fake = lane.cli, lane.fake
     expect(cli.call("get_app_state") == "Guiding", "not guiding")
     # bigger corrections, so every frame sends a pulse
@@ -803,8 +827,10 @@ def scenario_capture_timeout(lane):
     want = "After 5.5 sec the camera has not completed a 0.5 sec exposure"
     expect(str(disc[0].get("reason")).startswith(want), f"reason {disc[0].get('reason')!r}")
     lost = [e for e in evs if e["Event"] == "StarLost"]
+    expect(not lost, f"{len(lost)} StarLost for a capture timeout, expected none: {names}")
     expect(cli.call("get_app_state") == "Guiding", "not guiding after the reconnect")
     seq = [n for n in names if n in ("StarLost", "EquipmentDisconnected", "EquipmentReconnected")]
+    expect(seq == ["EquipmentDisconnected", "EquipmentReconnected"], f"order {seq}")
     return f"{seq}, {len(lost)} StarLost, guiding (events {names})"
 
 
@@ -925,7 +951,6 @@ def scenario_guiding_assistant(lane):
     except ValueError:
         parsed = False
     expect(not parsed, "the guiding_assistant_apply response parses as JSON now: update this check")
-    applied = {"applied": ["min_move_ra", "min_move_dec"]}
     mm_after = min_moves(cli)
     expect(abs(mm_after[0] - recs["min_move_ra_px"]) < 0.006 and abs(mm_after[1] - recs["min_move_dec_px"]) < 0.006,
            f"MinMoves {mm_after} after apply, recommended {recs['min_move_ra_px']} / {recs['min_move_dec_px']}")
@@ -991,6 +1016,9 @@ def scenario_reconnect_throttle(lane):
     expect(cli.call("get_app_state") == "Stopped", f"app state {cli.call('get_app_state')} after the throttle")
     expect(cli.call("get_connected", {"device": "camera"}) is False, "the camera reads connected after the throttle")
     seq = [n for n in names if n.startswith("Equipment") or n == "LoopingExposuresStopped"]
+    want_seq = ["EquipmentDisconnected", "EquipmentReconnectFailed", "LoopingExposuresStopped",
+                "LoopingExposuresStopped"]
+    expect(seq == want_seq, f"events of the 4th reconnect: {seq}, expected {want_seq}")
     # the #104 retry takes over
     rec = cli.wait_events(mark, "EquipmentReconnected", timeout=RETRY_FIRST_S + 45)[0]
     t_rec = time.time()
