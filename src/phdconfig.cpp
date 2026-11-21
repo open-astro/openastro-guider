@@ -35,7 +35,11 @@
  */
 
 #include "phd.h"
+#include "atomic_file_write.h"
 #include "event_server.h"
+#include <fstream>
+#include <iterator>
+#include <wx/mstream.h>
 #include <wx/wfstream.h>
 #include <wx/txtstrm.h>
 #include <wx/tokenzr.h>
@@ -350,6 +354,17 @@ static bool MigrateLegacyConfig(int instance, wxConfigBase *dst)
     return true;
 }
 
+// The config file's contents, as wxFileConfig::Flush would write them
+static std::string ConfigFileContents(wxFileConfig *cfg)
+{
+    wxMemoryOutputStream os;
+    cfg->Save(os, wxConvUTF8);
+    std::string contents(os.GetSize(), '\0');
+    if (!contents.empty())
+        os.CopyTo(&contents[0], contents.size());
+    return contents;
+}
+
 PhdConfig::PhdConfig(int instance)
 {
     wxConfig *config = new wxConfig(ConfigName(instance));
@@ -379,10 +394,22 @@ PhdConfig::PhdConfig(int instance)
         Global.SetLong("ConfigVersion", CURRENT_CONFIG_VERSION);
         m_configVersion = CURRENT_CONFIG_VERSION;
     }
+
+    // Flush writes the file itself, so wxFileConfig's own write, which a power cut can leave empty or missing, is
+    // never used: not even from its destructor
+    m_fileConfig = dynamic_cast<wxFileConfig *>(config);
+    if (m_fileConfig)
+    {
+        m_configPath = wxFileConfig::GetLocalFileName(ConfigName(instance), wxCONFIG_USE_LOCAL_FILE | wxCONFIG_USE_GLOBAL_FILE);
+        m_fileConfig->DisableAutoSave();
+        std::ifstream in(m_configPath.fn_str(), std::ios::binary);
+        m_savedContents.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
 }
 
 PhdConfig::~PhdConfig()
 {
+    Flush(); // wxFileConfig's destructor no longer writes the file, see the constructor
     delete Global.m_pConfig;
 }
 
@@ -981,11 +1008,28 @@ bool PhdConfig::RestoreAll(const wxString& filename)
 
 bool PhdConfig::Flush()
 {
-    Debug.Write("PhdConfig flush\n");
+    if (!m_fileConfig)
+    {
+        Debug.Write("PhdConfig flush\n");
+        return Global.m_pConfig->Flush(); // writes the config if it is dirty
+    }
 
-    // Writes the config file if it is dirty (no-op if it is not dirty).
-    bool ok = Global.m_pConfig->Flush();
-    return ok;
+    // Not wxFileConfig::Flush: it renames a file it never fsynced over the config, and before wxWidgets 3.2.8 it
+    // deletes the config first, so a power cut can leave the config empty or missing and the next start makes a
+    // new one (#142). AtomicFileWrite leaves the old file or the new one whole. Writes only when something changed.
+    std::string contents = ConfigFileContents(m_fileConfig);
+    if (contents == m_savedContents)
+        return true;
+
+    std::string error;
+    if (!AtomicFileWrite(std::string(m_configPath.fn_str()), contents, &error))
+    {
+        Debug.Write(wxString::Format("PhdConfig flush failed: %s\n", wxString(error)));
+        return false;
+    }
+    m_savedContents.swap(contents);
+    Debug.Write(wxString::Format("PhdConfig flush: wrote %u bytes\n", (unsigned int) m_savedContents.size()));
+    return true;
 }
 
 wxArrayString PhdConfig::ProfileNames()

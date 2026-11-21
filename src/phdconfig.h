@@ -111,6 +111,10 @@ class PhdConfig
     long m_configVersion;
     bool m_isNewInstance;
     int m_currentProfileId = 0;
+    // Flush writes the config file itself, with AtomicFileWrite (#142): the file, and what is in it on disk
+    wxFileConfig *m_fileConfig = nullptr;
+    wxString m_configPath;
+    std::string m_savedContents;
 
 public:
     PhdConfig(int instance);

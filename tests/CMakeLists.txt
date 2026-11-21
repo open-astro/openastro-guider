@@ -419,6 +419,19 @@ set_property(TARGET test_instance_lock PROPERTY FOLDER "Unit tests")
 add_test(NAME test_instance_lock COMMAND test_instance_lock)
 
 ############################################################################
+# test_atomic_file_write  --  atomic_file_write.cpp: the config file write
+# that a kill or power cut cannot leave empty, torn or missing (#142).
+# POSIX, std-only.
+############################################################################
+add_executable(test_atomic_file_write
+  ${PHD_TESTS_DIR}/startup/test_atomic_file_write.cpp
+  ${phd_src_dir}/atomic_file_write.cpp
+)
+target_link_libraries(test_atomic_file_write PRIVATE phd_test_common)
+set_property(TARGET test_atomic_file_write PROPERTY FOLDER "Unit tests")
+add_test(NAME test_atomic_file_write COMMAND test_atomic_file_write)
+
+############################################################################
 # test_guide_algorithm_gp_params  --  guide_algorithm_gp_params.cpp: the
 # Gaussian Process hyperparameters set_algo_param "periodLength" writes,
 # the current ones with only the period changed (#138), run through the
