@@ -472,7 +472,7 @@ struct ClientReadBuf
 
 struct ClientData
 {
-    wxSocketClient *cli;
+    wxSocketBase *cli;
     // Atomic so AddRef/RemoveRef stay correct if a future change ever touches the
     // refcount off the main (socket-event) thread; safe and free in the current
     // single-thread model.
@@ -481,7 +481,7 @@ struct ClientData
     wxMutex wrlock;
     std::string sendbuf; // notification bytes the non-blocking socket hasn't accepted yet
 
-    ClientData(wxSocketClient *cli_) : cli(cli_), refcnt(1) { }
+    ClientData(wxSocketBase *cli_) : cli(cli_), refcnt(1) { }
     void AddRef() { ++refcnt; }
     void RemoveRef()
     {
@@ -496,7 +496,7 @@ struct ClientData
 struct ClientDataGuard
 {
     ClientData *cd;
-    ClientDataGuard(wxSocketClient *cli) : cd((ClientData *) cli->GetClientData()) { cd->AddRef(); }
+    ClientDataGuard(wxSocketBase *cli) : cd((ClientData *) cli->GetClientData()) { cd->AddRef(); }
     ~ClientDataGuard() { cd->RemoveRef(); }
     ClientData *operator->() const { return cd; }
 };
@@ -535,7 +535,7 @@ static wxString SockErrStr(wxSocketError e)
 // Write silently drops whatever exceeds the kernel send buffer, and a truncated
 // line corrupts every subsequent message in the client's newline-framed JSON
 // stream — so a stalled reader must not cost us bytes.
-static void send_buf(wxSocketClient *client, const wxCharBuffer& buf)
+static void send_buf(wxSocketBase *client, const wxCharBuffer& buf)
 {
     ClientData *cd = (ClientData *) client->GetClientData();
     wxMutexLocker lock(cd->wrlock);
@@ -563,7 +563,7 @@ static void send_buf(wxSocketClient *client, const wxCharBuffer& buf)
 }
 
 // Drain queued notification bytes after a short write; called on OUTPUT events.
-static void flush_event_pending(wxSocketClient *client)
+static void flush_event_pending(wxSocketBase *client)
 {
     ClientData *cd = (ClientData *) client->GetClientData();
     wxMutexLocker lock(cd->wrlock);
@@ -581,12 +581,12 @@ static void flush_event_pending(wxSocketClient *client)
     client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG);
 }
 
-static void do_notify1(wxSocketClient *client, const JAry& ary)
+static void do_notify1(wxSocketBase *client, const JAry& ary)
 {
     send_buf(client, (JAry(ary).str() + "\r\n").ToUTF8());
 }
 
-static void do_notify1(wxSocketClient *client, const JObj& j)
+static void do_notify1(wxSocketBase *client, const JObj& j)
 {
     send_buf(client, (JObj(j).str() + "\r\n").ToUTF8());
 }
@@ -616,7 +616,7 @@ inline static void simple_notify_ev(const EventServer::CliSockSet& cli, const Ev
 #define SIMPLE_NOTIFY(s) simple_notify(m_eventServerClients, s)
 #define SIMPLE_NOTIFY_EV(ev) simple_notify_ev(m_eventServerClients, ev)
 
-static void send_catchup_events(wxSocketClient *cli)
+static void send_catchup_events(wxSocketBase *cli)
 {
     EXPOSED_STATE st = Guider::GetExposedState();
 
@@ -656,7 +656,7 @@ static void send_catchup_events(wxSocketClient *cli)
     do_notify1(cli, ev_app_state());
 }
 
-static void destroy_client(wxSocketClient *cli)
+static void destroy_client(wxSocketBase *cli)
 {
     ClientData *buf = (ClientData *) cli->GetClientData();
     buf->RemoveRef();
@@ -1156,14 +1156,14 @@ struct NVRaw
 
 struct HttpClientData
 {
-    wxSocketClient *cli;
+    wxSocketBase *cli;
     std::atomic<int> refcnt; // atomic for the same reason as ClientData::refcnt
     wxMutex wrlock;
     std::string recvbuf;
     std::string sendbuf; // response bytes the non-blocking socket hasn't accepted yet
     bool closeAfterSend = false; // one-shot connection: destroy once sendbuf drains
 
-    HttpClientData(wxSocketClient *cli_) : cli(cli_), refcnt(1) { }
+    HttpClientData(wxSocketBase *cli_) : cli(cli_), refcnt(1) { }
     void AddRef() { ++refcnt; }
     void RemoveRef()
     {
@@ -1178,12 +1178,12 @@ struct HttpClientData
 struct HttpClientDataGuard
 {
     HttpClientData *cd;
-    HttpClientDataGuard(wxSocketClient *cli) : cd((HttpClientData *) cli->GetClientData()) { cd->AddRef(); }
+    HttpClientDataGuard(wxSocketBase *cli) : cd((HttpClientData *) cli->GetClientData()) { cd->AddRef(); }
     ~HttpClientDataGuard() { cd->RemoveRef(); }
     HttpClientData *operator->() const { return cd; }
 };
 
-inline static wxMutex *http_client_wrlock(wxSocketClient *cli)
+inline static wxMutex *http_client_wrlock(wxSocketBase *cli)
 {
     return &((HttpClientData *) cli->GetClientData())->wrlock;
 }
@@ -1193,7 +1193,7 @@ inline static wxMutex *http_client_wrlock(wxSocketClient *cli)
 // events. A single Write silently drops whatever exceeds the kernel send
 // buffer (~140 KB on a real NIC), which truncated every large response —
 // the live-view frame JPEGs — for any client not on loopback.
-static void send_buf_http(wxSocketClient *client, const std::string& buf)
+static void send_buf_http(wxSocketBase *client, const std::string& buf)
 {
     HttpClientData *cd = (HttpClientData *) client->GetClientData();
     wxMutexLocker lock(cd->wrlock);
@@ -1218,7 +1218,7 @@ static void send_buf_http(wxSocketClient *client, const std::string& buf)
 
 // Drain queued response bytes after a short write; returns true when the
 // queue is empty (caller may then close a one-shot connection).
-static bool flush_http_pending(wxSocketClient *client)
+static bool flush_http_pending(wxSocketBase *client)
 {
     HttpClientData *cd = (HttpClientData *) client->GetClientData();
     wxMutexLocker lock(cd->wrlock);
@@ -6512,12 +6512,12 @@ static void export_config_settings(JObj& response, const json_value *params)
 
 struct JRpcCall
 {
-    wxSocketClient *cli;
+    wxSocketBase *cli;
     const json_value *req;
     const json_value *method;
     JRpcResponse response;
 
-    JRpcCall(wxSocketClient *cli_, const json_value *req_) : cli(cli_), req(req_), method(nullptr) { }
+    JRpcCall(wxSocketBase *cli_, const json_value *req_) : cli(cli_), req(req_), method(nullptr) { }
 };
 
 static void dump_request(const JRpcCall& call)
@@ -6755,7 +6755,7 @@ static bool handle_request(JRpcCall& call)
     }
 }
 
-static void handle_cli_input_complete(wxSocketClient *cli, char *input)
+static void handle_cli_input_complete(wxSocketBase *cli, char *input)
 {
     // a dedicated JsonParser instance is used for each line of input since
     // handle_request can recurse if the request causes the event loop to run and we
@@ -6832,7 +6832,7 @@ static void handle_cli_input_complete(wxSocketClient *cli, char *input)
     }
 }
 
-static void handle_cli_input(wxSocketClient *cli)
+static void handle_cli_input(wxSocketBase *cli)
 {
     // Bump refcnt to protect against reentrancy.
     //
@@ -7166,13 +7166,13 @@ static std::string handle_http_request(const HttpRequest& req)
     return http_not_found();
 }
 
-static void destroy_http_client(wxSocketClient *cli)
+static void destroy_http_client(wxSocketBase *cli)
 {
     HttpClientData *buf = (HttpClientData *) cli->GetClientData();
     buf->RemoveRef();
 }
 
-static bool handle_http_cli_input(wxSocketClient *cli)
+static bool handle_http_cli_input(wxSocketBase *cli)
 {
     HttpClientDataGuard clidata(cli);
     wxSocketInputStream sis(*cli);
@@ -7324,7 +7324,7 @@ void EventServer::OnEventServerEvent(wxSocketEvent& event)
     if (event.GetSocketEvent() != wxSOCKET_CONNECTION)
         return;
 
-    wxSocketClient *client = static_cast<wxSocketClient *>(server->Accept(false));
+    wxSocketBase *client = server->Accept(false);
 
     if (!client)
         return;
@@ -7348,7 +7348,7 @@ void EventServer::OnEventServerEvent(wxSocketEvent& event)
 
 void EventServer::OnEventServerClientEvent(wxSocketEvent& event)
 {
-    wxSocketClient *cli = static_cast<wxSocketClient *>(event.GetSocket());
+    wxSocketBase *cli = event.GetSocket();
 
     if (event.GetSocketEvent() == wxSOCKET_LOST)
     {
@@ -7381,7 +7381,7 @@ void EventServer::OnHttpServerEvent(wxSocketEvent& event)
     if (event.GetSocketEvent() != wxSOCKET_CONNECTION)
         return;
 
-    wxSocketClient *client = static_cast<wxSocketClient *>(server->Accept(false));
+    wxSocketBase *client = server->Accept(false);
     if (!client)
         return;
 
@@ -7399,7 +7399,7 @@ void EventServer::OnHttpServerEvent(wxSocketEvent& event)
 
 void EventServer::OnHttpServerClientEvent(wxSocketEvent& event)
 {
-    wxSocketClient *cli = static_cast<wxSocketClient *>(event.GetSocket());
+    wxSocketBase *cli = event.GetSocket();
 
     if (event.GetSocketEvent() == wxSOCKET_LOST)
     {
