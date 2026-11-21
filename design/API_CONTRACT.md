@@ -1050,8 +1050,6 @@ that stays unplugged does; Ara can show "Alpaca server unreachable" from the rea
 
 ## 2026-11-22 — guiding stops when a mount's guide moves keep failing (#213)
 
-## 2026-11-21 — guiding stops when a mount's guide moves keep failing (#213)
-
 No new method, field or event. A mount that rejected every guide pulse (an Alpaca `PulseGuide`
 error on every call) kept guiding for as long as the client let it, with only the PulseGuide-failed
 `Alert` to show for it: the guider counted the failed moves but read the count only during an AO
