@@ -912,6 +912,23 @@ No new method or field. The success result's `applied` array listed the applied 
 ARA: no code change needed if it already expected strings; until now any call that applied something failed to
 parse.
 
+## 2026-11-21 — `get_calibration_data`: unknown Dec as null, and `pierSide` (#189)
+
+A calibration made while the mount could not report its declination (an Alpaca `declination` read failing, a
+mount with no coordinates, every AO calibration) reported `declination` `57123.9`: the guider's
+unknown-declination marker, 997 rad, through the degrees conversion. Nothing told a client whether the
+calibration had a side of pier until the "did not have side-of-pier information" `Alert` at the next guide.
+
+- `declination` is `null` when the calibration's Dec is unknown; a known one is in degrees, as before.
+- New field `pierSide`, after `declination`, when `calibrated` is `true`: `"East"` or `"West"`, the side of pier
+  the calibration was made on (after `flip_calibration`, the flipped side; for a restored calibration, the saved
+  one), or `null` when the mount did not report it.
+- Not changed: `calibrated`, the angle, rate and parity fields, the errors, and the result when `calibrated` is
+  `false` (`{"calibrated":false}` only).
+
+ARA: treat `declination` `null` as unknown instead of showing a number; it can read `pierSide` `null` to warn
+that guiding on this calibration will not adjust for a meridian flip.
+
 ## 2026-11-20 — get_exposure while the camera is disconnected (#176)
 
 `get_exposure` returned `0` whenever the camera was not connected, even right after a

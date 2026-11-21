@@ -132,7 +132,7 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 | Method | Params | Description |
 |--------|--------|-------------|
 | `get_calibrated` | — | `true` if the mount is calibrated. |
-| `get_calibration_data` | `which` (`Mount`/`AO`) | Calibration angles/rates/parity. |
+| `get_calibration_data` | `which` (`Mount`/`AO`) | Calibration angles/rates/parity, the `declination` it was made at (degrees) and its `pierSide` (`East`/`West`); each `null` when the mount could not report it. |
 | `clear_calibration` | `which` (`Mount`/`AO`/`Both`) | Clear calibration so the next guide recalibrates. |
 | `flip_calibration` | — | Flip calibration for a meridian flip. |
 | `restore_calibration` | — | Put back the last calibration saved in the profile (after a failed `recalibrate`); ends a `guide` request still waiting on the failed calibration (`SettleDone` with `Error` "calibration failed; saved calibration restored") so the next `guide` is accepted. `true`: restored, every mount calibrated; `false`: some mount has no saved calibration (nothing changed) or the restored one is not usable with the current Dec guide mode. Error 1 while calibrating/guiding, mount/AO not connected, or another guide/dither request in progress. |
