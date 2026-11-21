@@ -154,9 +154,9 @@ RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double 
     progress.remainingX = std::max(0.0, remainingX - movedX);
     progress.remainingY = std::max(0.0, remainingY - movedY);
     bool movedNothing = movedX <= 0.0 && movedY <= 0.0;
-    // review red: the first step that moved nothing still ends the recenter
     progress.stalledSteps = movedNothing ? stalledSteps + 1 : 0;
-    progress.done = (progress.remainingX < 0.5 && progress.remainingY < 0.5) || movedNothing;
+    progress.done =
+        (progress.remainingX < 0.5 && progress.remainingY < 0.5) || progress.stalledSteps >= RECENTER_MAX_STALLED_STEPS;
     return progress;
 }
 

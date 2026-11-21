@@ -168,6 +168,7 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_displayedImage = new wxImage(XWinSize, YWinSize, true);
     m_paused = PAUSE_NONE;
     m_ditherRecenterStepsPending = 0;
+    m_ditherRecenterStalledSteps = 0;
     m_starFoundTimestamp = 0;
     m_avgDistanceNeedReset = false;
     m_avgDistanceCnt = 0;
@@ -894,6 +895,7 @@ bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
         {
             m_ditherRecenterRemaining.SetXY(fabs(mountDelta.X), fabs(mountDelta.Y));
             m_ditherRecenterStepsPending = 0; // a step of an earlier recenter no longer counts
+            m_ditherRecenterStalledSteps = 0;
             m_ditherRecenterDir.x = mountDelta.X < 0.0 ? 1 : -1;
             m_ditherRecenterDir.y = mountDelta.Y < 0.0 ? 1 : -1;
             // make each step a bit less than the full search region distance to avoid losing the star
@@ -923,10 +925,15 @@ void Guider::NotifyRecenterMoveComplete(const PHD_Point& mountMoved)
 
     double movedX = mountMoved.IsValid() ? fabs(mountMoved.X) : 0.0;
     double movedY = mountMoved.IsValid() ? fabs(mountMoved.Y) : 0.0;
-    guide_move_plan::RecenterProgress progress =
-        guide_move_plan::AfterRecenterStep(m_ditherRecenterRemaining.X, m_ditherRecenterRemaining.Y, movedX, movedY, 0);
+    guide_move_plan::RecenterProgress progress = guide_move_plan::AfterRecenterStep(
+        m_ditherRecenterRemaining.X, m_ditherRecenterRemaining.Y, movedX, movedY, m_ditherRecenterStalledSteps);
+    m_ditherRecenterStalledSteps = progress.stalledSteps;
 
-    const char *outcome = !progress.done ? "" : movedX > 0.0 || movedY > 0.0 ? ", done" : ", step moved nothing, done";
+    wxString outcome;
+    if (progress.stalledSteps > 0)
+        outcome = wxString::Format(", step moved nothing (%d in a row)", progress.stalledSteps);
+    if (progress.done)
+        outcome += ", done";
     Debug.Write(wxString::Format("dither recenter: moved=(%.1f,%.1f) remaining=(%.1f,%.1f)%s\n", movedX * m_ditherRecenterDir.x,
                                  movedY * m_ditherRecenterDir.y, progress.remainingX * m_ditherRecenterDir.x,
                                  progress.remainingY * m_ditherRecenterDir.y, outcome));
@@ -936,6 +943,7 @@ void Guider::NotifyRecenterMoveComplete(const PHD_Point& mountMoved)
         // fast recenter is done; the guide algorithm corrects what is left
         m_ditherRecenterRemaining.Invalidate();
         m_ditherRecenterStepsPending = 0;
+        m_ditherRecenterStalledSteps = 0;
         // reset distance tracker
         m_avgDistanceNeedReset = true;
     }
@@ -1036,6 +1044,7 @@ void Guider::SetState(GUIDER_STATE newState)
 
             m_ditherRecenterRemaining.Invalidate(); // reset dither fast recenter state
             m_ditherRecenterStepsPending = 0;
+            m_ditherRecenterStalledSteps = 0;
 
             pMount->AdjustCalibrationForScopePointing();
             if (pSecondaryMount)

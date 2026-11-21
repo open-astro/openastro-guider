@@ -865,9 +865,10 @@ then the guide algorithm takes over and the settle runs as before.
 - Each step now counts only what the mount moved of it. A step cut to the 25 s pulse ceiling
   (#152) or by an AO's travel is made up by another recenter step, so a client can see one or more
   extra frames before the guide algorithm takes over, each a `GuideStep` with the pulse sent, as
-  before. A step that moved nothing (the move failed, or guiding is disabled) ends the recenter,
-  and the guide algorithm corrects the rest, instead of the guider sending recenter steps until it
-  had counted the whole dither.
+  before. So is a step that moved nothing because its move failed once. Three steps in a row that
+  moved nothing (the move keeps failing, or guiding is disabled) end the recenter, and the guide
+  algorithm corrects the rest, instead of the guider sending recenter steps until it had counted
+  the whole dither.
 - When every pulse is sent whole the recenter takes the same steps as before.
 - Not changed: `dither`'s parameters and result, `GuidingDithered`, the settle and `SettleDone`, and
   recenter steps still ignoring the Dec guide mode (Off included) and the max RA/Dec duration.

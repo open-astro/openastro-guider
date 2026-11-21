@@ -141,6 +141,7 @@ class Guider : public wxWindow
     wxPoint m_ditherRecenterDir;
     PHD_Point m_ditherRecenterRemaining;
     int m_ditherRecenterStepsPending; // recenter steps sent whose moves have not completed (#165)
+    int m_ditherRecenterStalledSteps; // completed recenter steps in a row that moved nothing (#165)
     time_t m_starFoundTimestamp; // timestamp when star was last found
     double m_avgDistance; // averaged distance for distance reporting
     double m_avgDistanceRA; // averaged distance, RA only
