@@ -60,6 +60,7 @@ struct EXPOSE_REQUEST
 {
     usImage *pImage;
     CaptureParams captureParams;
+    int delayMs; // sleep before the exposure; MyFrame::GetExposureDelay on the main thread (#182)
     bool error;
     wxSemaphore *pSemaphore;
 };
@@ -179,7 +180,7 @@ protected:
 
     /*************      Expose      **************************/
 public:
-    void EnqueueWorkerThreadExposeRequest(usImage *pImage, const CaptureParams& captureParams);
+    void EnqueueWorkerThreadExposeRequest(usImage *pImage, const CaptureParams& captureParams, int delayMs);
     void SetSkipExposeComplete();
 
 protected:

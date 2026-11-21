@@ -222,7 +222,9 @@ public:
     MyFrame();
     virtual ~MyFrame();
 
-    Guider *pGuider;
+    // The constructor sets the global pFrame first (#168), so the objects it builds can call back through
+    // pFrame; the members they read are null (or false) until the constructor creates them.
+    Guider *pGuider = nullptr;
     wxMenuBar *Menubar;
     wxMenu *tools_menu, *view_menu, *bookmarks_menu, *darks_menu;
     wxMenuItem *m_showBookmarksMenuItem;
@@ -243,12 +245,12 @@ public:
     wxComboBox *Dur_Choice;
     wxCheckBox *HotPixel_Checkbox;
     wxSlider *Gamma_Slider;
-    AdvancedDialog *pAdvancedDialog;
-    GuideHistory *pGuideHistory;
-    GearDialog *pGearDialog;
-    wxWindow *pGuidingAssistant;
-    bool CaptureActive; // Is camera looping captures?
-    bool m_exposurePending; // exposure scheduled and not completed
+    AdvancedDialog *pAdvancedDialog = nullptr;
+    GuideHistory *pGuideHistory = nullptr;
+    GearDialog *pGearDialog = nullptr;
+    wxWindow *pGuidingAssistant = nullptr;
+    bool CaptureActive = false; // Is camera looping captures?
+    bool m_exposurePending = false; // exposure scheduled and not completed
     double Stretch_gamma;
     unsigned int m_frameCounter;
     wxDateTime m_guidingStarted;
