@@ -28,6 +28,9 @@ the gear lane, on a fake that answers ImageBytes (no calibration except the one 
   auto-connect, late      restarted with --auto-connect and no fake: not connected; the #104 retry 15 s and then
   fake (#104)             30 s after each failure, logged, with no event and no Alert; the fake started after the
                           second failure: EquipmentReconnected camera and mount at the third attempt, connected
+  stale selections        the profile file edited offline, then a restart: a camera and a mount in no list
+                          resolve to the first camera (the Alpaca one) and to '' (no mount); a camera and a mount
+                          differing from the lists only in case resolve to the lists' items, which connect
 
 the faults lane, on a fake that answers ImageBytes, with one calibration (a long calibration step, so it is quick):
 
@@ -672,6 +675,75 @@ def scenario_auto_connect_late_fake(lane):
             f"({t4 - t2:.0f} s after the 2nd failure); events {names_of(evs)}")
 
 
+def config_path(lane):
+    return os.path.join(lane.work, "home", f".OpenAstroPHD2-instance{lane.args.instance}")
+
+
+def set_profile_entries(lane, profile_id, entries):
+    """Edit the stopped daemon's config file (a wxFileConfig): set `key=value` in the group
+    [profile/<profile_id>/<group>] for each (group, key) -> value of `entries`; each entry must already be there."""
+    path = config_path(lane)
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    group, done = None, set()
+    for i, line in enumerate(lines):
+        m = re.match(r"^\[(.*)\]\s*$", line)
+        if m:
+            group = m.group(1)
+            continue
+        key = line.split("=", 1)[0]
+        for (g, k), value in entries.items():
+            if group == f"profile/{profile_id}/{g}" and key == k:
+                lines[i] = f"{k}={value}"
+                done.add((g, k))
+    missing = set(entries) - done
+    expect(not missing, f"no {sorted(missing)} in profile {profile_id} of {path}")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+
+def scenario_stale_selection(lane):
+    """The profile file edited offline, as an upgrade or a hand edit leaves it, then a restart: a camera and a mount
+    that are in no list, then a camera and a mount that differ from the lists only in case (#115 step 3, S2)."""
+    cli, fake = lane.cli, lane.fake
+    pid = cli.call("get_profile")["id"]
+    out = []
+
+    def restart_with(camera, mount):
+        lane.cli.call("set_connected", {"connected": False}, timeout=60)
+        lane.end_daemon()
+        set_profile_entries(lane, pid, {("camera", "LastMenuChoice"): camera, ("scope", "LastMenuChoice"): mount})
+        return lane.start_daemon()
+
+    # In no list: LoadGearChoices finds no match, so the camera falls back to the first item of its (sorted) list,
+    # the Alpaca camera on the profile's server, and the mount to '' (no mount device); both are written back
+    cli = restart_with("Alpaca Camera [stale.invalid:1/0]", "Alpaca Mount [stale.invalid:1/0]")
+    got = (cli.call("get_selected_camera"), cli.call("get_selected_mount"))
+    expect(got == (camera_choice(fake), ""), f"get_selected_camera / _mount with a stale camera and mount: {got}")
+    eq = equipment(cli)
+    expect(eq == {"camera": (camera_choice(fake), False)}, f"get_current_equipment with a stale camera and mount: {eq}")
+    created = lane.debug.wait(r"Created new scope of type (.*) = ", 10, lane.daemon)
+    expect(created == [""], f"the mounts created at startup: {created}")
+    expect(connected_by_device(cli) == {"all": False, "camera": False, "mount": False, "rotator": False},
+           f"get_connected: {connected_by_device(cli)}")
+    out.append(f"stale: camera {got[0]!r}, mount {got[1]!r}, equipment {eq}")
+
+    # Only the case differs: wxChoice::SetStringSelection matches without case, so both resolve to the list's
+    # item, and the list's casing is what is written back
+    cli = restart_with(camera_choice(fake).swapcase(), mount_choice(fake).upper())
+    got = (cli.call("get_selected_camera"), cli.call("get_selected_mount"))
+    expect(got == (camera_choice(fake), mount_choice(fake)),
+           f"get_selected_camera / _mount with the case changed: {got}")
+    eq = equipment(cli)
+    expect(eq == {"camera": (camera_choice(fake), False), "mount": (mount_choice(fake), False)},
+           f"get_current_equipment with the case changed: {eq}")
+    cli.call("set_connected", {"connected": True}, timeout=60)
+    expect(connected_by_device(cli) == {"all": True, "camera": True, "mount": True, "rotator": False},
+           f"get_connected after connecting: {connected_by_device(cli)}")
+    out.append(f"case only: resolved to {got}, connected")
+    return "; ".join(out)
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # the faults lane
 
@@ -1062,6 +1134,8 @@ def run_gear(lane, args):
     lane.step("startup --auto-connect against the running fake", lambda: scenario_auto_connect(lane))
     lane.step("startup --auto-connect, the fake starting late (#104 retry)",
               lambda: scenario_auto_connect_late_fake(lane))
+    lane.step("stale and case-changed selections in the profile file, restarted",
+              lambda: scenario_stale_selection(lane))
 
 
 def run_faults(lane, args):
