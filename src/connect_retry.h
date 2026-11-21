@@ -115,7 +115,7 @@ public:
     // The selection or the profile changed: d is a new device and its old state no longer applies.
     void Forget(GearDevice d);
 
-    // A device was chosen (EquipmentManager::SelectDevice, which also run when the same device is chosen again:
+    // A device was chosen (EquipmentManager::SelectDevice, which also runs when the same device is chosen again:
     // set_selected_*, the re-selection set_alpaca_server makes). Returns true when choice differs from the last one,
     // and the caller must then Forget d; choosing the same device again keeps its state and its retries.
     bool Chosen(GearDevice d, const std::string& choice);
