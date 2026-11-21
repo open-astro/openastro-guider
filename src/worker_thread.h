@@ -81,6 +81,7 @@ struct MoveCompleteEvent : public wxThreadEvent
     unsigned int moveOptions;
     Mount::MOVE_RESULT result;
     Mount *mount;
+    PHD_Point mountMoved; // an offset move's GuiderOffset::mountMoved (#165)
 
     MoveCompleteEvent(const MOVE_REQUEST& move);
 };

@@ -855,3 +855,73 @@ had one 30 s throttle for both axes, restarted by calls that raised nothing.
   raise it (#153), and `GuideStep`'s `RALimited` / `DecLimited`.
 
 ARA: no code change.
+
+## 2026-11-20 — fast recenter counts what the mount moved (#165)
+
+No API change. After a `dither` with fast recenter on (`/guider/FastRecenter`, the default) the
+guider moves the star back to the new lock in recovery steps that bypass the guide algorithm,
+then the guide algorithm takes over and the settle runs as before.
+
+- Each step now counts only what the mount moved of it. A step cut to the 25 s pulse ceiling
+  (#152) or by an AO's travel is made up by another recenter step, so a client can see one or more
+  extra frames before the guide algorithm takes over, each a `GuideStep` with the pulse sent, as
+  before. So is a step that moved nothing because its move failed once. Three steps in a row that
+  moved nothing (the move keeps failing, or guiding is disabled) end the recenter, and the guide
+  algorithm corrects the rest, instead of the guider sending recenter steps until it had counted
+  the whole dither.
+- When every pulse is sent whole the recenter takes the same steps as before, and the variable
+  exposure delay counts the frames as recentering up to the step that moves the rest of the dither,
+  not the frame after it, as before. After a last step that was cut or failed, that frame is
+  followed by the step that makes it up.
+- Not changed: `dither`'s parameters and result, `GuidingDithered`, the settle and `SettleDone`, and
+  recenter steps still ignoring the Dec guide mode (Off included) and the max RA/Dec duration.
+
+ARA: no code change.
+
+## 2026-11-20 — variable delay in fractional seconds (#174)
+
+`set_variable_delay_settings` cast `ShortDelaySeconds` and `LongDelaySeconds` to an integer before
+multiplying by 1000, so 2.5 s was stored as 2000 ms, and `get_variable_delay_settings` reported the
+stored ms divided by 1000 in integers.
+
+- `set_variable_delay_settings` stores each delay rounded to the nearest ms (2.5 s is 2500 ms).
+  Params, result and errors unchanged.
+- `get_variable_delay_settings` reports the stored delays in seconds with their fraction:
+  `{"Enabled":true,"ShortDelaySeconds":2.5,"LongDelaySeconds":7.25}`. A whole number of seconds
+  is still a JSON integer (`3`, not `3.0`), the type PHD2 documents, so a client that only sends
+  whole seconds reads exactly what it read before. The value is printed with 6 significant digits,
+  so it is exact to the ms below 1000 s (PHD2's own dialog allows up to 10 s short, 120 s long).
+- A profile saved before this keeps its delays: they are stored in ms (`/frame/var_delay/*`), and
+  only a fractional delay sent over JSON-RPC was cut.
+- The inherited Advanced Settings dialog still shows whole seconds and writes both delays back when
+  it is closed with OK, so on a desktop run that cuts a fractional delay to whole seconds (2.5 s
+  becomes 2 s) even if its delay fields were not touched. The packaged service runs headless under
+  `xvfb-run`, where nobody can open the dialog.
+
+ARA: read `ShortDelaySeconds` and `LongDelaySeconds` as numbers, not integers, if it shows them.
+
+## 2026-11-21 — `guiding_assistant_apply` answers with valid JSON (#184)
+
+No new method or field. The success result's `applied` array listed the applied names without quotes,
+`{"applied":[min_move_ra,min_move_dec]}`, which is not JSON: a client's parser failed on the whole response line.
+
+- `applied` is now an array of strings: `{"applied":["min_move_ra","min_move_dec"]}`, in the order the names were
+  applied (RA, then Dec, then backlash), as before.
+- Not changed: which names `which` accepts, what is applied, the refusals (error 1) and the parameter errors.
+
+ARA: no code change needed if it already expected strings; until now any call that applied something failed to
+parse.
+
+## 2026-11-20 — get_exposure while the camera is disconnected (#176)
+
+`get_exposure` returned `0` whenever the camera was not connected, even right after a
+`set_exposure` that succeeded.
+
+- `get_exposure` now returns the stored exposure in ms whatever the connection state: what the
+  last `set_exposure` (or the profile) selected; with Auto (`set_exposure` `-1`) the exposure auto
+  exposure is at, as with a camera connected. With a camera connected it returns what it did
+  before.
+- `set_exposure`, `get_exposure_durations` and the other exposure methods are unchanged.
+
+ARA: no code change needed. It can read `get_exposure` before connecting and show the selected
+exposure; it no longer has to treat `0` as "not connected".

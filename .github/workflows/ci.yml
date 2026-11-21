@@ -408,7 +408,9 @@ jobs:
     # smoke script, calibrate and guide (with the event order Ara consumes), recalibration on a
     # new target, and dropped frames while guiding; and, in a second daemon beside it on a fake
     # with mount and sky physics, the calibration measured against the fake's truth, a dither
-    # and settle, and clouds; then scripts/e2e_persistence.py checks that settings survive
+    # and settle, and clouds; in two more daemons, the equipment scenarios: connect side effects,
+    # auto-connect and the connect retry, camera and mount faults, the camera reconnect, and the
+    # Guiding Assistant's restore; then scripts/e2e_persistence.py checks that settings survive
     # SIGTERM and SIGKILL. A separate job beside the Release build, in its own build dir, so
     # the GTest job above is unchanged and the two run in parallel.
     name: Daemon e2e (arm64, ASan/UBSan)
@@ -478,10 +480,14 @@ jobs:
         # dither, clouds) runs at the same time as a second daemon on instance 11, fake port 11151
         # and display 111. Its calibration takes about 1.4x the main lane's (more RA steps at
         # Dec 60, backlash), so expect about 6 min for it, under the 1.5x calibration timeout the
-        # script gives that lane, and about 7 min for the lane. Locally (8 cores) both lanes
-        # together took 289 s against 287 s for the main lane alone; the runner has 4 vCPUs for
-        # two daemons, two Xvfbs and two fakes, so read both lanes' times off the first run's log
-        # before counting on the overlap.
+        # script gives that lane, and about 7 min for the lane. Two more lanes run beside them,
+        # from scripts/e2e_equipment_scenarios.py, on ImageBytes fakes with a quick calibration:
+        # gear (connect side effects, the #139 latch, --auto-connect and the #104 retry; instance
+        # 12, fake port 11152, display 112) and faults (camera and mount faults, the #105
+        # reconnect and its throttle, the Guiding Assistant and its restore; instance 13, 11153,
+        # 113). Locally under ASan they take about 3 min each (gear 190 s, faults 185 s), under
+        # the main lane's 5; the runner has 4 vCPUs for the four daemons, so read the lanes'
+        # times off the first run's log before counting on the overlap.
         timeout-minutes: 45
         env:
           ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0:print_stacktrace=1

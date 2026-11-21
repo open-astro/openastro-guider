@@ -7,6 +7,7 @@
 
 #include "guide_move_plan.h"
 
+#include <algorithm>
 #include <climits>
 #include <cmath>
 
@@ -132,6 +133,31 @@ bool LimitAlertThrottle::ShouldRaise(Axis axis, int64_t nowS, int64_t deferredUn
     m_raised[i] = true;
     m_lastRaisedS[i] = nowS;
     return true;
+}
+
+double MovedPx(double distancePx, int requestedMs, int sentMs, double rate)
+{
+    double distance = std::fabs(distancePx);
+    if (sentMs >= requestedMs)
+        return distance;
+    if (sentMs <= 0)
+        return 0.0;
+
+    // A cut pulse: backlash compensation is taken up first, so the unsent part is the step's
+    double unsentPx = (static_cast<double>(requestedMs) - static_cast<double>(sentMs)) * std::fabs(rate);
+    return distance > unsentPx ? distance - unsentPx : 0.0;
+}
+
+RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double movedX, double movedY, int stalledSteps)
+{
+    RecenterProgress progress;
+    progress.remainingX = std::max(0.0, remainingX - movedX);
+    progress.remainingY = std::max(0.0, remainingY - movedY);
+    bool movedNothing = movedX <= 0.0 && movedY <= 0.0;
+    progress.stalledSteps = movedNothing ? stalledSteps + 1 : 0;
+    progress.done =
+        (progress.remainingX < 0.5 && progress.remainingY < 0.5) || progress.stalledSteps >= RECENTER_MAX_STALLED_STEPS;
+    return progress;
 }
 
 } // namespace guide_move_plan
