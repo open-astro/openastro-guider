@@ -229,7 +229,6 @@ public:
     wxMenuItem *m_bookmarkLockPosMenuItem;
     wxAcceleratorEntry *m_showBookmarksAccel;
     wxAcceleratorEntry *m_bookmarkLockPosAccel;
-    wxMenuItem *m_connectMenuItem;
     wxMenuItem *m_loopMenuItem;
     wxMenuItem *m_guideMenuItem;
     wxMenuItem *m_stopMenuItem;
@@ -268,7 +267,6 @@ public:
     void OnOverlaySlitCoords(wxCommandEvent& evt);
     void OnSave(wxCommandEvent& evt);
     void OnSettings(wxCommandEvent& evt);
-    void OnSelectGear(wxCommandEvent& evt);
     void OnButtonLoop(wxCommandEvent& evt);
     void OnButtonStop(wxCommandEvent& evt);
     void OnButtonAutoStar(wxCommandEvent& evt);
@@ -495,7 +493,6 @@ enum
     AO_SXAO,
     AO_SIMULATOR,
     END_STEPGUIDERS,
-    BUTTON_GEAR,
     BUTTON_CAL,
     BUTTON_LOOP,
     BUTTON_GUIDE,
@@ -510,33 +507,9 @@ enum
     BUTTON_ALERT_DONTSHOW,
     GEAR_DIALOG_IDS_BEGIN,
     GEAR_PROFILES,
-    GEAR_PROFILE_MANAGE,
-    GEAR_PROFILE_NEW,
-    GEAR_PROFILE_DELETE,
-    GEAR_PROFILE_RENAME,
-    GEAR_PROFILE_LOAD,
-    GEAR_PROFILE_SAVE,
-
     GEAR_CHOICE_CAMERA,
-    GEAR_BUTTON_SELECT_CAMERA,
-    MENU_SELECT_CAMERA_BEGIN, // a range of ids camera selection popup menu
-    MENU_SELECT_CAMERA_END = MENU_SELECT_CAMERA_BEGIN + 10,
-    GEAR_BUTTON_SETUP_CAMERA,
-    GEAR_BUTTON_CONNECT_CAMERA,
-    GEAR_BUTTON_DISCONNECT_CAMERA,
-
     GEAR_CHOICE_SCOPE,
-    GEAR_BUTTON_SETUP_SCOPE,
-    GEAR_BUTTON_CONNECT_SCOPE,
-    GEAR_BUTTON_DISCONNECT_SCOPE,
-
     GEAR_CHOICE_ROTATOR,
-    GEAR_BUTTON_SETUP_ROTATOR,
-    GEAR_BUTTON_CONNECT_ROTATOR,
-    GEAR_BUTTON_DISCONNECT_ROTATOR,
-
-    GEAR_BUTTON_CONNECT_ALL,
-    GEAR_BUTTON_DISCONNECT_ALL,
     GEAR_DIALOG_IDS_END,
     CTRL_GAMMA,
     WIN_VFW, // Dummy event to capture VFW streams
@@ -548,7 +521,6 @@ enum
     MGUIDE2_DOWN,
     MGUIDE2_RIGHT,
     MGUIDE2_LEFT,
-    MENU_CONNECT,
     MENU_LOOP,
     MENU_GUIDE,
     MENU_STOP,

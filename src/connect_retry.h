@@ -57,8 +57,8 @@ const int kProbePollIntervalMs = 250;
 // Seconds from the attempt-th consecutive failure (1-based) to the next attempt: 15, 30, 60, 60, ...
 int RetryDelaySeconds(int attempt);
 
-// What the user asked for a device. UserDisconnected (set_connected false, DisconnectAll, a Gear dialog Disconnect
-// button) is never retried and the guide RPC does not connect it.
+// What the user asked for a device. UserDisconnected (set_connected false, DisconnectAll) is never retried and the
+// guide RPC does not connect it.
 enum class Intent
 {
     None,
@@ -115,7 +115,7 @@ public:
     // The selection or the profile changed: d is a new device and its old state no longer applies.
     void Forget(GearDevice d);
 
-    // A device was chosen (the Gear dialog's choice handlers, which also run when the same device is chosen again:
+    // A device was chosen (GearDialog's choice handlers, which also run when the same device is chosen again:
     // set_selected_*, the re-selection set_alpaca_server makes). Returns true when choice differs from the last one,
     // and the caller must then Forget d; choosing the same device again keeps its state and its retries.
     bool Chosen(GearDevice d, const std::string& choice);
@@ -188,7 +188,6 @@ struct Gates
     bool connectInProgress = false; // a connect or disconnect call is on the stack (re-entrant event loop)
     bool captureActive = false;
     bool calibratingOrGuiding = false;
-    bool dialogOpen = false; // the Gear dialog is modal
 };
 
 // Why a background attempt for d must wait, or "" when it can run. Past the gates of its own, the ConnectRefusal
