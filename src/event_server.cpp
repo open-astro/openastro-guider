@@ -6379,8 +6379,20 @@ static void get_calibration_data(JObj& response, const json_value *params)
     {
         rslt << NV("xAngle", degrees(m->xAngle()), 1) << NV("xRate", m->xRate() * 1000.0, 3)
              << NV("xParity", parity_str(m->RAParity())) << NV("yAngle", degrees(m->yAngle()), 1)
-             << NV("yRate", m->yRate() * 1000.0, 3) << NV("yParity", parity_str(m->DecParity()))
-             << NV("declination", degrees(m->GetCalibrationDeclination()));
+             << NV("yRate", m->yRate() * 1000.0, 3) << NV("yParity", parity_str(m->DecParity()));
+
+        // a Dec or side of pier the mount could not report during the calibration is null (#189)
+        double dec = m->GetCalibrationDeclination();
+        if (dec == UNKNOWN_DECLINATION)
+            rslt << NV("declination", NULL_VALUE);
+        else
+            rslt << NV("declination", degrees(dec));
+
+        PierSide side = m->MountCal().pierSide;
+        if (side == PIER_SIDE_EAST || side == PIER_SIDE_WEST)
+            rslt << NV("pierSide", Mount::PierSideStr(side));
+        else
+            rslt << NV("pierSide", NULL_VALUE);
     }
 
     response << jrpc_result(rslt);

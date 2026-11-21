@@ -453,6 +453,9 @@ def scenario_new_target(cli, fake, args):
     expect(abs(after.get("declination", 0) - 50.0) < 0.5,
            f"calibration declination {after.get('declination')}, expected 50 "
            f"(before the slew {before.get('declination')})")
+    # the plain fake's sideofpier reads 0, pierEast; the calibration records it (#189)
+    expect(after.get("pierSide") == "East", f"calibration pierSide {after.get('pierSide', '(missing)')!r}, "
+                                            "expected 'East'")
     total = sum(1 for e in cli.events_since(0) if e["Event"] == "StartCalibration")
     expect(total >= 2, f"{total} StartCalibration events since connect, expected a second calibration")
     return (f"second calibration at Dec {after.get('declination')} (was {before.get('declination')}), "
