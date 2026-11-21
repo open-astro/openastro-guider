@@ -88,6 +88,11 @@ small control endpoint and is off until used, so the default behaviour is unchan
         Every request for that device sleeps N ms before it answers (a server that
         accepts the connection, then stalls); ms=0 clears it. call= stalls only that
         endpoint (a kill that lands while the guider waits on it, #211).
+    PUT /fake/stop_listening
+        Close the listening socket and answer: every connection after it is refused,
+        as by a server that has gone, while requests already accepted (a stalled one)
+        still get their answer. The process lives on until it is killed (a kill that
+        lands between two calls, #211).
     PUT /fake/hold     frames=<N>
         The next N exposures never complete: imageready reads false from their
         startexposure until the next startexposure (a camera that stopped reading
@@ -669,6 +674,12 @@ class Handler(BaseHTTPRequestHandler):
         """The /fake/* error-injection control endpoint."""
         name, _, query = self.path.partition("?")
         params = {k: v[-1] for k, v in parse_qs(query if method == "GET" else body, keep_blank_values=True).items()}
+        if method == "PUT" and name == "/fake/stop_listening":
+            # outside the lock: shutdown() waits for serve_forever to see it, up to its 0.5 s poll
+            self.server.shutdown()
+            self.server.socket.close()
+            self.log_message("control %s %s: the listening socket is closed", method, name)
+            return self.send_body(b'{"listening":false}', "application/json")
         with state_lock:
             if method == "GET" and name == "/fake/pulses":
                 body = json.dumps({"pulses": list(pulses)}).encode()
@@ -1020,3 +1031,5 @@ if __name__ == "__main__":
           f"{'; physics: ' + ', '.join(physics) + f', seed {SEED}' if physics else ''})",
           flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
+    # /fake/stop_listening ended it: keep the process, and the requests it accepted, until it is killed
+    threading.Event().wait()

@@ -43,9 +43,14 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
                           (EquipmentDisconnected reconnecting, EquipmentReconnected) and guiding goes on
   capture timeout         an exposure that never completes (/fake/hold): the camera watchdog disconnects and
                           reconnects the camera, and guiding goes on
-  fake killed (#105)      the Alpaca server gone mid-guide: guiding stops at the first failed frame, with no
-                          reconnect, the camera and mount still reading connected; back on the same port, guide (no
-                          recalibration) settles. The kill lands while a startexposure waits on the fake (#211)
+  fake killed between     the Alpaca server gone mid-guide between two camera calls (the fake stops listening while
+  calls (#105, #190)      it holds an imageready, so no call is cut, #211): the next call is refused and reconnects
+                          the camera (#190), the reconnect fails, guiding stops, the camera reads disconnected and the
+                          mount connected; back on the same port, the #104 retry reconnects the camera and guide (no
+                          recalibration) settles
+  fake killed mid-request the fake killed while a startexposure waits on it (#211): "no response", not refused, so
+  (#211, #237)            no reconnect (#237): guiding stops with an Alert, the camera and mount still reading
+                          connected; back on the same port, guide (no recalibration) settles
   Guiding Assistant       start while guiding: guide output, multi-star and variable delay off during the run;
                           stopped after a few samples: restored, guiding going on with the same star and lock
                           position and the secondary stars found again (#187); apply's refusals, and min-move
@@ -211,17 +216,38 @@ def fake_log_since(lane, offset):
         return f.read().decode("utf-8", errors="replace")
 
 
+def wait_fake_stall(lane, at, call, ms, timeout):
+    """Wait for a camera request to the stalled endpoint to reach the fake (its stall log line)."""
+    deadline = time.time() + timeout
+    while f"stalling camera {ms} ms: /api/v1/camera/0/{call}" not in fake_log_since(lane, at):
+        expect(time.time() < deadline, f"no {call} reached the fake within {timeout} s")
+        time.sleep(0.1)
+
+
 def kill_fake_during_startexposure(lane, timeout=30):
     """Stop the fake while the guider waits on a startexposure, the kill a loaded machine can give (#211)."""
     at = fake_log_size(lane)
     lane.fake.request("PUT", "/fake/stall", {"device": "camera", "ms": 60000, "call": "startexposure"})
-    deadline = time.time() + timeout
     try:
-        while "stalling camera 60000 ms: /api/v1/camera/0/startexposure" not in fake_log_since(lane, at):
-            expect(time.time() < deadline, f"no startexposure reached the fake within {timeout} s")
-            time.sleep(0.1)
+        wait_fake_stall(lane, at, "startexposure", 60000, timeout)
     finally:
         lane.stop_fake()  # also on a timeout, so the stall goes with the fake and the restart after it starts clean
+
+
+def refuse_fake_between_calls(lane, timeout=30):
+    """Make the fake refuse every connection from the guider's next call on, with none of its calls cut (#211).
+
+    An imageready is held on the fake while its listening socket is closed (/fake/stop_listening): that call still
+    gets its answer, and the call after it is refused, as when the server goes between two calls. The process is
+    left running, not listening; the caller stops it once the guider has seen the refusal."""
+    at = fake_log_size(lane)
+    lane.fake.request("PUT", "/fake/stall", {"device": "camera", "ms": 2000, "call": "imageready"})
+    try:
+        wait_fake_stall(lane, at, "imageready", 2000, timeout)
+        lane.fake.request("PUT", "/fake/stop_listening")
+    except BaseException:
+        lane.stop_fake()  # gone, not just stalled: the lane starts it again after a failed step
+        raise
 
 
 class DebugLog:
@@ -853,15 +879,36 @@ def scenario_capture_timeout(lane):
     return f"{seq}, {len(lost)} StarLost, guiding (events {names})"
 
 
+def guide_after_fake_back(lane):
+    """Guide (no recalibration) on the fake back on the same port: it settles, with the side-of-pier Alert."""
+    cli = lane.cli
+    start = cli.mark()
+    expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": False}) == 0, "guide did not return 0")
+    done = cli.wait_events(start, "SettleDone", timeout=e2e.SETTLE["timeout"] + 60, abort_on=GUIDE_FAILURES)[0]
+    expect(done.get("Status") == 0, f"SettleDone {strip(done)}")
+    resumed = cli.events_since(start)
+    expect(not [e for e in resumed if e["Event"] == "StartCalibration"], "guide recalibrated after the server came "
+                                                                         "back")
+    # the calibration was made with sideofpier failing: guiding on it warns
+    expect(alerts(resumed, "Current calibration did not have side-of-pier information"),
+           f"no side-of-pier Alert guiding on a calibration without it: {names_of(resumed)}")
+    cli.wait_events(start, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
+
+
 def scenario_fake_killed(lane):
-    """The Alpaca server gone while guiding, then back on the same port (#105, #190)."""
+    """The Alpaca server gone between two camera calls while guiding, then back on the same port (#105, #190)."""
     cli = lane.cli
     expect(cli.call("get_app_state") == "Guiding", "not guiding")
     truth = lane.fake.truth()["field_offset_px"]
     server = f"{lane.fake.host}:{lane.fake.port}"
     mark = cli.mark()
-    kill_fake_during_startexposure(lane)
-    cli.wait_events(mark, "GuidingStopped", timeout=90)
+    # no call cut: the one the fake holds is answered and the next one is refused (#211; a kill that lands during
+    # a call is scenario_fake_killed_mid_request)
+    refuse_fake_between_calls(lane)
+    try:
+        cli.wait_events(mark, "GuidingStopped", timeout=90)
+    finally:
+        lane.stop_fake()  # the held call was answered before the refused one, so this cuts nothing
     evs = settle_events(cli, mark, quiet_s=2.0)
     names = names_of(evs)
     state = cli.call("get_app_state")
@@ -902,21 +949,47 @@ def scenario_fake_killed(lane):
     expect(conn_back == {"all": True, "camera": True, "mount": True, "rotator": False},
            f"get_connected after the retry: {conn_back}")
     expect(cli.call("get_app_state") == "Stopped", "the retry restarted capture")
-    start = cli.mark()
-    expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": False}) == 0, "guide did not return 0")
-    done = cli.wait_events(start, "SettleDone", timeout=e2e.SETTLE["timeout"] + 60, abort_on=GUIDE_FAILURES)[0]
-    expect(done.get("Status") == 0, f"SettleDone {strip(done)}")
-    resumed = cli.events_since(start)
-    expect(not [e for e in resumed if e["Event"] == "StartCalibration"], "guide recalibrated after the server came "
-                                                                         "back")
-    # the calibration was made with sideofpier failing: guiding on it warns
-    expect(alerts(resumed, "Current calibration did not have side-of-pier information"),
-           f"no side-of-pier Alert guiding on a calibration without it: {names_of(resumed)}")
-    cli.wait_events(start, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
+    guide_after_fake_back(lane)
     return (f"server gone: {seq} ({len(lost)} StarLost; Alert {alert[:60]!r}), state {state}, get_connected "
             f"{conn}; back: the #104 retry reconnected the camera {t_rec - t_failed:.0f} s after "
             f"EquipmentReconnectFailed, guide settled without recalibrating, with the side-of-pier Alert "
             f"({len(stopped)} stop events)")
+
+
+def scenario_fake_killed_mid_request(lane):
+    """The Alpaca server killed while the guider waits on a startexposure, then back on the same port (#211)."""
+    cli = lane.cli
+    expect(cli.call("get_app_state") == "Guiding", "not guiding")
+    truth = lane.fake.truth()["field_offset_px"]
+    mark = cli.mark()
+    kill_fake_during_startexposure(lane)
+    cli.wait_events(mark, "GuidingStopped", timeout=90)
+    evs = settle_events(cli, mark, quiet_s=2.0)
+    names = names_of(evs)
+    state = cli.call("get_app_state")
+    conn = connected_by_device(cli)
+    expect(state == "Stopped", f"app state {state} with the server gone")
+    # Today's behaviour, pinned as it is (#237, undecided): a call the server dies during fails with "no response
+    # from the Alpaca server", not a refused connection, so the #190 reconnect does not fire: guiding stops with an
+    # Alert, no Equipment* event, and the camera still reads connected
+    expect(conn == {"all": True, "camera": True, "mount": True, "rotator": False},
+           f"get_connected with the server gone: {conn} (#237)")
+    expect(not [e for e in evs if e["Event"].startswith("Equipment")], f"Equipment* events: {names} (#237)")
+    seq = [n for n in names if n != "ConfigurationChange"]
+    expect(seq == ["Alert", "GuidingStopped", "LoopingExposuresStopped", "LockPositionLost"],
+           f"events with the server gone: {seq} (#237)")  # one LoopingExposuresStopped (#186)
+    alert = alerts(evs)[0].get("Msg", "")
+    # the frame that fails is the one the kill lands in: its start, its image-ready poll or its read (#211)
+    expect(alert.startswith(("Alpaca error -- Cannot start exposure: no response from the Alpaca server",
+                             "Alpaca error -- Cannot poll image ready: no response from the Alpaca server",
+                             "Error reading image: no response from the Alpaca server")), f"Alert {alert!r}")
+
+    # back: the same field, so the star is where the lock is; the camera never disconnected
+    lane.start_fake()
+    lane.fake.request("PUT", "/fake/shift", {"dx": truth["x"], "dy": truth["y"], "absolute": "true"})
+    guide_after_fake_back(lane)
+    return (f"server gone: {seq} (Alert {alert[:60]!r}), state {state}, get_connected {conn}, no Equipment* "
+            f"event (#237); back: guide settled without recalibrating")
 
 
 def scenario_guiding_assistant(lane):
@@ -1117,12 +1190,14 @@ def run_faults(lane, args):
         expect(cli.call("get_connected") is True, "the equipment did not connect")
         return f"profile {lane.profile[1]}"
 
-    def fake_killed():
-        try:
-            return scenario_fake_killed(lane)
-        finally:
-            if lane.fake.proc.poll() is not None:  # failed with the server gone: the steps after it need one (#211)
-                lane.start_fake()
+    def fake_killed(scenario):
+        def run():
+            try:
+                return scenario(lane)
+            finally:
+                if lane.fake.proc.poll() is not None:  # failed with the server gone: the steps after it need one (#211)
+                    lane.start_fake()
+        return run
 
     if not lane.step("connect the fake camera and mount", connect):
         return
@@ -1132,7 +1207,10 @@ def run_faults(lane, args):
         lane.step("pulseguide errors while guiding", lambda: scenario_pulseguide_errors(lane))
         lane.step("3rd camera drop in a row while guiding (#103 reconnect)", lambda: scenario_third_drop(lane))
         lane.step("capture timeout while guiding", lambda: scenario_capture_timeout(lane))
-        if lane.step("Alpaca server killed and back while guiding (#105)", fake_killed):
+        if (lane.step("Alpaca server gone between calls and back while guiding (#105, #190)",
+                      fake_killed(scenario_fake_killed)) and
+                lane.step("Alpaca server killed during a startexposure and back while guiding (#211, #237)",
+                          fake_killed(scenario_fake_killed_mid_request))):
             lane.step("Guiding Assistant start/stop/apply and restore", lambda: scenario_guiding_assistant(lane))
         lane.step("camera reconnect throttle, then the #104 retry", lambda: scenario_reconnect_throttle(lane))
         lane.step("Guiding Assistant settings restored on exit", lambda: scenario_ga_exit_restore(lane))
