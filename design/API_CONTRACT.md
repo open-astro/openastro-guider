@@ -932,7 +932,8 @@ No new method, parameter or field. Two fields of each `points` entry did not say
 documents for them (see the 2026-06-10 web app section):
 
 - `t` is the integer UTC time in ms the step was recorded at, e.g. `1795296221372`. It was printed with
-  `%g`, `1.7953e+12`: a float rounded to about 2.8 hours, so all the points of a session had the same `t`.
+  `%g`, `1.7953e+12`: a float rounded to steps of about 2.8 hours: the points of a session
+  shared one `t` until it crossed a step, then jumped to the next.
 - `ra_dir` / `dec_dir` are `"N"`, `"S"`, `"E"` or `"W"` when that axis got a pulse (`ra_dur` / `dec_dur`
   above 0), the first letter of the matching `GuideStep` event's `RADirection` / `DECDirection`, and `""`
   when it did not. They were always `""`. With an AO the letters stand for its Up, Down, Right and Left
