@@ -1075,3 +1075,19 @@ calibration.
 ARA: no code change. Its handling of `GuidingStopped` covers the stop; it can show the `Alert`'s
 text so the user knows why guiding ended, and should not restart guiding on its own while the
 mount's pulses keep failing.
+
+## 2026-11-21 — noise reduction fixed when the frame is scheduled (#210)
+
+No new method or field. The worker thread read the noise-reduction method after each capture,
+unsynchronized with the main thread where `set_noise_reduction` writes it, so a
+`set_noise_reduction` that arrived while a frame was being exposed also filtered that frame with
+the new method.
+
+- The method is now read when the exposure is queued and travels with it: a frame is filtered with
+  the method in effect when it was scheduled, and a `set_noise_reduction` during the exposure
+  takes effect from the next frame (a `capture_single_frame`, a loop or a guide frame alike).
+- Not changed: `get_noise_reduction` and the profile's setting read the new method as soon as
+  `set_noise_reduction` returns; the method names, the result and the errors.
+
+ARA: no code change. To have a single frame filtered with a method, set it before
+`capture_single_frame`, as it already should.

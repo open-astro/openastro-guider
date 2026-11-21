@@ -202,7 +202,7 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 | `get_auto_exposure` | — | **(Batch C)** `{Enabled, MinExposure, MaxExposure (ms), TargetSNR}`. |
 | `set_auto_exposure` | `MinExposure`?, `MaxExposure`? (ms), `TargetSNR`? | **(Batch C)** Set auto-exposure min/max/target SNR (all optional; `Min` ≤ `Max`). Enable auto-exposure via `set_exposure` "Auto", not here. |
 | `get_noise_reduction` | — | **(Batch C)** Image noise-reduction method (`None` / `2x2 Mean` / `3x3 Median`). |
-| `set_noise_reduction` | `method` | **(Batch C)** Set the noise-reduction method. |
+| `set_noise_reduction` | `method` | **(Batch C)** Set the noise-reduction method. It applies from the next frame scheduled; a frame being exposed keeps the method it was scheduled with (#210). |
 
 ## Camera & cooler
 
