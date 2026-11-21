@@ -633,7 +633,7 @@ def main():
                 run_check(f"get_variable_delay_settings reads back {label} seconds",
                           lambda delay=delay: expect_typed(cli.call("get_variable_delay_settings"), delay))
 
-            run_check("delete_profile clone",lambda: cli.call("delete_profile", {"name": test_name3, "delete_dark_files": False}))
+            run_check("delete_profile clone", lambda: cli.call("delete_profile", {"name": test_name3, "delete_dark_files": False}))
             run_check("delete_profile renamed", lambda: cli.call("delete_profile", {"name": test_name2, "delete_dark_files": False}))
             if isinstance(base_id, int) and base_id > 0:
                 run_check("restore_profile", lambda: cli.call("set_profile", {"id": base_id}))
