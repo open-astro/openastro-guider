@@ -641,6 +641,11 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
 
         mount->LogGuideStepInfo();
 
+        // A dither's fast-recenter step counts what the mount moved (#165); an AO bump, the other
+        // recovery-move kind, goes to the secondary mount
+        if (mount == pMount && event.moveOptions == MOVEOPTS_RECOVERY_MOVE)
+            pGuider->NotifyRecenterMoveComplete(event.mountMoved);
+
         // deliver the outstanding GuidingStopped notification if this is a late-arriving
         // move completion event
         if (!pGuider->IsCalibratingOrGuiding() && (!pMount || !pMount->IsBusy()) &&
