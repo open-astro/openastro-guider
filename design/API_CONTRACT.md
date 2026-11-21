@@ -1101,6 +1101,8 @@ retry got `-32602` "profile name already exists" ("destination profile name alre
 A non-boolean `select` was also checked only after the profile was made.
 
 - Both now check `select` and, when it is true, whether any equipment is connected before they create anything.
+  They also check, first, the Connect Equipment dialog refusal `SetProfile` makes ("cannot set profile when
+  Connect Equipment dialog is open", error 1), which can only happen in `--gui` mode with that dialog open.
   The errors are the same (error 1 with the text above, `-32602` "expected boolean select param"); after either,
   no profile was created.
 - Not changed: with `select` false either call creates the profile while connected, unselected (`selected` false
