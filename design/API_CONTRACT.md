@@ -1050,6 +1050,8 @@ that stays unplugged does; Ara can show "Alpaca server unreachable" from the rea
 
 ## 2026-11-22 — guiding stops when a mount's guide moves keep failing (#213)
 
+## 2026-11-21 — guiding stops when a mount's guide moves keep failing (#213)
+
 No new method, field or event. A mount that rejected every guide pulse (an Alpaca `PulseGuide`
 error on every call) kept guiding for as long as the client let it, with only the PulseGuide-failed
 `Alert` to show for it: the guider counted the failed moves but read the count only during an AO
@@ -1067,8 +1069,10 @@ calibration.
   `dither` request settling, it ends as on any other guiding stop.
 - Not changed: the PulseGuide-failed `Alert` of each failed pulse; calibration, whose failed moves
   are handled by the calibration; a slew (which already stopped guiding) and an AO travel limit
-  (which recenters the AO and starts guiding again). A guide afterwards (`recalibrate: false`)
-  guides on the same calibration.
+  (which recenters the AO and starts guiding again); guiding with the guide output off
+  (`set_guide_output_enabled` false, and the Guiding Assistant, which turns it off for its run),
+  whose moves are refused without a pulse and are not counted, so it guides on for as long as
+  before. A guide afterwards (`recalibrate: false`) guides on the same calibration.
 
 ARA: no code change. Its handling of `GuidingStopped` covers the stop; it can show the `Alert`'s
 text so the user knows why guiding ended, and should not restart guiding on its own while the

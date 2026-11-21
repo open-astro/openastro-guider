@@ -666,9 +666,11 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
         }
 
         // While guiding, a mount whose moves keep failing stops guiding (#213); a slew or the AO's
-        // travel limit is handled below
+        // travel limit is handled below. With the mount's guide output off (set_guide_output_enabled,
+        // the Guiding Assistant) MoveAxis refused the move, "Guiding disabled", and sent no pulse: a
+        // refusal is not a failed move and leaves the count as it was
         bool stopForFailedMoves = false;
-        if (pGuider->IsGuiding())
+        if (pGuider->IsGuiding() && mount->GetGuidingEnabled())
         {
             guide_move_plan::FailedGuideMoves failed = guide_move_plan::AfterGuideMove(
                 static_cast<guide_move_plan::MoveResult>(moveResult), mount->FailedGuideMovesInARow());
