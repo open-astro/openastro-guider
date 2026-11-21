@@ -45,7 +45,7 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
                           reconnects the camera, and guiding goes on
   fake killed (#105)      the Alpaca server gone mid-guide: guiding stops at the first failed frame, with no
                           reconnect, the camera and mount still reading connected; back on the same port, guide (no
-                          recalibration) settles
+                          recalibration) settles. The kill lands while a startexposure waits on the fake (#211)
   Guiding Assistant       start while guiding: guide output, multi-star and variable delay off during the run;
                           stopped after a few samples: restored, guiding going on with the same star and lock
                           position and the secondary stars found again (#187); apply's refusals, and min-move
@@ -209,6 +209,17 @@ def fake_log_since(lane, offset):
     with open(lane.fake.log.name, "rb") as f:
         f.seek(offset)
         return f.read().decode("utf-8", errors="replace")
+
+
+def kill_fake_during_startexposure(lane, timeout=30):
+    """Stop the fake while the guider waits on a startexposure, the kill a loaded machine can give (#211)."""
+    at = fake_log_size(lane)
+    lane.fake.request("PUT", "/fake/stall", {"device": "camera", "ms": 60000, "call": "startexposure"})
+    deadline = time.time() + timeout
+    while "stalling camera 60000 ms: /api/v1/camera/0/startexposure" not in fake_log_since(lane, at):
+        expect(time.time() < deadline, f"no startexposure reached the fake within {timeout} s")
+        time.sleep(0.1)
+    lane.stop_fake()
 
 
 class DebugLog:
@@ -847,7 +858,7 @@ def scenario_fake_killed(lane):
     truth = lane.fake.truth()["field_offset_px"]
     server = f"{lane.fake.host}:{lane.fake.port}"
     mark = cli.mark()
-    lane.stop_fake()
+    kill_fake_during_startexposure(lane)
     cli.wait_events(mark, "GuidingStopped", timeout=90)
     evs = settle_events(cli, mark, quiet_s=2.0)
     names = names_of(evs)
