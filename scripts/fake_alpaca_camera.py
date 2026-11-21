@@ -87,7 +87,12 @@ small control endpoint and is off until used, so the default behaviour is unchan
     PUT /fake/stall    device=<camera|telescope>&ms=<N>
         Every request for that device sleeps N ms before it answers (a server that
         accepts the connection, then stalls); ms=0 clears it.
-    GET /fake/state    the injections, the unplugged flags and the stalls, as JSON.
+    PUT /fake/hold     frames=<N>
+        The next N exposures never complete: imageready reads false from their
+        startexposure until the next startexposure (a camera that stopped reading
+        out, for the guider's capture timeout, #142); frames=0 clears it. The
+        next exposure after them is a normal one.
+    GET /fake/state    the injections, the unplugged flags, the stalls and the holds, as JSON.
 
 Alpaca management (#155, for the guider's query_alpaca_devices):
 
@@ -238,6 +243,8 @@ slew = {"t0": 0.0, "t1": 0.0, "ra0": 0.0, "ra1": 0.0}
 exposure = {"t0": 0.0, "dur": 0.0, "polls": 0, "logged": False}
 # --readout-ms: imageready reads false until this long after the exposure is due
 READOUT_MS = 0.0
+# PUT /fake/hold: the exposures still to hold (never complete), and whether the one in progress is held
+hold = {"frames": 0, "held": False}
 
 STARS = [(80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000),
          (120, 350, 35000), (420, 380, 28000), (560, 300, 22000), (250, 420, 18000),
@@ -720,9 +727,13 @@ class Handler(BaseHTTPRequestHandler):
                 if device not in stall_ms:
                     return self.send_body(b'{"error":"unknown device"}', "application/json")
                 stall_ms[device] = max(0, int(params.get("ms", "0")))
+            elif method == "PUT" and name == "/fake/hold":
+                hold["frames"] = max(0, int(params.get("frames", "0")))
+                if hold["frames"] == 0:
+                    hold["held"] = False
             body = json.dumps({"injections": injections, "telescope_injections": scope_injections,
                                "unplugged": unplugged, "telescope_unplugged": scope_unplugged, "stall": stall_ms,
-                               "shift": shift, "decoys": decoys, "clouds": clouds}).encode()
+                               "shift": shift, "decoys": decoys, "clouds": clouds, "hold": hold}).encode()
         self.log_message("control %s %s %s", method, name, params)
         return self.send_body(body, "application/json")
 
@@ -797,7 +808,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.injected("imageready"):
                 return None
             with state_lock:
-                value = state["imageready"]
+                value = state["imageready"] and not hold["held"]
                 if value and READOUT_MS > 0:
                     exposure["polls"] += 1
                     past_ms = (time.monotonic() - exposure["t0"] - exposure["dur"]) * 1000.0
@@ -897,6 +908,10 @@ class Handler(BaseHTTPRequestHandler):
                 state["imageready"] = True
                 exposure.update(t0=time.monotonic(), dur=float(params.get("Duration", 0) or 0), polls=0, logged=False)
                 advance_sim(exposure["dur"])
+                hold["held"] = hold["frames"] > 0
+                if hold["held"]:
+                    hold["frames"] -= 1
+                    self.log_message("holding this exposure: imageready stays false (%d more to hold)", hold["frames"])
         elif prop in ("abortexposure", "stopexposure"):
             with state_lock:
                 state["imageready"] = False
