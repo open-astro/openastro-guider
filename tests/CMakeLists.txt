@@ -283,6 +283,18 @@ set_property(TARGET test_variable_delay PROPERTY FOLDER "Unit tests")
 add_test(NAME test_variable_delay COMMAND test_variable_delay)
 
 ############################################################################
+# test_profile_defaults  --  reads src/*.cpp: every read of a profile key
+# passes the same default (#191). std-only, links no production code.
+############################################################################
+add_executable(test_profile_defaults
+  ${PHD_TESTS_DIR}/event_server/test_profile_defaults.cpp
+)
+target_compile_definitions(test_profile_defaults PRIVATE PHD_SRC_DIR="${phd_src_dir}")
+target_link_libraries(test_profile_defaults PRIVATE phd_test_common)
+set_property(TARGET test_profile_defaults PROPERTY FOLDER "Unit tests")
+add_test(NAME test_profile_defaults COMMAND test_profile_defaults)
+
+############################################################################
 # test_alpaca_gain  --  alpaca_gain.cpp: the GainMin/GainMax support
 # decision and the 0-100 % -> raw gain mapping CameraAlpaca uses. std-only.
 ############################################################################
