@@ -2199,6 +2199,16 @@ static void set_profile_by_name(JObj& response, const json_value *params)
         response << jrpc_result(0);
 }
 
+// The refusal GearDialog::SetProfile gives while equipment is connected, checked by create_profile and
+// clone_profile before they create a profile they are asked to select, so a refusal leaves nothing behind (#185).
+static bool refuse_profile_switch(JObj& response)
+{
+    if (!any_equipment_connected())
+        return false;
+    response << jrpc_error(1, "cannot set profile when equipment is connected");
+    return true;
+}
+
 static void create_profile(JObj& response, const json_value *params)
 {
     Params p("name", "copy_from", "copy_from_id", "select", params);
@@ -2250,6 +2260,19 @@ static void create_profile(JObj& response, const json_value *params)
         sourceName = pConfig->GetProfileName(copyFromId->int_value);
     }
 
+    bool selectCreated = true;
+    if (select && !json_to_bool(select, &selectCreated))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected boolean select param");
+        return;
+    }
+    if (selectCreated)
+    {
+        VERIFY_GUIDER(response);
+        if (refuse_profile_switch(response))
+            return;
+    }
+
     bool error = !sourceName.IsEmpty() ? pConfig->CloneProfile(newName, sourceName) : pConfig->CreateProfile(newName);
     if (error)
     {
@@ -2264,16 +2287,8 @@ static void create_profile(JObj& response, const json_value *params)
         return;
     }
 
-    bool selectCreated = true;
-    if (select && !json_to_bool(select, &selectCreated))
-    {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected boolean select param");
-        return;
-    }
-
     if (selectCreated)
     {
-        VERIFY_GUIDER(response);
         wxString errMsg;
         if (pFrame->pGearDialog->SetProfile(newId, &errMsg))
         {
@@ -2316,6 +2331,19 @@ static void clone_profile(JObj& response, const json_value *params)
         return;
     }
 
+    bool selectCloned = true;
+    if (select && !json_to_bool(select, &selectCloned))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected boolean select param");
+        return;
+    }
+    if (selectCloned)
+    {
+        VERIFY_GUIDER(response);
+        if (refuse_profile_switch(response))
+            return;
+    }
+
     if (pConfig->CloneProfile(dst, pConfig->GetProfileName(srcId)))
     {
         response << jrpc_error(1, "could not clone profile");
@@ -2329,16 +2357,8 @@ static void clone_profile(JObj& response, const json_value *params)
         return;
     }
 
-    bool selectCloned = true;
-    if (select && !json_to_bool(select, &selectCloned))
-    {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected boolean select param");
-        return;
-    }
-
     if (selectCloned)
     {
-        VERIFY_GUIDER(response);
         wxString errMsg;
         if (pFrame->pGearDialog->SetProfile(newId, &errMsg))
         {
