@@ -191,4 +191,14 @@ MoveResult OffsetResult(MoveResult ra, MoveResult dec)
     return dec != MoveResult::Ok ? dec : ra;
 }
 
+FailedGuideMoves AfterGuideMove(MoveResult result, int failedInARow)
+{
+    // Mount::ErrorCount() counts every failed move and nothing read it while guiding, so a mount
+    // that rejected every pulse guided on (#213); a good move shows the mount can still guide
+    FailedGuideMoves failed;
+    failed.inARow = result != MoveResult::Ok ? failedInARow + 1 : 0;
+    failed.stopGuiding = failed.inARow >= MAX_FAILED_GUIDE_MOVES;
+    return failed;
+}
+
 } // namespace guide_move_plan

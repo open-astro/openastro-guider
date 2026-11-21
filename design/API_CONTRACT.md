@@ -1047,3 +1047,31 @@ ARA: no code change needed. An outage now reaches the `EquipmentDisconnected` ha
 (`PHD2Guider.cs`, the `on_guider_lost` policy) and then `EquipmentReconnectFailed`, as a camera
 that stays unplugged does; Ara can show "Alpaca server unreachable" from the reason and wait for
 `EquipmentReconnected` before resuming with `guide`, instead of reading a plain `GuidingStopped`.
+
+## 2026-11-22 — guiding stops when a mount's guide moves keep failing (#213)
+
+No new method, field or event. A mount that rejected every guide pulse (an Alpaca `PulseGuide`
+error on every call) kept guiding for as long as the client let it, with only the PulseGuide-failed
+`Alert` to show for it: the guider counted the failed moves but read the count only during an AO
+calibration.
+
+- While guiding, the 10th failed guide move in a row of one mount (with an AO, the AO and the mount
+  are counted apart) stops guiding. A guide move is one guide step's pulses, RA and Dec; it fails
+  when either pulse fails (#181). A single move that goes through starts the count again, and every
+  guide start begins it at 0, so a mount that fails now and then guides on.
+- The stop is an `Alert` whose `Msg` reads "Guiding stopped: the last 10 guide moves to <mount
+  name> failed. Its guide pulses keep failing; check the mount and its connection." (the name as
+  `get_current_equipment` reports it), then `GuidingStopped`, with no `GuideStep` after it. The
+  capture keeps looping on the selected star (`get_app_state` reads `Selected`) and the mount
+  stays connected; no `Equipment*` event. With a `guide` or
+  `dither` request settling, it ends as on any other guiding stop.
+- Not changed: the PulseGuide-failed `Alert` of each failed pulse; calibration, whose failed moves
+  are handled by the calibration; a slew (which already stopped guiding) and an AO travel limit
+  (which recenters the AO and starts guiding again); guiding with the guide output off
+  (`set_guide_output_enabled` false, and the Guiding Assistant, which turns it off for its run),
+  whose moves are refused without a pulse and are not counted, so it guides on for as long as
+  before. A guide afterwards (`recalibrate: false`) guides on the same calibration.
+
+ARA: no code change. Its handling of `GuidingStopped` covers the stop; it can show the `Alert`'s
+text so the user knows why guiding ended, and should not restart guiding on its own while the
+mount's pulses keep failing.
