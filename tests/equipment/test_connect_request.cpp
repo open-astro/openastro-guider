@@ -61,8 +61,8 @@ TEST(ConnectRequest, NothingChangesWhileCalibratingOrGuiding)
 // #139: what one gear session saw of the camera. The headless daemon never ran the Connect Equipment dialog, the only
 // place the latch was reset, so a connect that saw a wrong profile pixel size left it set for the rest of the process:
 // every later set_connected reset the calibration step and both MinMoves, and raised the pixel-size Alert again. Each
-// gear request now begins a session (BeginRequest), and EndGearRequest takes the scale change once. These tests cover
-// the latch and the begin decision; that GearDialog calls them is pinned by the fake-Alpaca live test.
+// gear request now begins a session (BeginRequest), and GearSession::End takes the scale change once. These tests cover
+// the latch and the begin decision; that GearSession calls them is pinned by the fake-Alpaca live test.
 
 TEST(CameraChangeLatch, WrongProfilePixelSizeIsOneScaleChange)
 {
@@ -70,9 +70,9 @@ TEST(CameraChangeLatch, WrongProfilePixelSizeIsOneScaleChange)
     latch.BeginRequest();
     latch.NotePixelSize(2.4, 3.75); // the profile said 2.4 um, the driver says 3.75 um
     EXPECT_TRUE(latch.ScaleChanged());
-    EXPECT_TRUE(latch.TakeScaleChange()); // the EndGearRequest inside connect all acts on it
+    EXPECT_TRUE(latch.TakeScaleChange()); // the connect all's GearSession::End acts on it
     EXPECT_FALSE(latch.ScaleChanged());
-    EXPECT_FALSE(latch.TakeScaleChange()); // ConnectAll's own EndGearRequest does not act on it again
+    EXPECT_FALSE(latch.TakeScaleChange()); // a later request's End does not act on it again
 }
 
 TEST(CameraChangeLatch, NextRequestBeginsAfresh)
@@ -96,7 +96,7 @@ TEST(CameraChangeLatch, NextRequestBeginsAfresh)
 TEST(CameraChangeLatch, MountConnectedInALaterRequestClearsTheCalibration)
 {
     // set_connected all while the mount is off: the camera connect sees the change, the mount fails, so that
-    // EndGearRequest has no mount to clear
+    // GearSession::End has no mount to clear
     CameraChangeLatch latch;
     latch.BeginRequest();
     latch.NotePixelSize(2.4, 3.75);
@@ -128,7 +128,7 @@ TEST(CameraChangeLatch, AutoLoadWithoutACameraChange)
     EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::AutoLoad);
     EXPECT_EQ(latch.TakeCalibrationAction(true, false), GearCalibrationAction::None);
     EXPECT_EQ(latch.TakeCalibrationAction(false, true), GearCalibrationAction::None);
-    // every EndGearRequest with the mount connected loads it again, as before
+    // every GearSession::End with the mount connected loads it again, as before
     EXPECT_EQ(latch.TakeCalibrationAction(true, true), GearCalibrationAction::AutoLoad);
 }
 
