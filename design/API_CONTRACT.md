@@ -859,3 +859,17 @@ ARA: read `ShortDelaySeconds` and `LongDelaySeconds` as numbers, not integers, i
 
 ARA: no code change needed. It can read `get_exposure` before connecting and show the selected
 exposure; it no longer has to treat `0` as "not connected".
+
+## 2026-11-20 — setters answered without the 40 ms delayed-ACK wait (#175)
+
+A setter that sends an event before its response (`ConfigurationChange` for any profile write)
+took about 45 ms to answer, against about 0.1 ms for a getter: the event and the response are two
+small writes, and without `TCP_NODELAY` the response waited for the client's delayed ACK of the
+event. The event server now sets `TCP_NODELAY` on every accepted JSON-RPC (`:4400`) and HTTP
+(`:8080`) connection, and a setter is answered in well under a millisecond on a Release build.
+
+- No change to any method, event, or the order of the bytes on the wire: the `ConfigurationChange`
+  event still arrives before the response, only without the wait between them.
+
+ARA: no code change. Its connect and profile-change setter sequences finish about 45 ms per call
+sooner.
