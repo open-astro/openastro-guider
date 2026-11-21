@@ -34,7 +34,6 @@
 
 #include "phd.h"
 
-#include "aui_controls.h"
 #include "darks_dialog.h"
 #include "image_math.h"
 #include "capture_cleanup.h"
@@ -134,32 +133,6 @@ int MyFrame::RequestedExposureDuration()
         return 0;
 
     return m_singleExposure.enabled ? m_singleExposure.duration : m_exposureDuration;
-}
-
-void MyFrame::OnMenuHighlight(wxMenuEvent& evt)
-{
-    wxMenuItem *mi = pFrame->GetMenuBar()->FindItem(evt.GetMenuId());
-    if (mi)
-    {
-        const wxString& help = mi->GetHelp();
-        m_statusbar->OverlayMsg(help);
-    }
-    else
-    {
-        m_statusbar->ClearOverlayMsg();
-    }
-}
-
-void MyFrame::OnAnyMenu(wxCommandEvent& evt)
-{
-    m_statusbar->ClearOverlayMsg();
-    evt.Skip();
-}
-
-void MyFrame::OnAnyMenuClose(wxMenuEvent& evt)
-{
-    m_statusbar->ClearOverlayMsg();
-    evt.Skip();
 }
 
 void MyFrame::OnQuit(wxCommandEvent& WXUNUSED(event))
@@ -566,10 +539,6 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             PhdController::AbortController(stopping ? wxString("Image capture stopped") : failure);
             StatusMsg(_("Stopped."));
 
-            // some camera drivers disconnect the camera on error
-            if (!pCamera->Connected)
-                m_statusbar->UpdateStates();
-
             throw ERROR_INFO("Error reported capturing image");
         }
 
@@ -837,76 +806,6 @@ void MyFrame::OnToolBar(wxCommandEvent& evt)
     m_mgr.Update();
 }
 
-void MyFrame::OnGraph(wxCommandEvent& evt)
-{
-    if (evt.IsChecked())
-    {
-        m_mgr.GetPane(_T("GraphLog")).Show().Bottom().Position(0).MinSize(-1, 240);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("GraphLog")).Hide();
-    }
-    pGraphLog->SetState(evt.IsChecked());
-    m_mgr.Update();
-}
-
-void MyFrame::OnStats(wxCommandEvent& evt)
-{
-    if (evt.IsChecked())
-    {
-        m_mgr.GetPane(_T("Stats")).Show().Bottom().Position(0).MinSize(-1, 240);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("Stats")).Hide();
-    }
-    pStatsWin->SetState(evt.IsChecked());
-    m_mgr.Update();
-}
-
-void MyFrame::OnAoGraph(wxCommandEvent& evt)
-{
-    if (pStepGuiderGraph->SetState(evt.IsChecked()))
-    {
-        m_mgr.GetPane(_T("AOPosition")).Show().Right().Position(1).MinSize(293, 208);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("AOPosition")).Hide();
-    }
-    m_mgr.Update();
-}
-
-void MyFrame::OnStarProfile(wxCommandEvent& evt)
-{
-    if (evt.IsChecked())
-    {
-        m_mgr.GetPane(_T("Profile")).Show().Right().Position(0).MinSize(115, 85);
-        // m_mgr.GetPane(_T("Profile")).Show().Bottom().Layer(1).Position(2).MinSize(115,85);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("Profile")).Hide();
-    }
-    pProfile->SetState(evt.IsChecked());
-    m_mgr.Update();
-}
-
-void MyFrame::OnTarget(wxCommandEvent& evt)
-{
-    if (evt.IsChecked())
-    {
-        m_mgr.GetPane(_T("Target")).Show().Right().Position(2).MinSize(293, 208);
-    }
-    else
-    {
-        m_mgr.GetPane(_T("Target")).Hide();
-    }
-    pTarget->SetState(evt.IsChecked());
-    m_mgr.Update();
-}
-
 // Re-dock windows and restore main window to size/position where everything should be readily accessible
 void MyFrame::OnRestoreWindows(wxCommandEvent& evt)
 {
@@ -974,7 +873,6 @@ void MyFrame::OnAdvanced(wxCommandEvent& WXUNUSED(event))
     {
         Debug.Write("User exited setup dialog with 'ok'\n");
         pAdvancedDialog->UnloadValues();
-        pGraphLog->UpdateControls();
         pConfig->Flush();
     }
     else
@@ -1086,31 +984,6 @@ void MyFrame::OnPanelClose(wxAuiManagerEvent& evt)
     if (p->name == _T("MainToolBar"))
     {
         Menubar->Check(MENU_TOOLBAR, false);
-    }
-    if (p->name == _T("GraphLog"))
-    {
-        Menubar->Check(MENU_GRAPH, false);
-        pGraphLog->SetState(false);
-    }
-    if (p->name == _T("Stats"))
-    {
-        Menubar->Check(MENU_STATS, false);
-        pStatsWin->SetState(false);
-    }
-    if (p->name == _T("Profile"))
-    {
-        Menubar->Check(MENU_STARPROFILE, false);
-        pProfile->SetState(false);
-    }
-    if (p->name == _T("AOPosition"))
-    {
-        Menubar->Check(MENU_AO_GRAPH, false);
-        pStepGuiderGraph->SetState(false);
-    }
-    if (p->name == _T("Target"))
-    {
-        Menubar->Check(MENU_TARGET, false);
-        pTarget->SetState(false);
     }
 }
 

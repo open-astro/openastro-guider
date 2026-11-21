@@ -68,22 +68,6 @@ protected:
         void EnableDecControls(bool enable) override;
     };
 
-    class GuideAlgorithmLowpass2GraphControlPane : public GraphControlPane
-    {
-    public:
-        GuideAlgorithmLowpass2GraphControlPane(wxWindow *pParent, GuideAlgorithmLowpass2 *pGuideAlgorithm,
-                                               const wxString& label);
-        ~GuideAlgorithmLowpass2GraphControlPane();
-        void EnableDecControls(bool enable) override;
-
-    private:
-        GuideAlgorithmLowpass2 *m_pGuideAlgorithm;
-        wxSpinCtrl *m_pAggressiveness;
-        wxSpinCtrlDouble *m_pMinMove;
-        void OnAggrSpinCtrl(wxSpinEvent& evt);
-        void OnMinMoveSpinCtrlDouble(wxSpinDoubleEvent& evt);
-    };
-
     double GetAggressiveness() const;
     bool SetAggressiveness(double aggressiveness);
 
@@ -97,7 +81,6 @@ public:
     void reset() override;
     double result(double input) override;
     ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
-    GraphControlPane *GetGraphControlPane(wxWindow *pParent, const wxString& label) override;
     wxString GetSettingsSummary() const override;
     wxString GetGuideAlgorithmClassName() const override { return "Lowpass2"; }
     void GetParamNames(wxArrayString& names) const override;

@@ -67,22 +67,6 @@ protected:
         void EnableDecControls(bool enable) override;
     };
 
-    class GuideAlgorithmZFilterGraphControlPane : public GraphControlPane
-    {
-    public:
-        GuideAlgorithmZFilterGraphControlPane(wxWindow *pParent, GuideAlgorithmZFilter *pGuideAlgorithm, const wxString& label);
-        ~GuideAlgorithmZFilterGraphControlPane();
-        void EnableDecControls(bool enable) override;
-
-    private:
-        GuideAlgorithmZFilter *m_pGuideAlgorithm;
-        wxSpinCtrlDouble *m_pMinMove;
-        wxSpinCtrlDouble *m_pExpFactor;
-
-        void OnMinMoveSpinCtrlDouble(wxSpinDoubleEvent& evt);
-        void OnExpFactorSpinCtrlDouble(wxSpinDoubleEvent& evt);
-    };
-
     bool BuildFilter();
     double GetMinMove() const override;
     bool SetMinMove(double minMove) override;
@@ -99,7 +83,6 @@ public:
     void reset() override;
     double result(double input) override;
     ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
-    GraphControlPane *GetGraphControlPane(wxWindow *pParent, const wxString& label) override;
     wxString GetSettingsSummary() const override;
     wxString GetGuideAlgorithmClassName() const override { return "ZFilter"; }
     void GetParamNames(wxArrayString& names) const override;

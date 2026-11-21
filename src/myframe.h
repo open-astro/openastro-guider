@@ -42,7 +42,6 @@
 class WorkerThread;
 class MyFrame;
 struct alert_params;
-class PHDStatusBar;
 
 enum E_MYFRAME_WORKER_THREAD_MESSAGES
 {
@@ -54,7 +53,6 @@ wxDECLARE_EVENT(REQUEST_EXPOSURE_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(REQUEST_MOUNT_MOVE_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(WXMESSAGEBOX_PROXY_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(STATUSBAR_ENQUEUE_EVENT, wxCommandEvent);
-wxDECLARE_EVENT(STATUSBAR_TIMER_EVENT, wxTimerEvent);
 wxDECLARE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDECLARE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
 
@@ -209,7 +207,6 @@ private:
     bool m_autoLoadCalibration;
 
     wxAuiManager m_mgr;
-    PHDStatusBar *m_statusbar;
 
     bool m_continueCapturing; // should another image be captured?
     SingleExposure m_singleExposure;
@@ -248,12 +245,8 @@ public:
     wxCheckBox *HotPixel_Checkbox;
     wxSlider *Gamma_Slider;
     AdvancedDialog *pAdvancedDialog;
-    GraphLogWindow *pGraphLog;
-    StatsWindow *pStatsWin;
-    GraphStepguiderWindow *pStepGuiderGraph;
+    GuideHistory *pGuideHistory;
     GearDialog *pGearDialog;
-    ProfileWindow *pProfile;
-    TargetWindow *pTarget;
     wxWindow *pGuidingAssistant;
     bool CaptureActive; // Is camera looping captures?
     bool m_exposurePending; // exposure scheduled and not completed
@@ -269,9 +262,6 @@ public:
 
     void RegisterTextCtrl(wxTextCtrl *ctrl);
 
-    void OnMenuHighlight(wxMenuEvent& evt);
-    void OnAnyMenu(wxCommandEvent& evt);
-    void OnAnyMenuClose(wxMenuEvent& evt);
     void OnQuit(wxCommandEvent& evt);
     void OnClose(wxCloseEvent& evt);
     void OnOverlay(wxCommandEvent& evt);
@@ -302,12 +292,7 @@ public:
     void OnTextControlSetFocus(wxFocusEvent& evt);
     void OnTextControlKillFocus(wxFocusEvent& evt);
     void OnPanelClose(wxAuiManagerEvent& evt);
-    void OnGraph(wxCommandEvent& evt);
-    void OnStats(wxCommandEvent& evt);
     void OnToolBar(wxCommandEvent& evt);
-    void OnAoGraph(wxCommandEvent& evt);
-    void OnStarProfile(wxCommandEvent& evt);
-    void OnTarget(wxCommandEvent& evt);
     void OnRestoreWindows(wxCommandEvent& evt);
     void OnAutoStar(wxCommandEvent& evt);
     void OnBookmarksShow(wxCommandEvent& evt);
@@ -366,7 +351,6 @@ public:
     void UpdateStatusBarStarInfo(double SNR, bool Saturated);
     void UpdateStatusBarGuiderInfo(const GuideStepInfo& info);
     void ClearStatusBarGuiderInfo();
-    void UpdateStatsWindowScopePointing();
     static void PlaceWindowOnScreen(wxWindow *window, int x, int y);
     bool GetBeepForLostStar();
     void SetBeepForLostStar(bool beep);
@@ -457,7 +441,6 @@ private:
     WorkerThread *m_pSecondaryWorkerThread;
 
     wxSocketServer *SocketServer;
-    wxTimer m_statusbarTimer;
 
     int m_exposureDuration;
     AutoExposureCfg m_autoExp;
@@ -476,10 +459,8 @@ private:
     void OnAlertHelp(wxCommandEvent& evt);
     void OnAlertFromThread(wxThreadEvent& event);
     void OnReconnectCameraFromThread(wxThreadEvent& event);
-    void OnStatusBarTimerEvent(wxTimerEvent& evt);
     void OnMessageBoxProxy(wxCommandEvent& evt);
     void SetupMenuBar();
-    void SetupStatusBar();
     void SetupToolBar();
     void SetupKeyboardShortcuts();
     int GetTextWidth(wxControl *pControl, const wxString& string);
@@ -583,12 +564,7 @@ enum
     MENU_TAKEDARKS,
     MENU_SERVER,
     MENU_TOOLBAR,
-    MENU_GRAPH,
-    MENU_STATS,
-    MENU_AO_GRAPH,
-    MENU_STARPROFILE,
     MENU_RESTORE_WINDOWS,
-    MENU_TARGET,
     MENU_AUTOSTAR,
     MENU_GUIDING_ASSISTANT,
     MENU_SAVESETTINGS,
@@ -597,29 +573,6 @@ enum
     MENU_LOADDEFECTMAP,
     MENU_INDICONFIG,
     MENU_INDIDIALOG,
-    BUTTON_GRAPH_LENGTH,
-    BUTTON_GRAPH_HEIGHT,
-    BUTTON_GRAPH_SETTINGS,
-    GRAPH_RADEC,
-    GRAPH_DXDY,
-    GRAPH_ARCSECS,
-    GRAPH_PIXELS,
-    GRAPH_STAR_MASS,
-    GRAPH_STAR_SNR,
-    GRAPH_RADX_COLOR,
-    GRAPH_DECDY_COLOR,
-    GRAPH_SCALE_CORR,
-    BUTTON_GRAPH_CLEAR,
-    TARGET_ENABLE_REF_CIRCLE,
-    TARGET_REF_CIRCLE_RADIUS,
-    MENU_LENGTH_BEGIN, // a range of ids for history size selection popup menus
-    MENU_LENGTH_END = MENU_LENGTH_BEGIN + 10,
-    MENU_HEIGHT_BEGIN, // a range of ids for height size selection popup menus
-    MENU_HEIGHT_END = MENU_HEIGHT_BEGIN + 10,
-    CHECKBOX_GRAPH_TRENDLINES,
-    CHECKBOX_GRAPH_CORRECTIONS,
-    BUTTON_GRAPH_ZOOMIN,
-    BUTTON_GRAPH_ZOOMOUT,
     EEGG_STICKY_LOCK,
     STAR_MASS_ENABLE,
     MULTI_STAR_ENABLE,

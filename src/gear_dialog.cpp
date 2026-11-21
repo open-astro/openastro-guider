@@ -208,7 +208,7 @@ void GearDialog::Initialize()
     m_menuProfileManage->Append(GEAR_PROFILE_SAVE, _("Export..."), _("Save the selected profile to a file"));
     m_menuProfileManage->Append(BUTTON_ADVANCED, _("Settings..."), _("Open the advanced settings dialog"));
 
-    m_btnProfileManage = new OptionsButton(this, GEAR_PROFILE_MANAGE, _("Manage Profiles"));
+    m_btnProfileManage = new wxButton(this, GEAR_PROFILE_MANAGE, _("Manage Profiles"));
     m_btnProfileManage->SetToolTip(_("Create a new Equipment Profile, or delete or rename the selected Equipment Profile"));
     profilesSizer->Add(m_btnProfileManage, sizerButtonFlags);
 
@@ -441,8 +441,6 @@ void GearDialog::EndModal(int retCode)
     assert(pSecondaryMount == nullptr);
 
     pFrame->UpdateButtonsStatus();
-    pFrame->pGraphLog->UpdateControls();
-    pFrame->pTarget->UpdateControls();
 
     // a camera change is acted on by the first EndModal with the mount connected, which may be a later request's
     // (#139); until the end of the session the saved calibration, made with the old camera, is not auto-loaded
@@ -1020,7 +1018,6 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
         GuidingAssistant::NotifyGearConnected();
 
         pFrame->UpdateStatusBarStateLabels();
-        pFrame->pStatsWin->UpdateCooler();
     }
     catch (const wxString& Msg)
     {
@@ -1086,8 +1083,6 @@ void GearDialog::OnButtonDisconnectCamera(wxCommandEvent& event)
 
         pFrame->StatusMsg(_("Camera Disconnected"));
         pFrame->UpdateStatusBarStateLabels();
-        pFrame->pStatsWin->UpdateCooler();
-        pFrame->pStatsWin->ResetImageSize();
     }
     catch (const wxString& Msg)
     {
@@ -1384,7 +1379,7 @@ void GearDialog::OnProfileChoice(wxCommandEvent& event)
     pFrame->LoadProfileSettings();
     pFrame->pGuider->LoadProfileSettings();
     pFrame->UpdateTitle();
-    pFrame->pGraphLog->ResetData();
+    pFrame->pGuideHistory->ResetData();
 }
 
 void GearDialog::ReloadProfileGear()

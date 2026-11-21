@@ -543,6 +543,10 @@ bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
                     double StarX = CurrentPosition().X;
                     double StarY = CurrentPosition().Y;
 
+                    // the History graph's default RA and Dec colours
+                    const wxColour raColor(100, 100, 255);
+                    const wxColour decColor(255, 0, 0);
+
                     double r = 15.0;
                     double rlabel = r + 9.0;
 
@@ -558,12 +562,12 @@ bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
                     }
                     double cos_eangle = cos(eAngle);
                     double sin_eangle = sin(eAngle);
-                    dc.SetPen(wxPen(pFrame->pGraphLog->GetRaOrDxColor(), 2, wxPENSTYLE_DOT));
+                    dc.SetPen(wxPen(raColor, 2, wxPENSTYLE_DOT));
                     dc.DrawLine(ROUND(StarX * m_scaleFactor + r * cos_eangle), ROUND(StarY * m_scaleFactor + r * sin_eangle),
                                 ROUND(StarX * m_scaleFactor - r * cos_eangle), ROUND(StarY * m_scaleFactor - r * sin_eangle));
                     if (raParity != GUIDE_PARITY_UNKNOWN)
                     {
-                        dc.SetTextForeground(pFrame->pGraphLog->GetRaOrDxColor());
+                        dc.SetTextForeground(raColor);
                         dc.DrawText(_("E"), ROUND(StarX * m_scaleFactor + rlabel * cos_eangle) - 4,
                                     ROUND(StarY * m_scaleFactor + rlabel * sin_eangle) - 6);
                     }
@@ -579,18 +583,18 @@ bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
                     }
                     double cos_nangle = cos(nAngle);
                     double sin_nangle = sin(nAngle);
-                    dc.SetPen(wxPen(pFrame->pGraphLog->GetDecOrDyColor(), 2, wxPENSTYLE_DOT));
+                    dc.SetPen(wxPen(decColor, 2, wxPENSTYLE_DOT));
                     dc.DrawLine(ROUND(StarX * m_scaleFactor + r * cos_nangle), ROUND(StarY * m_scaleFactor + r * sin_nangle),
                                 ROUND(StarX * m_scaleFactor - r * cos_nangle), ROUND(StarY * m_scaleFactor - r * sin_nangle));
                     if (decParity != GUIDE_PARITY_UNKNOWN)
                     {
-                        dc.SetTextForeground(pFrame->pGraphLog->GetDecOrDyColor());
+                        dc.SetTextForeground(decColor);
                         dc.DrawText(_("N"), ROUND(StarX * m_scaleFactor + rlabel * cos_nangle) - 4,
                                     ROUND(StarY * m_scaleFactor + rlabel * sin_nangle) - 6);
                     }
 
                     wxGraphicsContext *gc = wxGraphicsContext::Create(dc);
-                    gc->SetPen(wxPen(pFrame->pGraphLog->GetRaOrDxColor(), 1, wxPENSTYLE_DOT));
+                    gc->SetPen(wxPen(raColor, 1, wxPENSTYLE_DOT));
                     double step = (double) YImgSize / 10.0;
 
                     double MidX = (double) XImgSize / 2.0;
@@ -613,7 +617,7 @@ bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
                     gc->Rotate(-nAngle);
                     gc->Translate((double) XImgSize / 2.0 - MidX, (double) YImgSize / 2.0 - MidY);
                     gc->Rotate(nAngle);
-                    gc->SetPen(wxPen(pFrame->pGraphLog->GetDecOrDyColor(), 1, wxPENSTYLE_DOT));
+                    gc->SetPen(wxPen(decColor, 1, wxPENSTYLE_DOT));
                     for (int i = -2; i < 12; i++)
                     {
                         gc->StrokeLine(0.0, step * (double) i, (double) XImgSize, step * (double) i);
@@ -1291,9 +1295,6 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
             pImage = m_pCurrentImage;
         }
 
-        if (pFrame && pFrame->pStatsWin)
-            pFrame->pStatsWin->UpdateImageSize(pImage->Size);
-
         if (bStopping)
         {
             StopGuiding();
@@ -1347,7 +1348,7 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
                 GuideLog.FrameDropped(info);
                 EvtServer.NotifyStarLost(info);
                 GuidingAssistant::NotifyFrameDropped(info);
-                pFrame->pGraphLog->AppendData(info);
+                pFrame->pGuideHistory->AppendData(info);
 
                 // allow guide algorithms to attempt dead reckoning
                 static GuiderOffset ZERO_OFS;
