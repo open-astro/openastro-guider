@@ -736,8 +736,9 @@ def run_lane(lane, args, work, t0):
         print(f"FAIL run: {e}", flush=True)
     finally:
         signal.alarm(0)
-        # a SIGTERM from here on must not cut the teardown short: it would leave the daemon running
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        # a SIGTERM from here on must not cut the teardown short: it would leave the daemon running. It is recorded
+        # instead, and the handler it replaced is put back once the teardown is done
+        prev_term = signal.signal(signal.SIGTERM, lambda signum, frame: TERMINATED.append(signum))
         try:
             if cli is not None and daemon is not None and not daemon.exited():
                 # leave the profile as it was, then shut down over the API
@@ -758,10 +759,15 @@ def run_lane(lane, args, work, t0):
                 collect_logs(daemon, work)
             if fake is not None:
                 fake.stop()
+            signal.signal(signal.SIGTERM, prev_term)
     return results, failures
 
 
 AUTO_DISPLAY_LANE_OFFSET = 100
+
+# Each SIGTERM this run received: on_term records it and ends the run; during a lane's teardown it is only recorded,
+# so the teardown finishes, and the physics lane is then stopped at once instead of waited for
+TERMINATED = []
 
 
 class LaneChild:
@@ -793,16 +799,26 @@ class LaneChild:
             print("[physics] " + line.decode("utf-8", errors="replace").rstrip("\n"), flush=True)
 
     def finish(self, timeout):
-        """Wait for the lane (SIGTERM it, then SIGKILL, past the timeout). Returns its failures."""
+        """Wait for the lane, then SIGTERM it (and SIGKILL it if that does not end it) when the timeout passes or
+        this run is terminated while it waits. Returns its failures."""
+        # A SIGTERM here is only recorded: raised out of a wait it would leave the lane running
+        prev_term = signal.signal(signal.SIGTERM, lambda signum, frame: TERMINATED.append(signum))
         try:
-            self.proc.wait(timeout=max(1.0, timeout))
-        except subprocess.TimeoutExpired:
-            self.proc.terminate()  # its SIGTERM handler shuts its daemon and fake down
-            try:
-                self.proc.wait(timeout=240)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait()
+            deadline = time.time() + max(1.0, timeout)
+            while self.proc.poll() is None and not TERMINATED and time.time() < deadline:
+                try:
+                    self.proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+            if self.proc.poll() is None:
+                self.proc.terminate()  # its SIGTERM handler shuts its daemon and fake down
+                try:
+                    self.proc.wait(timeout=240)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait()
+        finally:
+            signal.signal(signal.SIGTERM, prev_term)
         self.reader.join(timeout=10)
         if self.proc.returncode != 0:
             return [("physics lane", f"exited with status {self.proc.returncode}; logs in {self.work}")]
@@ -849,10 +865,8 @@ def main():
         raise RunTimeout(f"the run took longer than {args.timeout:.0f} s")
 
     def on_term(signum, frame):
-        terminated.append(signum)
+        TERMINATED.append(signum)
         raise RunTimeout("terminated")
-
-    terminated = []
 
     signal.signal(signal.SIGALRM, on_alarm)
     signal.signal(signal.SIGTERM, on_term)
@@ -864,9 +878,11 @@ def main():
         results, failures = run_lane("physics" if args.lane == "physics" else "main", args, work, t0)
     finally:
         if child is not None:
-            failures += child.finish(0 if terminated else args.timeout - (time.time() - t0))
+            failures += child.finish(args.timeout - (time.time() - t0))
             if child.ok():
                 results.append("physics lane")
+        if TERMINATED and not any(name == "run" for name, _ in failures):
+            failures.append(("run", "terminated"))  # during a teardown or the physics lane's wait
 
     print("")
     print(f"e2e: {len(results)} passed, {len(failures)} failed, {time.time() - t0:.0f} s; logs in {work}")
