@@ -13,6 +13,9 @@ the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir
                  guiding; the event order Ara consumes is checked on the way (design/API_CONTRACT.md)
   new-target     stop, slew the fake mount to another target, guide with recalibrate true: a second full
                  calibration, made at the new Dec
+  history        while guiding, get_guide_history's points match the GuideStep events: each "t" an integer
+                 millisecond UTC time within 0.2 s of its GuideStep's Timestamp, and "ra_dir" / "dec_dir" the
+                 first letter of RADirection / DECDirection ("E", "W", "N", "S"), or "" with no pulse (#133)
   frame-drop     while guiding, the camera fails 1 frame, then 2 in a row, with Alpaca 1280: each one is a
                  StarLost and guiding goes on (#136)
 
@@ -459,6 +462,38 @@ def scenario_new_target(cli, fake, args):
             f"steps {legs}, settled in {done.get('TotalFrames')} frames")
 
 
+def scenario_guide_history(cli):
+    """#133: while guiding, each get_guide_history point is the GuideStep event taken at the same moment: "t" an
+    integer millisecond UTC time within 0.2 s of the event's Timestamp (the guide exposure is 500 ms), "ra_dur" /
+    "dec_dur" the event's RADuration / DECDuration (0 when absent), and "ra_dir" / "dec_dir" the first letter of
+    its RADirection / DECDirection, or "" when the axis had no pulse."""
+    expect(cli.call("get_app_state") == "Guiding", "not guiding before get_guide_history")
+    hist = cli.call("get_guide_history", {"max_points": 400})
+    points = hist.get("points") or []
+    expect(len(points) >= 5, f"{len(points)} guide history points while guiding")
+    steps = cli.events_since(0, ("GuideStep",))
+    pulses = 0
+    last_t = None
+    for i, p in enumerate(points):
+        t = p.get("t")
+        expect(isinstance(t, int) and not isinstance(t, bool), f"point {i}: t {t!r} is not an integer: {p}")
+        expect(last_t is None or t > last_t, f"point {i}: t {t} is not after the point before ({last_t})")
+        last_t = t
+        near = [e for e in steps if abs(e["Timestamp"] * 1000 - t) <= 200]
+        expect(len(near) == 1, f"point {i} (t {t}): {len(near)} GuideStep events within 0.2 s, expected 1")
+        ev = near[0]
+        for axis, dur_key, dir_key in (("ra", "RADuration", "RADirection"), ("dec", "DECDuration", "DECDirection")):
+            dur = ev.get(dur_key, 0)
+            want = ev[dir_key][0] if dur > 0 else ""
+            expect(p.get(f"{axis}_dur") == dur, f"point {i}: {axis}_dur {p.get(f'{axis}_dur')}, its GuideStep "
+                   f"{dur_key} {dur}: {p} vs {strip(ev)}")
+            expect(p.get(f"{axis}_dir") == want, f"point {i}: {axis}_dir {p.get(f'{axis}_dir')!r}, expected "
+                   f"{want!r} from its GuideStep: {p} vs {strip(ev)}")
+            pulses += 1 if want else 0
+    expect(pulses > 0, f"no point in {len(points)} has a pulse direction")
+    return f"{len(points)} points match their GuideStep events, {pulses} pulse directions"
+
+
 def scenario_frame_drops(cli, fake, args):
     """#136: while guiding, 1 and then 2 frames in a row that fail with Alpaca 1280 are each a StarLost, and
     guiding goes on. A good frame between them starts a new count."""
@@ -698,6 +733,7 @@ def lane_steps(lane, step, cli, fake, args, ctx):
             step("smoke (phd2_rpc_smoke.py)", lambda: run_smoke(args, fake, ctx["work"]))
         if step("connect the fake camera and mount", connect) and step(
                 "calibrate and guide (event order)", lambda: scenario_calibrate_and_guide(cli, args)):
+            step("guide history matches the GuideSteps (#133)", lambda: scenario_guide_history(cli))
             if step("recalibrate on a new target", lambda: scenario_new_target(cli, fake, args)):
                 step("frame drops while guiding (#136)", lambda: scenario_frame_drops(cli, fake, args))
         return
