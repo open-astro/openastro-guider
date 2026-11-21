@@ -38,6 +38,7 @@
 #include "darks_dialog.h"
 #include "image_math.h"
 #include "capture_cleanup.h"
+#include "guide_move_plan.h"
 
 #include <algorithm>
 #include <memory>
@@ -664,6 +665,17 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
             pFrame->NotifyGuidingStopped();
         }
 
+        // While guiding, a mount whose moves keep failing stops guiding (#213); a slew or the AO's
+        // travel limit is handled below
+        bool stopForFailedMoves = false;
+        if (pGuider->IsGuiding())
+        {
+            guide_move_plan::FailedGuideMoves failed = guide_move_plan::AfterGuideMove(
+                static_cast<guide_move_plan::MoveResult>(moveResult), mount->FailedGuideMovesInARow());
+            mount->SetFailedGuideMovesInARow(failed.inARow);
+            stopForFailedMoves = failed.stopGuiding && moveResult == Mount::MOVE_ERROR;
+        }
+
         if (moveResult != Mount::MOVE_OK)
         {
             mount->IncrementErrorCount();
@@ -702,6 +714,15 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
                     pGuider->StartGuiding();
                     pGuider->SetLockPosIsSticky(saveSticky);
                 }
+            }
+            else if (stopForFailedMoves)
+            {
+                Debug.Write(
+                    wxString::Format("%d guide moves in a row failed, stopping guiding\n", mount->FailedGuideMovesInARow()));
+                pFrame->Alert(wxString::Format(_("Guiding stopped: the last %d guide moves to %s failed. Its guide "
+                                                 "pulses keep failing; check the mount and its connection."),
+                                               mount->FailedGuideMovesInARow(), mount->Name()));
+                pGuider->StopGuiding();
             }
 
             throw ERROR_INFO("Error reported moving");

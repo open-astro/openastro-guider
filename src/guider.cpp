@@ -1048,6 +1048,11 @@ void Guider::SetState(GUIDER_STATE newState)
             m_ditherRecenterStalledSteps = 0;
             m_recenteringForWorker = false;
 
+            // count the failed guide moves of this guiding run only (#213)
+            pMount->SetFailedGuideMovesInARow(0);
+            if (pSecondaryMount)
+                pSecondaryMount->SetFailedGuideMovesInARow(0);
+
             pMount->AdjustCalibrationForScopePointing();
             if (pSecondaryMount)
             {
