@@ -296,8 +296,8 @@ TEST(GuideHistory, HistoryIsOldestFirstAndWraps)
     for (int i = 0; i < 13; i++)
     {
         S_HISTORY s = MakeStep(i + 1, -(i + 1), i % 2 == 0, i % 3 == 0);
-        s.raDir = (char) (i % 4);
-        s.decDir = (char) (3 - i % 4);
+        s.raDir = i % 4;
+        s.decDir = 3 - i % 4;
         steps.push_back(s);
         gh.AppendData(s, false);
     }
@@ -575,4 +575,45 @@ TEST(GuideHistory, ParityPinLengthAboveCapacityIsNotClamped)
     EXPECT_NEAR(s.rms_ra, PopulationSigma(last20), 1e-9);
     EXPECT_DOUBLE_EQ(s.ra_peak, 30.0);
     EXPECT_NE(PopulationSigma(last20), PopulationSigma(std::vector<double>(ras.end() - 10, ras.end())));
+}
+
+// get_guide_history's ra_dir / dec_dir (#133): the GUIDE_DIRECTION values the
+// history stores (mount.h: NORTH 0, SOUTH 1, EAST 2, WEST 3, NONE -1) as the
+// letters design/API_CONTRACT.md documents, and "" for an axis with no pulse,
+// as the GuideStep event and the guide log leave the direction out then. Until
+// #133 the method printed the stored value as a character only from ' ' up,
+// so every point had "".
+TEST(GuideHistoryDirection, MapsTheDirectionOfAPulseToItsLetter)
+{
+    EXPECT_STREQ(GuideHistoryDirection(0, 120), "N");
+    EXPECT_STREQ(GuideHistoryDirection(1, 120), "S");
+    EXPECT_STREQ(GuideHistoryDirection(2, 1), "E");
+    EXPECT_STREQ(GuideHistoryDirection(3, 2500), "W");
+}
+
+TEST(GuideHistoryDirection, IsEmptyWithoutAPulseOrADirection)
+{
+    // a manual move or a step with nothing to correct leaves the other axis
+    // at direction 0 (North) with duration 0
+    EXPECT_STREQ(GuideHistoryDirection(0, 0), "");
+    EXPECT_STREQ(GuideHistoryDirection(2, 0), "");
+    EXPECT_STREQ(GuideHistoryDirection(3, -5), "");
+    EXPECT_STREQ(GuideHistoryDirection(-1, 120), ""); // NONE
+    EXPECT_STREQ(GuideHistoryDirection(4, 120), "");
+}
+
+// The history keeps a step's direction and its full millisecond time as they
+// were appended, which get_guide_history prints (#133).
+TEST(GuideHistory, KeepsTheDirectionAndTheFullTimestamp)
+{
+    GuideHistory gh(50, 400, 100, kTimeBase);
+    S_HISTORY s = MakeStep(1.0, -1.0);
+    s.timestamp = kTimeBase + 1;
+    s.raDir = 3;
+    s.decDir = -1;
+    gh.AppendData(s, false);
+    ASSERT_EQ(gh.History().size(), 1u);
+    EXPECT_EQ(gh.History()[0].timestamp, kTimeBase + 1);
+    EXPECT_EQ(gh.History()[0].raDir, 3);
+    EXPECT_EQ(gh.History()[0].decDir, -1);
 }

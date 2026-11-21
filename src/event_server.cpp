@@ -4890,6 +4890,7 @@ static void get_camera_frame_size(JObj& response, const json_value *params)
 
 // Guide-step history + summary stats from MyFrame's GuideHistory. Ara's
 // guide graph polls this.
+static_assert(NORTH == 0 && SOUTH == 1 && EAST == 2 && WEST == 3, "GuideHistoryDirection maps 0-3 to N, S, E, W");
 static void get_guide_history(JObj& response, const json_value *params)
 {
     Params p("max_points", params);
@@ -4918,14 +4919,12 @@ static void get_guide_history(JObj& response, const json_value *params)
     for (unsigned int i = start; i < n; i++)
     {
         const S_HISTORY& h = hist[i];
-        // dir chars are 0 when no correction was issued — emit "" not a
-        // control character (which would corrupt the JSON)
-        wxString raDir = h.raDir >= ' ' ? wxString(h.raDir) : wxString();
-        wxString decDir = h.decDir >= ' ' ? wxString(h.decDir) : wxString();
+        // t is the full ms UTC time as an integer: NV(double) prints %g, which cut it to 6 digits (#133)
         JObj pt;
-        pt << NV("t", (double) h.timestamp) << NV("dx", h.dx, 3) << NV("dy", h.dy, 3) << NV("ra", h.ra, 3)
-           << NV("dec", h.dec, 3) << NV("ra_dur", h.raDur) << NV("dec_dur", h.decDur) << NV("ra_dir", raDir)
-           << NV("dec_dir", decDir) << NV("mass", h.starMass, 1) << NV("snr", h.starSNR, 2);
+        pt << NVRaw("t", wxString::Format("%lld", (long long) h.timestamp)) << NV("dx", h.dx, 3) << NV("dy", h.dy, 3)
+           << NV("ra", h.ra, 3) << NV("dec", h.dec, 3) << NV("ra_dur", h.raDur) << NV("dec_dur", h.decDur)
+           << NV("ra_dir", GuideHistoryDirection(h.raDir, h.raDur)) << NV("dec_dir", GuideHistoryDirection(h.decDir, h.decDur))
+           << NV("mass", h.starMass, 1) << NV("snr", h.starSNR, 2);
         pts << pt;
     }
 

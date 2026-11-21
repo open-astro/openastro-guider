@@ -31,8 +31,8 @@ struct S_HISTORY
     double starMass;
     int raDur;
     int decDur;
-    char raDir; // must stay char: get_guide_history emits "" for values below ' '
-    char decDir;
+    int raDir; // GUIDE_DIRECTION (mount.h): 0 North, 1 South, 2 East, 3 West, -1 none
+    int decDir;
     bool raLimited;
     bool decLimited;
 };
@@ -59,6 +59,11 @@ struct SummaryStats
     unsigned int ra_limit_cnt;
     unsigned int dec_limit_cnt;
 };
+
+// The letter get_guide_history reports for a step's direction on one axis: "N", "S",
+// "E" or "W" for the GUIDE_DIRECTION values 0-3 (an AO's Up, Down, Right and Left
+// share them), or "" when the axis had no pulse (duration 0) or no direction.
+const char *GuideHistoryDirection(int dir, int duration);
 
 // Guide-step history and summary stats behind get_guide_history.
 // Not thread safe: feed and read it from the main thread only.
