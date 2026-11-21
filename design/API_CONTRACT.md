@@ -1111,3 +1111,19 @@ A non-boolean `select` was also checked only after the profile was made.
 
 ARA: no code change needed. An error from `create_profile` or `clone_profile` now means nothing was created, so a
 retry with the same name works; to make a profile while connected, send `select: false`.
+
+## 2026-11-22 — `rename_profile` applies a case-only rename (#232)
+
+No new method, param, field or event. `rename_profile` with a `new_name` that differs from the
+profile's name only in case (`rc51` to `RC51`) answered `0` and renamed nothing.
+
+- It now renames the profile and answers as any other rename does:
+  `{"id": <id>, "name": <new_name>, "selected": <bool>}`, after one `ConfigurationChange` event.
+  `get_profiles`, and `get_profile` when it is the selected profile, read the new spelling.
+- Not changed: a `new_name` that is exactly the current name still answers `0` and sends no
+  event; a `new_name` that another profile has, in any case, is still refused with
+  `-32602` "new profile name already exists"; renaming while equipment is connected is still
+  refused. The selected profile is kept by id, so a rename never changes which one is selected.
+
+ARA: no code change. A case-only rename that used to be silently ignored is now applied, so the
+profile list should be refreshed from the result or `get_profiles` as after any rename.

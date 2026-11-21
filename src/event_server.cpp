@@ -2404,13 +2404,15 @@ static void rename_profile(JObj& response, const json_value *params)
 
     wxString oldName = pConfig->GetProfileName(profileId);
     wxString newNameStr = newName->string_value;
-    if (oldName.CmpNoCase(newNameStr) == 0)
+    if (oldName == newNameStr)
     {
         response << jrpc_result(0);
         return;
     }
 
-    if (pConfig->GetProfileId(newNameStr) > 0)
+    // names match without case, so a case-only rename (rc51 -> RC51) finds this profile, not a collision (#232)
+    int existingId = pConfig->GetProfileId(newNameStr);
+    if (existingId > 0 && existingId != profileId)
     {
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "new profile name already exists");
         return;
