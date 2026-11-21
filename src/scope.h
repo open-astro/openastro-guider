@@ -91,7 +91,7 @@ class Scope : public Mount
     int m_maxRaDuration;
     DEC_GUIDE_MODE m_decGuideMode;
 
-    time_t m_limitReachedDeferralTime;
+    int64_t m_limitReachedDeferralTime; // on guide_move_plan::AlertClockS, not the wall clock (#212)
     guide_move_plan::LimitTracker m_raLimitReached;
     guide_move_plan::LimitTracker m_decLimitReached;
     guide_move_plan::LimitAlertThrottle m_limitAlertThrottle; // AlertLimitReached's, one per axis (#164)
