@@ -53,8 +53,8 @@ wxEND_EVENT_TABLE();
 
 GearDialog::GearDialog(wxWindow *pParent)
     : wxDialog(pParent, wxID_ANY, _("Connect Equipment"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX),
-      m_cameraUpdated(false), m_mountUpdated(false), m_rotatorUpdated(false), m_connectDepth(0), m_connectRetryStopped(false),
-      m_probeCancel(false), m_probeRunning(false), m_probeDevice(GearDevice::Camera), m_probeToken(0)
+      m_cameraUpdated(false), m_mountUpdated(false), m_rotatorUpdated(false), m_connectRetryStopped(false),
+      m_probeCancel(false), m_probeRunning(false), m_probeDevice(GearDevice::Camera), m_probeToken(0), m_session(*this)
 {
     m_connectRetryTimer.SetOwner(this);
     Bind(wxEVT_TIMER, &GearDialog::OnConnectRetryTimer, this, m_connectRetryTimer.GetId());
@@ -181,47 +181,100 @@ void GearDialog::LoadGearChoices()
     OnChoiceRotator(dummyEvent);
 }
 
-void GearDialog::EndGearRequest()
+// ---- GearPort: what m_session (gear_session.cpp) sequences each gear request over ----
+
+bool GearDialog::CaptureActive() const
+{
+    return pFrame->CaptureActive;
+}
+
+bool GearDialog::CalibratingOrGuiding() const
+{
+    return pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding();
+}
+
+void GearDialog::ConnectLeaf(GearDevice dev)
+{
+    wxCommandEvent dummy;
+    switch (dev)
+    {
+    case GearDevice::Camera:
+        DoConnectCamera(false);
+        break;
+    case GearDevice::Mount:
+        OnButtonConnectScope(dummy);
+        break;
+    default:
+        OnButtonConnectRotator(dummy);
+        break;
+    }
+}
+
+void GearDialog::DisconnectLeaf(GearDevice dev)
+{
+    wxCommandEvent dummy;
+    switch (dev)
+    {
+    case GearDevice::Camera:
+        OnButtonDisconnectCamera(dummy);
+        break;
+    case GearDevice::Mount:
+        OnButtonDisconnectScope(dummy);
+        break;
+    default:
+        OnButtonDisconnectRotator(dummy);
+        break;
+    }
+}
+
+void GearDialog::OnConnectRequested(GearDevice dev)
+{
+    m_connectRetry.OnConnectRequested(dev);
+}
+
+void GearDialog::Trace(const std::string& line)
+{
+    Debug.Write(wxString::FromUTF8(line.c_str()));
+}
+
+void GearDialog::RefreshFrameControls()
 {
     assert(pCamera == m_pCamera);
     assert(pMount == m_pScope);
     assert(pSecondaryMount == nullptr);
 
     pFrame->UpdateButtonsStatus();
+}
 
-    // a camera change is acted on by the first EndGearRequest with the mount connected, which may be a later
-    // request's (#139); until the end of the session the saved calibration, made with the old camera, is not
-    // auto-loaded
-    switch (m_camLatch.TakeCalibrationAction(pFrame->GetAutoLoadCalibration() &&
-                                                 (!pSecondaryMount || pSecondaryMount->IsConnected()),
-                                             pMount && pMount->IsConnected()))
-    {
-    case GearCalibrationAction::AutoLoad:
-        Debug.Write("Auto-loading calibration data\n");
-        pFrame->LoadCalibration();
-        break;
-    case GearCalibrationAction::Clear:
-        // Force a recalibration if the camera has changed
-        Debug.Write("Clearing calibration data because camera was changed\n");
-        pMount->ClearCalibration();
-        break;
-    case GearCalibrationAction::None:
-        break;
-    }
+bool GearDialog::AutoLoadCalibration() const
+{
+    return pFrame->GetAutoLoadCalibration() && (!pSecondaryMount || pSecondaryMount->IsConnected());
+}
 
-    UpdateAdvancedDialog(true);
+void GearDialog::LoadCalibration()
+{
+    Debug.Write("Auto-loading calibration data\n");
+    pFrame->LoadCalibration();
+}
 
-    // taken, so the second EndGearRequest of a connect all, or a later request, does not redo it over what the client
-    // has set since (#139). The log line keeps its old text, which debug-log searches use.
-    if (m_camLatch.TakeScaleChange())
-    {
-        Debug.Write("GearDialog::EndModal: imageScaleRatio changed\n");
-        pFrame->HandleImageScaleChange();
-    }
+void GearDialog::ClearCalibration()
+{
+    // Force a recalibration if the camera has changed
+    Debug.Write("Clearing calibration data because camera was changed\n");
+    pMount->ClearCalibration();
+}
 
-    // #104: the one place EquipmentReconnected goes out for a device that had failed to connect, after the
-    // calibration auto-load above; every connect path (set_connected, ConnectAll, guide, the retry) ends here
-    SendPendingReconnected();
+void GearDialog::HandleImageScaleChange()
+{
+    // the log line keeps its old text, which debug-log searches use
+    Debug.Write("GearDialog::EndModal: imageScaleRatio changed\n");
+    pFrame->HandleImageScaleChange();
+}
+
+void GearDialog::SendReconnected(GearDevice dev)
+{
+    Debug.Write(wxString::Format("connect retry: EquipmentReconnected %s\n", GearDeviceName(dev)));
+    EvtServer.NotifyEquipmentReconnected(GearDeviceName(dev));
 }
 
 void GearDialog::UpdateButtonState()
@@ -230,36 +283,6 @@ void GearDialog::UpdateButtonState()
 
     // equipment may have connected or disconnected
     ImagingGearLog::EquipmentChanged();
-}
-
-void GearDialog::OnButtonConnectAll(wxCommandEvent& event)
-{
-    Debug.Write("gear_dialog: OnButtonConnectAll\n");
-
-    DoConnectCamera(false);
-    OnButtonConnectScope(event);
-    OnButtonConnectRotator(event);
-
-    bool done = true;
-    if (m_pCamera && !m_pCamera->Connected)
-        done = false;
-    if (m_pScope && !m_pScope->IsConnected())
-        done = false;
-    if (m_pRotator && !m_pRotator->IsConnected())
-        done = false;
-
-    // ConnectAll runs the end of request again after this one (#115 step 3 makes it run once)
-    if (done)
-        EndGearRequest();
-}
-
-void GearDialog::OnButtonDisconnectAll(wxCommandEvent& event)
-{
-    Debug.Write("gear_dialog: OnButtonDisconnectAll\n");
-
-    OnButtonDisconnectScope(event);
-    OnButtonDisconnectCamera(event);
-    OnButtonDisconnectRotator(event);
 }
 
 void GearDialog::OnChoiceCamera(wxCommandEvent& event)
@@ -372,26 +395,27 @@ void GearDialog::DoConnectCamera(bool autoReconnecting)
         if (!err)
         {
             m_pCamera->SetCameraPixelSize(pixelSize);
-            m_camLatch.NotePixelSize(prevPixelSize, pixelSize);
+            m_session.Latch().NotePixelSize(prevPixelSize, pixelSize);
         }
 
         Debug.Write(wxString::Format("DoConnectCamera: reconnecting=%d warningIssued=%d lastCam=[%s] scaleRatio=%.3f\n",
-                                     autoReconnecting, m_camLatch.warningIssued, m_lastCamera, m_camLatch.scaleRatio));
+                                     autoReconnecting, m_session.Latch().warningIssued, m_lastCamera,
+                                     m_session.Latch().scaleRatio));
 
         // No very reliable way to know if cam selection has changed - id's and name strings may be the same for different cams
         // from same mfr so do what we can here including consideration of image scale change Purpose is to warn user of
         // potential loss of dark/bpm files and later, to adjust guide params as best we can
-        if (!m_camLatch.warningIssued && !autoReconnecting)
+        if (!m_session.Latch().warningIssued && !autoReconnecting)
         {
             if (GearSelection::CameraChanged(m_lastCamera.ToStdWstring(), newCam.ToStdWstring(),
                                              wxString(_("None")).ToStdWstring()) ||
-                m_camLatch.ScaleChanged())
+                m_session.Latch().ScaleChanged())
             {
                 int currProfileId = pConfig->GetCurrentProfileId();
                 wxString darkName = MyFrame::DarkLibFileName(currProfileId);
                 wxString bpmName = DefectMap::DefectMapFileName(currProfileId);
 
-                m_camLatch.NoteCameraChange();
+                m_session.Latch().NoteCameraChange();
 
                 // Can't use standard checks because we don't want to consider sensor-size
                 if (wxFileExists(darkName) || wxFileExists(bpmName))
@@ -402,7 +426,7 @@ void GearDialog::DoConnectCamera(bool autoReconnecting)
                     // client made the selection deliberately) but surface the warning as a non-modal alert
                     pFrame->Alert(_("Camera changed in this profile - the existing dark library / bad-pixel map "
                                     "may no longer match. Consider a separate profile per camera."));
-                    m_camLatch.warningIssued = true;
+                    m_session.Latch().warningIssued = true;
                     m_lastCamera = newCam;
                 }
 
@@ -789,61 +813,41 @@ void GearDialog::ReloadProfileGear()
 
 bool GearDialog::SetProfile(int profileId, wxString *error)
 {
-    if (profileId == pConfig->GetCurrentProfileId())
-        return false;
-
-    // these error messages are internal to the event server and are not translated
-    if ((m_pCamera && m_pCamera->Connected) || (m_pScope && m_pScope->IsConnected()) ||
-        (m_pRotator && m_pRotator->IsConnected()))
+    // run by the session only once the profile is not the current one and nothing is connected, so its profile reads
+    // (and their debug-log lines) come where they always did
+    auto selectTarget = [this, profileId]()
     {
-        *error = "cannot set profile when equipment is connected";
-        return true;
-    }
+        if (!pConfig->ProfileExists(profileId))
+            return false;
 
-    if (!pConfig->ProfileExists(profileId))
-    {
-        *error = "invalid profile id";
-        return true;
-    }
+        wxString profile = pConfig->GetProfileName(profileId);
 
-    wxString profile = pConfig->GetProfileName(profileId);
-
-    // the choice list is filled once, at startup, so a profile created over the
-    // API since then won't be in it yet — refresh before selecting
-    if (!m_profiles->SetStringSelection(profile))
-    {
-        m_profiles->Set(pConfig->ProfileNames());
+        // the choice list is filled once, at startup, so a profile created over the
+        // API since then won't be in it yet — refresh before selecting
         if (!m_profiles->SetStringSelection(profile))
         {
-            *error = "invalid profile id";
-            return true;
+            m_profiles->Set(pConfig->ProfileNames());
+            if (!m_profiles->SetStringSelection(profile))
+                return false;
         }
-    }
-
-    BeginGearRequest();
-
+        return true;
+    };
     // need the side-effects for making the selection
-    wxCommandEvent dummy;
-    OnProfileChoice(dummy);
+    auto reload = [this]()
+    {
+        wxCommandEvent dummy;
+        OnProfileChoice(dummy);
+    };
 
-    EndGearRequest();
-
-    return false;
+    std::string err;
+    if (!m_session.SetProfile(pConfig->GetCurrentProfileId(), profileId, selectTarget, reload, &err))
+        return false;
+    *error = wxString::FromUTF8(err.c_str());
+    return true;
 }
 
 namespace
 {
-// #104: counts the connect / disconnect calls on the stack, so the retry timer, which can fire in any nested event
-// loop, never starts an attempt in the middle of one
-struct ConnectDepthGuard
-{
-    int& depth;
-    explicit ConnectDepthGuard(int& d) : depth(d) { ++depth; }
-    ~ConnectDepthGuard() { --depth; }
-    ConnectDepthGuard(const ConnectDepthGuard&) = delete;
-    ConnectDepthGuard& operator=(const ConnectDepthGuard&) = delete;
-};
-
 // the retry schedule runs on a steady clock: the wall clock of a Pi without an RTC jumps when NTP syncs after boot,
 // which is exactly when a mount that was not powered yet fails
 int64_t SteadyNowMs()
@@ -859,198 +863,32 @@ int DeviceIndex(GearDevice dev)
 const GearDevice kRetryDevices[] = { GearDevice::Camera, GearDevice::Mount, GearDevice::Rotator };
 } // namespace
 
-// #139: what EndGearRequest acts on (the image-scale change, the camera change, the camera-change warning) belongs to
-// one session, and each gear request (set_connected, set_profile, and the #104 retry and guide connects through
-// SetDeviceConnected) begins its own. Without that, one connect that saw the driver's pixel size differ from the
-// profile's left the latch set for the rest of the process: every later end of request reset the calibration step and
-// both MinMoves and raised the Alert again. A camera change carries over to later requests until the mount's
-// calibration is cleared for it (see CameraChangeLatch). A request nested in another (from a nested event loop) is
-// part of the outer one.
-void GearDialog::BeginGearRequest()
+// The gear requests are sequenced by m_session (gear_session.cpp): the latch session (#139) and the request depth
+// (#104: the retry timer, which can fire in any nested event loop, never starts an attempt in the middle of one), the
+// order of the leaves, the no-op and refusal checks, the error texts and the one end of request.
+static bool SessionResult(bool failed, const std::string& err, wxString *error)
 {
-    if (BeginsGearRequest(m_connectDepth))
-        m_camLatch.BeginRequest();
+    if (failed)
+        *error = wxString::FromUTF8(err.c_str());
+    return failed;
 }
 
 bool GearDialog::ConnectAll(wxString *error)
 {
-    BeginGearRequest();
-    ConnectDepthGuard depthGuard(m_connectDepth);
-
-    if (m_pCamera && m_pCamera->Connected && (!m_pScope || m_pScope->IsConnected()) &&
-        (!m_pRotator || m_pRotator->IsConnected()))
-    {
-        // everything already connected
-        return false;
-    }
-
-    if (pFrame->CaptureActive)
-    {
-        // these error messages are internal to the event server and are not translated
-        *error = "cannot connect equipment when capture is active";
-        return true;
-    }
-
-    Debug.Write("gear_dialog: ConnectAll calls OnButtonConnectAll\n");
-
-    m_connectRetry.OnConnectRequested(GearDevice::All);
-
-    wxCommandEvent dummyEvent;
-    OnButtonConnectAll(dummyEvent);
-
-    EndGearRequest();
-
-    // each failed device with the reason its driver gave, when there is one (#104)
-    auto failed = [this](const char *label, GearDevice dev)
-    {
-        const wxString& reason = m_lastConnectError[DeviceIndex(dev)];
-        return wxString(" ") + label + (reason.IsEmpty() ? wxString() : " (" + reason + ")");
-    };
-    wxString fail;
-    if (!m_pCamera)
-        fail += " camera";
-    else if (!m_pCamera->Connected)
-        fail += failed("camera", GearDevice::Camera);
-    if (m_pScope && !m_pScope->IsConnected())
-        fail += failed("mount", GearDevice::Mount);
-    if (m_pRotator && !m_pRotator->IsConnected())
-        fail += failed("Rotator", GearDevice::Rotator);
-
-    if (fail.IsEmpty())
-    {
-        return false;
-    }
-    else
-    {
-        *error = "equipment failed to connect:" + fail;
-        return true;
-    }
+    std::string err;
+    return SessionResult(m_session.ConnectAll(&err), err, error);
 }
 
 bool GearDialog::DisconnectAll(wxString *error)
 {
-    BeginGearRequest();
-    ConnectDepthGuard depthGuard(m_connectDepth);
-
-    if ((!m_pCamera || !m_pCamera->Connected) && (!m_pScope || !m_pScope->IsConnected()) &&
-        (!m_pRotator || !m_pRotator->IsConnected()))
-    {
-        // nothing connected; still the user's word that none of it is to be connected behind their back (#104)
-        NoteUserDisconnect(GearDevice::All);
-        return false;
-    }
-
-    if (pFrame->CaptureActive)
-    {
-        // these error messages are internal to the event server and are not translated
-        *error = "cannot disconnect equipment while capture active";
-        return true;
-    }
-
-    Debug.Write("gear_dialog: DisconnectAll calls OnButtonDisconnectAll\n");
-
-    wxCommandEvent dummy;
-    OnButtonDisconnectAll(dummy);
-    // the devices that were not connected (a failed mount) included, now that the disconnect was accepted (#104)
-    NoteUserDisconnect(GearDevice::All);
-
-    EndGearRequest();
-
-    return false;
+    std::string err;
+    return SessionResult(m_session.DisconnectAll(&err), err, error);
 }
 
 bool GearDialog::SetDeviceConnected(GearDevice device, bool connect, wxString *error)
 {
-    if (device == GearDevice::All)
-        return connect ? ConnectAll(error) : DisconnectAll(error);
-
-    BeginGearRequest();
-    ConnectDepthGuard depthGuard(m_connectDepth);
-
-    bool selected, connected;
-    switch (device)
-    {
-    case GearDevice::Camera:
-        selected = m_pCamera != nullptr;
-        connected = selected && m_pCamera->Connected;
-        break;
-    case GearDevice::Mount:
-        selected = m_pScope != nullptr;
-        connected = selected && m_pScope->IsConnected();
-        break;
-    default:
-        selected = m_pRotator != nullptr;
-        connected = selected && m_pRotator->IsConnected();
-        break;
-    }
-
-    const char *name = GearDeviceName(device);
-    if (!selected)
-    {
-        if (!connect)
-            return false; // nothing to disconnect
-        *error = wxString::Format("no %s is selected in the profile", name);
-        return true;
-    }
-    if (connected == connect)
-    {
-        // already in the requested state; a disconnect request for a device that failed to connect still means
-        // "leave it disconnected" (#104)
-        if (!connect)
-            NoteUserDisconnect(device);
-        return false;
-    }
-
-    std::string refusal =
-        ConnectRefusal(device, connect, pFrame->CaptureActive, pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding());
-    if (!refusal.empty())
-    {
-        *error = refusal;
-        return true;
-    }
-
-    Debug.Write(wxString::Format("gear_dialog: SetDeviceConnected %s %d\n", name, connect));
-
-    if (connect)
-        m_connectRetry.OnConnectRequested(device);
-
-    wxCommandEvent dummy;
-    switch (device)
-    {
-    case GearDevice::Camera:
-        if (connect)
-            DoConnectCamera(false);
-        else
-            OnButtonDisconnectCamera(dummy);
-        break;
-    case GearDevice::Mount:
-        if (connect)
-            OnButtonConnectScope(dummy);
-        else
-            OnButtonDisconnectScope(dummy);
-        break;
-    default:
-        if (connect)
-            OnButtonConnectRotator(dummy);
-        else
-            OnButtonDisconnectRotator(dummy);
-        break;
-    }
-
-    EndGearRequest(); // the side effects (calibration auto-load, controls)
-
-    bool now = device == GearDevice::Camera ? m_pCamera && m_pCamera->Connected
-        : device == GearDevice::Mount       ? m_pScope && m_pScope->IsConnected()
-                                            : m_pRotator && m_pRotator->IsConnected();
-    if (now != connect)
-    {
-        *error = wxString::Format("%s failed to %s", name, connect ? "connect" : "disconnect");
-        // the reason the driver gave (#104)
-        if (connect && !m_lastConnectError[DeviceIndex(device)].IsEmpty())
-            *error += " (" + m_lastConnectError[DeviceIndex(device)] + ")";
-        return true;
-    }
-    return false;
+    std::string err;
+    return SessionResult(m_session.SetDevice(device, connect, &err), err, error);
 }
 
 void GearDialog::Shutdown(bool forced)
@@ -1178,7 +1016,7 @@ ConnectRetry::Gates GearDialog::CurrentRetryGates() const
     gates.darkBuild = DarkBuildActive();
     gates.paSession = PaSessionActive();
     gates.guidingAssistant = GuidingAssistant::ApiIsRunning();
-    gates.connectInProgress = m_connectDepth > 0;
+    gates.connectInProgress = m_session.Depth() > 0;
     gates.captureActive = pFrame->CaptureActive;
     gates.calibratingOrGuiding = pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding();
     return gates;
@@ -1200,7 +1038,7 @@ void GearDialog::NoteConnectResult(GearDevice dev, bool connected, bool autoReco
     if (out.reconnected)
     {
         Debug.Write(wxString::Format("connect retry: the %s is connected again\n", GearDeviceName(dev)));
-        m_reconnectedPending.push_back(dev);
+        m_session.QueueReconnected(dev);
     }
     if (!out.failed)
         return;
@@ -1275,15 +1113,9 @@ void GearDialog::NoteChosen(GearDevice dev, const wxString& choice)
         ForgetDevice(dev);
 }
 
-void GearDialog::SendPendingReconnected()
+std::string GearDialog::LastConnectError(GearDevice dev) const
 {
-    std::vector<GearDevice> pending;
-    pending.swap(m_reconnectedPending);
-    for (GearDevice dev : pending)
-    {
-        Debug.Write(wxString::Format("connect retry: EquipmentReconnected %s\n", GearDeviceName(dev)));
-        EvtServer.NotifyEquipmentReconnected(GearDeviceName(dev));
-    }
+    return ToStd(m_lastConnectError[DeviceIndex(dev)]);
 }
 
 void GearDialog::StartConnectRetryTimer()
@@ -1465,7 +1297,7 @@ void GearDialog::OnProbeDone(GearDevice dev, uint64_t token)
 }
 
 // One background connect on the main thread through SetDeviceConnected, so it has the side effects of a manual
-// set_connected (EndGearRequest: controls, calibration auto-load, EquipmentReconnected). Quiet: a driver that fails after
+// set_connected (GearSession::End: controls, calibration auto-load, EquipmentReconnected). Quiet: a driver that fails after
 // the server reported the device connected logs its Alert instead of raising one at every attempt.
 void GearDialog::RetryConnect(GearDevice dev)
 {

@@ -351,6 +351,22 @@ set_property(TARGET test_gear_selection PROPERTY FOLDER "Unit tests")
 add_test(NAME test_gear_selection COMMAND test_gear_selection)
 
 ############################################################################
+# test_gear_session  --  gear_session.cpp: the sequencing of a gear request
+# (#115 step 3) over a recording fake GearPort: the leaf order of connect
+# all and disconnect all, every error text, no-ops and refusals, the
+# request depth and latch session (#139), and the end of request, run once
+# per accepted request. std-only.
+############################################################################
+add_executable(test_gear_session
+  ${PHD_TESTS_DIR}/equipment/test_gear_session.cpp
+  ${phd_src_dir}/gear_session.cpp
+  ${phd_src_dir}/connect_request.cpp
+)
+target_link_libraries(test_gear_session PRIVATE phd_test_common)
+set_property(TARGET test_gear_session PROPERTY FOLDER "Unit tests")
+add_test(NAME test_gear_session COMMAND test_gear_session)
+
+############################################################################
 # test_connect_retry  --  connect_retry.cpp: the background retry of a
 # selected device that failed to connect, its gates, the Alpaca probe run
 # before a connect, and the guide refusal text (#104). std-only.

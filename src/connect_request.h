@@ -29,7 +29,7 @@ const char *GearDeviceName(GearDevice device);
 // why the request can't be done now, or "" when it can
 std::string ConnectRefusal(GearDevice device, bool connect, bool captureActive, bool calibratingOrGuiding);
 
-// What the end of a gear request (GearDialog::EndGearRequest) does with the mount's calibration (#139)
+// What the end of a gear request (GearSession::End) does with the mount's calibration (#139)
 enum class GearCalibrationAction
 {
     None,
@@ -37,11 +37,11 @@ enum class GearCalibrationAction
     Clear, // the camera changed: the calibration no longer fits it
 };
 
-// What a gear session saw of the camera, for GearDialog::EndGearRequest (#139). A session is one gear request
+// What a gear session saw of the camera, for GearSession::End (#139). A session is one gear request
 // (set_connected, set_profile, and the #104 retry and guide connects).
 // - The image-scale change of the session's camera connects is taken once, by the end of request that acts on it
-//   (calibration step, MinMove, Alert): a later request, or the second end of request of a connect all, must not redo
-//   it over what the client has set since. The camera-change warning is given once per session.
+//   (calibration step, MinMove, Alert): a later request must not redo it over what the client has set since. The
+//   camera-change warning is given once per session.
 // - A camera change outlives a request, because it is the mount's calibration it invalidates and the mount may
 //   connect in a later request (guide's connect, the #104 retry, a per-device set_connected): the calibration is
 //   cleared once, by the first end of request with the mount connected, and the saved one is never auto-loaded again
