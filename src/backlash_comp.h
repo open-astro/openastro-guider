@@ -37,6 +37,7 @@
 #define BACKLASH_COMP_H_INCLUDED
 
 #include "guiding_stats.h"
+#include "monotonic_timers.h"
 
 class Scope;
 class BLCHistory;
@@ -78,8 +79,9 @@ class BacklashTool
     std::vector<double> m_southBLSteps;
     double m_driftPerSec = 0.;
     AxisStats m_northStats;
-    wxLongLong_t m_msmtStartTime = 0;
-    wxLongLong_t m_msmtEndTime = 0;
+    // the north moves' length, which scales the drift correction (monotonic_timers.cpp, #235)
+    monotonic_timers::RunTimer m_msmtTimer;
+    int64_t m_msmtElapsedMs = 0;
     double GetLastDecGuideRate();
 
 public:

@@ -11,7 +11,10 @@
  *  (#231): the set_pa_session lease (PaSessionLease); the multi-star
  *  DistanceChecker's wait and the star mass-change window read ClockMs. The
  *  timers take the time from their caller, so they are tested on an injected
- *  clock. Kept free of wx so it can be unit tested
+ *  clock. RunTimer (#235) times the headless Guiding Assistant's sampling and
+ *  the backlash measurement's north moves; it reads the clock itself, or takes
+ *  it from its caller to be tested on an injected clock. Kept free of wx so it
+ *  can be unit tested
  *  (tests/guiding/test_monotonic_timers.cpp).
  */
 
@@ -89,6 +92,24 @@ public:
 private:
     bool m_held = false;
     int64_t m_expiresMs = 0;
+};
+
+// How long a run has lasted since Start (#235): the headless Guiding Assistant's sampling, which
+// ends once it has lasted its duration, and the backlash measurement's north moves, whose length
+// scales the drift correction. The overloads without nowMs read the clock themselves; those with
+// it take the time from the caller, for the tests' injected clock
+class RunTimer
+{
+public:
+    void Start();
+    void Start(int64_t nowMs);
+    int64_t ElapsedMs() const;
+    int64_t ElapsedMs(int64_t nowMs) const;
+    double ElapsedS() const;
+    double ElapsedS(int64_t nowMs) const;
+
+private:
+    int64_t m_startMs = 0;
 };
 
 } // namespace monotonic_timers

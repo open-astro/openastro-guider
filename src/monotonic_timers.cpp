@@ -75,4 +75,40 @@ PaSessionLease::Status PaSessionLease::StatusAt(int64_t nowMs) const
     return s;
 }
 
+// Stub: the wall clock the Guiding Assistant and the backlash measurement read before #235
+static int64_t RunClockMs()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+void RunTimer::Start()
+{
+    Start(RunClockMs());
+}
+
+void RunTimer::Start(int64_t nowMs)
+{
+    m_startMs = nowMs;
+}
+
+int64_t RunTimer::ElapsedMs() const
+{
+    return ElapsedMs(RunClockMs());
+}
+
+int64_t RunTimer::ElapsedMs(int64_t nowMs) const
+{
+    return nowMs - m_startMs;
+}
+
+double RunTimer::ElapsedS() const
+{
+    return ElapsedS(RunClockMs());
+}
+
+double RunTimer::ElapsedS(int64_t nowMs) const
+{
+    return static_cast<double>(ElapsedMs(nowMs)) / 1000.0;
+}
+
 } // namespace monotonic_timers

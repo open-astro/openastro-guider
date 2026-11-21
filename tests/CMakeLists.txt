@@ -501,7 +501,9 @@ add_test(NAME test_edge_allowance COMMAND test_edge_allowance)
 # found the star (the 100 px large distance after 20 s) and MyFrame's camera
 # reconnect throttle (3 attempts in 60 s), on an injected clock, and the
 # clock their callers read (#226); the set_pa_session lease on an injected
-# clock, and that ClockMs is the same steady clock in milliseconds (#231).
+# clock, and that ClockMs is the same steady clock in milliseconds (#231);
+# RunTimer, the GA sampling's and the backlash measurement's timer, on an
+# injected clock and on the clock it reads itself (#235).
 # std-only.
 ############################################################################
 add_executable(test_monotonic_timers

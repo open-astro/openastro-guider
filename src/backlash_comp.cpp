@@ -806,8 +806,7 @@ BacklashTool::MeasurementResults BacklashTool::ComputeBacklashPx(double *bltPx, 
     if (m_northBLSteps.size() > 3)
     {
         // figure out the drift-related corrections
-        double driftAmtPx = m_driftPerSec * (m_msmtEndTime - m_msmtStartTime) /
-            1000; // amount of drift in px for entire north measurement period
+        double driftAmtPx = m_driftPerSec * m_msmtElapsedMs / 1000; // amount of drift in px for entire north measurement period
         int stepCount = m_northStats.GetCount();
         northDelta = m_northStats.GetSum();
         nRate = fabs((northDelta - driftAmtPx) / (stepCount * m_pulseWidth)); // drift-corrected empirical measure of north rate
@@ -1018,7 +1017,7 @@ void BacklashTool::DecMeasurementStep(const PHD_Point& currentCamLoc)
                                           totalBacklashCleared * 1.5 / m_pulseWidth); // Up to 8 secs
 
                 Debug.Write(wxString::Format("BLT: Starting North moves at Dec=%0.2f\n", currMountLocation.Y));
-                m_msmtStartTime = ::wxGetUTCTimeMillis().GetValue();
+                m_msmtTimer.Start();
                 // falling through to start moving North
             }
 
@@ -1051,7 +1050,7 @@ void BacklashTool::DecMeasurementStep(const PHD_Point& currentCamLoc)
             else
             {
                 // Either got finished or ran out of room
-                m_msmtEndTime = ::wxGetUTCTimeMillis().GetValue();
+                m_msmtElapsedMs = m_msmtTimer.ElapsedMs();
                 double deltaN = 0;
                 if (m_stepCount >= 1)
                 {

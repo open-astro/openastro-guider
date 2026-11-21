@@ -37,6 +37,7 @@
 #include "backlash_comp.h"
 #include "guiding_stats.h"
 #include "guiding_assistant_math.h"
+#include "monotonic_timers.h"
 #include "optionsbutton.h"
 
 #include <wx/textwrapper.h>
@@ -664,7 +665,7 @@ struct GuidingAsstWin : public wxDialog
 
     DialogState m_dlgState;
     bool m_measuring;
-    wxLongLong_t m_startTime;
+    monotonic_timers::RunTimer m_runTimer;
     long m_elapsedSecs;
     wxString startStr;
     ga_math::Accumulator m_stats;
@@ -1615,7 +1616,7 @@ void GuidingAsstWin::OnStart(wxCommandEvent& event)
 
     startStr = wxDateTime::Now().FormatISOCombined(' ');
     m_measuring = true;
-    m_startTime = ::wxGetUTCTimeMillis().GetValue();
+    m_runTimer.Start();
     SetSizerAndFit(m_vSizer);
 }
 
@@ -1836,7 +1837,7 @@ void GuidingAsstWin::DisplayStaticResults(const GADetails& details)
 void GuidingAsstWin::UpdateInfo(const GuideStepInfo& info)
 {
     // Update the time measures
-    wxLongLong_t elapsedms = ::wxGetUTCTimeMillis().GetValue() - m_startTime;
+    wxLongLong_t elapsedms = m_runTimer.ElapsedMs();
     m_elapsedSecs = (double) elapsedms / 1000.0;
     // add offset info to various stats accumulations
     m_stats.AddSample(MakeGASample(info));
@@ -1893,7 +1894,7 @@ struct HeadlessGA
     bool measureBacklash = false;
     ga_math::Accumulator stats;
     wxString startStr;
-    wxLongLong_t startTime = 0; // ms, at the first sample
+    monotonic_timers::RunTimer sampling; // started at the first sample (monotonic_timers.cpp, #235)
     double elapsedS = 0.;
     bool waitingForGuiding = false; // guiding was started for the run and has not begun yet
     bool startedGuiding = false; // return to looping at the end
@@ -1989,7 +1990,7 @@ static double HeadlessGASamplingElapsed()
 {
     if (s_ga.stats.Count() == 0)
         return 0.;
-    return (double) (::wxGetUTCTimeMillis().GetValue() - s_ga.startTime) / 1000.0;
+    return s_ga.sampling.ElapsedS();
 }
 
 static void HeadlessGARestore()
@@ -2138,7 +2139,7 @@ static void HeadlessGAGuideStep(const GuideStepInfo& info)
 
     s_ga.waitingForGuiding = false;
     if (s_ga.stats.Count() == 0)
-        s_ga.startTime = ::wxGetUTCTimeMillis().GetValue();
+        s_ga.sampling.Start();
     s_ga.stats.AddSample(MakeGASample(info));
     s_ga.elapsedS = HeadlessGASamplingElapsed();
 
