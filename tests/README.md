@@ -82,7 +82,7 @@ the first run's log):
 
 | Scenario | Checks |
 |---|---|
-| smoke | `scripts/phd2_rpc_smoke.py --fake-alpaca-url` exits 0 (#155); among its checks, on its throwaway profile, `set_variable_delay_settings` 2.5 and 7.25 s read back as set, and 3 and 45 s as JSON integers (#174), and `get_exposure` reads each `set_exposure` back before anything is connected (#176) |
+| smoke | `scripts/phd2_rpc_smoke.py --fake-alpaca-url` exits 0 (#155); among its checks, on its throwaway profile, `set_variable_delay_settings` 2.5 and 7.25 s read back as set, and 3 and 45 s as JSON integers (#174), and `get_exposure` reads each `set_exposure` back before anything is connected (#176), and the median of 50 `set_dither_settings` that change nothing is 10 ms or less, against about 45 ms before `TCP_NODELAY` (#175) |
 | calibrate and guide | connect the Alpaca camera and mount, `loop`, `find_star`, `guide` with `recalibrate: true`: a full calibration (West, East, North, South), one `SettleDone` with `Status` 0, then `GuideStep`s; the event order Ara consumes (`StartCalibration`, `Calibrating`…, `CalibrationComplete`, `StartGuiding`, `SettleBegin`, `Settling`/`GuideStep`…, one `SettleDone`, `GuideStep`…) |
 | recalibrate on a new target | `stop_capture`, slew the fake mount to Dec 50, `guide` with `recalibrate: true`: a second full calibration, made at Dec 50 |
 | frame drops while guiding | 1, then 2 frames in a row failing with Alpaca 1280: one `StarLost` each, guiding goes on (#136) |
