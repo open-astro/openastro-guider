@@ -33,6 +33,10 @@ const int kAcquisitionFailuresBeforeReconnect = 3;
 // connected: the camera must be disconnected and reconnected (issue #103).
 bool CaptureNeedsReconnect(long errorNumber);
 
+// CURLE_COULDNT_CONNECT, a CallError's curlCode when the server refused the connection:
+// nothing is listening on the Alpaca port (#190). alpaca_client.cpp checks it against curl.h.
+const long kCurlCouldntConnect = 7;
+
 enum class CaptureFailureAction
 {
     Alert, // keep the alert and fail the frame
@@ -51,8 +55,10 @@ class CaptureFailureTracker
 {
 public:
     CaptureFailureAction OnFailure(long errorNumber);
-    // The failed capture call's CallError: an Alpaca error goes by its number; HTTP, transport and parse
-    // failures carry none, so they count as 0.
+    // The failed capture call's CallError: an Alpaca error goes by its number. A refused connection
+    // (Transport with curlCode kCurlCouldntConnect: the Alpaca server is gone) reconnects at once and
+    // starts a new run, like 1031 (#190); any other HTTP, transport or parse failure carries no number
+    // and counts as 0.
     CaptureFailureAction OnFailure(const CallError& error);
     void OnSuccess() { m_consecutive.store(0); }
     void Reset() { m_consecutive.store(0); }
@@ -118,7 +124,7 @@ public:
     CallErrorScope(const CallErrorScope&) = delete;
     CallErrorScope& operator=(const CallErrorScope&) = delete;
 
-    void Set(CallError::Kind kind, long httpStatus, long alpacaError, const std::string& message);
+    void Set(CallError::Kind kind, long httpStatus, long alpacaError, const std::string& message, long curlCode = 0);
     void Succeeded() { m_succeeded = true; }
     CallError *Target() { return &m_error; }
 

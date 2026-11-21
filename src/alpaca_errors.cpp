@@ -38,6 +38,11 @@ CaptureFailureAction CaptureFailureTracker::OnFailure(long errorNumber)
 
 CaptureFailureAction CaptureFailureTracker::OnFailure(const CallError& error)
 {
+    if (error.kind == CallError::Kind::Transport && error.curlCode == kCurlCouldntConnect)
+    {
+        m_consecutive.store(0);
+        return CaptureFailureAction::Reconnect;
+    }
     return OnFailure(error.kind == CallError::Kind::Alpaca ? error.alpacaError : 0);
 }
 
@@ -252,11 +257,12 @@ CallErrorScope::~CallErrorScope()
     }
 }
 
-void CallErrorScope::Set(CallError::Kind kind, long httpStatus, long alpacaError, const std::string& message)
+void CallErrorScope::Set(CallError::Kind kind, long httpStatus, long alpacaError, const std::string& message, long curlCode)
 {
     m_error.kind = kind;
     m_error.httpStatus = httpStatus;
     m_error.alpacaError = alpacaError;
     m_error.message = message;
+    m_error.curlCode = curlCode;
 }
 }
