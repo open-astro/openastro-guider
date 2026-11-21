@@ -3,7 +3,7 @@
 
 Starts scripts/fake_alpaca_camera.py and the guider daemon (phd2.bin, headless under xvfb-run with a scratch HOME),
 then drives the daemon over JSON-RPC the way Ara does. Two lanes run at once, each with its own fake, daemon,
-instance, port and display, so the second costs no wall time:
+instance, port and display, so the second should cost little wall time (none locally):
 
 the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir):
 
@@ -22,11 +22,13 @@ RA periodic error in simulated time, seeing and per-frame noise (PHYSICS_FAKE_AR
 
   truth          slew to Dec 60, guide with recalibrate true: get_calibration_data's xAngle/yAngle within 2 deg of
                  the fake's /fake/truth and xRate/yRate within 5 %
-  dither         dither 3 px with a settle: the event order, exactly one SettleDone with Status 0, the GuideSteps
-                 starting the dither away from the new lock and corrected to within the settle pixels, and the
-                 true star following the lock
-  clouds         /fake/clouds hides the stars for 5 frames: 5 StarLost, LostLock or Guiding meanwhile, guiding
-                 not stopped, and GuideSteps again from the first clear frame
+  dither         dither 3 px with a settle: the event order, exactly one SettleDone with Status 0, the lock moving
+                 by the dither mapped through the true camera angles (as a vector), the GuideSteps starting the
+                 lock's move away from the new lock and corrected to within the settle pixels, and the true star
+                 following the lock
+  clouds         /fake/clouds hides the stars for 5 frames: 5 StarLost, each "Star lost - low SNR" or "Star lost -
+                 low mass" (no star found), LostLock or Guiding meanwhile, guiding not stopped, and GuideSteps
+                 again from the first clear frame
 
 then each lane shuts its daemon down over RPC. A lane fails on a failed check, on the daemon exiting before the
 shutdown or with a non-zero status, and on any AddressSanitizer / UndefinedBehaviorSanitizer report in the daemon's
@@ -102,7 +104,10 @@ class Daemon:
             env.setdefault(k, v)
         env["UBSAN_OPTIONS"] += f":suppressions={UBSAN_SUPPRESSIONS}"
         cmd = ["xvfb-run"]
-        cmd += ["-a"] if args.display == "auto" else ["-n", args.display]
+        # -n before -a: -a then looks for a free display from that number on (e2e_persistence.py's args have no
+        # --auto-display-from: 99 is this script's default)
+        auto_from = getattr(args, "auto_display_from", 99)
+        cmd += ["-n", str(auto_from), "-a"] if args.display == "auto" else ["-n", args.display]
         cmd += ["-s", "-screen 0 1280x1024x24", *wrap, os.path.abspath(args.phd2), "-i", str(args.instance),
                 *extra_args]
         self.log = open(self.log_path, "wb")
@@ -175,7 +180,7 @@ class Fake:
         """GET /fake/truth: the camera angle, rates, backlash, drift and PE the guider should measure."""
         return self.request("GET", "/fake/truth")
 
-    def clouds(self, frames, dim=1000):
+    def clouds(self, frames, dim):
         return self.request("PUT", "/fake/clouds", {"frames": frames, "dim": dim})
 
     def telescope(self, prop):
@@ -328,10 +333,23 @@ PHYSICS_FAKE_ARGS = (
     "--sim-drift", "0.2,0.3", "--pe-px", "0.3", "--pe-period-s", "300", "--seeing-px", str(PHYSICS_SEEING_PX),
     "--frame-noise", "--pier-flip", "--seed", "142",
 )
+# The physics calibration takes more steps than the plain fake's (cos(Dec) slows the RA legs, the backlash adds
+# Dec steps): about 1.4 times as long, so its lane waits that much longer for CalibrationComplete.
+PHYSICS_CALIBRATION_TIMEOUT_FACTOR = 1.5
 TRUTH_ANGLE_DEG = 2.0  # calibration angles within this of the truth
 TRUTH_RATE_FRACTION = 0.05  # calibration rates within this fraction of the truth
 DITHER_AMOUNT = 3
+TRUE_STAR_PX = 0.75  # the true star's move within this of the lock's, after a dither settled
 CLOUD_FRAMES = 5
+# a thick cloud: the guide star (40000 ADU) peaks at 0.04 ADU against the fake's 15 ADU noise, so the frame is
+# noise only. (At 1000 the star peaks at 40 ADU and is still found at SNR 9-12 on about a third of the frames,
+# which only the guider's mass-change check turns into a StarLost.)
+CLOUD_DIM = 1e6
+# What a frame with no star reads as (src/star.h FindResult, src/guider_multistar.cpp StarStatusStr): the
+# smoothed peak of pure noise stays under the 3-sigma threshold, so the SNR is capped under 3 (low SNR), or no
+# pixel at all is over the threshold (low mass). Not "mass changed" (7), which needs a star found, and not a
+# camera error, which has no ErrorCode.
+NO_STAR_ERRORS = {2: "Star lost - low SNR", 3: "Star lost - low mass"}
 # the abort list of a guide request that must succeed
 GUIDE_FAILURES = ("CalibrationFailed", "GuidingStopped", "LoopingExposuresStopped", "EquipmentDisconnected")
 
@@ -499,12 +517,14 @@ def steps_between(evs, first, last):
 
 
 def scenario_dither_and_settle(cli, fake, args):
-    """A `dither` of DITHER_AMOUNT px with a settle while guiding: GuidingDithered moves the lock, exactly one
-    SettleDone with Status 0, the GuideSteps start about the dither away from the new lock and are corrected
-    to within the settle pixels, and the true star (the fake's field offset) followed the lock."""
+    """A `dither` of DITHER_AMOUNT px with a settle while guiding: GuidingDithered moves the lock by the dither
+    mapped through the fake's true camera angles, exactly one SettleDone with Status 0, the GuideSteps start
+    the lock's move away from the new lock and are corrected to within the settle pixels, and the true star
+    (the fake's field offset) followed the lock."""
     expect(cli.call("get_app_state") == "Guiding", "not guiding before the dither")
     lock0 = cli.call("get_lock_position")
-    field0 = fake.truth()["field_offset_px"]
+    truth0 = fake.truth()
+    field0 = truth0["field_offset_px"]
     start = cli.mark()
     expect(cli.call("dither", {"amount": DITHER_AMOUNT, "raOnly": False, "settle": SETTLE}) == 0,
            "dither did not return 0")
@@ -531,40 +551,57 @@ def scenario_dither_and_settle(cli, fake, args):
     expect(max(abs(d_ra), abs(d_dec)) <= DITHER_AMOUNT + 1e-6, f"dither {d_ra}, {d_dec} over {DITHER_AMOUNT} px")
     lock_dx, lock_dy = lock1[0] - lock0[0], lock1[1] - lock0[1]
     lock_move = math.hypot(lock_dx, lock_dy)
-    # the dither is in mount axes, the lock in camera px: the calibration's axes are about orthogonal
-    expect(abs(lock_move - math.hypot(d_ra, d_dec)) < 0.25,
-           f"the lock moved {lock_move:.2f} px for a dither of {math.hypot(d_ra, d_dec):.2f} px")
+    # The dither is in mount axes (RA, Dec px), the lock in camera px. The guider maps one onto the other with
+    # its calibration (MountToCamera in src/calibration_transform.cpp): dRa along xAngle and dDec along yAngle,
+    # as a rotation by xAngle that keeps the length, mirrored when yAngle is on the other side. So with the
+    # fake's true angles the lock must move by that vector, to within the rotation the calibration's xAngle may
+    # be off by (TRUTH_ANGLE_DEG). An RA dither landing on the Dec axis, or a mirror the wrong way, misses it by
+    # about the dither's length. (MoveLockPosition reflects the dither near the frame's edge; the star is not.)
+    xa, ya = math.radians(truth0["x_angle_deg"]), math.radians(truth0["y_angle_deg"])
+    want_dx = d_ra * math.cos(xa) + d_dec * math.cos(ya)
+    want_dy = d_ra * math.sin(xa) + d_dec * math.sin(ya)
+    lock_miss = math.hypot(lock_dx - want_dx, lock_dy - want_dy)
+    lock_tol = 2.0 * math.sin(math.radians(TRUTH_ANGLE_DEG) / 2.0) * math.hypot(d_ra, d_dec) + 0.01
+    expect(lock_miss <= lock_tol,
+           f"the lock moved ({lock_dx:+.2f}, {lock_dy:+.2f}) px for a dither of RA {d_ra:+.2f} Dec {d_dec:+.2f} px, "
+           f"expected ({want_dx:+.2f}, {want_dy:+.2f}) from the true angles: {lock_miss:.3f} px off (at most "
+           f"{lock_tol:.3f})")
     steps = steps_between(evs, names.index("GuidingDithered"), names.index("SettleDone"))
     expect(len(steps) >= 2, f"{len(steps)} GuideSteps between the dither and SettleDone")
     first, last = steps[0], steps[-1]
     first_dist, last_dist = math.hypot(first["dx"], first["dy"]), math.hypot(last["dx"], last["dy"])
-    # the first step sees the star about the dither away from the new lock (plus the guiding error before it)
-    expect(abs(first_dist - lock_move) < 1.0,
-           f"first GuideStep after the dither {first_dist:.2f} px from the lock, the lock moved {lock_move:.2f} px")
+    # the first step sees the star where it was, so (dx, dy) = star - lock is about minus the lock's move (plus
+    # the guiding error before it)
+    first_miss = math.hypot(first["dx"] + lock_dx, first["dy"] + lock_dy)
+    expect(first_miss < 1.0,
+           f"first GuideStep after the dither at ({first['dx']:+.2f}, {first['dy']:+.2f}) px from the lock, the lock "
+           f"moved ({lock_dx:+.2f}, {lock_dy:+.2f}): {first_miss:.2f} px off")
     # (a dither under a pixel may sit inside the algorithms' minimum move)
     expect(lock_move < 1.0 or first.get("RADuration", 0) > 0 or first.get("DECDuration", 0) > 0,
            f"no correction on the first GuideStep after a {lock_move:.2f} px dither: {strip(first)}")
     expect(last_dist <= SETTLE["pixels"], f"last GuideStep before SettleDone {last_dist:.2f} px from the lock")
-    # the true star went where the lock went: the fake's field moved by the lock's move, within the settle pixels
-    # and the seeing
+    # the true star went where the lock went: the fake's field moved by the lock's move, as a vector, to within
+    # the guiding error before the dither and after the settle (a few tenths of a px with this seeing, drift and
+    # PE), well under the lock's move, so a star that stayed put or moved elsewhere fails
     star_dx, star_dy = field1["x"] - field0["x"], field1["y"] - field0["y"]
     off = math.hypot(star_dx - lock_dx, star_dy - lock_dy)
-    expect(off <= SETTLE["pixels"] + 3 * PHYSICS_SEEING_PX,
-           f"the true star moved ({star_dx:.2f}, {star_dy:.2f}) px, the lock ({lock_dx:.2f}, {lock_dy:.2f}): "
-           f"{off:.2f} px apart")
+    expect(off <= TRUE_STAR_PX,
+           f"the true star moved ({star_dx:+.2f}, {star_dy:+.2f}) px, the lock ({lock_dx:+.2f}, {lock_dy:+.2f}): "
+           f"{off:.2f} px apart (at most {TRUE_STAR_PX})")
     dists = " ".join(f"{math.hypot(e['dx'], e['dy']):.2f}" for e in steps)
-    return (f"dither RA {d_ra:+.2f} Dec {d_dec:+.2f} px, lock moved {lock_move:.2f} px; GuideSteps {dists} px to "
-            f"SettleDone in "
-            f"{done.get('TotalFrames')} frames; true star {off:.2f} px from the lock's move")
+    return (f"dither RA {d_ra:+.2f} Dec {d_dec:+.2f} px, lock moved ({lock_dx:+.2f}, {lock_dy:+.2f}) px, "
+            f"{lock_miss:.3f} px from the true angles' ({want_dx:+.2f}, {want_dy:+.2f}); GuideSteps {dists} px to "
+            f"SettleDone in {done.get('TotalFrames')} frames; true star {off:.2f} px from the lock's move")
 
 
 def scenario_clouds(cli, fake, args):
-    """Clouds while guiding: CLOUD_FRAMES frames with no star are one StarLost each, guiding is not stopped
-    (get_app_state reads LostLock or Guiding meanwhile, doc/jsonrpc_api.md), and the star is found again on the
-    first clear frame, with the GuideSteps going on after it."""
+    """Clouds while guiding: CLOUD_FRAMES frames with no star (CLOUD_DIM) are one StarLost each, each one the
+    guider finding no star (NO_STAR_ERRORS), guiding is not stopped (get_app_state reads LostLock or Guiding
+    meanwhile, doc/jsonrpc_api.md), and the star is found again on the first clear frame, with the GuideSteps
+    going on after it."""
     expect(cli.call("get_app_state") == "Guiding", "not guiding before the clouds")
     start = cli.mark()
-    fake.clouds(CLOUD_FRAMES)
+    fake.clouds(CLOUD_FRAMES, CLOUD_DIM)
     states = set()
     deadline = time.time() + 60
     while len(cli.events_since(start, ("StarLost",))) < CLOUD_FRAMES:
@@ -580,15 +617,18 @@ def scenario_clouds(cli, fake, args):
     lost_now = cli.events_since(start, ("StarLost",))
     expect(len(lost_now) == CLOUD_FRAMES, f"{len(lost_now)} StarLost events for {CLOUD_FRAMES} clouded frames")
     for e in lost_now:
-        expect("1280" not in str(e.get("Status", "")), f"a clouded frame reads as a camera error: {strip(e)}")
+        code = e.get("ErrorCode")
+        expect(code in NO_STAR_ERRORS and e.get("Status") == NO_STAR_ERRORS[code],
+               f"a clouded frame is not a frame with no star found ({NO_STAR_ERRORS}): {strip(e)}")
     expect(states <= {"Guiding", "LostLock"}, f"app states while clouded: {sorted(states)}")
     expect(cli.call("get_app_state") == "Guiding", "not guiding after the clouds")
     # the first frame after the clouds is a GuideStep: the star was reacquired at once
     frames = [e.get("Frame") for e in lost_now]
     expect(resumed[0].get("Frame") == frames[-1] + 1,
            f"first GuideStep after the clouds is frame {resumed[0].get('Frame')}, the last StarLost {frames[-1]}")
-    return (f"{len(lost_now)} StarLost (frames {frames}, {lost_now[0].get('Status')!r}), states seen "
-            f"{sorted(states)}; GuideSteps again from frame {resumed[0].get('Frame')}")
+    statuses = ", ".join(f"{e.get('Frame')} {e.get('Status')!r}" for e in lost_now)
+    return (f"{len(lost_now)} StarLost ({statuses}), states seen {sorted(states)}; GuideSteps again from frame "
+            f"{resumed[0].get('Frame')}")
 
 
 def run_smoke(args, fake, work):
@@ -721,6 +761,9 @@ def run_lane(lane, args, work, t0):
     return results, failures
 
 
+AUTO_DISPLAY_LANE_OFFSET = 100
+
+
 class LaneChild:
     """The physics lane, run beside the main lane as a second copy of this script: its own daemon instance
     (--instance + 1), fake port (+ 1), X display (+ 1) and work dir (<work-dir>/physics). Its output is
@@ -729,11 +772,17 @@ class LaneChild:
     def __init__(self, args, work):
         self.work = os.path.join(work, "physics")
         display = args.display if args.display == "auto" else str(int(args.display) + 1)
+        # With --display auto both lanes start xvfb-run -a at about the same moment, and two of them can take the
+        # same free display (it checks for a lock file, then starts Xvfb): the lane's search starts
+        # AUTO_DISPLAY_LANE_OFFSET higher, so the two never meet.
+        auto_from = args.auto_display_from + AUTO_DISPLAY_LANE_OFFSET
         # its own whole-run timeout ends it before this one's, so it shuts its daemon down itself
         cmd = [sys.executable, os.path.abspath(__file__), "--lane", "physics", "--phd2", args.phd2,
                "--instance", str(args.instance + 1), "--fake-port", str(args.fake_port + 1), "--display", display,
+               "--auto-display-from", str(auto_from),
                "--work-dir", self.work, "--timeout", str(max(60.0, args.timeout - 120.0)),
-               "--calibration-timeout", str(args.calibration_timeout), "--guide-steps", str(args.guide_steps)]
+               "--calibration-timeout", str(args.calibration_timeout * PHYSICS_CALIBRATION_TIMEOUT_FACTOR),
+               "--guide-steps", str(args.guide_steps)]
         print(f"e2e: starting the physics lane: {' '.join(cmd)}", flush=True)
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.reader = threading.Thread(target=self._relay, daemon=True)
@@ -769,12 +818,16 @@ def main():
     ap.add_argument("--instance", type=int, default=10, help="daemon instance (-i); JSON-RPC on 4400 + N - 1")
     ap.add_argument("--fake-port", type=int, default=11150, help="the fake Alpaca server's port")
     ap.add_argument("--display", default="110", help="X display number for xvfb-run, or auto (xvfb-run -a)")
+    ap.add_argument("--auto-display-from", type=int, default=99,
+                    help="with --display auto, the first display number xvfb-run -a tries (its own default, 99); "
+                         f"the physics lane of --lane all searches from {AUTO_DISPLAY_LANE_OFFSET} higher")
     ap.add_argument("--work-dir", required=True, help="the scratch HOME and every log go here (emptied first)")
     ap.add_argument("--timeout", type=float, default=2400, help="the whole run, seconds")
     ap.add_argument("--smoke-timeout", type=float, default=1200)
     ap.add_argument("--calibration-timeout", type=float, default=600,
-                    help="seconds to CalibrationComplete, here and in the smoke script's #137 check; a calibration "
-                         "took about 270 s under ASan on the ubuntu-24.04-arm runner")
+                    help="seconds to CalibrationComplete, here and in the smoke script's #137 check (the physics "
+                         f"lane gets {PHYSICS_CALIBRATION_TIMEOUT_FACTOR:g}x); expect a calibration to take about "
+                         "270 s under ASan on the ubuntu-24.04-arm runner, the physics lane's about 1.4x that")
     ap.add_argument("--guide-steps", type=int, default=10, help="GuideSteps to see after each SettleDone")
     ap.add_argument("--skip-smoke", action="store_true")
     ap.add_argument("--lane", choices=("all", "main", "physics"), default="all",

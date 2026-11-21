@@ -786,9 +786,12 @@ seeing) also pins, with no API change:
   true values (`xRate`/`yRate` in px/s, the RA rate at the calibration's Dec);
 - a `dither` while guiding: `LockPositionSet`, `GuidingDithered` (`dx`/`dy`, the dither in RA/Dec
   px), `SettleBegin`, `Settling` and `GuideStep` events, exactly one `SettleDone` (`Status` 0),
-  then `GuideStep`s; `get_lock_position` moves by the dither;
-- frames with no star while guiding (clouds): one `StarLost` each (today `Status` "Star lost - low
-  SNR", not a camera error), `get_app_state` `LostLock` (or `Guiding`) meanwhile, no
+  then `GuideStep`s; `get_lock_position` moves by `dx` along `xAngle` plus `dy` along `yAngle`
+  (camera px, the dither's length kept);
+- frames with no star while guiding (clouds): one `StarLost` each, the guider finding no star:
+  `ErrorCode` 2 with `Status` "Star lost - low SNR", or `ErrorCode` 3 with "Star lost - low mass"
+  (not 7, "Star lost - mass changed", which a star found but too faint gives, and not a camera
+  error, which has no `ErrorCode`); `get_app_state` `LostLock` (or `Guiding`) meanwhile, no
   `GuidingStopped`, and a `GuideStep` on the first frame with the star again.
 
 ARA: no code change. It waits for `SettleDone` as the end of the request, which this pins.

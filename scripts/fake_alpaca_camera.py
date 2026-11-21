@@ -148,9 +148,13 @@ by default, and with none given the frames, pulses and readings are exactly what
     the drift and the periodic error do not depend on how fast the host runs (a sanitizer build on a
     slow runner sees the same sky). The frame shows the field at the end of its exposure.
 
-    PUT /fake/clouds   frames=<N>[&dim=<F, default 1000>]
-        The next N frames read have every field star's flux divided by F (a thick cloud: no star
-        found); frames=0 clears it. Decoys are dimmed too.
+    PUT /fake/clouds   frames=<N>[&dim=<F, default 1e6>]
+        The next N frames read have every field star's flux divided by F; frames=0 clears it.
+        Decoys are dimmed too. The default is a thick cloud: the brightest star (40000 ADU) peaks
+        at 0.04 ADU against the 15 ADU noise, so no star is found, only noise (the guider reads
+        low SNR or low mass). A thin cloud is findable: at F=1000 that star peaks at 40 ADU and the
+        guider still finds it on about a third of the frames at SNR 9-12, which only its
+        mass-change check rejects.
     GET /fake/truth
         What the guider should measure, as JSON: the true xAngle and yAngle (deg, -180..180, the pier
         flip included), ra_rate_px_per_ms and dec_rate_px_per_ms (the RA rate at the telescope's current
@@ -218,7 +222,7 @@ backlash = {"north": False, "slack_ms": 0.0}
 # side: Alpaca SideOfPier (0 pierEast, 1 pierWest); flipped: the RA axis is turned 180 deg on the sensor;
 # base_x/base_y: the field offset folded in at a flip, so the field does not jump
 pier = {"side": 0, "flipped": False, "base_x": 0.0, "base_y": 0.0}
-clouds = {"frames": 0, "dim": 1000.0}
+clouds = {"frames": 0, "dim": 1e6}
 # the pulseguide requests received, latest last (see GET /fake/pulses)
 pulses = collections.deque(maxlen=1000)
 
@@ -680,7 +684,7 @@ class Handler(BaseHTTPRequestHandler):
                                    "http": int(params.get("http", "200"))}
             elif method == "PUT" and name == "/fake/clouds":
                 clouds.update(frames=max(0, int(params.get("frames", "0"))),
-                              dim=max(1.0, float(params.get("dim", "1000"))))
+                              dim=max(1.0, float(params.get("dim", "1e6"))))
             elif method == "PUT" and name == "/fake/shift":
                 dx, dy = float(params.get("dx", "0")), float(params.get("dy", "0"))
                 if params.get("absolute", "false").lower() == "true":

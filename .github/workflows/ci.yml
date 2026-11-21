@@ -473,10 +473,15 @@ jobs:
         # LeakSanitizer's exit-time check reports the wxWidgets/GTK and PHD2 singletons that are
         # never freed by design, which is not a bug; the memory-error and UB checks stay on.
         # The script has its own whole-run timeout (--timeout) under the step's. Under ASan the
-        # ubuntu-24.04-arm runner is about 3x slower than a local run: a calibration takes about
-        # 270 s and the whole run about 15 min. The physics lane (calibration truth, dither,
-        # clouds) runs at the same time as a second daemon on instance 11, fake port 11151 and
-        # display 111, about 7 min, so it adds no wall time.
+        # ubuntu-24.04-arm runner is about 3x slower than a local run, so expect a calibration of
+        # about 270 s and about 15 min for the whole run. The physics lane (calibration truth,
+        # dither, clouds) runs at the same time as a second daemon on instance 11, fake port 11151
+        # and display 111. Its calibration takes about 1.4x the main lane's (more RA steps at
+        # Dec 60, backlash), so expect about 6 min for it, under the 1.5x calibration timeout the
+        # script gives that lane, and about 7 min for the lane. Locally (8 cores) both lanes
+        # together took 289 s against 287 s for the main lane alone; the runner has 4 vCPUs for
+        # two daemons, two Xvfbs and two fakes, so read both lanes' times off the first run's log
+        # before counting on the overlap.
         timeout-minutes: 45
         env:
           ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0:print_stacktrace=1
