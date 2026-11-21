@@ -979,10 +979,9 @@ def scenario_fake_killed_mid_request(lane):
     expect(seq == ["Alert", "GuidingStopped", "LoopingExposuresStopped", "LockPositionLost"],
            f"events with the server gone: {seq} (#237)")  # one LoopingExposuresStopped (#186)
     alert = alerts(evs)[0].get("Msg", "")
-    # the frame that fails is the one the kill lands in: its start, its image-ready poll or its read (#211)
-    expect(alert.startswith(("Alpaca error -- Cannot start exposure: no response from the Alpaca server",
-                             "Alpaca error -- Cannot poll image ready: no response from the Alpaca server",
-                             "Error reading image: no response from the Alpaca server")), f"Alert {alert!r}")
+    # the kill lands in the stalled startexposure, so that is the call that fails (#211)
+    expect(alert.startswith("Alpaca error -- Cannot start exposure: no response from the Alpaca server"),
+           f"Alert {alert!r}")
 
     # back: the same field, so the star is where the lock is; the camera never disconnected
     lane.start_fake()

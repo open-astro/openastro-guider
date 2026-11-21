@@ -189,6 +189,7 @@ import collections
 import json
 import math
 import re
+import socket
 import struct
 import threading
 import time
@@ -675,7 +676,13 @@ class Handler(BaseHTTPRequestHandler):
         name, _, query = self.path.partition("?")
         params = {k: v[-1] for k, v in parse_qs(query if method == "GET" else body, keep_blank_values=True).items()}
         if method == "PUT" and name == "/fake/stop_listening":
-            # outside the lock: shutdown() waits for serve_forever to see it, up to its 0.5 s poll
+            # Shut the listening socket down first, so a connect from now on is refused at once (on Linux
+            # this also wakes serve_forever's select); only then stop serve_forever, which waits up to its
+            # 0.5 s poll, and close the socket. Outside the lock.
+            try:
+                self.server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self.server.shutdown()
             self.server.socket.close()
             self.log_message("control %s %s: the listening socket is closed", method, name)
