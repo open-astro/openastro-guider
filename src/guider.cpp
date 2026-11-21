@@ -924,7 +924,7 @@ void Guider::NotifyRecenterMoveComplete(const PHD_Point& mountMoved)
     double movedX = mountMoved.IsValid() ? fabs(mountMoved.X) : 0.0;
     double movedY = mountMoved.IsValid() ? fabs(mountMoved.Y) : 0.0;
     guide_move_plan::RecenterProgress progress =
-        guide_move_plan::AfterRecenterStep(m_ditherRecenterRemaining.X, m_ditherRecenterRemaining.Y, movedX, movedY);
+        guide_move_plan::AfterRecenterStep(m_ditherRecenterRemaining.X, m_ditherRecenterRemaining.Y, movedX, movedY, 0);
 
     const char *outcome = !progress.done ? "" : movedX > 0.0 || movedY > 0.0 ? ", done" : ", step moved nothing, done";
     Debug.Write(wxString::Format("dither recenter: moved=(%.1f,%.1f) remaining=(%.1f,%.1f)%s\n", movedX * m_ditherRecenterDir.x,

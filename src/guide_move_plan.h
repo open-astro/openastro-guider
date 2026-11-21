@@ -139,17 +139,23 @@ private:
 // sent, none when nothing was, else |distancePx| less the unsent part at rate, at least 0.
 double MovedPx(double distancePx, int requestedMs, int sentMs, double rate);
 
+// Steps in a row that moved nothing after which a dither's fast recenter ends (#165)
+constexpr int RECENTER_MAX_STALLED_STEPS = 3;
+
 struct RecenterProgress
 {
     double remainingX = 0.0; // px still to move on each mount axis
     double remainingY = 0.0;
+    int stalledSteps = 0; // steps in a row, this one included, that moved nothing
     bool done = false; // the fast recenter is over: the guide algorithm corrects what is left
 };
 
 // Guider's dither fast recenter after one of its steps (#165): remainingX/Y px (magnitudes) less
-// the movedX/Y px the step moved. It is done when under 0.5 px is left on both axes, or when the
-// step moved nothing (it failed or was refused), so a mount that does not move ends the recenter.
-RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double movedX, double movedY);
+// the movedX/Y px the step moved; stalledSteps is the steps in a row before this one that moved
+// nothing. It is done when under 0.5 px is left on both axes, or when RECENTER_MAX_STALLED_STEPS
+// steps in a row moved nothing (they failed or were refused), so a mount that does not move ends
+// the recenter and a single failed step is made up by the next ones.
+RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double movedX, double movedY, int stalledSteps);
 
 } // namespace guide_move_plan
 

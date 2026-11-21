@@ -701,7 +701,7 @@ TEST(MovedPx, ZeroLengthPulseIsTheWholeDistance)
 
 TEST(AfterRecenterStep, StepThatMovedTheRestEndsTheRecenter)
 {
-    RecenterProgress p = AfterRecenterStep(3.0, 1.0, 3.0, 0.7);
+    RecenterProgress p = AfterRecenterStep(3.0, 1.0, 3.0, 0.7, 0);
     EXPECT_NEAR(p.remainingX, 0.0, 1e-12);
     EXPECT_NEAR(p.remainingY, 0.3, 1e-12);
     EXPECT_TRUE(p.done);
@@ -709,26 +709,47 @@ TEST(AfterRecenterStep, StepThatMovedTheRestEndsTheRecenter)
 
 TEST(AfterRecenterStep, HalfAPixelLeftOnAnAxisKeepsItGoing)
 {
-    RecenterProgress p = AfterRecenterStep(3.0, 1.0, 2.5, 1.0);
+    RecenterProgress p = AfterRecenterStep(3.0, 1.0, 2.5, 1.0, 0);
     EXPECT_NEAR(p.remainingX, 0.5, 1e-12);
     EXPECT_FALSE(p.done);
 }
 
-TEST(AfterRecenterStep, StepThatMovedNothingEndsTheRecenter)
+TEST(AfterRecenterStep, StepThatMovedNothingIsTriedAgain)
 {
-    // a failed or refused step: the guide algorithm corrects the dither instead of the recenter
-    // sending the same step on every frame
-    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 0.0, 0.0);
+    // a one-off failed step (an Alpaca pulse error) is made up by the next step instead of
+    // handing the whole dither to the guide algorithm
+    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 0.0, 0.0, 0);
     EXPECT_DOUBLE_EQ(p.remainingX, 8.0);
     EXPECT_DOUBLE_EQ(p.remainingY, 2.0);
+    EXPECT_EQ(p.stalledSteps, 1);
+    EXPECT_FALSE(p.done);
+}
+
+TEST(AfterRecenterStep, StepsInARowThatMovedNothingEndTheRecenter)
+{
+    // a failed or refused step every time: the guide algorithm corrects the dither instead of the
+    // recenter sending the same step on every frame
+    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 0.0, 0.0, RECENTER_MAX_STALLED_STEPS - 1);
+    EXPECT_DOUBLE_EQ(p.remainingX, 8.0);
+    EXPECT_DOUBLE_EQ(p.remainingY, 2.0);
+    EXPECT_EQ(p.stalledSteps, RECENTER_MAX_STALLED_STEPS);
     EXPECT_TRUE(p.done);
+}
+
+TEST(AfterRecenterStep, StepThatMovedRestartsTheStalledCount)
+{
+    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 3.0, 0.0, RECENTER_MAX_STALLED_STEPS - 1);
+    EXPECT_DOUBLE_EQ(p.remainingX, 5.0);
+    EXPECT_EQ(p.stalledSteps, 0);
+    EXPECT_FALSE(p.done);
 }
 
 TEST(AfterRecenterStep, StepThatMovedOneAxisKeepsItGoing)
 {
-    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 0.0, 2.0);
+    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 0.0, 2.0, 0);
     EXPECT_DOUBLE_EQ(p.remainingX, 8.0);
     EXPECT_NEAR(p.remainingY, 0.0, 1e-12);
+    EXPECT_EQ(p.stalledSteps, 0);
     EXPECT_FALSE(p.done);
 }
 
@@ -743,13 +764,15 @@ struct RecenterRun
 
 // Guider's fast recenter of a dither of (ditherX, ditherY) mount px in steps of at most
 // (stepX, stepY), through Mount::MoveOffset (PlanOffset) and Scope::MoveAxis (PlanAxis) as a
-// recovery move, until AfterRecenterStep says it is done
+// recovery move, until AfterRecenterStep says it is done. Step number failedStep (from 1, 0 for
+// none) fails in MoveAxis and sends nothing, as a one-off pulse error does
 RecenterRun Recenter(double ditherX, double ditherY, double stepX, double stepY, double xRate, double yRate,
-                     const AxisPolicy& policy)
+                     const AxisPolicy& policy, int failedStep = 0)
 {
     RecenterRun run;
     LimitTracker ra, dec;
     double remainingX = ditherX, remainingY = ditherY;
+    int stalledSteps = 0;
     while (run.steps < 100)
     {
         double sx = std::min(remainingX, stepX), sy = std::min(remainingY, stepY);
@@ -757,15 +780,17 @@ RecenterRun Recenter(double ditherX, double ditherY, double stepX, double stepY,
         OffsetPlan offset = PlanOffset(-sx, -sy, xRate, yRate);
         AxisPlan raPlan = PlanAxis(offset.raDir, offset.raMs, RECOVERY_MOVE, policy, ra, dec);
         AxisPlan decPlan = PlanAxis(offset.decDir, offset.decMs, RECOVERY_MOVE, policy, ra, dec);
-        int raSent = raPlan.refused ? 0 : raPlan.ms;
-        int decSent = decPlan.refused ? 0 : decPlan.ms;
+        bool failed = run.steps == failedStep;
+        int raSent = raPlan.refused || failed ? 0 : raPlan.ms;
+        int decSent = decPlan.refused || failed ? 0 : decPlan.ms;
         run.movedX += raSent * xRate;
         run.movedY += decSent * yRate;
         double mx = MovedPx(sx, offset.raMs, raSent, xRate);
         double my = MovedPx(sy, offset.decMs, decSent, yRate);
-        RecenterProgress p = AfterRecenterStep(remainingX, remainingY, mx, my);
+        RecenterProgress p = AfterRecenterStep(remainingX, remainingY, mx, my, stalledSteps);
         remainingX = p.remainingX;
         remainingY = p.remainingY;
+        stalledSteps = p.stalledSteps;
         if (p.done)
             break;
     }
@@ -791,13 +816,28 @@ TEST(Recenter, StepCutByTheCeilingIsMadeUpByAnotherStep)
     EXPECT_NEAR(run.movedX, 21.0, 0.01);
 }
 
-TEST(Recenter, RefusedStepEndsTheRecenterAfterOneStep)
+TEST(Recenter, RefusedStepsEndTheRecenterAfterThreeInARow)
 {
     // Guiding disabled: MoveAxis refuses every step, and the recenter used to count each as moved
-    RecenterRun run = Recenter(21.0, 6.0, 10.5, 3.0, 0.005, 0.005, Policy(DecMode::Auto, 2500, 2500, false));
-    EXPECT_EQ(run.steps, 1);
+    // until it had counted the whole dither, 10 steps for this one
+    RecenterRun run = Recenter(105.0, 30.0, 10.5, 3.0, 0.005, 0.005, Policy(DecMode::Auto, 2500, 2500, false));
+    EXPECT_EQ(run.steps, RECENTER_MAX_STALLED_STEPS);
     EXPECT_DOUBLE_EQ(run.movedX, 0.0);
     EXPECT_DOUBLE_EQ(run.movedY, 0.0);
+}
+
+TEST(Recenter, OneFailedStepIsMadeUpByTheNextSteps)
+{
+    // the first of the dither's two steps fails once; the recenter still moves the whole dither
+    RecenterRun run = Recenter(21.0, 6.0, 10.5, 3.0, 0.005, 0.005, Policy(), 1);
+    EXPECT_EQ(run.steps, 3);
+    EXPECT_NEAR(run.movedX, 21.0, 0.01);
+    EXPECT_NEAR(run.movedY, 6.0, 0.01);
+    // and a one-step dither whose step fails once takes one more step
+    run = Recenter(5.0, 2.0, 10.5, 3.0, 0.005, 0.005, Policy(), 1);
+    EXPECT_EQ(run.steps, 2);
+    EXPECT_NEAR(run.movedX, 5.0, 0.01);
+    EXPECT_NEAR(run.movedY, 2.0, 0.01);
 }
 
 TEST(Recenter, RecoveryStepIgnoresTheDecGuideModeAsBefore)

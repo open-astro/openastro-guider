@@ -148,12 +148,14 @@ double MovedPx(double distancePx, int requestedMs, int sentMs, double rate)
     return distance > unsentPx ? distance - unsentPx : 0.0;
 }
 
-RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double movedX, double movedY)
+RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double movedX, double movedY, int stalledSteps)
 {
     RecenterProgress progress;
     progress.remainingX = std::max(0.0, remainingX - movedX);
     progress.remainingY = std::max(0.0, remainingY - movedY);
     bool movedNothing = movedX <= 0.0 && movedY <= 0.0;
+    // review red: the first step that moved nothing still ends the recenter
+    progress.stalledSteps = movedNothing ? stalledSteps + 1 : 0;
     progress.done = (progress.remainingX < 0.5 && progress.remainingY < 0.5) || movedNothing;
     return progress;
 }
