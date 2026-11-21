@@ -1,4 +1,5 @@
-# UndefinedBehaviorSanitizer suppressions for scripts/e2e_guide_scenarios.py (#142).
+# UndefinedBehaviorSanitizer suppressions for scripts/e2e_guide_scenarios.py and
+# scripts/e2e_persistence.py (#142).
 #
 # Each entry is a known, reported finding in code this e2e run does not change, kept as narrow
 # as UBSan allows (one check in one function), so that every other report still fails CI.
@@ -13,7 +14,12 @@
 #   TargetWindow          pFrame->MakeSpinCtrlDouble  (target.cpp)
 #   GuiderMultiStarConfigDialogCtrlSet  pFrame->MakeSpinCtrl / MakeSpinCtrlDouble (guider_multistar.cpp)
 #   ScopeConfigDialogCtrlSet            pFrame->MakeSpinCtrl  (scope.cpp)
-# The last two run from AdvancedDialog's constructor, inside MyFrame's.
+#   Scope::SetMaxRaDuration, SetMaxDecDuration, SetDecGuideMode
+#                         pFrame->NotifyGuidingParam  (scope.cpp, from Scope's constructor)
+# The ScopeConfigDialogCtrlSet and GuiderMultiStarConfigDialogCtrlSet ones run from AdvancedDialog's
+# constructor, inside MyFrame's. The Scope ones run when the profile selected at startup has a mount,
+# which GearDialog's constructor, inside MyFrame's, then creates: scripts/e2e_persistence.py restarts
+# the daemon on such a profile.
 #
 # The CI build also leaves out -fsanitize=vptr: GCC's vptr check reads the object's vptr right
 # after a null report it was told to continue past, so a suppressed null member call would crash
@@ -22,3 +28,6 @@ null:GuiderMultiStar::SetMultiStarMode
 null:TargetWindow::TargetWindow
 null:GuiderMultiStarConfigDialogCtrlSet::GuiderMultiStarConfigDialogCtrlSet
 null:ScopeConfigDialogCtrlSet::ScopeConfigDialogCtrlSet
+null:Scope::SetMaxRaDuration
+null:Scope::SetMaxDecDuration
+null:Scope::SetDecGuideMode

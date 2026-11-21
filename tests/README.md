@@ -53,6 +53,7 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 | `test_settle_frame` | `src/settle_frame.cpp` — what one guide frame does to a guide or dither settle (`PhdController`'s `STATE_SETTLE_WAIT`): `TotalFrames` / `DroppedFrames`, the run of in-range frames timed from its first frame (an out-of-range or lost-star frame ends it, an AO bump holds it, no settle time settles on the first in-range frame), the frame limit before the run before the timeout, and a frame dropped after a transient capture failure while guiding (#136): counted like a lost-star frame, it neither ends nor completes a run, starts none, reports the run's time so far, and still times out or reaches the frame limit | Direct (extract-for-testability): wx-free rule linked unmodified |
 | `test_connect_request` | `src/connect_request.cpp` — per-device `set_connected` / `get_connected` (#84): device names, and when a request is refused (camera and `all` need capture stopped; mount and rotator may join while looping but not while calibrating or guiding; nothing while the gear dialog is open) | Direct (extract-for-testability): wx-free rules linked unmodified |
 | `test_connect_retry` | `src/connect_retry.cpp` — recovery of a selected device that failed to connect (#104): the retry schedule (15 s, 30 s, then every 60 s, unbounded), the per-device state (a failure schedules, a recovery reports `EquipmentReconnected` exactly once, a user disconnect stops retries but keeps the failure, re-selection forgets, "not configured" parks until the Alpaca server changes, devices independent, stale probe results dropped by token), the gates that make an attempt wait (shutdown, dark build, PA session, Guiding Assistant, a connect on the stack, and the `set_connected` refusal rules), the probe sequence against a scripted server (already connected, unreachable, refused with the server's reason, waits for connected, gives up after its bounded wait, cancel), the `guide` refusal text and the driver reason slot | Direct (extract-for-testability): wx-free rules linked unmodified with `connect_request.cpp` and `alpaca_errors.cpp` |
+| `test_atomic_file_write` | `src/atomic_file_write.cpp` — how `PhdConfig::Flush` writes the config file (#142): through `<file>.tmp` in the same directory, fsynced, renamed over the file and the directory fsynced. A new file gets 0666 less the umask, a replaced one keeps its mode; empty and 3 MB contents; a temporary file a killed write left is overwritten; a write that cannot create its temporary file or cannot rename it leaves the old file and no temporary file, with the step and path in the error; a missing directory fails; a relative path is written in the current directory; and a reader thread never finds the file missing or partly written over 200 rewrites, which the delete-then-rename of wxWidgets before 3.2.8 could show. A power cut cannot be made here; `scripts/e2e_persistence.py` checks the real daemon's syscalls under strace | Direct (extract-for-testability): POSIX, wx-free, linked unmodified |
 | `test_restore_calibration` | `src/restore_calibration.cpp` — when `restore_calibration` (#102) is refused (calibrating or guiding; the mount, AO or AO-rig scope not connected; a guide or dither request in flight that is not waiting on a calibration), returns `false` with nothing changed (some mount has no saved calibration, so no partial AO restore), or ends the guide request a failed calibration left waiting before it restores; when `clear_calibration` is refused (calibrating, #137) | Direct (extract-for-testability): wx-free rules linked unmodified |
 | `test_pulse_wait` | `src/pulse_wait.cpp` — how long `ScopeAlpaca::Guide` waits for an Alpaca `PulseGuide` (#119), timed from just before the request: no sleep before the first `IsPulseGuiding` check when the request returned at or after the end of the pulse (a blocking driver), else the rest of the pulse plus 10 ms, and the completion timeout 2 s after the end of the pulse | Direct (extract-for-testability): wx-free rule linked unmodified |
 | `test_guide_algorithm_gp_params` | `src/guide_algorithm_gp_params.cpp` — the Predictive PEC (Gaussian Process) hyperparameters `set_algo_param` `periodLength` writes (#138): the current ones with only the period changed (it used to zero the signal variances and reset the length scales) and the periodic length scale taken from the profile, since `GetGPHyperparameters()` returns it wrong once it is over half the old period; run through the real `GaussianProcessGuider` and repeated without drift. Pins the helper only: the call in the wx-coupled `SetParam` is checked by the manual live test of #138 | Direct (extract-for-testability): wx-free helper linked unmodified with the contrib `GPGuider` library |
@@ -88,6 +89,41 @@ Locally, after an ASan build (see the job's Configure step):
 ```bash
 python3 scripts/e2e_guide_scenarios.py --phd2 build-asan/phd2.bin \
     --instance 10 --fake-port 11150 --display 110 --work-dir /tmp/e2e
+```
+
+### Settings persistence
+
+The same job then runs `scripts/e2e_persistence.py` (#142), which needs no
+calibration. RC51 gets its power cut in the field, so a setting changed over
+JSON-RPC has to survive both a clean stop (SIGTERM, what `systemctl stop`
+sends) and a hard kill (SIGKILL, the stand-in for a power cut). Two passes run
+at once, one per signal, each with its own instance, fake port and display:
+
+| Step | Checks |
+|---|---|
+| set | a distinctive non-default value through each method below, read back at once. The SIGKILL pass also requires the config file on disk to have changed by the time each call returns, so a later call that writes the file cannot hide one that does not |
+| stop | SIGTERM or SIGKILL to `phd2.bin` itself; after SIGTERM it must exit 0 |
+| restart | the same scratch `HOME` and instance, connect again, read every value back; each one that did not survive is reported with its method name |
+| config write | the first daemon of each pass runs under `strace -ff`: every rename onto the config file must be of a file fsynced first, the config file must never be deleted, and its directory must be fsynced after the rename, so a power cut at any point leaves the old or the new file whole |
+| replace the config | on the config the two runs left, under `strace`: the SIGTERM pass runs `phd2.bin -s <file>`, then `-l <file>` twice (a provisioning script restoring a saved config; the second load restores what is already there), and the SIGKILL pass starts the daemon with `-R` (Reset Configuration) and requires one default profile. Each must exit 0 and leave the config file in place, never deleted, with the profiles `-l` restored |
+
+Methods checked: before connecting, `create_profile`, `clone_profile`,
+`rename_profile`, `delete_profile`, `set_profile_by_name` and `set_profile`,
+`set_alpaca_server`, `set_selected_camera`, `set_selected_mount`,
+`set_camera_bitdepth`, `set_profile_setup`, `set_dark_auto_load`,
+`set_dither_settings`, `set_star_detection`, `set_auto_exposure`,
+`set_noise_reduction`, `set_guider_options`, `set_variable_delay_settings`;
+connected, `set_algo`, `set_algo_param`, `set_exposure`, `set_dec_guide_mode`,
+`set_guide_limits`, `set_dec_comp`, `set_mount_options`, `set_backlash_comp`,
+`set_camera_gain`, `set_camera_timeout`, `set_use_subframes`,
+`set_camera_saturation`. The script's docstring lists the methods left out
+and why (session state, hardware the fake lacks, or a calibration, Guiding
+Assistant run or dark frames needed first). A pass takes a few seconds
+locally (about 6 s under ASan). Locally (it needs `strace`):
+
+```bash
+python3 scripts/e2e_persistence.py --phd2 build-asan/phd2.bin \
+    --instance 11 --fake-port 11151 --display 111 --work-dir /tmp/e2e-persistence
 ```
 
 ## How the build infra works (and why)
