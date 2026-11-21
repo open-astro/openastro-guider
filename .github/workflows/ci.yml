@@ -406,9 +406,11 @@ jobs:
     # UndefinedBehaviorSanitizer, run headless under xvfb-run against scripts/fake_alpaca_camera.py,
     # and driven over JSON-RPC by scripts/e2e_guide_scenarios.py the way Ara drives it: the RPC
     # smoke script, calibrate and guide (with the event order Ara consumes), recalibration on a
-    # new target, and dropped frames while guiding; then scripts/e2e_persistence.py checks that
-    # settings survive SIGTERM and SIGKILL. A separate job beside the Release build, in its own
-    # build dir, so the GTest job above is unchanged and the two run in parallel.
+    # new target, and dropped frames while guiding; and, in a second daemon beside it on a fake
+    # with mount and sky physics, the calibration measured against the fake's truth, a dither
+    # and settle, and clouds; then scripts/e2e_persistence.py checks that settings survive
+    # SIGTERM and SIGKILL. A separate job beside the Release build, in its own build dir, so
+    # the GTest job above is unchanged and the two run in parallel.
     name: Daemon e2e (arm64, ASan/UBSan)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
@@ -471,8 +473,15 @@ jobs:
         # LeakSanitizer's exit-time check reports the wxWidgets/GTK and PHD2 singletons that are
         # never freed by design, which is not a bug; the memory-error and UB checks stay on.
         # The script has its own whole-run timeout (--timeout) under the step's. Under ASan the
-        # ubuntu-24.04-arm runner is about 3x slower than a local run: a calibration takes about
-        # 270 s and the whole run about 15 min.
+        # ubuntu-24.04-arm runner is about 3x slower than a local run, so expect a calibration of
+        # about 270 s and about 15 min for the whole run. The physics lane (calibration truth,
+        # dither, clouds) runs at the same time as a second daemon on instance 11, fake port 11151
+        # and display 111. Its calibration takes about 1.4x the main lane's (more RA steps at
+        # Dec 60, backlash), so expect about 6 min for it, under the 1.5x calibration timeout the
+        # script gives that lane, and about 7 min for the lane. Locally (8 cores) both lanes
+        # together took 289 s against 287 s for the main lane alone; the runner has 4 vCPUs for
+        # two daemons, two Xvfbs and two fakes, so read both lanes' times off the first run's log
+        # before counting on the overlap.
         timeout-minutes: 45
         env:
           ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0:print_stacktrace=1

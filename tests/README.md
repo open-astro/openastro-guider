@@ -68,7 +68,11 @@ Not a ctest target: the `Daemon e2e (arm64, ASan/UBSan)` CI job builds
 `phd2.bin` with `-fsanitize=address,undefined` in its own build dir and runs
 `scripts/e2e_guide_scenarios.py` (#142). The script starts
 `scripts/fake_alpaca_camera.py` and the daemon (headless under `xvfb-run`,
-scratch `HOME`) and drives it over JSON-RPC:
+scratch `HOME`) and drives it over JSON-RPC, in two lanes at once, each with its
+own fake and daemon (the physics lane on instance, fake port and display + 1, its
+logs in `physics/`), so the second lane should add little wall time (locally,
+under ASan on 8 cores, 289 s for both against 287 s for the main lane alone; on
+the 4-vCPU CI runner that is still to be read off the first run's log):
 
 | Scenario | Checks |
 |---|---|
@@ -76,6 +80,9 @@ scratch `HOME`) and drives it over JSON-RPC:
 | calibrate and guide | connect the Alpaca camera and mount, `loop`, `find_star`, `guide` with `recalibrate: true`: a full calibration (West, East, North, South), one `SettleDone` with `Status` 0, then `GuideStep`s; the event order Ara consumes (`StartCalibration`, `Calibrating`…, `CalibrationComplete`, `StartGuiding`, `SettleBegin`, `Settling`/`GuideStep`…, one `SettleDone`, `GuideStep`…) |
 | recalibrate on a new target | `stop_capture`, slew the fake mount to Dec 50, `guide` with `recalibrate: true`: a second full calibration, made at Dec 50 |
 | frame drops while guiding | 1, then 2 frames in a row failing with Alpaca 1280: one `StarLost` each, guiding goes on (#136) |
+| physics: calibration truth | the fake with its mount and sky physics on (a 37° camera, RA moving cos(Dec) as far, 800 ms Dec backlash, drift and RA periodic error in simulated time, 0.15 px seeing, a new noise background each frame, sideofpier following the slews; seeded): slew to Dec 60, `loop`, `find_star`, `guide` with `recalibrate: true`; `get_calibration_data` `xAngle`/`yAngle` within 2° of `GET /fake/truth` and `xRate`/`yRate` within 5 %, plus the full calibration and the guide request's event order as above |
+| physics: dither and settle | on that calibration, `dither` 3 px with a settle: `LockPositionSet`, `GuidingDithered`, `SettleBegin`, `Settling`/`GuideStep`…, exactly one `SettleDone` with `Status` 0; the lock moves by the dither mapped through the fake's true camera angles (as a vector, within the 2° the calibration may be off), the first `GuideStep` is the lock's move away from the new lock (as a vector) and the last before `SettleDone` within the settle pixels, and the fake's true star followed the lock to within 0.75 px |
+| physics: clouds | `PUT /fake/clouds` hides the stars for 5 frames while guiding: 5 `StarLost`, each the guider finding no star (`ErrorCode` 2 "Star lost - low SNR" or 3 "Star lost - low mass"; not a mass change, not a camera error), `get_app_state` `LostLock` or `Guiding` meanwhile, guiding not stopped, and a `GuideStep` on the first clear frame |
 
 The job fails on a failed check, on the daemon crashing or exiting non-zero
 after `shutdown`, and on any sanitizer report; the daemon's debug log and
@@ -90,6 +97,17 @@ Locally, after an ASan build (see the job's Configure step):
 python3 scripts/e2e_guide_scenarios.py --phd2 build-asan/phd2.bin \
     --instance 10 --fake-port 11150 --display 110 --work-dir /tmp/e2e
 ```
+
+That also takes instance 11, fake port 11151 and display 111 for the physics
+lane; `--lane main` or `--lane physics` runs one lane only. With `--display auto`
+each lane takes a free display through `xvfb-run -a`, the physics lane searching
+from 100 numbers higher (`--auto-display-from`), so two lanes starting at once
+never take the same one. The fake's physics
+options (`--camera-angle`, `--dec-mirror`, `--cos-dec`, `--dec-backlash-ms`,
+`--sim-drift`, `--pe-px`, `--seeing-px`, `--frame-noise`, `--pier-flip`,
+`--seed`), `/fake/clouds`, `/fake/truth` and the telescope faults
+(`/fake/inject` with `device=telescope`) are described in its docstring; all are
+off by default, and the main lane runs on the plain fake.
 
 ### Settings persistence
 
