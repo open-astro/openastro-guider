@@ -2,7 +2,10 @@
 """Daemon end-to-end run against the fake Alpaca server (#142 Tier 1).
 
 Starts scripts/fake_alpaca_camera.py and the guider daemon (phd2.bin, headless under xvfb-run with a scratch HOME),
-then drives the daemon over JSON-RPC the way Ara does:
+then drives the daemon over JSON-RPC the way Ara does. Two lanes run at once, each with its own fake, daemon,
+instance, port and display, so the second should cost little wall time (none locally):
+
+the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir):
 
   smoke          scripts/phd2_rpc_smoke.py with --fake-alpaca-url
   calibrate      connect the Alpaca camera and mount, loop, find_star, guide with recalibrate true: a full
@@ -13,15 +16,31 @@ then drives the daemon over JSON-RPC the way Ara does:
   frame-drop     while guiding, the camera fails 1 frame, then 2 in a row, with Alpaca 1280: each one is a
                  StarLost and guiding goes on (#136)
 
-then shuts the daemon down over RPC. It fails on a failed check, on the daemon exiting before the shutdown or with a
-non-zero status, and on any AddressSanitizer / UndefinedBehaviorSanitizer report in the daemon's output. Everything
-it collects (the daemon's stdout/stderr and debug log, the fake's log, the smoke output, every event received) is
-left in --work-dir.
+the physics lane, on a fake with a 37 deg camera, RA moving cos(Dec) as far, 800 ms of Dec backlash, a drift and
+RA periodic error in simulated time, seeing and per-frame noise (PHYSICS_FAKE_ARGS; instance, fake port and display
++ 1, <work-dir>/physics), one calibration for all three:
+
+  truth          slew to Dec 60, guide with recalibrate true: get_calibration_data's xAngle/yAngle within 2 deg of
+                 the fake's /fake/truth and xRate/yRate within 5 %
+  dither         dither 3 px with a settle: the event order, exactly one SettleDone with Status 0, the lock moving
+                 by the dither mapped through the true camera angles (as a vector), the GuideSteps starting the
+                 lock's move away from the new lock and corrected to within the settle pixels, and the true star
+                 following the lock
+  clouds         /fake/clouds hides the stars for 5 frames: 5 StarLost, each "Star lost - low SNR" or "Star lost -
+                 low mass" (no star found), LostLock or Guiding meanwhile, guiding not stopped, and GuideSteps
+                 again from the first clear frame
+
+then each lane shuts its daemon down over RPC. A lane fails on a failed check, on the daemon exiting before the
+shutdown or with a non-zero status, and on any AddressSanitizer / UndefinedBehaviorSanitizer report in the daemon's
+output; the run fails when either lane does. Everything it collects (the daemon's stdout/stderr and debug log, the
+fake's log, the smoke output, every event received) is left in --work-dir (the physics lane's in its physics/).
 
     python3 scripts/e2e_guide_scenarios.py --phd2 build-asan/phd2.bin --work-dir /tmp/e2e
+    python3 scripts/e2e_guide_scenarios.py --lane physics ...   # one lane only
 """
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -74,17 +93,23 @@ def expect(cond, msg):
 class Daemon:
     """The daemon under xvfb-run, with its output in a file."""
 
-    def __init__(self, args, work):
+    def __init__(self, args, work, log_name="phd2.out", wrap=(), extra_args=()):
+        """`log_name` is the output file in `work`; `wrap` goes in front of the daemon's command line (strace), and
+        `extra_args` after it (`-l <file>`, `-R`)."""
         self.home = os.path.join(work, "home")
         os.makedirs(self.home, exist_ok=True)
-        self.log_path = os.path.join(work, "phd2.out")
+        self.log_path = os.path.join(work, log_name)
         env = dict(os.environ, HOME=self.home)
         for k, v in SANITIZER_ENV.items():
             env.setdefault(k, v)
         env["UBSAN_OPTIONS"] += f":suppressions={UBSAN_SUPPRESSIONS}"
         cmd = ["xvfb-run"]
-        cmd += ["-a"] if args.display == "auto" else ["-n", args.display]
-        cmd += ["-s", "-screen 0 1280x1024x24", os.path.abspath(args.phd2), "-i", str(args.instance)]
+        # -n before -a: -a then looks for a free display from that number on (e2e_persistence.py's args have no
+        # --auto-display-from: 99 is this script's default)
+        auto_from = getattr(args, "auto_display_from", 99)
+        cmd += ["-n", str(auto_from), "-a"] if args.display == "auto" else ["-n", args.display]
+        cmd += ["-s", "-screen 0 1280x1024x24", *wrap, os.path.abspath(args.phd2), "-i", str(args.instance),
+                *extra_args]
         self.log = open(self.log_path, "wb")
         print(f"e2e: starting {' '.join(cmd)} (HOME={self.home})", flush=True)
         self.proc = subprocess.Popen(cmd, env=env, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -124,12 +149,12 @@ class Daemon:
 class Fake:
     """scripts/fake_alpaca_camera.py and its control endpoints."""
 
-    def __init__(self, port, work):
+    def __init__(self, port, work, extra_args=()):
         self.host, self.port = "127.0.0.1", port
         self.url = f"http://{self.host}:{port}"
         self.log = open(os.path.join(work, "fake_alpaca.log"), "wb")
         cmd = [sys.executable, os.path.join(REPO, "scripts", "fake_alpaca_camera.py"), "--host", self.host,
-               "--port", str(port)]
+               "--port", str(port), *extra_args]
         print(f"e2e: starting {' '.join(cmd)}", flush=True)
         self.proc = subprocess.Popen(cmd, stdout=self.log, stderr=subprocess.STDOUT)
         deadline = time.time() + 30
@@ -150,6 +175,16 @@ class Fake:
 
     def inject(self, call, error, count, message):
         return self.request("PUT", "/fake/inject", {"call": call, "error": error, "count": count, "message": message})
+
+    def truth(self):
+        """GET /fake/truth: the camera angle, rates, backlash, drift and PE the guider should measure."""
+        return self.request("GET", "/fake/truth")
+
+    def clouds(self, frames, dim):
+        return self.request("PUT", "/fake/clouds", {"frames": frames, "dim": dim})
+
+    def telescope(self, prop):
+        return self.request("GET", f"/api/v1/telescope/0/{prop}")["Value"]
 
     def slew(self, ra_hours, dec_deg):
         """Move the mount the way Ara does for a new target: straight to the Alpaca telescope, not via the guider."""
@@ -286,6 +321,35 @@ def strip(ev):
 
 
 SETTLE = {"pixels": 1.5, "time": 2, "timeout": 90}
+
+# The physics lane's fake (#142): a camera at 37 deg, RA moving cos(Dec) as far, Dec backlash, a drift and RA
+# periodic error in simulated time, seeing and a new noise background each frame; ImageBytes frames keep the
+# fake's CPU low while the main lane runs beside it.
+PHYSICS_CAMERA_ANGLE_DEG = 37.0
+PHYSICS_DEC = 60.0
+PHYSICS_SEEING_PX = 0.15
+PHYSICS_FAKE_ARGS = (
+    "--imagebytes", "--camera-angle", str(PHYSICS_CAMERA_ANGLE_DEG), "--cos-dec", "--dec-backlash-ms", "800",
+    "--sim-drift", "0.2,0.3", "--pe-px", "0.3", "--pe-period-s", "300", "--seeing-px", str(PHYSICS_SEEING_PX),
+    "--frame-noise", "--pier-flip", "--seed", "142",
+)
+# The physics calibration takes more steps than the plain fake's (cos(Dec) slows the RA legs, the backlash adds
+# Dec steps): about 1.4 times as long, so its lane waits that much longer for CalibrationComplete.
+PHYSICS_CALIBRATION_TIMEOUT_FACTOR = 1.5
+TRUTH_ANGLE_DEG = 2.0  # calibration angles within this of the truth
+TRUTH_RATE_FRACTION = 0.05  # calibration rates within this fraction of the truth
+DITHER_AMOUNT = 3
+TRUE_STAR_PX = 0.75  # the true star's move within this of the lock's, after a dither settled
+CLOUD_FRAMES = 5
+# a thick cloud: the guide star (40000 ADU) peaks at 0.04 ADU against the fake's 15 ADU noise, so the frame is
+# noise only. (At 1000 the star peaks at 40 ADU and is still found at SNR 9-12 on about a third of the frames,
+# which only the guider's mass-change check turns into a StarLost.)
+CLOUD_DIM = 1e6
+# What a frame with no star reads as (src/star.h FindResult, src/guider_multistar.cpp StarStatusStr): the
+# smoothed peak of pure noise stays under the 3-sigma threshold, so the SNR is capped under 3 (low SNR), or no
+# pixel at all is over the threshold (low mass). Not "mass changed" (7), which needs a star found, and not a
+# camera error, which has no ErrorCode.
+NO_STAR_ERRORS = {2: "Star lost - low SNR", 3: "Star lost - low mass"}
 # the abort list of a guide request that must succeed
 GUIDE_FAILURES = ("CalibrationFailed", "GuidingStopped", "LoopingExposuresStopped", "EquipmentDisconnected")
 
@@ -344,13 +408,19 @@ def check_full_calibration(evs):
     return legs
 
 
-def scenario_calibrate_and_guide(cli, args):
+def loop_and_find_star(cli):
+    """loop, then find_star: the star the guide request calibrates on. Returns its position."""
     start = cli.mark()
     expect(cli.call("loop") == 0, "loop did not return 0")
     cli.wait_events(start, "LoopingExposures", count=3, timeout=60, abort_on=("LoopingExposuresStopped",))
     pos = cli.call("find_star")
     expect(isinstance(pos, list) and len(pos) == 2, f"find_star returned {pos}")
     cli.wait_events(start, "StarSelected", timeout=30)
+    return pos
+
+
+def scenario_calibrate_and_guide(cli, args):
+    pos = loop_and_find_star(cli)
 
     evs, done = guide_with_recalibration(cli, args.guide_steps, args.calibration_timeout)
     legs = check_full_calibration(evs)
@@ -403,6 +473,164 @@ def scenario_frame_drops(cli, fake, args):
     return "; ".join(results)
 
 
+def angle_diff(a, b):
+    """a - b in degrees, in (-180, 180]."""
+    d = (a - b) % 360.0
+    return d - 360.0 if d > 180.0 else d
+
+
+def scenario_calibration_truth(cli, fake, args):
+    """The calibration measures the fake's true camera angle and rates: a camera at PHYSICS_CAMERA_ANGLE_DEG, the
+    mount at Dec PHYSICS_DEC (RA moving cos(Dec) as far) with Dec backlash, seeing, drift and periodic error. The
+    guider's xAngle/yAngle must be within TRUTH_ANGLE_DEG of the truth and xRate/yRate within TRUTH_RATE_FRACTION."""
+    # a target an hour west of the meridian, so the slew keeps the mount on its side of the pier
+    lst = fake.telescope("siderealtime")
+    dec = fake.slew((lst - 1.0) % 24.0, PHYSICS_DEC)
+    expect(abs(dec - PHYSICS_DEC) < 1e-6, f"the fake mount reads Dec {dec} after the slew")
+    pos = loop_and_find_star(cli)
+
+    evs, done = guide_with_recalibration(cli, args.guide_steps, args.calibration_timeout)
+    legs = check_full_calibration(evs)
+    check_guide_request_order(evs)
+    cal = cli.call("get_calibration_data", {"which": "Mount"})
+    truth = fake.truth()
+    expect(cal.get("calibrated") is True, f"not calibrated: {cal}")
+    expect(abs(cal.get("declination", 0) - PHYSICS_DEC) < 0.5, f"calibration declination {cal.get('declination')}")
+    # get_calibration_data reports the rates in px/s, /fake/truth in px/ms
+    want = {"xAngle": truth["x_angle_deg"], "yAngle": truth["y_angle_deg"],
+            "xRate": truth["ra_rate_px_per_ms"] * 1000.0, "yRate": truth["dec_rate_px_per_ms"] * 1000.0}
+    errs = {"xAngle": angle_diff(cal["xAngle"], want["xAngle"]), "yAngle": angle_diff(cal["yAngle"], want["yAngle"]),
+            "xRate": cal["xRate"] / want["xRate"] - 1.0, "yRate": cal["yRate"] / want["yRate"] - 1.0}
+    got = ", ".join(f"{k} {cal[k]} (truth {want[k]:.4g}, {'off' if k.endswith('Angle') else 'error'} "
+                    f"{errs[k]:+.2f}{' deg' if k.endswith('Angle') else ''})" for k in want)
+    for k in ("xAngle", "yAngle"):
+        expect(abs(errs[k]) <= TRUTH_ANGLE_DEG, f"{k} off the truth by more than {TRUTH_ANGLE_DEG} deg: {got}")
+    for k in ("xRate", "yRate"):
+        expect(abs(errs[k]) <= TRUTH_RATE_FRACTION, f"{k} off the truth by more than "
+                                                   f"{TRUTH_RATE_FRACTION:.0%}: {got}")
+    return (f"star at {pos}, calibration steps {legs}, {got}; settled in {done.get('TotalFrames')} frames")
+
+
+def steps_between(evs, first, last):
+    """The GuideStep events after evs[first] and before evs[last]."""
+    return [e for e in evs[first + 1:last] if e["Event"] == "GuideStep"]
+
+
+def scenario_dither_and_settle(cli, fake, args):
+    """A `dither` of DITHER_AMOUNT px with a settle while guiding: GuidingDithered moves the lock by the dither
+    mapped through the fake's true camera angles, exactly one SettleDone with Status 0, the GuideSteps start
+    the lock's move away from the new lock and are corrected to within the settle pixels, and the true star
+    (the fake's field offset) followed the lock."""
+    expect(cli.call("get_app_state") == "Guiding", "not guiding before the dither")
+    lock0 = cli.call("get_lock_position")
+    truth0 = fake.truth()
+    field0 = truth0["field_offset_px"]
+    start = cli.mark()
+    expect(cli.call("dither", {"amount": DITHER_AMOUNT, "raOnly": False, "settle": SETTLE}) == 0,
+           "dither did not return 0")
+    dithered = cli.wait_events(start, "GuidingDithered", timeout=30, abort_on=GUIDE_FAILURES)[0]
+    done = cli.wait_events(start, "SettleDone", timeout=SETTLE["timeout"] + 30, abort_on=GUIDE_FAILURES)[0]
+    expect(done.get("Status") == 0, f"SettleDone {strip(done)}, expected Status 0")
+    expect(not done.get("Error"), f"SettleDone has an error: {strip(done)}")
+    evs = cli.events_since(start)
+    after = evs.index(done) + start + 1
+    cli.wait_events(after, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
+    lock1 = cli.call("get_lock_position")
+    field1 = fake.truth()["field_offset_px"]
+    evs = cli.events_since(start)
+    names = [e["Event"] for e in evs]
+    expect(names.count("SettleDone") == 1, f"{names.count('SettleDone')} SettleDone events for one dither")
+    expect(names.count("GuidingDithered") == 1, f"{names.count('GuidingDithered')} GuidingDithered events")
+    expect(cli.call("get_app_state") == "Guiding", "not guiding after the dither settled")
+    # the order Ara consumes: the lock moves, then the settle as for a guide request
+    seq = " ".join(n for n in names if n in CONTRACT_EVENTS + ("LockPositionSet", "GuidingDithered")) + " "
+    expect(re.fullmatch(r"(GuideStep )*LockPositionSet GuidingDithered SettleBegin ((Settling|GuideStep) )*"
+                        r"SettleDone (GuideStep )*", seq), f"dither event order: {seq.strip()}")
+
+    d_ra, d_dec = dithered["dx"], dithered["dy"]
+    expect(max(abs(d_ra), abs(d_dec)) <= DITHER_AMOUNT + 1e-6, f"dither {d_ra}, {d_dec} over {DITHER_AMOUNT} px")
+    lock_dx, lock_dy = lock1[0] - lock0[0], lock1[1] - lock0[1]
+    lock_move = math.hypot(lock_dx, lock_dy)
+    # The dither is in mount axes (RA, Dec px), the lock in camera px. The guider maps one onto the other with
+    # its calibration (MountToCamera in src/calibration_transform.cpp): dRa along xAngle and dDec along yAngle,
+    # as a rotation by xAngle that keeps the length, mirrored when yAngle is on the other side. So with the
+    # fake's true angles the lock must move by that vector, to within the rotation the calibration's xAngle may
+    # be off by (TRUTH_ANGLE_DEG). An RA dither landing on the Dec axis, or a mirror the wrong way, misses it by
+    # about the dither's length. (MoveLockPosition reflects the dither near the frame's edge; the star is not.)
+    xa, ya = math.radians(truth0["x_angle_deg"]), math.radians(truth0["y_angle_deg"])
+    want_dx = d_ra * math.cos(xa) + d_dec * math.cos(ya)
+    want_dy = d_ra * math.sin(xa) + d_dec * math.sin(ya)
+    lock_miss = math.hypot(lock_dx - want_dx, lock_dy - want_dy)
+    lock_tol = 2.0 * math.sin(math.radians(TRUTH_ANGLE_DEG) / 2.0) * math.hypot(d_ra, d_dec) + 0.01
+    expect(lock_miss <= lock_tol,
+           f"the lock moved ({lock_dx:+.2f}, {lock_dy:+.2f}) px for a dither of RA {d_ra:+.2f} Dec {d_dec:+.2f} px, "
+           f"expected ({want_dx:+.2f}, {want_dy:+.2f}) from the true angles: {lock_miss:.3f} px off (at most "
+           f"{lock_tol:.3f})")
+    steps = steps_between(evs, names.index("GuidingDithered"), names.index("SettleDone"))
+    expect(len(steps) >= 2, f"{len(steps)} GuideSteps between the dither and SettleDone")
+    first, last = steps[0], steps[-1]
+    first_dist, last_dist = math.hypot(first["dx"], first["dy"]), math.hypot(last["dx"], last["dy"])
+    # the first step sees the star where it was, so (dx, dy) = star - lock is about minus the lock's move (plus
+    # the guiding error before it)
+    first_miss = math.hypot(first["dx"] + lock_dx, first["dy"] + lock_dy)
+    expect(first_miss < 1.0,
+           f"first GuideStep after the dither at ({first['dx']:+.2f}, {first['dy']:+.2f}) px from the lock, the lock "
+           f"moved ({lock_dx:+.2f}, {lock_dy:+.2f}): {first_miss:.2f} px off")
+    # (a dither under a pixel may sit inside the algorithms' minimum move)
+    expect(lock_move < 1.0 or first.get("RADuration", 0) > 0 or first.get("DECDuration", 0) > 0,
+           f"no correction on the first GuideStep after a {lock_move:.2f} px dither: {strip(first)}")
+    expect(last_dist <= SETTLE["pixels"], f"last GuideStep before SettleDone {last_dist:.2f} px from the lock")
+    # the true star went where the lock went: the fake's field moved by the lock's move, as a vector, to within
+    # the guiding error before the dither and after the settle (a few tenths of a px with this seeing, drift and
+    # PE), well under the lock's move, so a star that stayed put or moved elsewhere fails
+    star_dx, star_dy = field1["x"] - field0["x"], field1["y"] - field0["y"]
+    off = math.hypot(star_dx - lock_dx, star_dy - lock_dy)
+    expect(off <= TRUE_STAR_PX,
+           f"the true star moved ({star_dx:+.2f}, {star_dy:+.2f}) px, the lock ({lock_dx:+.2f}, {lock_dy:+.2f}): "
+           f"{off:.2f} px apart (at most {TRUE_STAR_PX})")
+    dists = " ".join(f"{math.hypot(e['dx'], e['dy']):.2f}" for e in steps)
+    return (f"dither RA {d_ra:+.2f} Dec {d_dec:+.2f} px, lock moved ({lock_dx:+.2f}, {lock_dy:+.2f}) px, "
+            f"{lock_miss:.3f} px from the true angles' ({want_dx:+.2f}, {want_dy:+.2f}); GuideSteps {dists} px to "
+            f"SettleDone in {done.get('TotalFrames')} frames; true star {off:.2f} px from the lock's move")
+
+
+def scenario_clouds(cli, fake, args):
+    """Clouds while guiding: CLOUD_FRAMES frames with no star (CLOUD_DIM) are one StarLost each, each one the
+    guider finding no star (NO_STAR_ERRORS), guiding is not stopped (get_app_state reads LostLock or Guiding
+    meanwhile, doc/jsonrpc_api.md), and the star is found again on the first clear frame, with the GuideSteps
+    going on after it."""
+    expect(cli.call("get_app_state") == "Guiding", "not guiding before the clouds")
+    start = cli.mark()
+    fake.clouds(CLOUD_FRAMES, CLOUD_DIM)
+    states = set()
+    deadline = time.time() + 60
+    while len(cli.events_since(start, ("StarLost",))) < CLOUD_FRAMES:
+        states.add(cli.call("get_app_state"))
+        bad = cli.events_since(start, GUIDE_FAILURES)
+        expect(not bad, f"{bad[0]['Event'] if bad else ''} while clouded: {strip(bad[0]) if bad else ''}")
+        expect(time.time() < deadline, f"{len(cli.events_since(start, ('StarLost',)))} of {CLOUD_FRAMES} StarLost "
+                                       f"events within 60 s of the clouds")
+        time.sleep(0.2)
+    lost = cli.events_since(start, ("StarLost",))
+    last_lost = cli.events_since(start).index(lost[-1]) + start + 1
+    resumed = cli.wait_events(last_lost, "GuideStep", count=5, timeout=60, abort_on=GUIDE_FAILURES)
+    lost_now = cli.events_since(start, ("StarLost",))
+    expect(len(lost_now) == CLOUD_FRAMES, f"{len(lost_now)} StarLost events for {CLOUD_FRAMES} clouded frames")
+    for e in lost_now:
+        code = e.get("ErrorCode")
+        expect(code in NO_STAR_ERRORS and e.get("Status") == NO_STAR_ERRORS[code],
+               f"a clouded frame is not a frame with no star found ({NO_STAR_ERRORS}): {strip(e)}")
+    expect(states <= {"Guiding", "LostLock"}, f"app states while clouded: {sorted(states)}")
+    expect(cli.call("get_app_state") == "Guiding", "not guiding after the clouds")
+    # the first frame after the clouds is a GuideStep: the star was reacquired at once
+    frames = [e.get("Frame") for e in lost_now]
+    expect(resumed[0].get("Frame") == frames[-1] + 1,
+           f"first GuideStep after the clouds is frame {resumed[0].get('Frame')}, the last StarLost {frames[-1]}")
+    statuses = ", ".join(f"{e.get('Frame')} {e.get('Status')!r}" for e in lost_now)
+    return (f"{len(lost_now)} StarLost ({statuses}), states seen {sorted(states)}; GuideSteps again from frame "
+            f"{resumed[0].get('Frame')}")
+
+
 def run_smoke(args, fake, work):
     cmd = [sys.executable, os.path.join(REPO, "scripts", "phd2_rpc_smoke.py"), "--port", str(args.rpc_port),
            "--timeout", "30", "--calibration-timeout", str(args.calibration_timeout),
@@ -449,38 +677,34 @@ def collect_logs(daemon, work):
             shutil.copy(os.path.join(src, f), os.path.join(work, f))
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--phd2", required=True, help="the phd2.bin to run (an ASan/UBSan build in CI)")
-    ap.add_argument("--instance", type=int, default=10, help="daemon instance (-i); JSON-RPC on 4400 + N - 1")
-    ap.add_argument("--fake-port", type=int, default=11150, help="the fake Alpaca server's port")
-    ap.add_argument("--display", default="110", help="X display number for xvfb-run, or auto (xvfb-run -a)")
-    ap.add_argument("--work-dir", required=True, help="the scratch HOME and every log go here (emptied first)")
-    ap.add_argument("--timeout", type=float, default=2400, help="the whole run, seconds")
-    ap.add_argument("--smoke-timeout", type=float, default=1200)
-    ap.add_argument("--calibration-timeout", type=float, default=600,
-                    help="seconds to CalibrationComplete, here and in the smoke script's #137 check; a calibration "
-                         "took about 270 s under ASan on the ubuntu-24.04-arm runner")
-    ap.add_argument("--guide-steps", type=int, default=10, help="GuideSteps to see after each SettleDone")
-    ap.add_argument("--skip-smoke", action="store_true")
-    args = ap.parse_args()
-    args.rpc_port = 4400 + args.instance - 1
+def lane_steps(lane, step, cli, fake, args, ctx):
+    """The scenarios of a lane, in order; a scenario that needs the one before it runs only after it passed."""
 
-    work = os.path.abspath(args.work_dir)
-    shutil.rmtree(work, ignore_errors=True)
-    os.makedirs(work)
-    t0 = time.time()
+    def connect():
+        ctx["base"], ctx["name"] = setup_profile(cli, fake)
+        return f"profile {ctx['name']}"
 
-    # the whole-run timeout: a hung daemon or check must end the run, not the CI job's own timeout
-    def on_alarm(signum, frame):
-        raise RunTimeout(f"the run took longer than {args.timeout:.0f} s")
+    if lane == "main":
+        if not args.skip_smoke:
+            step("smoke (phd2_rpc_smoke.py)", lambda: run_smoke(args, fake, ctx["work"]))
+        if step("connect the fake camera and mount", connect) and step(
+                "calibrate and guide (event order)", lambda: scenario_calibrate_and_guide(cli, args)):
+            if step("recalibrate on a new target", lambda: scenario_new_target(cli, fake, args)):
+                step("frame drops while guiding (#136)", lambda: scenario_frame_drops(cli, fake, args))
+        return
+    # physics: one calibration, then the guiding scenarios on it
+    if step("connect the fake camera and mount", connect) and step(
+            f"calibration truth (camera {PHYSICS_CAMERA_ANGLE_DEG:g} deg, Dec {PHYSICS_DEC:g}, backlash)",
+            lambda: scenario_calibration_truth(cli, fake, args)):
+        step(f"dither {DITHER_AMOUNT} px and settle", lambda: scenario_dither_and_settle(cli, fake, args))
+        step(f"clouds for {CLOUD_FRAMES} frames while guiding", lambda: scenario_clouds(cli, fake, args))
 
-    signal.signal(signal.SIGALRM, on_alarm)
-    signal.alarm(int(args.timeout))
 
+def run_lane(lane, args, work, t0):
+    """One daemon and one fake, the lane's scenarios, then the shutdown. Returns (passed, failures)."""
     failures, results = [], []
     fake = daemon = cli = None
-    ctx = {}
+    ctx = {"work": work}
 
     def step(name, fn):
         t = time.time()
@@ -502,27 +726,19 @@ def main():
             return False
 
     try:
-        fake = Fake(args.fake_port, work)
+        fake = Fake(args.fake_port, work, PHYSICS_FAKE_ARGS if lane == "physics" else ())
         daemon = Daemon(args, work)
         cli = Client(args.rpc_port, daemon, os.path.join(work, "events.jsonl"), connect_timeout=120)
         print(f"e2e: daemon up on :{args.rpc_port} after {time.time() - t0:.0f} s", flush=True)
-
-        if not args.skip_smoke:
-            step("smoke (phd2_rpc_smoke.py)", lambda: run_smoke(args, fake, work))
-
-        def connect():
-            ctx["base"], ctx["name"] = setup_profile(cli, fake)
-            return f"profile {ctx['name']}"
-
-        if step("connect the fake camera and mount", connect) and step(
-                "calibrate and guide (event order)", lambda: scenario_calibrate_and_guide(cli, args)):
-            if step("recalibrate on a new target", lambda: scenario_new_target(cli, fake, args)):
-                step("frame drops while guiding (#136)", lambda: scenario_frame_drops(cli, fake, args))
+        lane_steps(lane, step, cli, fake, args, ctx)
     except (Failure, RunTimeout) as e:
         failures.append(("run", str(e)))
         print(f"FAIL run: {e}", flush=True)
     finally:
         signal.alarm(0)
+        # a SIGTERM from here on must not cut the teardown short: it would leave the daemon running. It is recorded
+        # instead, and the handler it replaced is put back once the teardown is done
+        prev_term = signal.signal(signal.SIGTERM, lambda signum, frame: TERMINATED.append(signum))
         try:
             if cli is not None and daemon is not None and not daemon.exited():
                 # leave the profile as it was, then shut down over the API
@@ -543,6 +759,130 @@ def main():
                 collect_logs(daemon, work)
             if fake is not None:
                 fake.stop()
+            signal.signal(signal.SIGTERM, prev_term)
+    return results, failures
+
+
+AUTO_DISPLAY_LANE_OFFSET = 100
+
+# Each SIGTERM this run received: on_term records it and ends the run; during a lane's teardown it is only recorded,
+# so the teardown finishes, and the physics lane is then stopped at once instead of waited for
+TERMINATED = []
+
+
+class LaneChild:
+    """The physics lane, run beside the main lane as a second copy of this script: its own daemon instance
+    (--instance + 1), fake port (+ 1), X display (+ 1) and work dir (<work-dir>/physics). Its output is
+    printed with a [physics] prefix as it comes."""
+
+    def __init__(self, args, work):
+        self.work = os.path.join(work, "physics")
+        display = args.display if args.display == "auto" else str(int(args.display) + 1)
+        # With --display auto both lanes start xvfb-run -a at about the same moment, and two of them can take the
+        # same free display (it checks for a lock file, then starts Xvfb): the lane's search starts
+        # AUTO_DISPLAY_LANE_OFFSET higher, so the two never meet.
+        auto_from = args.auto_display_from + AUTO_DISPLAY_LANE_OFFSET
+        # its own whole-run timeout ends it before this one's, so it shuts its daemon down itself
+        cmd = [sys.executable, os.path.abspath(__file__), "--lane", "physics", "--phd2", args.phd2,
+               "--instance", str(args.instance + 1), "--fake-port", str(args.fake_port + 1), "--display", display,
+               "--auto-display-from", str(auto_from),
+               "--work-dir", self.work, "--timeout", str(max(60.0, args.timeout - 120.0)),
+               "--calibration-timeout", str(args.calibration_timeout * PHYSICS_CALIBRATION_TIMEOUT_FACTOR),
+               "--guide-steps", str(args.guide_steps)]
+        print(f"e2e: starting the physics lane: {' '.join(cmd)}", flush=True)
+        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.reader = threading.Thread(target=self._relay, daemon=True)
+        self.reader.start()
+
+    def _relay(self):
+        for line in self.proc.stdout:
+            print("[physics] " + line.decode("utf-8", errors="replace").rstrip("\n"), flush=True)
+
+    def finish(self, timeout):
+        """Wait for the lane, then SIGTERM it (and SIGKILL it if that does not end it) when the timeout passes or
+        this run is terminated while it waits. Returns its failures."""
+        # A SIGTERM here is only recorded: raised out of a wait it would leave the lane running
+        prev_term = signal.signal(signal.SIGTERM, lambda signum, frame: TERMINATED.append(signum))
+        try:
+            deadline = time.time() + max(1.0, timeout)
+            while self.proc.poll() is None and not TERMINATED and time.time() < deadline:
+                try:
+                    self.proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+            if self.proc.poll() is None:
+                self.proc.terminate()  # its SIGTERM handler shuts its daemon and fake down
+                try:
+                    self.proc.wait(timeout=240)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait()
+        finally:
+            signal.signal(signal.SIGTERM, prev_term)
+        self.reader.join(timeout=10)
+        if self.proc.returncode != 0:
+            return [("physics lane", f"exited with status {self.proc.returncode}; logs in {self.work}")]
+        return []
+
+    def ok(self):
+        return self.proc.returncode == 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--phd2", required=True, help="the phd2.bin to run (an ASan/UBSan build in CI)")
+    ap.add_argument("--instance", type=int, default=10, help="daemon instance (-i); JSON-RPC on 4400 + N - 1")
+    ap.add_argument("--fake-port", type=int, default=11150, help="the fake Alpaca server's port")
+    ap.add_argument("--display", default="110", help="X display number for xvfb-run, or auto (xvfb-run -a)")
+    ap.add_argument("--auto-display-from", type=int, default=99,
+                    help="with --display auto, the first display number xvfb-run -a tries (its own default, 99); "
+                         f"the physics lane of --lane all searches from {AUTO_DISPLAY_LANE_OFFSET} higher")
+    ap.add_argument("--work-dir", required=True, help="the scratch HOME and every log go here (emptied first)")
+    ap.add_argument("--timeout", type=float, default=2400, help="the whole run, seconds")
+    ap.add_argument("--smoke-timeout", type=float, default=1200)
+    ap.add_argument("--calibration-timeout", type=float, default=600,
+                    help="seconds to CalibrationComplete, here and in the smoke script's #137 check (the physics "
+                         f"lane gets {PHYSICS_CALIBRATION_TIMEOUT_FACTOR:g}x); expect a calibration to take about "
+                         "270 s under ASan on the ubuntu-24.04-arm runner, the physics lane's about 1.4x that")
+    ap.add_argument("--guide-steps", type=int, default=10, help="GuideSteps to see after each SettleDone")
+    ap.add_argument("--skip-smoke", action="store_true")
+    ap.add_argument("--lane", choices=("all", "main", "physics"), default="all",
+                    help="main: the smoke script and the scenarios on the plain fake; physics: the calibration "
+                         "truth, dither and clouds scenarios on a fake with camera angle, cos(Dec), backlash, "
+                         "drift, PE and seeing; all (the default): both at once, the physics lane on instance, "
+                         "fake port and display + 1")
+    args = ap.parse_args()
+    args.rpc_port = 4400 + args.instance - 1
+
+    work = os.path.abspath(args.work_dir)
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    t0 = time.time()
+
+    # the whole-run timeout: a hung daemon or check must end the run, not the CI job's own timeout. SIGTERM (the
+    # main lane stopping a physics lane that overran) ends the run the same way, so the daemon is still shut down.
+    def on_alarm(signum, frame):
+        raise RunTimeout(f"the run took longer than {args.timeout:.0f} s")
+
+    def on_term(signum, frame):
+        TERMINATED.append(signum)
+        raise RunTimeout("terminated")
+
+    signal.signal(signal.SIGALRM, on_alarm)
+    signal.signal(signal.SIGTERM, on_term)
+    signal.alarm(int(args.timeout))
+
+    child = LaneChild(args, work) if args.lane == "all" else None
+    results, failures = [], []
+    try:
+        results, failures = run_lane("physics" if args.lane == "physics" else "main", args, work, t0)
+    finally:
+        if child is not None:
+            failures += child.finish(args.timeout - (time.time() - t0))
+            if child.ok():
+                results.append("physics lane")
+        if TERMINATED and not any(name == "run" for name, _ in failures):
+            failures.append(("run", "terminated"))  # during a teardown or the physics lane's wait
 
     print("")
     print(f"e2e: {len(results)} passed, {len(failures)} failed, {time.time() - t0:.0f} s; logs in {work}")

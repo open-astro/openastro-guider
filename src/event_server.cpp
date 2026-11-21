@@ -6678,6 +6678,11 @@ static bool dispatch_rpc_method(const char *name, JObj& response, const json_val
         if (strcmp(name, methods[i].name) == 0)
         {
             (*methods[i].fn)(response, params);
+            // What the method changed is on disk before the client gets its answer: RC51's power is cut in the
+            // field, and most setters only change the config in memory. Flush writes only when something
+            // changed, so a call that changed nothing costs no I/O (#142).
+            if (pConfig)
+                pConfig->Flush();
             return true;
         }
     }

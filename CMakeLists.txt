@@ -180,6 +180,8 @@ set(cam_SRC
   ${phd_src_dir}/connect_probe.h
   ${phd_src_dir}/restore_calibration.cpp
   ${phd_src_dir}/restore_calibration.h
+  ${phd_src_dir}/atomic_file_write.cpp
+  ${phd_src_dir}/atomic_file_write.h
   ${phd_src_dir}/pulse_wait.cpp
   ${phd_src_dir}/pulse_wait.h
   ${phd_src_dir}/capture_cleanup.cpp

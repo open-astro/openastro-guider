@@ -35,7 +35,12 @@
  */
 
 #include "phd.h"
+#include "atomic_file_write.h"
 #include "event_server.h"
+#include <fstream>
+#include <iterator>
+#include <wx/mstream.h>
+#include <wx/sstream.h>
 #include <wx/wfstream.h>
 #include <wx/txtstrm.h>
 #include <wx/tokenzr.h>
@@ -346,8 +351,20 @@ static bool MigrateLegacyConfig(int instance, wxConfigBase *dst)
                                  legacyVersion));
 
     CopyTreeAcross(&legacy, dst, _T(""));
-    dst->Flush();
+    // Not dst->Flush(): wxFileConfig's write can leave the config empty or missing after a power cut. The
+    // PhdConfig constructor writes the migrated config with PhdConfig::Flush once it is set up (#142).
     return true;
+}
+
+// The config file's contents, as wxFileConfig::Flush would write them
+static std::string ConfigFileContents(wxFileConfig *cfg)
+{
+    wxMemoryOutputStream os;
+    cfg->Save(os, wxConvUTF8);
+    std::string contents(os.GetSize(), '\0');
+    if (!contents.empty())
+        os.CopyTo(&contents[0], contents.size());
+    return contents;
 }
 
 PhdConfig::PhdConfig(int instance)
@@ -358,6 +375,7 @@ PhdConfig::PhdConfig(int instance)
     m_isNewInstance = false;
 
     m_configVersion = Global.GetLong("ConfigVersion", 0);
+    bool migrated = false;
     if (m_configVersion == 0)
     {
         // No data in the new (2.0.0+) location. Try migrating from the
@@ -365,7 +383,7 @@ PhdConfig::PhdConfig(int instance)
         // fresh install. The migration only writes to the new config when
         // the legacy store has real data, so a first-time user on a clean
         // machine still falls through to the "new instance" branch below.
-        bool migrated = MigrateLegacyConfig(instance, config);
+        migrated = MigrateLegacyConfig(instance, config);
         if (migrated)
             m_configVersion = Global.GetLong("ConfigVersion", 0);
     }
@@ -379,11 +397,49 @@ PhdConfig::PhdConfig(int instance)
         Global.SetLong("ConfigVersion", CURRENT_CONFIG_VERSION);
         m_configVersion = CURRENT_CONFIG_VERSION;
     }
+
+    // Flush writes the file itself, so wxFileConfig's own write, which a power cut can leave empty or missing, is
+    // never used: not even from its destructor
+    m_fileConfig = dynamic_cast<wxFileConfig *>(config);
+    if (m_fileConfig)
+    {
+        m_configPath = wxFileConfig::GetLocalFileName(ConfigName(instance), wxCONFIG_USE_LOCAL_FILE | wxCONFIG_USE_GLOBAL_FILE);
+        m_fileConfig->DisableAutoSave();
+        std::ifstream in(m_configPath.fn_str(), std::ios::binary);
+        m_savedContents.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+
+    // The migrated config is on disk before anything else runs, written the same power-cut-safe way as every
+    // other write; a cut before this leaves the legacy store, so the next start migrates again
+    if (migrated)
+        Flush();
 }
 
 PhdConfig::~PhdConfig()
 {
+    Flush(); // wxFileConfig's destructor no longer writes the file, see the constructor
     delete Global.m_pConfig;
+}
+
+// Empties the config in memory, for RestoreAll and DeleteAll. Not wxFileConfig::DeleteAll, which deletes the config
+// file: a power cut before the next Flush then leaves no config, and that Flush writes nothing when the new contents
+// are what was last written (a second -l of the same file), so the file stays deleted and the next start makes a new
+// default config (#142). Nor DeleteGroup and DeleteEntry on everything: wxFileConfig keeps a pointer to a deleted
+// line once a group's entries are all gone, and the next write there crashes or loses the file's contents. An empty
+// wxFileConfig not tied to the file takes its place instead, and Flush replaces the file in one step.
+void PhdConfig::ClearConfig()
+{
+    if (!m_fileConfig)
+    {
+        Global.m_pConfig->DeleteAll(); // not a wxFileConfig: there is no config file to lose
+        return;
+    }
+    wxStringInputStream empty(wxEmptyString);
+    wxFileConfig *config = new wxFileConfig(empty, wxConvUTF8);
+    config->DisableAutoSave();
+    delete Global.m_pConfig;
+    Global.m_pConfig = Profile.m_pConfig = config;
+    m_fileConfig = config;
 }
 
 // I thought wxConfigPathChanger would do this, but it didn't quite
@@ -438,7 +494,7 @@ void PhdConfig::DeleteAll()
     if (Global.m_pConfig)
     {
         Debug.Write(wxString::Format("Deleting all configuration data\n"));
-        Global.m_pConfig->DeleteAll();
+        ClearConfig();
         InitializeProfile();
     }
     m_isNewInstance = true;
@@ -963,7 +1019,7 @@ bool PhdConfig::RestoreAll(const wxString& filename)
         return true;
     }
 
-    Global.m_pConfig->DeleteAll();
+    ClearConfig();
 
     while (!is.Eof())
     {
@@ -981,11 +1037,28 @@ bool PhdConfig::RestoreAll(const wxString& filename)
 
 bool PhdConfig::Flush()
 {
-    Debug.Write("PhdConfig flush\n");
+    if (!m_fileConfig)
+    {
+        Debug.Write("PhdConfig flush\n");
+        return Global.m_pConfig->Flush(); // writes the config if it is dirty
+    }
 
-    // Writes the config file if it is dirty (no-op if it is not dirty).
-    bool ok = Global.m_pConfig->Flush();
-    return ok;
+    // Not wxFileConfig::Flush: it renames a file it never fsynced over the config, and before wxWidgets 3.2.8 it
+    // deletes the config first, so a power cut can leave the config empty or missing and the next start makes a
+    // new one (#142). AtomicFileWrite leaves the old file or the new one whole. Writes only when something changed.
+    std::string contents = ConfigFileContents(m_fileConfig);
+    if (contents == m_savedContents)
+        return true;
+
+    std::string error;
+    if (!AtomicFileWrite(std::string(m_configPath.fn_str()), contents, &error))
+    {
+        Debug.Write(wxString::Format("PhdConfig flush failed: %s\n", wxString(error)));
+        return false;
+    }
+    m_savedContents.swap(contents);
+    Debug.Write(wxString::Format("PhdConfig flush: wrote %u bytes\n", (unsigned int) m_savedContents.size()));
+    return true;
 }
 
 wxArrayString PhdConfig::ProfileNames()

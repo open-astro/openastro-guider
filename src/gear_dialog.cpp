@@ -142,15 +142,17 @@ GearDialog::~GearDialog()
     // a joinable std::thread must not be destroyed; OnClose has normally joined it already
     StopConnectRetry(true);
 
+    // Clear each global as its device goes: a mount or rotator disconnecting in its destructor
+    // updates the status bar, which reads pCamera, pMount and pPointingSource, and read the freed
+    // camera when it was deleted first (an ASan heap-use-after-free on every exit with a camera
+    // and mount in the profile). This also prevents double frees.
     delete m_pCamera;
-    delete m_pScope;
-    delete m_pRotator;
-
-    // prevent double frees
     pCamera = nullptr;
+    delete m_pScope;
     pMount = nullptr;
     pSecondaryMount = nullptr;
     pPointingSource = nullptr;
+    delete m_pRotator;
     pRotator = nullptr;
 
     delete m_menuProfileManage;
