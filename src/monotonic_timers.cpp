@@ -75,10 +75,11 @@ PaSessionLease::Status PaSessionLease::StatusAt(int64_t nowMs) const
     return s;
 }
 
-// Stub: the wall clock the Guiding Assistant and the backlash measurement read before #235
+// ClockMs, not the wall clock: a step of the system time ended a Guiding Assistant run early or
+// made it run long, and scaled the backlash measurement's drift correction by the step (#235)
 static int64_t RunClockMs()
 {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    return ClockMs();
 }
 
 void RunTimer::Start()
