@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -181,11 +182,12 @@ TEST_F(AtomicFileWriteTest, AReaderAlwaysSeesAWholeFile)
     std::string error;
     ASSERT_TRUE(AtomicFileWrite(path, a, &error)) << error;
 
-    std::atomic<bool> done(false);
+    std::atomic<bool> done(false), started(false);
     std::atomic<int> reads(0), missing(0), torn(0);
     std::thread reader(
         [&]
         {
+            started = true;
             while (!done)
             {
                 std::ifstream in(path, std::ios::binary);
@@ -200,14 +202,20 @@ TEST_F(AtomicFileWriteTest, AReaderAlwaysSeesAWholeFile)
                 ++reads;
             }
         });
+    // The writes must overlap the reads: on tmpfs 200 of them take a few ms, which a loaded machine can spend before
+    // the reader is ever scheduled. Start once the reader runs, and keep writing until it has read during the writes
+    // (bounded, so a reader that never gets a turn fails the reads check instead of hanging)
+    while (!started)
+        std::this_thread::yield();
     bool ok = true;
-    for (int i = 0; i < 200 && ok; i++)
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    for (int i = 0; ok && (i < 200 || reads < 20) && std::chrono::steady_clock::now() < deadline; i++)
         ok = AtomicFileWrite(path, i % 2 ? a : b, &error);
     done = true;
     reader.join();
 
     ASSERT_TRUE(ok) << error;
-    EXPECT_GT(reads.load(), 0);
+    EXPECT_GE(reads.load(), 20);
     EXPECT_EQ(missing.load(), 0);
     EXPECT_EQ(torn.load(), 0);
 }
