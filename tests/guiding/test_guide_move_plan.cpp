@@ -4,7 +4,8 @@
 // Scope::MoveAxis does to each pulse before it is sent (PlanAxis): the guiding-disabled refusal,
 // the Dec guide mode filter, the max-duration clamp and the limit-reached count; and when
 // Scope::AlertLimitReached raises the limit-reached alert (LimitAlertThrottle); and what a
-// dither's fast-recenter step moved (MovedPx, AfterRecenterStep). The rules live
+// dither's fast-recenter step moved (MovedPx, AfterRecenterStep); and the result Mount::MoveOffset
+// reports for its two pulses (SendDecAfter, OffsetResult). The rules live
 // in src/guide_move_plan.cpp; Scope and Mount keep the Debug lines, the alert and the pulse.
 
 #include <gtest/gtest.h>
@@ -847,4 +848,51 @@ TEST(Recenter, RecoveryStepIgnoresTheDecGuideModeAsBefore)
     RecenterRun run = Recenter(0.0, 6.0, 0.0, 3.0, 0.005, 0.005, Policy(DecMode::None));
     EXPECT_EQ(run.steps, 2);
     EXPECT_NEAR(run.movedY, 6.0, 0.01);
+}
+
+// Mount::MoveOffset's result for its RA and Dec pulses (#181)
+TEST(OffsetResult, DecIsSentAfterAnRaThatMovedOrFailed)
+{
+    EXPECT_TRUE(SendDecAfter(MoveResult::Ok));
+    EXPECT_TRUE(SendDecAfter(MoveResult::Error));
+}
+
+TEST(OffsetResult, DecIsNotSentWhileSlewingOrAtTheAoLimit)
+{
+    EXPECT_FALSE(SendDecAfter(MoveResult::ErrorSlewing));
+    EXPECT_FALSE(SendDecAfter(MoveResult::ErrorAoLimitReached));
+}
+
+TEST(OffsetResult, BothAxesMovedIsOk)
+{
+    EXPECT_EQ(OffsetResult(MoveResult::Ok, MoveResult::Ok), MoveResult::Ok);
+}
+
+TEST(OffsetResult, FailedRaIsNotHiddenByAGoodDec)
+{
+    // An RA pulse error followed by a Dec pulse that went through: the move failed, so
+    // MyFrame::OnMoveComplete counts it
+    EXPECT_EQ(OffsetResult(MoveResult::Error, MoveResult::Ok), MoveResult::Error);
+}
+
+TEST(OffsetResult, FailedDecFailsTheMove)
+{
+    EXPECT_EQ(OffsetResult(MoveResult::Ok, MoveResult::Error), MoveResult::Error);
+    EXPECT_EQ(OffsetResult(MoveResult::Ok, MoveResult::ErrorSlewing), MoveResult::ErrorSlewing);
+    EXPECT_EQ(OffsetResult(MoveResult::Ok, MoveResult::ErrorAoLimitReached), MoveResult::ErrorAoLimitReached);
+}
+
+TEST(OffsetResult, DecFailureThatStopsGuidingWinsOverAnRaError)
+{
+    // OnMoveComplete stops guiding on a slew and recenters the AO at its limit: a plain RA
+    // error must not hide either
+    EXPECT_EQ(OffsetResult(MoveResult::Error, MoveResult::Error), MoveResult::Error);
+    EXPECT_EQ(OffsetResult(MoveResult::Error, MoveResult::ErrorSlewing), MoveResult::ErrorSlewing);
+    EXPECT_EQ(OffsetResult(MoveResult::Error, MoveResult::ErrorAoLimitReached), MoveResult::ErrorAoLimitReached);
+}
+
+TEST(OffsetResult, RaSlewOrAoLimitIsTheResultWhenDecIsNotSent)
+{
+    EXPECT_EQ(OffsetResult(MoveResult::ErrorSlewing, MoveResult::Ok), MoveResult::ErrorSlewing);
+    EXPECT_EQ(OffsetResult(MoveResult::ErrorAoLimitReached, MoveResult::Ok), MoveResult::ErrorAoLimitReached);
 }
