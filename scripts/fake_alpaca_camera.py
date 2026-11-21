@@ -736,7 +736,8 @@ class Handler(BaseHTTPRequestHandler):
                     hold["held"] = False
             body = json.dumps({"injections": injections, "telescope_injections": scope_injections,
                                "unplugged": unplugged, "telescope_unplugged": scope_unplugged, "stall": stall_ms,
-                               "stall_call": stall_call, "shift": shift, "decoys": decoys, "clouds": clouds, "hold": hold}).encode()
+                               "stall_call": stall_call, "shift": shift, "decoys": decoys, "clouds": clouds,
+                               "hold": hold}).encode()
         self.log_message("control %s %s %s", method, name, params)
         return self.send_body(body, "application/json")
 

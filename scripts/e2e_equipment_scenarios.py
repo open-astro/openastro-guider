@@ -216,10 +216,12 @@ def kill_fake_during_startexposure(lane, timeout=30):
     at = fake_log_size(lane)
     lane.fake.request("PUT", "/fake/stall", {"device": "camera", "ms": 60000, "call": "startexposure"})
     deadline = time.time() + timeout
-    while "stalling camera 60000 ms: /api/v1/camera/0/startexposure" not in fake_log_since(lane, at):
-        expect(time.time() < deadline, f"no startexposure reached the fake within {timeout} s")
-        time.sleep(0.1)
-    lane.stop_fake()
+    try:
+        while "stalling camera 60000 ms: /api/v1/camera/0/startexposure" not in fake_log_since(lane, at):
+            expect(time.time() < deadline, f"no startexposure reached the fake within {timeout} s")
+            time.sleep(0.1)
+    finally:
+        lane.stop_fake()  # also on a timeout, so the stall goes with the fake and the restart after it starts clean
 
 
 class DebugLog:
