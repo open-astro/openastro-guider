@@ -566,7 +566,10 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             }
             if (m_singleExposure.enabled)
                 m_singleExposure.Complete(false, failure);
-            EvtServer.NotifyLoopingStopped();
+            // #186: when capture was going on, StopCapturing reached FinishStop, which already sent
+            // LoopingExposuresStopped; only a capture already stopping (or a single exposure) sends it here
+            if (stopping)
+                EvtServer.NotifyLoopingStopped();
             pGuider->Reset(false);
             CaptureActive = m_continueCapturing;
             UpdateButtonsStatus();
