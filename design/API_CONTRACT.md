@@ -839,3 +839,19 @@ startup, so each start gives its own sequence.
   one each start.
 
 ARA: no code change.
+
+## 2026-11-20 — max-duration alert throttled per axis (#164)
+
+No API change. The `Alert` event the guider sends when its guide steps keep hitting the max RA or
+Dec duration ("PHD2 is not able to make sufficient corrections in RA/Dec..." and its variants)
+had one 30 s throttle for both axes, restarted by calls that raised nothing.
+
+- An RA alert no longer holds a Dec alert back for 30 s, or the other way round: each axis has its
+  own 30 s minimum between two of its alerts, so a client can get an RA and a Dec alert together.
+- The 30 s starts only when an alert is sent. A clamped guide step during the 120 s grace period
+  after a calibration or a guide start sends nothing and no longer restarts it, so the first alert
+  after the grace period is no longer held back up to 30 s more.
+- Not changed: the alert texts and flags, the grace period, the 5 clamped steps in a row that
+  raise it (#153), and `GuideStep`'s `RALimited` / `DecLimited`.
+
+ARA: no code change.
