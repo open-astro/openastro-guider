@@ -133,6 +133,13 @@ int MyFrame::RequestedExposureDuration()
     if (!pCamera || !pCamera->Connected)
         return 0;
 
+    return SelectedExposureDuration();
+}
+
+// The exposure the next frame would be taken with, whether or not the camera is connected: what get_exposure
+// reports (#176). With Auto selected it is the current auto exposure.
+int MyFrame::SelectedExposureDuration() const
+{
     return m_singleExposure.enabled ? m_singleExposure.duration : m_exposureDuration;
 }
 

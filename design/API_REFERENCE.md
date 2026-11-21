@@ -188,7 +188,7 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 
 | Method | Params | Description |
 |--------|--------|-------------|
-| `get_exposure` | — | Current exposure duration (ms). |
+| `get_exposure` | — | Current exposure duration (ms), also while the camera is disconnected. |
 | `set_exposure` | `exposure` (ms) | Set the exposure duration. |
 | `get_exposure_durations` | — | The selectable exposure presets (ms). |
 | `get_use_subframes` | — | Whether the camera uses subframes. |
