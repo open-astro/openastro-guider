@@ -864,7 +864,7 @@ def scenario_fake_killed(lane):
            f"Equipment* events with the server gone: {names}")
     disc, failed = equip
     t_failed = failed["_t"]
-    want = f"Cannot connect to the Alpaca server at {server} (connection refused)"
+    want = f"Cannot connect to the Alpaca server at {server} (refused or unreachable)"
     expect(disc.get("device_type") == "camera" and disc.get("reconnecting") is True and disc.get("reason") == want,
            f"EquipmentDisconnected {strip(disc)}")
     expect(failed.get("device_type") == "camera" and failed.get("reason") == "the camera did not reconnect",

@@ -723,7 +723,7 @@ bool CameraAlpaca::AbortExposure()
 wxString CameraAlpaca::CaptureReconnectReason(const AlpacaErrors::CallError& error) const
 {
     if (error.kind != AlpacaErrors::CallError::Kind::Alpaca)
-        return wxString::Format(_("Cannot connect to the Alpaca server at %s:%ld (connection refused)"), m_host, m_port);
+        return wxString::Format(_("Cannot connect to the Alpaca server at %s:%ld (refused or unreachable)"), m_host, m_port);
     // the same clean-up as every other reason: valid UTF-8, one line, capped (a raw wxConvUTF8 conversion gives
     // an empty message for invalid UTF-8 and stops at an embedded NUL)
     wxString message(wxString::FromUTF8(AlpacaErrors::OneLine(error.message).c_str()));
