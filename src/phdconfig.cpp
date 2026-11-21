@@ -40,6 +40,7 @@
 #include <fstream>
 #include <iterator>
 #include <wx/mstream.h>
+#include <wx/sstream.h>
 #include <wx/wfstream.h>
 #include <wx/txtstrm.h>
 #include <wx/tokenzr.h>
@@ -413,6 +414,27 @@ PhdConfig::~PhdConfig()
     delete Global.m_pConfig;
 }
 
+// Empties the config in memory, for RestoreAll and DeleteAll. Not wxFileConfig::DeleteAll, which deletes the config
+// file: a power cut before the next Flush then leaves no config, and that Flush writes nothing when the new contents
+// are what was last written (a second -l of the same file), so the file stays deleted and the next start makes a new
+// default config (#142). Nor DeleteGroup and DeleteEntry on everything: wxFileConfig keeps a pointer to a deleted
+// line once a group's entries are all gone, and the next write there crashes or loses the file's contents. An empty
+// wxFileConfig not tied to the file takes its place instead, and Flush replaces the file in one step.
+void PhdConfig::ClearConfig()
+{
+    if (!m_fileConfig)
+    {
+        Global.m_pConfig->DeleteAll(); // not a wxFileConfig: there is no config file to lose
+        return;
+    }
+    wxStringInputStream empty(wxEmptyString);
+    wxFileConfig *config = new wxFileConfig(empty, wxConvUTF8);
+    config->DisableAutoSave();
+    delete Global.m_pConfig;
+    Global.m_pConfig = Profile.m_pConfig = config;
+    m_fileConfig = config;
+}
+
 // I thought wxConfigPathChanger would do this, but it didn't quite
 struct AutoConfigPath
 {
@@ -465,7 +487,7 @@ void PhdConfig::DeleteAll()
     if (Global.m_pConfig)
     {
         Debug.Write(wxString::Format("Deleting all configuration data\n"));
-        Global.m_pConfig->DeleteAll();
+        ClearConfig();
         InitializeProfile();
     }
     m_isNewInstance = true;
@@ -990,7 +1012,7 @@ bool PhdConfig::RestoreAll(const wxString& filename)
         return true;
     }
 
-    Global.m_pConfig->DeleteAll();
+    ClearConfig();
 
     while (!is.Eof())
     {

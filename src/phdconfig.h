@@ -116,6 +116,8 @@ class PhdConfig
     wxString m_configPath;
     std::string m_savedContents;
 
+    void ClearConfig();
+
 public:
     PhdConfig(int instance);
     ~PhdConfig();
