@@ -21,4 +21,9 @@ double MsToSeconds(int ms)
 {
     return ms / 1000.0;
 }
+
+int ForNextFrame(bool enabled, int shortDelayMs, int longDelayMs, int timeLapseMs, const FrameState& state)
+{
+    return timeLapseMs; // stub (#182)
+}
 } // namespace VariableDelay
