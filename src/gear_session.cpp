@@ -46,7 +46,7 @@ bool GearSession::ConnectAll(std::string *error)
         return true;
     }
 
-    // the log lines keep the text of the GearDialog handlers they came from, which debug-log searches use
+    // the log lines keep the text of the Connect Equipment dialog's handlers they came from, which debug-log searches use
     m_port.Trace("gear_dialog: ConnectAll calls OnButtonConnectAll\n");
 
     m_port.OnConnectRequested(GearDevice::All);
@@ -58,7 +58,7 @@ bool GearSession::ConnectAll(std::string *error)
     m_port.ConnectLeaf(GearDevice::Mount);
     m_port.ConnectLeaf(GearDevice::Rotator);
 
-    // once, on success too: GearDialog ran it a second time when everything connected, which only loaded the
+    // once, on success too: the dialog ran it a second time when everything connected, which only loaded the
     // profile's calibration again (#115 step 3)
     End();
 

@@ -7840,7 +7840,7 @@ void EventServer::NotifyCalibrationBuildFailed(const wxString& artifact, const w
 //                                            auto-reconnect).
 // On the headless daemon a device that failed to connect (at startup, on a
 // connect request, or after EquipmentReconnectFailed) is retried slowly in the
-// background (#104, GearDialog), and EquipmentReconnected{camera|mount|rotator}
+// background (#104, EquipmentManager), and EquipmentReconnected{camera|mount|rotator}
 // is sent once when it connects by any path, with or without an earlier
 // EquipmentDisconnected.
 

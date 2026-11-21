@@ -246,7 +246,6 @@ public:
     AdvancedDialog *pAdvancedDialog;
     GuideHistory *pGuideHistory;
     EquipmentManager *pEquipment; // the devices and their selection
-    GearDialog *pGearDialog;
     wxWindow *pGuidingAssistant;
     bool CaptureActive; // Is camera looping captures?
     bool m_exposurePending; // exposure scheduled and not completed

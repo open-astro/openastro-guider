@@ -11,7 +11,6 @@
 # pointer, once per startup. It is undefined behaviour but harmless in practice, because none of
 # these MyFrame members reads `this`:
 #   SetMultiStarMode      pFrame->NotifyGuidingParam  (guider_multistar.cpp, from LoadProfileSettings)
-#   TargetWindow          pFrame->MakeSpinCtrlDouble  (target.cpp)
 #   GuiderMultiStarConfigDialogCtrlSet  pFrame->MakeSpinCtrl / MakeSpinCtrlDouble (guider_multistar.cpp)
 #   ScopeConfigDialogCtrlSet            pFrame->MakeSpinCtrl  (scope.cpp)
 # The ScopeConfigDialogCtrlSet and GuiderMultiStarConfigDialogCtrlSet ones run from AdvancedDialog's
@@ -24,6 +23,5 @@
 # after a null report it was told to continue past, so a suppressed null member call would crash
 # inside the check itself (SEGV at address 0 in SetMultiStarMode).
 null:GuiderMultiStar::SetMultiStarMode
-null:TargetWindow::TargetWindow
 null:GuiderMultiStarConfigDialogCtrlSet::GuiderMultiStarConfigDialogCtrlSet
 null:ScopeConfigDialogCtrlSet::ScopeConfigDialogCtrlSet

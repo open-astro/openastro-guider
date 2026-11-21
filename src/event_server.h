@@ -121,7 +121,7 @@ extern EventServer EvtServer;
 
 // True while a dark-library or defect-map build is capturing (#100). The capture runs on its own thread while the
 // main thread pumps the event loop, so anything that could replace, disconnect or reconfigure the camera meanwhile
-// checks this first; the JSON-RPC handlers do it through VERIFY_NO_DARK_BUILD, the Gear dialog through this.
+// checks this first; the JSON-RPC handlers do it through VERIFY_NO_DARK_BUILD, EquipmentManager through this.
 bool DarkBuildActive();
 
 // A camera auto-reconnect raised while DarkBuildActive() (any capture error on the capture thread that reconnects:

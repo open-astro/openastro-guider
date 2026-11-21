@@ -303,8 +303,6 @@ set(phd2_SRC
   ${phd_src_dir}/fitsiowrap.cpp
   ${phd_src_dir}/fitsiowrap.h
 
-  ${phd_src_dir}/gear_dialog.cpp
-  ${phd_src_dir}/gear_dialog.h
   ${phd_src_dir}/gear_simulator.h
   ${phd_src_dir}/gear_simulator.cpp
   ${phd_src_dir}/guide_history.cpp
