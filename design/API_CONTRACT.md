@@ -969,8 +969,8 @@ likely to be ineffective." was sent for every guide pulse the Alpaca mount faile
 stops taking pulses sent two identical alerts a frame when both axes corrected.
 
 - The first failed pulse still sends the alert at once; after it, at most one is sent every 30 s per
-  mount, whichever axis failed. The 30 s starts only when an alert is sent, and runs on a steady
-  clock, so a system clock change does not hold it back.
+  mount, whichever axis failed. The 30 s is timed to the whole second, so two alerts can be just
+  over 29 s apart. It starts only when an alert is sent, and runs on a steady clock, so a system clock change does not hold it back.
 - Not changed: the alert text and flags, its "don't show again" setting
   (`/Confirm/<profile>/PulseGuideFailedAlertEnabled`), the failed pulse counting as a failed move,
   guiding going on, and the "Guiding stopped: the scope started slewing." alert.
