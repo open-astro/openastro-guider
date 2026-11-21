@@ -7,14 +7,16 @@
 
 #include "monotonic_timers.h"
 
-#include <ctime>
+#include <chrono>
 
 namespace monotonic_timers
 {
 
 int64_t ClockS()
 {
-    return static_cast<int64_t>(std::time(nullptr));
+    // Not the wall clock: a step of the system time (a Pi syncing a stale clock at boot) made the
+    // guider read a 100 px error and the reconnect throttle count the wrong attempts (#226)
+    return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 void StarFoundTimer::Found(int64_t nowS)

@@ -20,7 +20,9 @@
 namespace monotonic_timers
 {
 
-// The clock, in whole seconds, StarFoundTimer and ReconnectThrottle are given the time from
+// The clock, in whole seconds, StarFoundTimer and ReconnectThrottle are given the time from: the
+// monotonic one, which a wall-clock step does not move. Its zero is arbitrary, so it only measures
+// time between two of its own readings.
 int64_t ClockS();
 
 // When Guider last found the star (Guider::UpdateCurrentDistance), for Guider::CurrentError and
