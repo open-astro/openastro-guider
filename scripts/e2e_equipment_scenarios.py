@@ -106,6 +106,8 @@ MAX_FAILED_GUIDE_MOVES = 10
 FAILED_MOVES_ALERT = "pulses keep failing"
 # a failed move in the debug log: the worker's line after each Mount::MoveOffset (MOVE_ERROR is 1)
 FAILED_MOVE_LINE = r"move complete, result=1\b"
+# MyFrame::OnMoveComplete's line when the failed moves stop guiding
+STOP_LINE = r"(\d+) guide moves in a row failed, stopping guiding"
 # what a reconnect window is: MyFrame::DoTryReconnect allows 3 camera reconnects in 60 s (wall clock)
 RECONNECT_WINDOW_S = 60
 RECONNECT_MAX = 3
@@ -820,9 +822,15 @@ def scenario_pulseguide_errors(lane):
         evs = settle_events(cli, mark, quiet_s=2.0)
     finally:
         fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "count": 0})
-    failed_moves = len(re.findall(FAILED_MOVE_LINE, lane.debug.text()))
-    expect(failed_moves >= MAX_FAILED_GUIDE_MOVES,
-           f"guiding stopped after {failed_moves} failed moves, expected {MAX_FAILED_GUIDE_MOVES}")
+    # the stop comes on the 10th failed move in a row, not later: the failed moves logged before the stop's own
+    # Debug line (a move still in flight may finish after it)
+    log = lane.debug.text()
+    stop_line = re.search(STOP_LINE, log)
+    expect(stop_line is not None, "no failed-moves stop in the debug log")
+    failed_moves = len(re.findall(FAILED_MOVE_LINE, log[:stop_line.start()]))
+    expect(failed_moves == MAX_FAILED_GUIDE_MOVES and int(stop_line.group(1)) == MAX_FAILED_GUIDE_MOVES,
+           f"guiding stopped after {failed_moves} failed moves (the stop's line: {stop_line.group(0)!r}), expected "
+           f"{MAX_FAILED_GUIDE_MOVES}")
     stop_alerts = alerts(evs, FAILED_MOVES_ALERT)
     expect(len(stop_alerts) == 1, f"{len(stop_alerts)} failed-moves Alerts: {names_of(evs)}")
     msg = stop_alerts[0].get("Msg", "")
