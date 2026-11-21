@@ -134,7 +134,8 @@ def disconnected_settings(fake):
              "multistar_enabled": True, "mass_change_threshold_enabled": False}
     alpaca = {"host": fake.host, "port": fake.port, "camera_device": 0, "telescope_device": 0, "rotator_device": 3}
     guider = {"FastRecenter": False, "AutoSelDownsample": 3, "TolerateJumps": True, "TolerateJumpsThreshold": 7.5}
-    delay = {"Enabled": True, "ShortDelaySeconds": 3, "LongDelaySeconds": 45}
+    # fractional seconds, which the profile keeps to the ms (#174)
+    delay = {"Enabled": True, "ShortDelaySeconds": 3.5, "LongDelaySeconds": 45.25}
     return [
         Setting("create_profile", create_main, lambda cli: {MAIN: MAIN in profile_names(cli)}, {MAIN: True}),
         Setting("clone_profile", rpc("clone_profile", {"source_name": MAIN, "dest_name": CLONE, "select": False}),

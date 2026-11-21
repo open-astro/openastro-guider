@@ -41,6 +41,7 @@
 #include "connect_retry.h"
 #include "restore_calibration.h"
 #include "capture_cleanup.h"
+#include "variable_delay.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
@@ -6133,8 +6134,8 @@ static void get_variable_delay_settings(JObj& response, const json_value *params
     JObj rslt;
 
     VarDelayCfg delayParams = pFrame->GetVariableDelayConfig();
-    rslt << NV("Enabled", delayParams.enabled) << NV("ShortDelaySeconds", delayParams.shortDelay / 1000)
-         << NV("LongDelaySeconds", delayParams.longDelay / 1000);
+    rslt << NV("Enabled", delayParams.enabled) << NV("ShortDelaySeconds", VariableDelay::MsToSeconds(delayParams.shortDelay))
+         << NV("LongDelaySeconds", VariableDelay::MsToSeconds(delayParams.longDelay));
     response << jrpc_result(rslt);
 }
 
@@ -6154,7 +6155,8 @@ static void set_variable_delay_settings(JObj& response, const json_value *params
         return;
     }
     VarDelayCfg currParams;
-    pFrame->SetVariableDelayConfig(enabled, (int) shortDelaySec * 1000, (int) longDelaySec * 1000);
+    pFrame->SetVariableDelayConfig(enabled, VariableDelay::SecondsToMs(shortDelaySec),
+                                   VariableDelay::SecondsToMs(longDelaySec));
     response << jrpc_result(0);
 }
 
