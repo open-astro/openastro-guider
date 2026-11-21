@@ -81,7 +81,9 @@ recommendation code (`src/guiding_assistant_math.cpp`), the same backlash test. 
 disabled while the star drifts unguided for `duration_s`, then (optionally) the Dec backlash test
 runs, then the recommendations are computed; every setting the run changed (guide output,
 multi-star, variable delay, subframes) is restored when it ends — done, stopped or failed, and also
-when the guider is closed mid-run (window close, `shutdown`, SIGTERM). Start it
+when the guider is closed mid-run (window close, `shutdown`, SIGTERM). A run started while guiding
+keeps guiding through its end, on the same star and lock position: turning multi-star back on brings
+no `GuidingStopped`, `StartGuiding` or new star (#187). Start it
 **while guiding**, or **while looping with a selected star and a calibrated mount**: in that case the
 run starts guiding itself (output already disabled, so nothing is corrected) and returns to looping
 at the end. Results are also written to the guide log and the profile's GA history, exactly as the

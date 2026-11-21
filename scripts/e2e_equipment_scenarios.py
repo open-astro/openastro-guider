@@ -47,9 +47,10 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
                           reconnect, the camera and mount still reading connected; back on the same port, guide (no
                           recalibration) settles
   Guiding Assistant       start while guiding: guide output, multi-star and variable delay off during the run;
-                          stopped after a few samples: restored, and restoring multi-star stops guiding and starts it
-                          again on an auto-selected star, with no settle; apply's refusals, and min-move applied with
-                          a valid JSON response (#184); a run started from looping guides and ends looping
+                          stopped after a few samples: restored, guiding going on with the same star and lock
+                          position and the secondary stars found again (#187); apply's refusals, and min-move
+                          applied with a valid JSON response (#184); a run started from looping guides and ends
+                          looping
   reconnect throttle      a 4th camera reconnect within 60 s: EquipmentReconnectFailed, then the #104 retry
   (#105 -> #104)          reconnects it (EquipmentReconnected) 15 s later, capture not restarted
   GA exit restore         shutdown during a run: the multi-star and variable-delay settings the run turned off read
@@ -915,28 +916,29 @@ def scenario_guiding_assistant(lane):
     done = cli.wait_events(mark, "GuidingAssistantDone", timeout=30)[0]
     expect(done.get("state") == "done" and "recommendations" in done, f"GuidingAssistantDone {strip(done)}")
     recs = st["recommendations"]
-    # Restoring multi-star with a star selected stops guiding, auto-selects a star and starts guiding again
-    # (GuiderMultiStar::SetMultiStarMode): GuidingStopped, then StartGuiding with no StarSelected, LockPositionSet,
-    # SettleBegin or SettleDone
-    restarted = cli.wait_events(mark, "StartGuiding", timeout=30)[0]
-    after_start = cli.events_since(mark).index(restarted) + mark + 1
-    cli.wait_events(after_start, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
+    # Restoring multi-star keeps guiding on the star and lock position of the run (#187): until then
+    # GuiderMultiStar::SetMultiStarMode stopped guiding, auto-selected a star (moving the lock to wherever the star
+    # had drifted with guide output off) and started guiding again, with no StarSelected, LockPositionSet or settle.
+    # The secondary stars are found again where they are once the primary star is back on the lock
+    lane.debug.mark()
+    after_done = cli.events_since(mark).index(done) + mark + 1
+    cli.wait_events(after_done, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
     seq = [n for n in names_of(cli.events_since(mark), skip=("LoopingExposures", "GuideStep", "Settling",
                                                                "GuidingAssistantProgress", "ConfigurationChange"))]
-    want = ["GuideParamChange", "GuideParamChange", "GuideParamChange", "GuidingStopped", "GuideParamChange",
-            "GuidingAssistantDone", "Alert", "StartGuiding"]
-    expect(seq == want, f"events of the run and its stop: {seq}, expected {want}")
+    want = ["GuideParamChange", "GuideParamChange", "GuideParamChange", "GuideParamChange", "GuidingAssistantDone"]
+    expect(seq == want, f"events of the run and its stop: {seq}, expected {want} (#187)")
     params = [(e.get("Name"), e.get("Value")) for e in cli.events_since(mark) if e["Event"] == "GuideParamChange"]
     expect(params == [("MultiStar", "false"), ("MountGuidingEnabled", False), ("MountGuidingEnabled", True),
                       ("MultiStar", "true")], f"GuideParamChange events {params}")
     lock_after = cli.call("get_lock_position")
+    expect(lock_after == lock_before, f"lock position {lock_before} before the run, {lock_after} after it (#187)")
+    lane.debug.wait(r"MultiStar: updating star positions after lock position change", 90, daemon=lane.daemon)
     after = {"output": cli.call("get_guide_output_enabled"), "vardelay": cli.call("get_variable_delay_settings"),
              "multistar": setup(cli)["multistar_enabled"], "subframes": cli.call("get_use_subframes")}
     expect(after == before, f"after the run {after}, before {before}")
-    expect(cli.call("get_app_state") == "Guiding", "not guiding again after the run")
+    expect(cli.call("get_app_state") == "Guiding", "not guiding after the run")
     out.append(f"while guiding: {st['samples']} samples, off during the run {during}, restored {after}; the stop: "
-               f"{seq} (guiding stopped and restarted on an auto-selected star, lock {lock_before} -> {lock_after}, "
-               "no settle)")
+               f"{seq} (guiding went on, lock {lock_after} kept, secondary stars found again)")
 
     # apply: all or nothing, then min-move
     code, msg = call_error(cli, "guiding_assistant_apply", {"which": ["min_move_ra", "bogus"]})
