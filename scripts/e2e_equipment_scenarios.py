@@ -1115,6 +1115,13 @@ def run_faults(lane, args):
         expect(cli.call("get_connected") is True, "the equipment did not connect")
         return f"profile {lane.profile[1]}"
 
+    def fake_killed():
+        try:
+            return scenario_fake_killed(lane)
+        finally:
+            if lane.fake.proc.poll() is not None:  # failed with the server gone: the steps after it need one (#211)
+                lane.start_fake()
+
     if not lane.step("connect the fake camera and mount", connect):
         return
     lane.step("camera drop while looping (1280, 1031)", lambda: scenario_camera_drop_loop(lane))
@@ -1123,7 +1130,7 @@ def run_faults(lane, args):
         lane.step("pulseguide errors while guiding", lambda: scenario_pulseguide_errors(lane))
         lane.step("3rd camera drop in a row while guiding (#103 reconnect)", lambda: scenario_third_drop(lane))
         lane.step("capture timeout while guiding", lambda: scenario_capture_timeout(lane))
-        if lane.step("Alpaca server killed and back while guiding (#105)", lambda: scenario_fake_killed(lane)):
+        if lane.step("Alpaca server killed and back while guiding (#105)", fake_killed):
             lane.step("Guiding Assistant start/stop/apply and restore", lambda: scenario_guiding_assistant(lane))
         lane.step("camera reconnect throttle, then the #104 retry", lambda: scenario_reconnect_throttle(lane))
         lane.step("Guiding Assistant settings restored on exit", lambda: scenario_ga_exit_restore(lane))
