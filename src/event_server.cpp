@@ -1087,25 +1087,6 @@ static void end_dark_build()
     } while (0)
 // clang-format on
 
-static void apply_selection_to_control(int choiceControlId, const wxArrayString& choices, const wxString& selectedChoice)
-{
-    wxWindow *wnd = pFrame->pGearDialog->FindWindow(choiceControlId);
-    wxChoice *ctrl = wxDynamicCast(wnd, wxChoice);
-    if (!ctrl)
-        return;
-
-    ctrl->Freeze();
-    ctrl->Clear();
-    ctrl->Append(choices);
-    ctrl->SetStringSelection(selectedChoice);
-    ctrl->Thaw();
-
-    wxCommandEvent evt(wxEVT_CHOICE, choiceControlId);
-    evt.SetEventObject(ctrl);
-    evt.SetString(selectedChoice);
-    pFrame->pGearDialog->GetEventHandler()->ProcessEvent(evt);
-}
-
 static wxString selected_camera_choice()
 {
     wxString camera = pConfig->Profile.GetString("/camera/LastMenuChoice", wxEmptyString);
@@ -1380,7 +1361,7 @@ static void apply_alpaca_choice_if_selected()
         if (FindMatchingChoice(camChoices, target, &resolved))
         {
             pConfig->Profile.SetString("/camera/LastMenuChoice", resolved);
-            apply_selection_to_control(GEAR_CHOICE_CAMERA, camChoices, resolved);
+            pFrame->pEquipment->SelectDevice(GearDevice::Camera, resolved);
         }
     }
 
@@ -1391,7 +1372,7 @@ static void apply_alpaca_choice_if_selected()
         if (FindMatchingChoice(mountChoices, target, &resolved))
         {
             pConfig->Profile.SetString("/scope/LastMenuChoice", resolved);
-            apply_selection_to_control(GEAR_CHOICE_SCOPE, mountChoices, resolved);
+            pFrame->pEquipment->SelectDevice(GearDevice::Mount, resolved);
         }
     }
 
@@ -1402,7 +1383,7 @@ static void apply_alpaca_choice_if_selected()
         if (FindMatchingChoice(rotChoices, target, &resolved))
         {
             pConfig->Profile.SetString("/rotator/LastMenuChoice", resolved);
-            apply_selection_to_control(GEAR_CHOICE_ROTATOR, rotChoices, resolved);
+            pFrame->pEquipment->SelectDevice(GearDevice::Rotator, resolved);
         }
     }
 }
@@ -1739,7 +1720,7 @@ static void set_selected_alpaca_device(JObj& response, const json_value *params)
         if (FindMatchingChoice(choices, target, &choice))
         {
             pConfig->Profile.SetString("/camera/LastMenuChoice", choice);
-            apply_selection_to_control(GEAR_CHOICE_CAMERA, choices, choice);
+            pFrame->pEquipment->SelectDevice(GearDevice::Camera, choice);
         }
     }
     else if (type == "TELESCOPE" || type == "MOUNT")
@@ -1753,7 +1734,7 @@ static void set_selected_alpaca_device(JObj& response, const json_value *params)
         if (FindMatchingChoice(choices, target, &choice))
         {
             pConfig->Profile.SetString("/scope/LastMenuChoice", choice);
-            apply_selection_to_control(GEAR_CHOICE_SCOPE, choices, choice);
+            pFrame->pEquipment->SelectDevice(GearDevice::Mount, choice);
         }
     }
     else
@@ -1767,7 +1748,7 @@ static void set_selected_alpaca_device(JObj& response, const json_value *params)
         if (FindMatchingChoice(choices, target, &choice))
         {
             pConfig->Profile.SetString("/rotator/LastMenuChoice", choice);
-            apply_selection_to_control(GEAR_CHOICE_ROTATOR, choices, choice);
+            pFrame->pEquipment->SelectDevice(GearDevice::Rotator, choice);
         }
     }
 
@@ -1806,7 +1787,7 @@ static void set_selected_mount(JObj& response, const json_value *params)
 
     pConfig->Profile.SetString("/scope/LastMenuChoice", choice);
     pConfig->Flush();
-    apply_selection_to_control(GEAR_CHOICE_SCOPE, choices, choice);
+    pFrame->pEquipment->SelectDevice(GearDevice::Mount, choice);
     response << jrpc_result(0);
 }
 
@@ -1849,7 +1830,7 @@ static void set_selected_camera(JObj& response, const json_value *params)
 
     pConfig->Profile.SetString("/camera/LastMenuChoice", choice);
     pConfig->Flush();
-    apply_selection_to_control(GEAR_CHOICE_CAMERA, choices, choice);
+    pFrame->pEquipment->SelectDevice(GearDevice::Camera, choice);
     response << jrpc_result(0);
 }
 
@@ -1950,7 +1931,7 @@ static void set_selected_rotator(JObj& response, const json_value *params)
 
     pConfig->Profile.SetString("/rotator/LastMenuChoice", choice);
     pConfig->Flush();
-    apply_selection_to_control(GEAR_CHOICE_ROTATOR, choices, choice);
+    pFrame->pEquipment->SelectDevice(GearDevice::Rotator, choice);
     response << jrpc_result(0);
 }
 
@@ -1976,7 +1957,7 @@ static void set_profile(JObj& response, const json_value *params)
     VERIFY_NO_DARK_BUILD(response); // a profile switch deletes the camera a dark capture is using (#100)
 
     wxString errMsg;
-    bool error = pFrame->pGearDialog->SetProfile(id->int_value, &errMsg);
+    bool error = pFrame->pEquipment->SetProfile(id->int_value, &errMsg);
 
     if (error)
     {
@@ -2189,7 +2170,7 @@ static void set_profile_by_name(JObj& response, const json_value *params)
     VERIFY_NO_DARK_BUILD(response); // a profile switch deletes the camera a dark capture is using (#100)
 
     wxString errMsg;
-    bool error = pFrame->pGearDialog->SetProfile(profileId, &errMsg);
+    bool error = pFrame->pEquipment->SetProfile(profileId, &errMsg);
     if (error)
         response << jrpc_error(1, errMsg);
     else
@@ -2272,7 +2253,7 @@ static void create_profile(JObj& response, const json_value *params)
     {
         VERIFY_GUIDER(response);
         wxString errMsg;
-        if (pFrame->pGearDialog->SetProfile(newId, &errMsg))
+        if (pFrame->pEquipment->SetProfile(newId, &errMsg))
         {
             response << jrpc_error(1, errMsg);
             return;
@@ -2337,7 +2318,7 @@ static void clone_profile(JObj& response, const json_value *params)
     {
         VERIFY_GUIDER(response);
         wxString errMsg;
-        if (pFrame->pGearDialog->SetProfile(newId, &errMsg))
+        if (pFrame->pEquipment->SetProfile(newId, &errMsg))
         {
             response << jrpc_error(1, errMsg);
             return;
@@ -2443,7 +2424,7 @@ static void delete_profile(JObj& response, const json_value *params)
     {
         // another profile is current now: rebuild its gear, as set_profile does. A set_profile to it afterwards
         // returns at once and would leave the deleted profile's camera and mount in place (#117).
-        pFrame->pGearDialog->ReloadProfileGear();
+        pFrame->pEquipment->ReloadProfileGear();
         pFrame->LoadProfileSettings();
         pFrame->pGuider->LoadProfileSettings();
         pFrame->UpdateTitle();

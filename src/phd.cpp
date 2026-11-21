@@ -497,6 +497,12 @@ bool PhdApp::OnInit()
 
     pFrame = new MyFrame();
 
+    // The profile's camera, mount and rotator, now that pFrame is set: their constructors call through it (the Scope
+    // constructor's NotifyGuidingParam, #168). Then the AdvancedDialog pages of the new devices, without the preload,
+    // which the first gear request runs.
+    pFrame->pEquipment->LoadFromProfile();
+    pFrame->pEquipment->UpdateAdvancedDialog(false);
+
     if (m_headless)
     {
         pFrame->Show(false);

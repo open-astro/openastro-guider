@@ -46,27 +46,12 @@
 
 struct AlpacaProbeTarget;
 
-// Owns the camera, mount and rotator and runs every gear request (set_connected, set_profile, the startup
-// auto-connect, the #104 retry and the #105 reconnect). It is never shown: the daemon is driven over JSON-RPC, and
-// the choice controls below are kept only as the store of the current selections until #115 step 3 moves them out.
-// The requests are sequenced by m_session (gear_session.h), for which this is the GearPort.
+// Runs the gear requests (set_connected, set_profile, the startup auto-connect, the #104 retry and the #105
+// reconnect) on the devices EquipmentManager (pFrame->pEquipment) owns and selects. It is never shown: the daemon is
+// driven over JSON-RPC. The requests are sequenced by m_session (gear_session.h), for which this is the GearPort.
+// #115 step 3 moves the rest of it into EquipmentManager.
 class GearDialog : public wxDialog, private GearPort
 {
-    GuideCamera *m_pCamera;
-    Scope *m_pScope;
-    Rotator *m_pRotator;
-
-    bool m_cameraUpdated;
-    bool m_mountUpdated;
-    bool m_rotatorUpdated;
-    wxString m_lastCamera;
-
-    // the current selections (set_profile, set_selected_*, set_alpaca_server); never shown
-    wxChoice *m_profiles;
-    wxChoice *m_pCameras;
-    wxChoice *m_pScopes;
-    wxChoice *m_pRotators;
-
     // #104: recovery of a selected device that failed to connect (headless only). Main thread only, except the
     // probe thread, which reads only its own copy of the target and m_probeCancel and hands its result back through
     // m_probeHandoff and a CallAfter.
@@ -91,10 +76,6 @@ public:
     GearDialog(wxWindow *pParent);
     ~GearDialog();
 
-    bool SetProfile(int profileId, wxString *error);
-    // The current profile changed without a profile choice (delete_profile of the current profile): rebuild the
-    // camera, mount and rotator from the new current profile, as a profile choice does (#117).
-    void ReloadProfileGear();
     bool ConnectAll(wxString *error);
     bool DisconnectAll(wxString *error);
     // one device, or all with GearDevice::All; returns true on error, like ConnectAll
@@ -118,14 +99,15 @@ public:
     // Shutdown: stop retrying and ask a probe in flight to stop; join also waits for it (a request timeout at most).
     void StopConnectRetry(bool join);
 
+    // EquipmentManager, until the selection, the sequencer and the #104 tracker all live there (#115 step 3)
+    // a device was chosen (SelectDevice, also for the same choice again): only another device forgets its #104 state
+    void NoteChosen(GearDevice dev, const wxString& choice);
+    // another profile: the device's #104 state starts over
+    void ForgetDevice(GearDevice dev);
+    // the sequencer, for SetProfile
+    GearSession& Session() { return m_session; }
+
 private:
-    void Initialize();
-    void LoadGearChoices();
-    void UpdateGearPointers();
-
-    void UpdateButtonState();
-    void UpdateAdvancedDialog(bool preLoad);
-
     // GearPort, for m_session
     bool Selected(GearDevice dev) const override { return DeviceSelected(dev); }
     bool Connected(GearDevice dev) const override { return DeviceConnected(dev); }
@@ -143,21 +125,16 @@ private:
     bool AutoLoadCalibration() const override;
     void LoadCalibration() override;
     void ClearCalibration() override;
-    void RefreshAdvancedDialog() override { UpdateAdvancedDialog(true); }
+    void RefreshAdvancedDialog() override;
     void HandleImageScaleChange() override;
     void SendReconnected(GearDevice dev) override;
 
-    void OnProfileChoice(wxCommandEvent& event);
-
-    void OnChoiceCamera(wxCommandEvent& event);
     void DoConnectCamera(bool autoReconnecting);
     void OnButtonDisconnectCamera(wxCommandEvent& event);
 
-    void OnChoiceScope(wxCommandEvent& event);
     void OnButtonConnectScope(wxCommandEvent& event);
     void OnButtonDisconnectScope(wxCommandEvent& event);
 
-    void OnChoiceRotator(wxCommandEvent& event);
     void OnButtonConnectRotator(wxCommandEvent& event);
     void OnButtonDisconnectRotator(wxCommandEvent& event);
 
@@ -168,15 +145,11 @@ private:
     ConnectRetry::Gates CurrentRetryGates() const;
     void NoteConnectResult(GearDevice dev, bool connected, bool autoReconnecting = false);
     void CancelProbeFor(GearDevice dev);
-    void ForgetDevice(GearDevice dev);
-    void NoteChosen(GearDevice dev, const wxString& choice);
     void StartConnectRetryTimer();
     void LogNextRetry(GearDevice dev);
     void OnConnectRetryTimer(wxTimerEvent& event);
     void OnProbeDone(GearDevice dev, uint64_t token);
     void RetryConnect(GearDevice dev);
-
-    wxDECLARE_EVENT_TABLE();
 };
 
 #endif // GEAR_DIALOG_H_INCLUDED

@@ -130,6 +130,7 @@ WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 #include "rotators.h"
 #include "image_math.h"
 #include "advanced_dialog.h"
+#include "equipment_manager.h"
 #include "gear_dialog.h"
 #include "myframe.h"
 #include "debuglog.h"
