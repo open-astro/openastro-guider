@@ -31,6 +31,14 @@ the gear lane, on a fake that answers ImageBytes (no calibration except the one 
   stale selections        the profile file edited offline, then a restart: a camera and a mount in no list
                           resolve to the first camera (the Alpaca one) and to '' (no mount); a camera and a mount
                           differing from the lists only in case resolve to the lists' items, which connect
+  guide connects first    restarted with nothing connected: guide connects the camera and the mount (#104), then
+                          calibrates and guides; after set_connected false it refuses, naming both devices as
+                          disconnected by the user
+  set_alpaca_server       with nothing connected, the mount wanted by the #104 retry and the camera disconnected by
+  carry                   the user: the Alpaca selections follow the new server, the mount is tried there at once
+                          and the camera is not; back on the fake, the mount reconnects at once
+  shutdown during a       the fake holding the mount's Connected=true PUT while the #104 probe waits on it: shutdown
+  #104 probe              exits 0, within the held request, with the retry stopped and no connect after it
 
 the faults lane, on a fake that answers ImageBytes, with one calibration (a long calibration step, so it is quick):
 
@@ -744,6 +752,180 @@ def scenario_stale_selection(lane):
     return "; ".join(out)
 
 
+def stopped_and_disconnected(cli):
+    """No capture and nothing connected, whatever the scenario before left."""
+    cli.call("stop_capture")
+    cli.wait_state("Stopped", 30)
+    cli.call("set_connected", {"connected": False}, timeout=60)
+
+
+def free_port():
+    """A local TCP port nothing listens on: a connect to it is refused at once."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def selections(cli):
+    return cli.call("get_selected_camera"), cli.call("get_selected_mount")
+
+
+def scenario_guide_connects_first(lane, args):
+    """guide on a guider whose camera and mount are selected but were never connected (#104, the guide RPC's
+    connect-first): both are connected first, then it calibrates and guides; after a user's disconnect guide refuses
+    instead, naming the devices."""
+    cli = lane.cli
+    out = []
+    stopped_and_disconnected(cli)
+    lane.end_daemon()
+    cli = lane.start_daemon()  # no --auto-connect: nothing connected and nothing asked for yet
+    expect(connected_by_device(cli) == {"all": False, "camera": False, "mount": False, "rotator": False},
+           f"get_connected after a start without --auto-connect: {connected_by_device(cli)}")
+    start = cli.mark()
+    t0 = time.time()
+    expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": True}, timeout=60) == 0, "guide did not return 0")
+    took = time.time() - t0
+    # connected before guide returned: the connect-first runs inside the request
+    expect(connected_by_device(cli) == {"all": True, "camera": True, "mount": True, "rotator": False},
+           f"get_connected once guide returned: {connected_by_device(cli)}")
+    first = lane.debug.wait(r"guide: the (camera|mount) is not connected; connecting it first", 5, lane.daemon, count=2)
+    expect(first == ["camera", "mount"], f"the devices guide connected first: {first}")
+    sc = cli.wait_events(start, "StartCalibration", timeout=60, abort_on=GUIDE_FAILURES)[0]
+    cal_from = cli.events_since(start).index(sc) + start
+    cli.wait_events(cal_from, "CalibrationComplete", timeout=args.calibration_timeout, abort_on=GUIDE_FAILURES)
+    done = cli.wait_events(cal_from, "SettleDone", timeout=e2e.SETTLE["timeout"] + 30, abort_on=GUIDE_FAILURES)[0]
+    expect(done.get("Status") == 0 and not done.get("Error"), f"SettleDone {strip(done)}")
+    after = cli.events_since(start).index(done) + start + 1
+    cli.wait_events(after, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
+    expect(cli.call("get_app_state") == "Guiding", "not guiding after the settle")
+    before_cal = names_of(cli.events_since(start)[:cal_from - start])
+    # the connects' own events, then the guide request's (the calibration the connect auto-loaded is replaced)
+    expect(before_cal == ["ConfigurationChange", "LockPositionSet"],
+           f"events between guide and StartCalibration: {before_cal}")
+    e2e.check_guide_request_order(cli.events_since(cal_from))
+    out.append(f"guide returned 0 after {took:.1f} s with the camera and mount connected first; events before the "
+               f"calibration {before_cal}; calibrated, settled, guiding")
+
+    # disconnected by the user: guide does not connect them again
+    stopped_and_disconnected(cli)
+    text = expect_error(cli, "guide", {"settle": e2e.SETTLE, "recalibrate": True}, 1,
+                        "all equipment must be connected first: the camera was disconnected by the user; the mount "
+                        "was disconnected by the user")
+    expect(connected_by_device(cli)["all"] is False and cli.call("get_app_state") == "Stopped",
+           "guide after a user disconnect connected or started something")
+    out.append(f"after set_connected false: {text!r}")
+    cli.call("set_connected", {"connected": True}, timeout=60)
+    return "; ".join(out)
+
+
+def scenario_alpaca_server_carry(lane):
+    """set_alpaca_server with nothing connected (EquipmentManager's AlpacaServerChanging/Changed): the Alpaca
+    selections follow the new server, nothing connects or disconnects, and a device still to be connected (#104) is
+    tried again at once on the new server; a device the user disconnected is not."""
+    try:
+        return alpaca_server_carry(lane)
+    finally:
+        # the scenarios after it run on the fake, with its mount on, whatever failed here
+        lane.fake.request("PUT", "/fake/unplug", {"device": "telescope", "unplugged": "false"})
+        if not any(lane.cli.call("get_connected", {"device": d}) for d in ("camera", "mount")):
+            lane.cli.call("set_alpaca_server", {"port": lane.fake.port})
+
+
+def alpaca_server_carry(lane):
+    cli, fake = lane.cli, lane.fake
+    out = []
+    stopped_and_disconnected(cli)
+    # the mount fails to connect, so the #104 retry wants it; the camera connects, then the user disconnects it
+    fake.request("PUT", "/fake/unplug", {"device": "telescope", "unplugged": "true"})
+    code, msg = call_error(cli, "set_connected", {"connected": True}, timeout=60)
+    expect(code == 1 and msg.startswith("equipment failed to connect: mount ("), f"connect all: {code} {msg!r}")
+    cli.call("set_connected", {"connected": False, "device": "camera"}, timeout=60)
+    expect(connected_by_device(cli) == {"all": False, "camera": False, "mount": False, "rotator": False},
+           f"get_connected before set_alpaca_server: {connected_by_device(cli)}")
+    expect(selections(cli) == (camera_choice(fake), mount_choice(fake)), f"selections: {selections(cli)}")
+
+    # another server, with nothing on it: both Alpaca selections move there, the mount is tried there at once
+    other = free_port()
+    lane.debug.mark()
+    mark = cli.mark()
+    expect(cli.call("set_alpaca_server", {"port": other}) == 0, "set_alpaca_server to another port did not return 0")
+    want = (f"Alpaca Camera [{fake.host}:{other}/0]", f"Alpaca Mount [{fake.host}:{other}/0]")
+    expect(selections(cli) == want, f"selections after set_alpaca_server port {other}: {selections(cli)}")
+    expect(connected_by_device(cli)["all"] is False, "something connected on set_alpaca_server")
+    tried = lane.debug.wait(r"connect retry: the Alpaca server settings changed; the (\w+) is tried again now", 5,
+                            lane.daemon)
+    expect(tried == ["mount"], f"the devices tried again after the server change: {tried}")
+    lane.debug.wait(rf"connect probe: mount at {re.escape(fake.host)}:{other} device 0", 15, lane.daemon)
+    failed = lane.debug.wait(r"connect retry: the mount failed to connect \(.*\); next attempt in (\d+) s "
+                             r"\(failure (\d+)\)", 30, lane.daemon)
+    expect(failed == [(str(RETRY_FIRST_S), "1")], f"the mount's attempt on the new server: {failed}")
+    evs = settle_events(cli, mark)
+    names = names_of(evs)
+    # the new mount choice builds a new mount, which sends its guide parameters
+    expect(names == ["ConfigurationChange"] + ["GuideParamChange"] * 3,
+           f"events on set_alpaca_server and the failed attempt: {names}")
+    out.append(f"port {other}: selections {want}, the mount tried there at once and failed (next in "
+               f"{RETRY_FIRST_S} s, failure 1), events {names}")
+
+    # back to the fake, the mount powered on: the mount connects at once, the camera stays disconnected
+    fake.request("PUT", "/fake/unplug", {"device": "telescope", "unplugged": "false"})
+    lane.debug.mark()
+    mark = cli.mark()
+    expect(cli.call("set_alpaca_server", {"port": fake.port}) == 0, "set_alpaca_server back did not return 0")
+    expect(selections(cli) == (camera_choice(fake), mount_choice(fake)), f"selections back: {selections(cli)}")
+    rec = cli.wait_events(mark, "EquipmentReconnected", timeout=30)
+    expect([e.get("device_type") for e in rec] == ["mount"], f"EquipmentReconnected {[strip(e) for e in rec]}")
+    evs = settle_events(cli, mark)
+    expect(connected_by_device(cli) == {"all": False, "camera": False, "mount": True, "rotator": False},
+           f"get_connected after the mount's retry: {connected_by_device(cli)}")
+    expect(not re.search(r"connect retry: attempt \d+ for the camera", lane.debug.text()),
+           "the camera the user disconnected was tried")
+    names = names_of(evs)
+    expect(names == (["ConfigurationChange"] + ["GuideParamChange"] * 3 +
+                     ["ConfigurationChange", "EquipmentReconnected"]),
+           f"events of the change back and the mount's retry: {names}")
+    out.append(f"port {fake.port} again: selections back, the mount reconnected at once (events {names}), the camera "
+               "left disconnected")
+    cli.call("set_connected", {"connected": True}, timeout=60)
+    expect(cli.call("get_connected") is True, "not connected after connect all")
+    return "; ".join(out)
+
+
+# the fake holds the mount's refused Connected=true PUT this long, so the #104 probe is in flight at the shutdown
+PROBE_HELD_MS = 6000
+
+
+def scenario_shutdown_during_probe(lane):
+    """shutdown while the #104 background probe for the mount waits on the server: a clean exit (status 0, no
+    sanitizer report), as prompt as the probe's request allows, with no connect started after it."""
+    cli, fake = lane.cli, lane.fake
+    stopped_and_disconnected(cli)
+    fake.request("PUT", "/fake/unplug", {"device": "telescope", "unplugged": "true", "delay_ms": str(PROBE_HELD_MS)})
+    lane.debug.mark()
+    code, msg = call_error(cli, "set_connected", {"connected": True, "device": "mount"}, timeout=60)
+    expect(code == 1, f"the mount's connect: {code} {msg!r}")
+    lane.debug.wait(r"connect retry: the mount failed to connect \(.*\); next attempt in \d+ s \(failure 1\)", 10,
+                    lane.daemon)
+    lane.debug.wait(r"connect retry: attempt \d+ for the mount: probing the Alpaca server", RETRY_FIRST_S + 30,
+                    lane.daemon)
+    lane.debug.wait(r"connect probe: mount at ", 5, lane.daemon)
+    time.sleep(1.0)  # its Connected read has answered; the fake holds its Connected=true PUT
+    text = lane.debug.text()
+    expect(not re.search(r"connect probe: mount not connected", text), "the probe ended before the shutdown")
+    t0 = time.time()
+    status = lane.end_daemon()
+    took = time.time() - t0
+    limit = PROBE_HELD_MS / 1000.0 + 15
+    expect(took < limit, f"the daemon took {took:.0f} s to exit, expected under {limit:.0f} s")
+    text = lane.debug.text()
+    stopped = text.find("connect retry: stopped (shutting down)")
+    expect(stopped >= 0, "no 'connect retry: stopped (shutting down)' in the debug log")
+    expect("connect retry: connecting the mount" not in text, "a background connect of the mount started")
+    fake.request("PUT", "/fake/unplug", {"device": "telescope", "unplugged": "false", "delay_ms": "0"})
+    lane.start_daemon()
+    return f"shutdown with the probe in flight: {status} after {took:.1f} s; the retry stopped, no connect after it"
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # the faults lane
 
@@ -1134,6 +1316,9 @@ def run_gear(lane, args):
               lambda: scenario_auto_connect_late_fake(lane))
     lane.step("stale and case-changed selections in the profile file, restarted",
               lambda: scenario_stale_selection(lane))
+    lane.step("guide connects the camera and mount first (#104)", lambda: scenario_guide_connects_first(lane, args))
+    lane.step("set_alpaca_server keeps the selections and the #104 retry", lambda: scenario_alpaca_server_carry(lane))
+    lane.step("shutdown during a #104 probe", lambda: scenario_shutdown_during_probe(lane))
 
 
 def run_faults(lane, args):
