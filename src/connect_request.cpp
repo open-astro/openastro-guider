@@ -50,7 +50,7 @@ std::string ConnectRefusal(GearDevice device, bool connect, bool captureActive, 
     switch (device)
     {
     case GearDevice::All:
-        // same messages as GearDialog::ConnectAll / DisconnectAll
+        // same messages as GearSession::ConnectAll / DisconnectAll
         if (captureActive)
             return connect ? "cannot connect equipment when capture is active"
                            : "cannot disconnect equipment while capture active";

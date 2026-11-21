@@ -7,19 +7,24 @@
  *  another, rebuilds them all on a profile switch, and is the only writer of pCamera, pMount, pSecondaryMount (always
  *  nullptr), pPointingSource and pRotator.
  *
+ *  It also runs the gear requests (set_connected, set_profile and friends, the startup auto-connect, the #104 retry's
+ *  connect): their sequencing is GearSession's (gear_session.h), for which this is the GearPort, and the connect and
+ *  disconnect leaves, the end-of-request hooks and Shutdown are here.
+ *
  *  Main thread only. MyFrame creates it with no devices; PhdApp::OnInit calls LoadFromProfile once pFrame is set,
  *  because the device constructors call through pFrame.
  *
- *  Until the later slices of step 3, GearDialog still runs the connect and disconnect leaves, the request sequencer
- *  (GearSession) and the #104 retry. It reaches the devices and the choices here, and the members marked "GearDialog"
- *  below are the temporary forwarders it uses; this class calls GearDialog's NoteChosen, ForgetDevice and Session in
- *  return.
+ *  Until S6 of step 3, GearDialog still runs the #104 retry, the guide RPC's connect-first and the #105 reconnect
+ *  glue. The members marked "GearDialog" below are the temporary forwarders it uses; this class calls GearDialog's
+ *  NoteChosen, ForgetDevice, NoteConnectResult, LastConnectError, OnConnectRequested, NoteUserDisconnect and
+ *  StopConnectRetry in return.
  */
 
 #ifndef EQUIPMENT_MANAGER_H_INCLUDED
 #define EQUIPMENT_MANAGER_H_INCLUDED
 
 #include "connect_request.h"
+#include "gear_session.h"
 
 #include <wx/string.h>
 
@@ -27,7 +32,7 @@ class GuideCamera;
 class Scope;
 class Rotator;
 
-class EquipmentManager
+class EquipmentManager : private GearPort
 {
 public:
     // no devices yet: LoadFromProfile creates them
@@ -63,19 +68,59 @@ public:
     Scope *MountDevice() const { return m_mount; }
     Rotator *RotatorDevice() const { return m_rotator; }
 
+    // Each returns true with *error set when the request failed or was refused (the set_connected error texts),
+    // false otherwise.
+    bool ConnectAll(wxString *error);
+    bool DisconnectAll(wxString *error);
+    // one device, or all with GearDevice::All
+    bool SetDeviceConnected(GearDevice device, bool connect, wxString *error);
+    // MyFrame::OnClose, at exit: disconnect the mount and camera (not when a worker thread had to be killed), then the
+    // rotator; nothing is deleted
+    void Shutdown(bool forced);
+
     // Rebuild the AdvancedDialog page of each device changed since the last call, then preload the pages if asked
     // (the end of a gear request; startup rebuilds without the preload).
     void UpdateAdvancedDialog(bool preLoad);
 
-    // GearDialog: a connect changed the camera's properties, so its page is rebuilt at the end of the request
-    void MarkUpdated(GearDevice dev);
-    // GearDialog: the camera baseline of DoConnectCamera (today's m_lastCamera)
-    const wxString& BaselineCamera() const { return m_baselineCamera; }
-    void SetBaselineCamera(const wxString& camera) { m_baselineCamera = camera; }
-    // GearDialog: publish the devices to the globals and tell the imaging-gear log, after a connect or disconnect
-    void PublishGear();
+    // GearDialog: the camera connect leaf, also the #105 auto-reconnect's (autoReconnecting, which runs outside any
+    // gear request). The camera id is keyed from the camera baseline, not the current choice, as it always was.
+    void ConnectCamera(bool autoReconnecting);
+    // GearDialog: the sequencer, for the #104 retry's "connect in progress" (Depth) and its queued
+    // EquipmentReconnected
+    GearSession& Session() { return m_session; }
 
 private:
+    // GearPort, for m_session
+    bool Selected(GearDevice dev) const override;
+    bool Connected(GearDevice dev) const override;
+    bool CaptureActive() const override;
+    bool CalibratingOrGuiding() const override;
+    void ConnectLeaf(GearDevice dev) override;
+    void DisconnectLeaf(GearDevice dev) override;
+    std::string LastConnectError(GearDevice dev) const override;
+    void OnConnectRequested(GearDevice dev) override;
+    void NoteUserDisconnect(GearDevice dev) override;
+    void Trace(const std::string& line) override;
+    // the end of a gear request (connect, disconnect, profile), in GearSession::End's order (#139): frame controls,
+    // the calibration auto-load or clear, the AdvancedDialog pages, the image-scale change and EquipmentReconnected
+    void RefreshFrameControls() override;
+    bool AutoLoadCalibration() const override;
+    void LoadCalibration() override;
+    void ClearCalibration() override;
+    void RefreshAdvancedDialog() override;
+    void HandleImageScaleChange() override;
+    void SendReconnected(GearDevice dev) override;
+
+    // the connect and disconnect leaves; StatusMsg, the status-bar labels and SetDarkMenuState still go through
+    // pFrame (step 6)
+    void DisconnectCamera();
+    void ConnectMount();
+    void DisconnectMount();
+    void ConnectRotator();
+    void DisconnectRotator();
+
+    // publish the devices to the globals and tell the imaging-gear log, after a selection, connect or disconnect
+    void PublishGear();
     void SelectCamera(const wxString& choice);
     void SelectMount(const wxString& choice);
     void SelectRotator(const wxString& choice);
@@ -85,8 +130,11 @@ private:
     Scope *m_mount;
     Rotator *m_rotator;
     wxString m_choice[3]; // camera, mount, rotator
-    wxString m_baselineCamera;
+    wxString m_baselineCamera; // the camera-change test of ConnectCamera and the name its camera id is keyed from
     bool m_updated[3]; // the AdvancedDialog page of camera, mount, rotator needs a rebuild
+    // the gear requests: their depth (the #104 retry's "connect in progress"), the camera-change latch (#139), the
+    // queued EquipmentReconnected (#104) and the end of request
+    GearSession m_session;
 };
 
 #endif // EQUIPMENT_MANAGER_H_INCLUDED

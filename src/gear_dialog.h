@@ -37,7 +37,6 @@
 
 #include "connect_request.h"
 #include "connect_retry.h"
-#include "gear_session.h"
 
 #include <atomic>
 #include <string>
@@ -46,11 +45,12 @@
 
 struct AlpacaProbeTarget;
 
-// Runs the gear requests (set_connected, set_profile, the startup auto-connect, the #104 retry and the #105
-// reconnect) on the devices EquipmentManager (pFrame->pEquipment) owns and selects. It is never shown: the daemon is
-// driven over JSON-RPC. The requests are sequenced by m_session (gear_session.h), for which this is the GearPort.
-// #115 step 3 moves the rest of it into EquipmentManager.
-class GearDialog : public wxDialog, private GearPort
+// The #104 retry of a selected device that failed to connect, the guide RPC's connect-first and the #105 camera
+// reconnect glue, on the devices EquipmentManager (pFrame->pEquipment) owns. It is never shown: the daemon is driven
+// over JSON-RPC. The gear requests themselves (set_connected, set_profile, the startup auto-connect) run in the
+// manager; a retry connects through pEquipment->SetDeviceConnected. #115 step 3 moves the rest of it into
+// EquipmentManager.
+class GearDialog : public wxDialog
 {
     // #104: recovery of a selected device that failed to connect (headless only). Main thread only, except the
     // probe thread, which reads only its own copy of the target and m_probeCancel and hands its result back through
@@ -68,19 +68,10 @@ class GearDialog : public wxDialog, private GearPort
     ConnectRetry::ProbeHandoff m_probeHandoff;
     ConnectRetry::Tracker::ServerChangeCarry m_serverChangeCarry; // AlpacaServerChanging to AlpacaServerChanged
 
-    // the gear requests: their depth (the #104 retry's "connect in progress"), the camera-change latch (#139), the
-    // queued EquipmentReconnected (#104) and the end of request
-    GearSession m_session;
-
 public:
     GearDialog(wxWindow *pParent);
     ~GearDialog();
 
-    bool ConnectAll(wxString *error);
-    bool DisconnectAll(wxString *error);
-    // one device, or all with GearDevice::All; returns true on error, like ConnectAll
-    bool SetDeviceConnected(GearDevice device, bool connect, wxString *error);
-    void Shutdown(bool forced);
     bool ReconnectCamera();
 
     // #104 (headless only; each returns at once in the GUI)
@@ -99,51 +90,24 @@ public:
     // Shutdown: stop retrying and ask a probe in flight to stop; join also waits for it (a request timeout at most).
     void StopConnectRetry(bool join);
 
-    // EquipmentManager, until the selection, the sequencer and the #104 tracker all live there (#115 step 3)
+    // EquipmentManager, until the #104 tracker lives there too (#115 step 3)
     // a device was chosen (SelectDevice, also for the same choice again): only another device forgets its #104 state
     void NoteChosen(GearDevice dev, const wxString& choice);
     // another profile: the device's #104 state starts over
     void ForgetDevice(GearDevice dev);
-    // the sequencer, for SetProfile
-    GearSession& Session() { return m_session; }
+    // the end of a connect leaf, with the device's final state (GearPort::ConnectLeaf)
+    void NoteConnectResult(GearDevice dev, bool connected, bool autoReconnecting = false);
+    // GearPort::LastConnectError, OnConnectRequested and NoteUserDisconnect
+    std::string LastConnectError(GearDevice dev) const;
+    void OnConnectRequested(GearDevice dev);
+    void NoteUserDisconnect(GearDevice dev);
 
 private:
-    // GearPort, for m_session
-    bool Selected(GearDevice dev) const override { return DeviceSelected(dev); }
-    bool Connected(GearDevice dev) const override { return DeviceConnected(dev); }
-    bool CaptureActive() const override;
-    bool CalibratingOrGuiding() const override;
-    void ConnectLeaf(GearDevice dev) override;
-    void DisconnectLeaf(GearDevice dev) override;
-    std::string LastConnectError(GearDevice dev) const override;
-    void OnConnectRequested(GearDevice dev) override;
-    void NoteUserDisconnect(GearDevice dev) override;
-    void Trace(const std::string& line) override;
-    // the end of a gear request (connect, disconnect, profile), in GearSession::End's order (#139): frame controls,
-    // the calibration auto-load or clear, the AdvancedDialog pages, the image-scale change and EquipmentReconnected
-    void RefreshFrameControls() override;
-    bool AutoLoadCalibration() const override;
-    void LoadCalibration() override;
-    void ClearCalibration() override;
-    void RefreshAdvancedDialog() override;
-    void HandleImageScaleChange() override;
-    void SendReconnected(GearDevice dev) override;
-
-    void DoConnectCamera(bool autoReconnecting);
-    void OnButtonDisconnectCamera(wxCommandEvent& event);
-
-    void OnButtonConnectScope(wxCommandEvent& event);
-    void OnButtonDisconnectScope(wxCommandEvent& event);
-
-    void OnButtonConnectRotator(wxCommandEvent& event);
-    void OnButtonDisconnectRotator(wxCommandEvent& event);
-
     bool RetryEnabled() const;
     bool DeviceSelected(GearDevice dev) const;
     bool DeviceConnected(GearDevice dev) const;
     ConnectRetry::ProbeKind ProbeTargetFor(GearDevice dev, AlpacaProbeTarget *target) const;
     ConnectRetry::Gates CurrentRetryGates() const;
-    void NoteConnectResult(GearDevice dev, bool connected, bool autoReconnecting = false);
     void CancelProbeFor(GearDevice dev);
     void StartConnectRetryTimer();
     void LogNextRetry(GearDevice dev);

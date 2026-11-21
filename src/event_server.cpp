@@ -2673,7 +2673,7 @@ static void set_connected(JObj& response, const json_value *params)
     VERIFY_GUIDER(response);
 
     wxString errMsg;
-    bool error = pFrame->pGearDialog->SetDeviceConnected(device, val->int_value != 0, &errMsg);
+    bool error = pFrame->pEquipment->SetDeviceConnected(device, val->int_value != 0, &errMsg);
 
     if (error)
     {

@@ -1845,7 +1845,7 @@ void MyFrame::OnClose(wxCloseEvent& event)
 {
     if (DarkBuildActive() && event.CanVeto())
     {
-        // #100: a dark frame is being captured on its own thread while this event loop runs; pGearDialog->Shutdown()
+        // #100: a dark frame is being captured on its own thread while this event loop runs; pEquipment->Shutdown()
         // below would disconnect the camera under it. The build ends within one exposure; the RPC `shutdown` is
         // refused the same way. A close that cannot be vetoed (an OS session end) goes on regardless.
         Debug.Write("MyFrame::OnClose vetoed: dark-frame capture in progress\n");
@@ -1881,7 +1881,7 @@ void MyFrame::OnClose(wxCloseEvent& event)
         killed = true;
 
     // disconnect all gear
-    pGearDialog->Shutdown(killed);
+    pEquipment->Shutdown(killed);
 
     // stop the socket server and event server
     StartServer(false);
