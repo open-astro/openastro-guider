@@ -781,11 +781,11 @@ Payload notes for downstream clients:
   - `SettleDone` of a `guide` or `dither` request that a capture failure ended: `Error` is the same
     `"camera error: <reason>"` text. It used to be `"Stopped capturing"` (failure while looping or selecting a star)
     or `"Guiding stopped"` (failure while calibrating or guiding). A request ended by `stop_capture` still says
-    `"Stopped capturing"` / `"Guiding stopped"`. The event order is unchanged from earlier releases:
+    `"Stopped capturing"` / `"Guiding stopped"`. The event order, with one `LoopingExposuresStopped` (#186; earlier
+    releases sent a second one after `SettleDone`):
     - failure while calibrating or guiding: `CalibrationFailed` (when calibrating), `GuidingStopped`, `SettleDone`,
-      then `LoopingExposuresStopped` (it can arrive twice);
-    - failure while looping or selecting a star: `LoopingExposuresStopped`, `SettleDone`, then a second
-      `LoopingExposuresStopped`;
+      then `LoopingExposuresStopped`;
+    - failure while looping or selecting a star: `LoopingExposuresStopped`, then `SettleDone`, and no event after it;
     - while a guide pulse is still in progress, `GuidingStopped` is held until the pulse ends, so it can follow
       `SettleDone` and `LoopingExposuresStopped`.
 
