@@ -700,7 +700,7 @@ TEST(PulseFailedAlertThrottle, FailureAfterAQuietSpellIsRaisedAtOnce)
     EXPECT_TRUE(throttle.ShouldRaise(1300));
 }
 
-// --- AlertClockS: the clock Scope::AlertLimitReached's throttle and grace period run on (#212) ---
+// --- AlertClockS: the clock both alerts' throttles and the grace period run on (#212) ---
 
 namespace
 {

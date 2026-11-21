@@ -152,9 +152,10 @@ private:
     int64_t m_lastRaisedS = 0;
 };
 
-// The clock, in whole seconds, Scope::AlertLimitReached's throttle and its grace period run on
-// (#212): the monotonic one, which a wall-clock step (a Pi syncing a stale time at boot) does not
-// move. Its zero is arbitrary, so it only measures time between two of its own readings.
+// The clock, in whole seconds, Scope::AlertLimitReached's throttle and its grace period (#212) and
+// ScopeAlpaca::Guide's PulseFailedAlertThrottle (#188) run on: the monotonic one, which a
+// wall-clock step (a Pi syncing a stale time at boot) does not move. Its zero is arbitrary, so it
+// only measures time between two of its own readings.
 int64_t AlertClockS();
 
 // The px one axis of a Mount::MoveOffset moved of distancePx (#165). MoveOffset asked MoveAxis for
