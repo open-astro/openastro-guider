@@ -14,10 +14,11 @@
 
 namespace VariableDelay
 {
-// The delay in ms that set_variable_delay_settings stores for a delay of `seconds`.
+// The delay in ms that set_variable_delay_settings stores for a delay of `seconds`, rounded to the nearest ms.
 int SecondsToMs(double seconds);
 
-// The delay in seconds that get_variable_delay_settings reports for a stored delay of `ms`.
+// The delay in seconds that get_variable_delay_settings reports for a stored delay of `ms`: whole seconds for a
+// whole number of seconds, which the getter prints as a JSON integer, as PHD2 documents.
 double MsToSeconds(int ms);
 } // namespace VariableDelay
 
