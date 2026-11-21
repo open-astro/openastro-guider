@@ -945,3 +945,54 @@ parse.
 
 ARA: no code change needed. It can read `get_exposure` before connecting and show the selected
 exposure; it no longer has to treat `0` as "not connected".
+
+## 2026-11-21 — equipment owned by an EquipmentManager (#115 step 3)
+
+No method, parameter, result, error code, error string, event or event order changes on `:4400`.
+Step 3 moved the equipment out of the Connect Equipment dialog inherited from PHD2 (`GearDialog`,
+now deleted) into `EquipmentManager` (`src/equipment_manager.{h,cpp}`, `MyFrame::pEquipment`), the
+only writer of `pCamera`, `pMount`, `pPointingSource` and `pRotator`. Its wx-free core is
+`src/gear_selection.{h,cpp}` (choice resolution, profile keys, the camera-change test) and
+`src/gear_session.{h,cpp}` (the sequencing of each gear request), covered by `test_gear_selection`
+and `test_gear_session`. `set_connected`, `guide`'s connect-first, the profile switches,
+`set_selected_*`, `set_alpaca_server`, `shutdown`, `--auto-connect`, the #104 retry and the #105
+camera reconnect all go through it.
+
+Kept byte for byte: every error text, including `equipment failed to connect: ... Rotator (...)` with
+its capital R; the no-op and refusal checks and their order; the connect order (camera, mount,
+rotator) and disconnect order (mount, camera, rotator); the #139 camera-change latch; the #104 retry
+schedule and its `EquipmentReconnected`, which still goes out after the calibration auto-load; and
+the 4 s `guide` connect budget.
+
+Inherited quirks kept as they are, pinned by unit tests and the gear lane:
+
+- A saved choice matches its list item ignoring case, and the list's casing is written back to
+  `LastMenuChoice`. A name with INDI in it selects the first INDI item.
+- A saved camera that is in no list falls back to the first camera of the sorted list (the Alpaca
+  camera on the profile's server). A saved mount or rotator that is in no list resolves to `''`: no
+  device, and `LastMenuChoice` is rewritten to `''`.
+- The camera-change baseline is the choice the profile was loaded with, and it moves only when the
+  profile has a dark library or a bad-pixel map; the camera id is read under that name.
+- The #104 retry runs only headless, and SIGTERM/SIGINT stops it only at `OnClose`.
+
+Changes no client can see:
+
+- The three "cannot ... when Connect Equipment dialog is open" errors are gone (slice 1, entry
+  above); the headless daemon never returned them.
+- A `set_connected` of all that connects everything ends the request once instead of twice: the
+  saved calibration is loaded once (`SetCalibration` sends no event), and the debug log has one
+  `Auto-loading calibration data` line instead of two.
+- The profile's devices are built once `MyFrame` exists, so the debug log's
+  `Created new camera/scope/Rotator` lines come after `Server started`, and each global is cleared
+  before its device is deleted.
+- One debug line changes text: `GearDialog::EndModal: imageScaleRatio changed` is now
+  `gear_dialog: EndModal: imageScaleRatio changed`. The other moved lines keep their
+  `gear_dialog:` text.
+- Gone with the GUI, with no RPC replacement: the Connect Equipment dialog, the profile manager
+  with `.phd` profile import and export, and the Alpaca server and device setup dialogs. The Alpaca
+  server and devices are set only with `discover_alpaca_servers`, `set_alpaca_server` and
+  `set_selected_alpaca_device`.
+
+Not changed: calibration policy. The guider still recalibrates on every new target.
+
+ARA: no code change.
