@@ -84,9 +84,15 @@ small control endpoint and is off until used, so the default behaviour is unchan
         (telescope, default 0) holds a Connected=true PUT that succeeds that long
         before it answers, connected only then (a synchronous connect that opens a
         serial port).
-    PUT /fake/stall    device=<camera|telescope>&ms=<N>
+    PUT /fake/stall    device=<camera|telescope>&ms=<N>[&call=<endpoint, e.g. startexposure>]
         Every request for that device sleeps N ms before it answers (a server that
-        accepts the connection, then stalls); ms=0 clears it.
+        accepts the connection, then stalls); ms=0 clears it. call= stalls only that
+        endpoint (a kill that lands while the guider waits on it, #211).
+    PUT /fake/stop_listening
+        Close the listening socket and answer: every connection after it is refused,
+        as by a server that has gone, while requests already accepted (a stalled one)
+        still get their answer. The process lives on until it is killed (a kill that
+        lands between two calls, #211).
     PUT /fake/hold     frames=<N>
         The next N exposures never complete: imageready reads false from their
         startexposure until the next startexposure (a camera that stopped reading
@@ -183,6 +189,7 @@ import collections
 import json
 import math
 import re
+import socket
 import struct
 import threading
 import time
@@ -268,6 +275,7 @@ scope_unplugged = {"on": False, "error": 1280, "delay_ms": 0, "connect_delay_ms"
                    "message": "The Sky-Watcher mount on /dev/ttyUSB0 did not reply (Timeout waiting for motor "
                               "controller reply to ':a1'). Check the Serial Port setting and that the mount is on."}
 stall_ms = {"camera": 0, "telescope": 0}
+stall_call = {"camera": "", "telescope": ""}  # "": every endpoint of the device
 
 
 def take_injected_error(call):
@@ -667,6 +675,18 @@ class Handler(BaseHTTPRequestHandler):
         """The /fake/* error-injection control endpoint."""
         name, _, query = self.path.partition("?")
         params = {k: v[-1] for k, v in parse_qs(query if method == "GET" else body, keep_blank_values=True).items()}
+        if method == "PUT" and name == "/fake/stop_listening":
+            # Shut the listening socket down first, so a connect from now on is refused at once (on Linux
+            # this also wakes serve_forever's select); only then stop serve_forever, which waits up to its
+            # 0.5 s poll, and close the socket. Outside the lock.
+            try:
+                self.server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            self.server.shutdown()
+            self.server.socket.close()
+            self.log_message("control %s %s: the listening socket is closed", method, name)
+            return self.send_body(b'{"listening":false}', "application/json")
         with state_lock:
             if method == "GET" and name == "/fake/pulses":
                 body = json.dumps({"pulses": list(pulses)}).encode()
@@ -727,13 +747,15 @@ class Handler(BaseHTTPRequestHandler):
                 if device not in stall_ms:
                     return self.send_body(b'{"error":"unknown device"}', "application/json")
                 stall_ms[device] = max(0, int(params.get("ms", "0")))
+                stall_call[device] = params.get("call", "")
             elif method == "PUT" and name == "/fake/hold":
                 hold["frames"] = max(0, int(params.get("frames", "0")))
                 if hold["frames"] == 0:
                     hold["held"] = False
             body = json.dumps({"injections": injections, "telescope_injections": scope_injections,
                                "unplugged": unplugged, "telescope_unplugged": scope_unplugged, "stall": stall_ms,
-                               "shift": shift, "decoys": decoys, "clouds": clouds, "hold": hold}).encode()
+                               "stall_call": stall_call, "shift": shift, "decoys": decoys, "clouds": clouds,
+                               "hold": hold}).encode()
         self.log_message("control %s %s %s", method, name, params)
         return self.send_body(body, "application/json")
 
@@ -754,10 +776,10 @@ class Handler(BaseHTTPRequestHandler):
         m = re.match(r"^/api/v1/telescope/0/(\w+)", self.path)
         return m.group(1) if m else None
 
-    def stall(self, device):
-        """Sleep the /fake/stall time for the device, outside the lock."""
+    def stall(self, device, call):
+        """Sleep the /fake/stall time for the device (or only its stalled endpoint), outside the lock."""
         with state_lock:
-            ms = stall_ms[device]
+            ms = stall_ms[device] if stall_call[device] in ("", call) else 0
         if ms > 0:
             self.log_message("stalling %s %d ms: %s", device, ms, self.path)
             time.sleep(ms / 1000.0)
@@ -773,7 +795,7 @@ class Handler(BaseHTTPRequestHandler):
             ])
         sprop = self.scope_prop_name()
         if sprop is not None:
-            self.stall("telescope")
+            self.stall("telescope", sprop)
             if sprop == "connected":
                 with state_lock:
                     return self.reply(scope["connected"])
@@ -799,7 +821,7 @@ class Handler(BaseHTTPRequestHandler):
 
         prop = self.prop_name()
         if prop is not None:
-            self.stall("camera")
+            self.stall("camera", prop)
         if prop == "connected":
             with state_lock:
                 value = state["connected"]
@@ -842,7 +864,7 @@ class Handler(BaseHTTPRequestHandler):
 
         sprop = self.scope_prop_name()
         if sprop is not None:
-            self.stall("telescope")
+            self.stall("telescope", sprop)
             params = dict(p.split("=", 1) for p in body.split("&") if "=" in p)
             if sprop == "connected":
                 with state_lock:
@@ -889,7 +911,7 @@ class Handler(BaseHTTPRequestHandler):
 
         prop = self.prop_name()
         if prop is not None:
-            self.stall("camera")
+            self.stall("camera", prop)
         if prop in INJECTABLE_CALLS and self.injected(prop):
             return None
         if prop == "connected":
@@ -1016,3 +1038,5 @@ if __name__ == "__main__":
           f"{'; physics: ' + ', '.join(physics) + f', seed {SEED}' if physics else ''})",
           flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
+    # /fake/stop_listening ended it: keep the process, and the requests it accepted, until it is killed
+    threading.Event().wait()
