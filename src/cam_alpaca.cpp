@@ -172,7 +172,8 @@ bool CameraAlpaca::Connect(const wxString& camId)
     // over the API since this camera object was created. Never open the setup
     // dialog from Connect(): connects arrive over JSON-RPC on the headless
     // daemon, where a modal dialog would hang the main loop (or surface the
-    // hidden GUI on a desktop). The GUI's gear dialog has its own setup button.
+    // hidden GUI on a desktop). The setup dialog is reachable only from the
+    // hidden GUI's camera-setup menu (MyFrame::OnSetupCamera) until S8.
     if (m_port == 0)
     {
         m_host = pConfig->Profile.GetString("/alpaca/host", _T("localhost"));
