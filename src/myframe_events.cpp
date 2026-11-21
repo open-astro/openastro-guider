@@ -132,6 +132,13 @@ int MyFrame::RequestedExposureDuration()
     if (!pCamera || !pCamera->Connected)
         return 0;
 
+    return SelectedExposureDuration();
+}
+
+// The exposure the next frame would be taken with, whether or not the camera is connected: what get_exposure
+// reports (#176). With Auto selected it is the current auto exposure.
+int MyFrame::SelectedExposureDuration() const
+{
     return m_singleExposure.enabled ? m_singleExposure.duration : m_exposureDuration;
 }
 
@@ -609,6 +616,11 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
         Mount::MOVE_RESULT moveResult = event.result;
 
         mount->LogGuideStepInfo();
+
+        // A dither's fast-recenter step counts what the mount moved (#165); an AO bump, the other
+        // recovery-move kind, goes to the secondary mount
+        if (mount == pMount && event.moveOptions == MOVEOPTS_RECOVERY_MOVE)
+            pGuider->NotifyRecenterMoveComplete(event.mountMoved);
 
         // deliver the outstanding GuidingStopped notification if this is a late-arriving
         // move completion event

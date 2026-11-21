@@ -1055,10 +1055,9 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
         long raMoveMs = moveWatch.Time();
 
         MoveResultInfo yMoveResult;
+        int requestedYAmount = plan.decMs;
         if (result != MOVE_ERROR_SLEWING && result != MOVE_ERROR_AO_LIMIT_REACHED)
         {
-            int requestedYAmount = plan.decMs;
-
             if (m_backlashComp)
                 m_backlashComp->ApplyBacklashComp(moveOptions, yDistance, &requestedYAmount);
 
@@ -1068,6 +1067,12 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
         long moveMs = moveWatch.Time();
         Debug.Write(
             wxString::Format("guide step move time %ld ms (RA %ld ms, Dec %ld ms)\n", moveMs, raMoveMs, moveMs - raMoveMs));
+
+        // What the mount moved of the distances: MoveAxis can cut a pulse or send none (guide_move_plan.cpp,
+        // #165); a dither's fast recenter counts only this
+        double xMoved = guide_move_plan::MovedPx(xDistance, requestedXAmount, xMoveResult.amountMoved, m_xRate);
+        double yMoved = guide_move_plan::MovedPx(yDistance, requestedYAmount, yMoveResult.amountMoved, m_cal.yRate);
+        ofs->mountMoved.SetXY(std::copysign(xMoved, xDistance), std::copysign(yMoved, yDistance));
 
         // Record the info about the guide step. The info will be picked up back in the main UI thread.
         // We don't want to do anything with the info here in the worker thread since UI operations are

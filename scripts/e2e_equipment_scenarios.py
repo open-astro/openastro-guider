@@ -52,7 +52,7 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
   Guiding Assistant       start while guiding: guide output, multi-star and variable delay off during the run;
                           stopped after a few samples: restored, and restoring multi-star stops guiding and starts it
                           again on an auto-selected star, with no settle; apply's refusals, and min-move applied with
-                          a response that is not valid JSON; a run started from looping guides and ends looping
+                          a valid JSON response (#184); a run started from looping guides and ends looping
   reconnect throttle      a 4th camera reconnect within 60 s: EquipmentReconnectFailed, then the #104 retry
   (#105 -> #104)          reconnects it (EquipmentReconnected) 15 s later, capture not restarted
   GA exit restore         shutdown during a run: the multi-star and variable-delay settings the run turned off read
@@ -1011,23 +1011,21 @@ def scenario_guiding_assistant(lane):
     code, msg = call_error(cli, "guiding_assistant_apply", {"which": ["dec_backlash"]})
     expect(code == 1, f"apply dec_backlash with no backlash measured: {code} {msg!r}")
     mm_before = min_moves(cli)
-    # The applied names come back unquoted (event_server.cpp guiding_assistant_apply: JAry << wxString appends the
-    # text as it is), so the response is not valid JSON; a JSON client cannot read it, and e2e.Client's reader would
-    # stop at it, so the call goes on a connection of its own. Pinned as it is, a bug to fix.
+    # The response must be valid JSON, read on a connection of its own so a bad line cannot stop e2e.Client's
+    # reader: until #184 the applied names came back unquoted ([min_move_ra,min_move_dec]) and no JSON client could
+    # read the answer
     raw = raw_call(lane.args.rpc_port, "guiding_assistant_apply", {"which": ["min_move_dec", "min_move_ra"]})
-    want_raw = '{"jsonrpc":"2.0","result":{"applied":[min_move_ra,min_move_dec]},"id":9001}'
-    expect(raw == want_raw, f"guiding_assistant_apply responded {raw!r}, expected {want_raw!r}")
     try:
-        json.loads(raw)
-        parsed = True
+        parsed = json.loads(raw)
     except ValueError:
-        parsed = False
-    expect(not parsed, "the guiding_assistant_apply response parses as JSON now: update this check")
+        raise Failure(f"guiding_assistant_apply responded with invalid JSON: {raw!r} (#184)")
+    expect(parsed.get("result") == {"applied": ["min_move_ra", "min_move_dec"]},
+           f"guiding_assistant_apply responded {raw!r}, expected applied [min_move_ra, min_move_dec]")
     mm_after = min_moves(cli)
     expect(abs(mm_after[0] - recs["min_move_ra_px"]) < 0.006 and abs(mm_after[1] - recs["min_move_dec_px"]) < 0.006,
            f"MinMoves {mm_after} after apply, recommended {recs['min_move_ra_px']} / {recs['min_move_dec_px']}")
-    out.append(f"apply: unknown name and dec_backlash refused ({msg!r}); min_move applied (response {raw!r}, not "
-               f"valid JSON): {mm_before} -> {mm_after}")
+    out.append(f"apply: unknown name and dec_backlash refused ({msg!r}); min_move applied (response {raw!r}): "
+               f"{mm_before} -> {mm_after}")
 
     # from looping on the calibration: the run starts guiding, and goes back to looping at the end
     cli.call("stop_capture")
