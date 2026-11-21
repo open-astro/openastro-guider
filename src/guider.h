@@ -42,6 +42,8 @@
 
 #include "guider_state.h" // enum GUIDER_STATE
 
+#include <atomic>
+
 enum EXPOSED_STATE
 {
     EXPOSED_STATE_NONE = 0,
@@ -142,6 +144,10 @@ class Guider : public wxWindow
     PHD_Point m_ditherRecenterRemaining;
     int m_ditherRecenterStepsPending; // recenter steps sent whose moves have not completed (#165)
     int m_ditherRecenterStalledSteps; // completed recenter steps in a row that moved nothing (#165)
+    // IsRecentering(), read by the worker thread for the next frame's exposure delay. Written on the
+    // main thread only before that frame's move and exposure are queued, never when a recenter step's
+    // move completes, which races with the worker starting the next exposure (#165)
+    std::atomic<bool> m_recenteringForWorker;
     time_t m_starFoundTimestamp; // timestamp when star was last found
     double m_avgDistance; // averaged distance for distance reporting
     double m_avgDistanceRA; // averaged distance, RA only
@@ -209,7 +215,7 @@ public:
     static EXPOSED_STATE GetExposedState();
     bool IsCalibratingOrGuiding() const;
     bool IsCalibrating() const;
-    bool IsRecentering() const { return m_ditherRecenterRemaining.IsValid(); }
+    bool IsRecentering() const { return m_recenteringForWorker.load(); }
     void NotifyRecenterMoveComplete(const PHD_Point& mountMoved);
     bool IsGuiding() const;
     void OnClose(wxCloseEvent& evt);

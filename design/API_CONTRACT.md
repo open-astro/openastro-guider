@@ -869,7 +869,10 @@ then the guide algorithm takes over and the settle runs as before.
   moved nothing (the move keeps failing, or guiding is disabled) end the recenter, and the guide
   algorithm corrects the rest, instead of the guider sending recenter steps until it had counted
   the whole dither.
-- When every pulse is sent whole the recenter takes the same steps as before.
+- When every pulse is sent whole the recenter takes the same steps as before, and the variable
+  exposure delay counts the frames as recentering up to the step that moves the rest of the dither,
+  not the frame after it, as before. After a last step that was cut or failed, that frame is
+  followed by the step that makes it up.
 - Not changed: `dither`'s parameters and result, `GuidingDithered`, the settle and `SettleDone`, and
   recenter steps still ignoring the Dec guide mode (Off included) and the max RA/Dec duration.
 

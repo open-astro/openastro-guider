@@ -169,6 +169,7 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_paused = PAUSE_NONE;
     m_ditherRecenterStepsPending = 0;
     m_ditherRecenterStalledSteps = 0;
+    m_recenteringForWorker = false;
     m_starFoundTimestamp = 0;
     m_avgDistanceNeedReset = false;
     m_avgDistanceCnt = 0;
@@ -896,6 +897,7 @@ bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
             m_ditherRecenterRemaining.SetXY(fabs(mountDelta.X), fabs(mountDelta.Y));
             m_ditherRecenterStepsPending = 0; // a step of an earlier recenter no longer counts
             m_ditherRecenterStalledSteps = 0;
+            m_recenteringForWorker = true;
             m_ditherRecenterDir.x = mountDelta.X < 0.0 ? 1 : -1;
             m_ditherRecenterDir.y = mountDelta.Y < 0.0 ? 1 : -1;
             // make each step a bit less than the full search region distance to avoid losing the star
@@ -1045,6 +1047,7 @@ void Guider::SetState(GUIDER_STATE newState)
             m_ditherRecenterRemaining.Invalidate(); // reset dither fast recenter state
             m_ditherRecenterStepsPending = 0;
             m_ditherRecenterStalledSteps = 0;
+            m_recenteringForWorker = false;
 
             pMount->AdjustCalibrationForScopePointing();
             if (pSecondaryMount)
@@ -1539,6 +1542,11 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
                 ofs.mountOfs.SetXY(step.X * m_ditherRecenterDir.x, step.Y * m_ditherRecenterDir.y);
                 pMount->TransformMountCoordinatesToCameraCoordinates(ofs.mountOfs, ofs.cameraOfs);
                 ++m_ditherRecenterStepsPending;
+                // The next frame's exposure delay: still recentering unless this step, moved whole, ends it,
+                // as when the step was counted on sending; set before the move and exposure are queued (#165)
+                guide_move_plan::RecenterProgress ifWhole = guide_move_plan::AfterRecenterStep(
+                    m_ditherRecenterRemaining.X, m_ditherRecenterRemaining.Y, step.X, step.Y, 0);
+                m_recenteringForWorker = !ifWhole.done;
                 pFrame->SchedulePrimaryMove(pMount, ofs, MOVEOPTS_RECOVERY_MOVE);
                 // let guide algorithms know about the direct move
                 pMount->NotifyDirectMove(ofs.mountOfs);
@@ -1553,6 +1561,9 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
                 s_deflectionLogger.Log(CurrentPosition());
                 pFrame->SchedulePrimaryMove(pMount, ofs, MOVEOPTS_GUIDE_STEP);
             }
+            // a recenter that NotifyRecenterMoveComplete ended is over for the next frame too (#165)
+            if (!m_ditherRecenterRemaining.IsValid())
+                m_recenteringForWorker = false;
             break;
 
         case STATE_UNINITIALIZED:
