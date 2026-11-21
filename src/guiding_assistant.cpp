@@ -2016,7 +2016,9 @@ static void HeadlessGARestore()
             pSecondaryMount->SetGuidingEnabled(s_ga.saveSecondaryMountEnabled);
 
         s_ga.guideOutputDisabled = false;
-        pFrame->pGuider->SetMultiStarMode(s_ga.origMultistarMode); // may force an auto-find to refresh secondary star data
+        // Guiding goes on with the same star and lock position, the secondary stars found again (#187); when the
+        // run ended looping, this may force an auto-find to refresh secondary star data
+        pFrame->pGuider->SetMultiStarMode(s_ga.origMultistarMode);
         pFrame->SetVariableDelayConfig(s_ga.origVarDelayConfig.enabled, s_ga.origVarDelayConfig.shortDelay,
                                        s_ga.origVarDelayConfig.longDelay);
     }

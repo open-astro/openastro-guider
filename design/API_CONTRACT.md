@@ -977,3 +977,23 @@ stops taking pulses sent two identical alerts a frame when both axes corrected.
 
 ARA: no code change; it gets one alert for a run of failed pulses instead of one per pulse, so it
 should not count `Alert` events to judge how many pulses failed.
+
+## 2026-11-21 — multi-star turned back on while guiding keeps the star (#187)
+
+No new method, field or event. Turning multi-star back on while calibrating or guiding stopped guiding, auto-selected
+a star and started guiding again: `GuidingStopped`, then `StartGuiding` with no `StarSelected`, `LockPositionSet`,
+`SettleBegin` or `SettleDone`, and a lock position moved to wherever the star was, or onto another star. Over the API
+that happened at the end of every Guiding Assistant run started while guiding with multi-star on (the run turns
+multi-star off and puts it back), and on `set_lock_shift_enabled` `false` while guiding with multi-star on (lock shift
+turns it off the same way).
+
+- Guiding (or calibration) now goes on with the same star and lock position. The secondary stars found when the star
+  was selected are found again around the primary once it is back on the lock, as after a lock position change; if
+  the selection had none, guiding goes on with the one star until the next star selection.
+- A GA run's stop or end while guiding now sends only its `GuideParamChange` events (`MountGuidingEnabled` `true`,
+  `MultiStar` `true`) and `GuidingAssistantDone`; `get_lock_position` reads what it did before the run.
+- Not changed: turning multi-star on while looping with a star selected still auto-selects a star to find the
+  secondary stars (a GA run started from looping ends this way), and the setting is restored as before.
+
+ARA: no code change needed. It no longer sees guiding stop and start again without a settle at the end of a GA run;
+a handler that re-armed its guiding state on that `StartGuiding` will simply not run.

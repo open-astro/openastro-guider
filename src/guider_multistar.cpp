@@ -220,18 +220,26 @@ void GuiderMultiStar::SetMultiStarMode(bool val)
     if (val && !oldVal)
     {
         m_primaryDistStats->ClearAll();
-        if (GetState() >=
-            STATE_SELECTED) // If we have a single star, need to force an auto-find to be sure we have the right secondary stars
+        if (IsCalibratingOrGuiding())
         {
-            bool guiding_active = IsCalibratingOrGuiding();
+            // Keep calibrating or guiding on the current star and lock position (#187): stopping, auto-selecting
+            // and starting again moved the lock to wherever the star was, with no StarSelected, LockPositionSet or
+            // settle for the client. Secondary stars from the selection are found again at their offsets from the
+            // primary once it has stabilized, as after a lock position change; without any, guiding goes on with
+            // the single star until the next selection.
+            if (m_guideStars.size() > 1)
+            {
+                m_lockPositionMoved = true;
+                m_stabilizing = true;
+            }
+        }
+        else if (GetState() >= STATE_SELECTED) // If we have a single star, need to force an auto-find to be sure we
+                                               // have the right secondary stars
+        {
             StopGuiding();
             InvalidateCurrentPosition(true);
             if (!AutoSelect(wxRect(0, 0, 0, 0), false))
-            {
-                if (guiding_active)
-                    StartGuiding();
                 autoFindForced = true;
-            }
         }
     }
     if (!val)
