@@ -38,6 +38,7 @@
 #define MYFRAME_H_INCLUDED
 
 #include "dither_random.h" // class DitherRandom
+#include "monotonic_timers.h"
 
 class WorkerThread;
 class MyFrame;
@@ -469,7 +470,8 @@ private:
     alert_fn *m_alertSpecialFn;
     intptr_t m_alertFnArg;
 
-    std::vector<time_t> m_cameraReconnectAttempts; // for rate-limiting camera reconnect attempts
+    // for rate-limiting camera reconnect attempts, on monotonic_timers::ClockS (#226)
+    monotonic_timers::ReconnectThrottle m_cameraReconnectThrottle;
 
     bool StartWorkerThread(WorkerThread *& pWorkerThread);
     bool StopWorkerThread(WorkerThread *& pWorkerThread);

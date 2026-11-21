@@ -1160,17 +1160,15 @@ void MyFrame::DoTryReconnect()
     // no exposure pending: it only sends the events, and must not start or stop the capture loop.
     bool exposurePending = m_exposurePending;
 
-    // do not reconnect more than 3 times in 1 minute
+    // do not reconnect more than 3 times in 1 minute (monotonic_timers.cpp, #226)
     enum
     {
-        TIME_WINDOW = 60,
-        MAX_ATTEMPTS = 3
+        TIME_WINDOW = monotonic_timers::ReconnectThrottle::TIME_WINDOW_S,
+        MAX_ATTEMPTS = monotonic_timers::ReconnectThrottle::MAX_ATTEMPTS
     };
-    time_t now = wxDateTime::GetTimeNow();
-    Debug.Write(wxString::Format("Try camera reconnect, now = %lu\n", (unsigned long) now));
-    while (m_cameraReconnectAttempts.size() > 0 && now - m_cameraReconnectAttempts[0] > TIME_WINDOW)
-        m_cameraReconnectAttempts.erase(m_cameraReconnectAttempts.begin());
-    if (m_cameraReconnectAttempts.size() + 1 > MAX_ATTEMPTS)
+    int64_t now = monotonic_timers::ClockS();
+    Debug.Write(wxString::Format("Try camera reconnect, now = %lld\n", (long long) now));
+    if (!m_cameraReconnectThrottle.TryAttempt(now))
     {
         Debug.Write(wxString::Format("More than %d camera reconnect attempts in less than %d seconds, "
                                      "return without reconnect.\n",
@@ -1178,7 +1176,7 @@ void MyFrame::DoTryReconnect()
         // Terminal signal so clients waiting on EquipmentDisconnected{reconnecting:true}
         // don't hang forever on a permanent unplug (they get no EquipmentReconnected).
         EvtServer.NotifyEquipmentReconnectFailed(
-            "camera", (int) m_cameraReconnectAttempts.size(),
+            "camera", m_cameraReconnectThrottle.Attempts(),
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         if (exposurePending)
             OnExposeComplete(0, true);
@@ -1187,15 +1185,13 @@ void MyFrame::DoTryReconnect()
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         return;
     }
-    m_cameraReconnectAttempts.push_back(now);
-
     bool err = pGearDialog->ReconnectCamera();
     if (err)
     {
         Debug.Write("Camera Re-connect failed\n");
         // Terminal too: EquipmentDisconnected{reconnecting:true} is always followed by
         // EquipmentReconnected or EquipmentReconnectFailed.
-        EvtServer.NotifyEquipmentReconnectFailed("camera", (int) m_cameraReconnectAttempts.size(),
+        EvtServer.NotifyEquipmentReconnectFailed("camera", m_cameraReconnectThrottle.Attempts(),
                                                  "the camera did not reconnect");
         // complete the pending exposure notification
         if (exposurePending)
