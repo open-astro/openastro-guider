@@ -137,8 +137,12 @@ bool LimitAlertThrottle::ShouldRaise(Axis axis, int64_t nowS, int64_t deferredUn
 
 bool PulseFailedAlertThrottle::ShouldRaise(int64_t nowS)
 {
-    // Stub: what ScopeAlpaca::Guide does today, an alert for every failed pulse (#188)
-    (void) nowS;
+    // One alert per failed pulse, two a frame when both axes correct, flooded the client (#188)
+    if (m_raised && nowS < m_lastRaisedS + PULSE_FAILED_ALERT_THROTTLE_S)
+        return false;
+
+    m_raised = true;
+    m_lastRaisedS = nowS;
     return true;
 }
 

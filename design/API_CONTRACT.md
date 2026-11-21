@@ -961,3 +961,19 @@ throttle running out (`EquipmentReconnectFailed`) each ended with two.
 
 ARA: no code change. A client that counted the stops, or took the second one as a new stop after it
 had already started looping again, now sees one.
+
+## 2026-11-21 — PulseGuide-failed alert throttled (#188)
+
+No new method, field or event. The `Alert` event "PulseGuide command to mount has failed - guiding is
+likely to be ineffective." was sent for every guide pulse the Alpaca mount failed, so a mount that
+stops taking pulses sent two identical alerts a frame when both axes corrected.
+
+- The first failed pulse still sends the alert at once; after it, at most one is sent every 30 s per
+  mount, whichever axis failed. The 30 s starts only when an alert is sent, and runs on a steady
+  clock, so a system clock change does not hold it back.
+- Not changed: the alert text and flags, its "don't show again" setting
+  (`/Confirm/<profile>/PulseGuideFailedAlertEnabled`), the failed pulse counting as a failed move,
+  guiding going on, and the "Guiding stopped: the scope started slewing." alert.
+
+ARA: no code change; it gets one alert for a run of failed pulses instead of one per pulse, so it
+should not count `Alert` events to judge how many pulses failed.
