@@ -351,7 +351,8 @@ static bool MigrateLegacyConfig(int instance, wxConfigBase *dst)
                                  legacyVersion));
 
     CopyTreeAcross(&legacy, dst, _T(""));
-    dst->Flush();
+    // Not dst->Flush(): wxFileConfig's write can leave the config empty or missing after a power cut. The
+    // PhdConfig constructor writes the migrated config with PhdConfig::Flush once it is set up (#142).
     return true;
 }
 
@@ -374,6 +375,7 @@ PhdConfig::PhdConfig(int instance)
     m_isNewInstance = false;
 
     m_configVersion = Global.GetLong("ConfigVersion", 0);
+    bool migrated = false;
     if (m_configVersion == 0)
     {
         // No data in the new (2.0.0+) location. Try migrating from the
@@ -381,7 +383,7 @@ PhdConfig::PhdConfig(int instance)
         // fresh install. The migration only writes to the new config when
         // the legacy store has real data, so a first-time user on a clean
         // machine still falls through to the "new instance" branch below.
-        bool migrated = MigrateLegacyConfig(instance, config);
+        migrated = MigrateLegacyConfig(instance, config);
         if (migrated)
             m_configVersion = Global.GetLong("ConfigVersion", 0);
     }
@@ -406,6 +408,11 @@ PhdConfig::PhdConfig(int instance)
         std::ifstream in(m_configPath.fn_str(), std::ios::binary);
         m_savedContents.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
+
+    // The migrated config is on disk before anything else runs, written the same power-cut-safe way as every
+    // other write; a cut before this leaves the legacy store, so the next start migrates again
+    if (migrated)
+        Flush();
 }
 
 PhdConfig::~PhdConfig()
