@@ -3068,9 +3068,10 @@ static void guiding_assistant_apply(JObj& response, const json_value *params)
         return;
     }
 
+    // JAry << wxString appends the text as it is: quote and escape each name, as json_string_array does (#184)
     JAry ary;
     for (const wxString& name : applied)
-        ary << name;
+        ary << ('"' + json_escape(name) + '"');
     JObj rslt;
     rslt << NV("applied", ary);
     response << jrpc_result(rslt);
