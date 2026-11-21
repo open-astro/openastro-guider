@@ -31,7 +31,7 @@ the gear lane, on a fake that answers ImageBytes (no calibration except the one 
 
 the faults lane, on a fake that answers ImageBytes, with one calibration (a long calibration step, so it is quick):
 
-  camera drop mid-loop    one Alpaca 1280 while looping stops the loop (LoopingExposuresStopped twice); a 1031
+  camera drop mid-loop    one Alpaca 1280 while looping stops the loop (one LoopingExposuresStopped, #186); a 1031
                           reconnects the camera (EquipmentDisconnected reconnecting, EquipmentReconnected) and the
                           loop goes on
   mount read errors       declination and sideofpier failing through the whole calibration: the calibration
@@ -688,10 +688,9 @@ def scenario_camera_drop_loop(lane):
     cli.wait_events(mark, "LoopingExposuresStopped", timeout=60)
     evs = settle_events(cli, mark)
     drop_names = names_of(evs)
-    # a failed frame stops the loop with LoopingExposuresStopped twice (a quirk, pinned as it is)
-    expect(drop_names == ["Alert", "LoopingExposuresStopped", "LoopingExposuresStopped"],
-           f"events of a 1280 while looping: {drop_names}, expected ['Alert', 'LoopingExposuresStopped', "
-           "'LoopingExposuresStopped']")
+    # #186: a failed frame stops the loop with one LoopingExposuresStopped
+    expect(drop_names == ["Alert", "LoopingExposuresStopped"],
+           f"events of a 1280 while looping: {drop_names}, expected ['Alert', 'LoopingExposuresStopped']")
     expect(cli.call("get_app_state") == "Stopped", f"app state {cli.call('get_app_state')} after a 1280 while looping")
     expect(cli.call("get_connected") is True, "the camera disconnected after a 1280 while looping")
     out.append(f"1280 while looping: {drop_names}, Stopped")
@@ -853,8 +852,8 @@ def scenario_fake_killed(lane):
     expect(not [e for e in evs if e["Event"].startswith("Equipment")], f"Equipment* events: {names}")
     lost = [e for e in evs if e["Event"] == "StarLost"]
     seq = [n for n in names if n != "ConfigurationChange"]
-    expect(seq == ["Alert", "GuidingStopped", "LoopingExposuresStopped", "LoopingExposuresStopped",
-                   "LockPositionLost"], f"events with the server gone: {seq}")
+    expect(seq == ["Alert", "GuidingStopped", "LoopingExposuresStopped", "LockPositionLost"],
+           f"events with the server gone: {seq}")  # one LoopingExposuresStopped (#186)
     alert = alerts(evs)[0].get("Msg", "")
     expect(alert.startswith("Alpaca error -- Cannot poll image ready: no response from the Alpaca server") or
            alert.startswith("Error reading image: no response from the Alpaca server"), f"Alert {alert!r}")
@@ -1014,8 +1013,7 @@ def scenario_reconnect_throttle(lane):
     expect(cli.call("get_app_state") == "Stopped", f"app state {cli.call('get_app_state')} after the throttle")
     expect(cli.call("get_connected", {"device": "camera"}) is False, "the camera reads connected after the throttle")
     seq = [n for n in names if n.startswith("Equipment") or n == "LoopingExposuresStopped"]
-    want_seq = ["EquipmentDisconnected", "EquipmentReconnectFailed", "LoopingExposuresStopped",
-                "LoopingExposuresStopped"]
+    want_seq = ["EquipmentDisconnected", "EquipmentReconnectFailed", "LoopingExposuresStopped"]  # one (#186)
     expect(seq == want_seq, f"events of the 4th reconnect: {seq}, expected {want_seq}")
     # the #104 retry takes over
     rec = cli.wait_events(mark, "EquipmentReconnected", timeout=RETRY_FIRST_S + 45)[0]
