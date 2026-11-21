@@ -329,6 +329,7 @@ public:
     bool StartServer(bool state);
     bool FlipCalibrationData();
     int RequestedExposureDuration();
+    int SelectedExposureDuration() const;
     int GetFocalLength() const;
     bool GetAutoLoadCalibration() const;
     void SetAutoLoadCalibration(bool val);

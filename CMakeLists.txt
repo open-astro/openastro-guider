@@ -198,6 +198,8 @@ set(cam_SRC
   ${phd_src_dir}/alpaca_gain.h
   ${phd_src_dir}/alpaca_poll.cpp
   ${phd_src_dir}/alpaca_poll.h
+  ${phd_src_dir}/variable_delay.cpp
+  ${phd_src_dir}/variable_delay.h
   ${phd_src_dir}/alpaca_errors.cpp
   ${phd_src_dir}/alpaca_errors.h
   ${phd_src_dir}/alpaca_discovery.cpp

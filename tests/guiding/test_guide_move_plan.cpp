@@ -3,13 +3,15 @@
 // How Mount::MoveOffset turns a mount-axis offset into a pulse per axis (PlanOffset), and what
 // Scope::MoveAxis does to each pulse before it is sent (PlanAxis): the guiding-disabled refusal,
 // the Dec guide mode filter, the max-duration clamp and the limit-reached count; and when
-// Scope::AlertLimitReached raises the limit-reached alert (LimitAlertThrottle). The rules live
+// Scope::AlertLimitReached raises the limit-reached alert (LimitAlertThrottle); and what a
+// dither's fast-recenter step moved (MovedPx, AfterRecenterStep). The rules live
 // in src/guide_move_plan.cpp; Scope and Mount keep the Debug lines, the alert and the pulse.
 
 #include <gtest/gtest.h>
 
 #include "guide_move_plan.h"
 
+#include <algorithm>
 #include <climits>
 #include <cmath>
 #include <limits>
@@ -651,4 +653,198 @@ TEST(LimitAlertThrottle, GracePeriodAfterARaisedAlertKeepsItsThrottle)
     EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1005, graceEnd));
     EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1015, graceEnd));
     EXPECT_TRUE(throttle.ShouldRaise(Axis::Dec, 1030, graceEnd));
+}
+
+// --- MovedPx: what one axis of a fast-recenter step moved (#165) ---
+
+TEST(MovedPx, WholePulseSentIsTheWholeDistance)
+{
+    EXPECT_DOUBLE_EQ(MovedPx(7.3, PulseMs(7.3, 0.005), PulseMs(7.3, 0.005), 0.005), 7.3);
+    EXPECT_DOUBLE_EQ(MovedPx(-7.3, 1460, 1460, 0.005), 7.3);
+}
+
+TEST(MovedPx, PulseCutByTheCeilingCountsOnlyWhatWasSent)
+{
+    // 150 px at 0.005 px/ms asks for 30 000 ms; PlanAxis sends MAX_PULSE_MS (#152)
+    EXPECT_DOUBLE_EQ(MovedPx(150.0, 30000, MAX_PULSE_MS, 0.005), 125.0);
+}
+
+TEST(MovedPx, FailedOrRefusedMoveMovedNothing)
+{
+    // MoveAxis reports amountMoved 0 when the pulse fails, guiding is disabled, or the RA move
+    // failed slewing and the Dec move was never asked
+    EXPECT_DOUBLE_EQ(MovedPx(4.0, 800, 0, 0.005), 0.0);
+    EXPECT_DOUBLE_EQ(MovedPx(-4.0, 800, 0, 0.005), 0.0);
+}
+
+TEST(MovedPx, DecBacklashCompensationIsTakenUpBeforeTheStep)
+{
+    // ApplyBacklashComp adds 1000 ms to the 30 000 ms pulse; the cut 25 000 ms moved 24 000 ms of it
+    EXPECT_DOUBLE_EQ(MovedPx(150.0, 31000, MAX_PULSE_MS, 0.005), 120.0);
+    // backlash that the sent part did not take up moved nothing
+    EXPECT_DOUBLE_EQ(MovedPx(1.0, 200 + 1000, 25, 0.005), 0.0);
+}
+
+TEST(MovedPx, AoCutAtItsTravelCountsTheStepsTaken)
+{
+    // an AO at 0.5 px a step asked for 20 steps stepped 12 before its travel limit
+    EXPECT_DOUBLE_EQ(MovedPx(10.0, 20, 12, 0.5), 6.0);
+}
+
+TEST(MovedPx, ZeroLengthPulseIsTheWholeDistance)
+{
+    // a step under half a ms of pulse rounds to 0 ms and is sent as asked
+    EXPECT_DOUBLE_EQ(MovedPx(0.002, 0, 0, 0.005), 0.002);
+}
+
+// --- AfterRecenterStep: the fast recenter after one of its steps (#165) ---
+
+TEST(AfterRecenterStep, StepThatMovedTheRestEndsTheRecenter)
+{
+    RecenterProgress p = AfterRecenterStep(3.0, 1.0, 3.0, 0.7, 0);
+    EXPECT_NEAR(p.remainingX, 0.0, 1e-12);
+    EXPECT_NEAR(p.remainingY, 0.3, 1e-12);
+    EXPECT_TRUE(p.done);
+}
+
+TEST(AfterRecenterStep, HalfAPixelLeftOnAnAxisKeepsItGoing)
+{
+    RecenterProgress p = AfterRecenterStep(3.0, 1.0, 2.5, 1.0, 0);
+    EXPECT_NEAR(p.remainingX, 0.5, 1e-12);
+    EXPECT_FALSE(p.done);
+}
+
+TEST(AfterRecenterStep, StepThatMovedNothingIsTriedAgain)
+{
+    // a one-off failed step (an Alpaca pulse error) is made up by the next step instead of
+    // handing the whole dither to the guide algorithm
+    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 0.0, 0.0, 0);
+    EXPECT_DOUBLE_EQ(p.remainingX, 8.0);
+    EXPECT_DOUBLE_EQ(p.remainingY, 2.0);
+    EXPECT_EQ(p.stalledSteps, 1);
+    EXPECT_FALSE(p.done);
+}
+
+TEST(AfterRecenterStep, StepsInARowThatMovedNothingEndTheRecenter)
+{
+    // a failed or refused step every time: the guide algorithm corrects the dither instead of the
+    // recenter sending the same step on every frame
+    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 0.0, 0.0, RECENTER_MAX_STALLED_STEPS - 1);
+    EXPECT_DOUBLE_EQ(p.remainingX, 8.0);
+    EXPECT_DOUBLE_EQ(p.remainingY, 2.0);
+    EXPECT_EQ(p.stalledSteps, RECENTER_MAX_STALLED_STEPS);
+    EXPECT_TRUE(p.done);
+}
+
+TEST(AfterRecenterStep, StepThatMovedRestartsTheStalledCount)
+{
+    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 3.0, 0.0, RECENTER_MAX_STALLED_STEPS - 1);
+    EXPECT_DOUBLE_EQ(p.remainingX, 5.0);
+    EXPECT_EQ(p.stalledSteps, 0);
+    EXPECT_FALSE(p.done);
+}
+
+TEST(AfterRecenterStep, StepThatMovedOneAxisKeepsItGoing)
+{
+    RecenterProgress p = AfterRecenterStep(8.0, 2.0, 0.0, 2.0, 0);
+    EXPECT_DOUBLE_EQ(p.remainingX, 8.0);
+    EXPECT_NEAR(p.remainingY, 0.0, 1e-12);
+    EXPECT_EQ(p.stalledSteps, 0);
+    EXPECT_FALSE(p.done);
+}
+
+namespace
+{
+struct RecenterRun
+{
+    int steps = 0;
+    double movedX = 0.0; // px the mount moved: what each step sent, at the rate
+    double movedY = 0.0;
+};
+
+// Guider's fast recenter of a dither of (ditherX, ditherY) mount px in steps of at most
+// (stepX, stepY), through Mount::MoveOffset (PlanOffset) and Scope::MoveAxis (PlanAxis) as a
+// recovery move, until AfterRecenterStep says it is done. Step number failedStep (from 1, 0 for
+// none) fails in MoveAxis and sends nothing, as a one-off pulse error does
+RecenterRun Recenter(double ditherX, double ditherY, double stepX, double stepY, double xRate, double yRate,
+                     const AxisPolicy& policy, int failedStep = 0)
+{
+    RecenterRun run;
+    LimitTracker ra, dec;
+    double remainingX = ditherX, remainingY = ditherY;
+    int stalledSteps = 0;
+    while (run.steps < 100)
+    {
+        double sx = std::min(remainingX, stepX), sy = std::min(remainingY, stepY);
+        ++run.steps;
+        OffsetPlan offset = PlanOffset(-sx, -sy, xRate, yRate);
+        AxisPlan raPlan = PlanAxis(offset.raDir, offset.raMs, RECOVERY_MOVE, policy, ra, dec);
+        AxisPlan decPlan = PlanAxis(offset.decDir, offset.decMs, RECOVERY_MOVE, policy, ra, dec);
+        bool failed = run.steps == failedStep;
+        int raSent = raPlan.refused || failed ? 0 : raPlan.ms;
+        int decSent = decPlan.refused || failed ? 0 : decPlan.ms;
+        run.movedX += raSent * xRate;
+        run.movedY += decSent * yRate;
+        double mx = MovedPx(sx, offset.raMs, raSent, xRate);
+        double my = MovedPx(sy, offset.decMs, decSent, yRate);
+        RecenterProgress p = AfterRecenterStep(remainingX, remainingY, mx, my, stalledSteps);
+        remainingX = p.remainingX;
+        remainingY = p.remainingY;
+        stalledSteps = p.stalledSteps;
+        if (p.done)
+            break;
+    }
+    return run;
+}
+} // namespace
+
+TEST(Recenter, StepsTheMountSendsWholeMoveTheDither)
+{
+    // 21 px of RA and 6 px of Dec in steps of (10.5, 3) at 0.005 px/ms: no pulse is cut
+    RecenterRun run = Recenter(21.0, 6.0, 10.5, 3.0, 0.005, 0.005, Policy());
+    EXPECT_EQ(run.steps, 2);
+    EXPECT_NEAR(run.movedX, 21.0, 0.01);
+    EXPECT_NEAR(run.movedY, 6.0, 0.01);
+}
+
+TEST(Recenter, StepCutByTheCeilingIsMadeUpByAnotherStep)
+{
+    // At 0.4 px/s a 10.5 px step asks for 26 250 ms and MAX_PULSE_MS moves 10 px of it, so two
+    // steps leave 1 px of a 21 px dither; the recenter used to end there as if they had moved 21
+    RecenterRun run = Recenter(21.0, 0.0, 10.5, 0.0, 0.0004, 0.005, Policy());
+    EXPECT_EQ(run.steps, 3);
+    EXPECT_NEAR(run.movedX, 21.0, 0.01);
+}
+
+TEST(Recenter, RefusedStepsEndTheRecenterAfterThreeInARow)
+{
+    // Guiding disabled: MoveAxis refuses every step, and the recenter used to count each as moved
+    // until it had counted the whole dither, 10 steps for this one
+    RecenterRun run = Recenter(105.0, 30.0, 10.5, 3.0, 0.005, 0.005, Policy(DecMode::Auto, 2500, 2500, false));
+    EXPECT_EQ(run.steps, RECENTER_MAX_STALLED_STEPS);
+    EXPECT_DOUBLE_EQ(run.movedX, 0.0);
+    EXPECT_DOUBLE_EQ(run.movedY, 0.0);
+}
+
+TEST(Recenter, OneFailedStepIsMadeUpByTheNextSteps)
+{
+    // the first of the dither's two steps fails once; the recenter still moves the whole dither
+    RecenterRun run = Recenter(21.0, 6.0, 10.5, 3.0, 0.005, 0.005, Policy(), 1);
+    EXPECT_EQ(run.steps, 3);
+    EXPECT_NEAR(run.movedX, 21.0, 0.01);
+    EXPECT_NEAR(run.movedY, 6.0, 0.01);
+    // and a one-step dither whose step fails once takes one more step
+    run = Recenter(5.0, 2.0, 10.5, 3.0, 0.005, 0.005, Policy(), 1);
+    EXPECT_EQ(run.steps, 2);
+    EXPECT_NEAR(run.movedX, 5.0, 0.01);
+    EXPECT_NEAR(run.movedY, 2.0, 0.01);
+}
+
+TEST(Recenter, RecoveryStepIgnoresTheDecGuideModeAsBefore)
+{
+    // Not changed by #165: a recovery move is not filtered by the Dec guide mode, Off included
+    // (pinned in RecoveryAndBumpMovesIgnoreTheDecGuideMode, #162)
+    RecenterRun run = Recenter(0.0, 6.0, 0.0, 3.0, 0.005, 0.005, Policy(DecMode::None));
+    EXPECT_EQ(run.steps, 2);
+    EXPECT_NEAR(run.movedY, 6.0, 0.01);
 }

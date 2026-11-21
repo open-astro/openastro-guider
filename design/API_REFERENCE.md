@@ -188,15 +188,15 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 
 | Method | Params | Description |
 |--------|--------|-------------|
-| `get_exposure` | — | Current exposure duration (ms). |
+| `get_exposure` | — | Current exposure duration (ms), also while the camera is disconnected. |
 | `set_exposure` | `exposure` (ms) | Set the exposure duration. |
 | `get_exposure_durations` | — | The selectable exposure presets (ms). |
 | `get_use_subframes` | — | Whether the camera uses subframes. |
 | `set_use_subframes` | `enabled` (bool) | **(Batch C)** Enable/disable subframes (enabling requires camera subframe support). |
 | `get_limit_frame` | — | The current capture ROI/limit frame. |
 | `set_limit_frame` | `roi` | Set a capture ROI/limit frame. |
-| `get_variable_delay_settings` | — | `{Enabled, ShortDelaySeconds, LongDelaySeconds}`. |
-| `set_variable_delay_settings` | `Enabled`, `ShortDelaySeconds`, `LongDelaySeconds` | Inter-frame variable delay (seconds). |
+| `get_variable_delay_settings` | — | `{Enabled, ShortDelaySeconds, LongDelaySeconds}`, seconds to the ms (an integer when whole). |
+| `set_variable_delay_settings` | `Enabled`, `ShortDelaySeconds`, `LongDelaySeconds` | Inter-frame variable delay (seconds, fractions kept to the ms). |
 | `get_auto_exposure` | — | **(Batch C)** `{Enabled, MinExposure, MaxExposure (ms), TargetSNR}`. |
 | `set_auto_exposure` | `MinExposure`?, `MaxExposure`? (ms), `TargetSNR`? | **(Batch C)** Set auto-exposure min/max/target SNR (all optional; `Min` ≤ `Max`). Enable auto-exposure via `set_exposure` "Auto", not here. |
 | `get_noise_reduction` | — | **(Batch C)** Image noise-reduction method (`None` / `2x2 Mean` / `3x3 Median`). |

@@ -286,6 +286,18 @@ set_property(TARGET test_jsonrpc_request PROPERTY FOLDER "Unit tests")
 add_test(NAME test_jsonrpc_request COMMAND test_jsonrpc_request)
 
 ############################################################################
+# test_variable_delay  --  variable_delay.cpp: the seconds <-> ms conversion
+# of get_ and set_variable_delay_settings (#174). std-only.
+############################################################################
+add_executable(test_variable_delay
+  ${PHD_TESTS_DIR}/event_server/test_variable_delay.cpp
+  ${phd_src_dir}/variable_delay.cpp
+)
+target_link_libraries(test_variable_delay PRIVATE phd_test_common)
+set_property(TARGET test_variable_delay PROPERTY FOLDER "Unit tests")
+add_test(NAME test_variable_delay COMMAND test_variable_delay)
+
+############################################################################
 # test_alpaca_gain  --  alpaca_gain.cpp: the GainMin/GainMax support
 # decision and the 0-100 % -> raw gain mapping CameraAlpaca uses. std-only.
 ############################################################################

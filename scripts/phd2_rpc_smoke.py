@@ -97,6 +97,15 @@ def expect_equal(got, want):
     return got
 
 
+def expect_typed(got, want):
+    """got == want, and each value of the dict has the JSON type of want's: 3 is not 3.0, True is not 1."""
+    expect_equal(got, want)
+    for k, v in want.items():
+        if type(got[k]) is not type(v):
+            raise RuntimeError(f"{k} is {got[k]!r} ({type(got[k]).__name__}), expected a {type(v).__name__}")
+    return got
+
+
 def expect_list(value, key):
     if not isinstance(value, list):
         raise RuntimeError(f"{key}: expected a list, got {value!r}")
@@ -614,6 +623,22 @@ def main():
                     },
                 ),
             )
+
+            # the delays are kept to the ms (#174): 2.5 s used to be stored as 2000 ms and read back as 2. Whole
+            # seconds still read back as JSON integers, the type PHD2 documents.
+            for label, delay in (("fractional", {"Enabled": True, "ShortDelaySeconds": 2.5, "LongDelaySeconds": 7.25}),
+                                 ("whole", {"Enabled": False, "ShortDelaySeconds": 3, "LongDelaySeconds": 45})):
+                run_check(f"set_variable_delay_settings {label} seconds",
+                          lambda delay=delay: cli.call("set_variable_delay_settings", delay))
+                run_check(f"get_variable_delay_settings reads back {label} seconds",
+                          lambda delay=delay: expect_typed(cli.call("get_variable_delay_settings"), delay))
+
+            # get_exposure reads the selected exposure with the camera disconnected too (#176); it read 0
+            for exposure in (2500, 1000):
+                run_check(f"set_exposure {exposure} while disconnected",
+                          lambda exposure=exposure: cli.call("set_exposure", {"exposure": exposure}))
+                run_check(f"get_exposure reads {exposure} while disconnected",
+                          lambda exposure=exposure: expect_equal(cli.call("get_exposure"), exposure))
 
             run_check("delete_profile clone", lambda: cli.call("delete_profile", {"name": test_name3, "delete_dark_files": False}))
             run_check("delete_profile renamed", lambda: cli.call("delete_profile", {"name": test_name2, "delete_dark_files": False}))
