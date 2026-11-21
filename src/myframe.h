@@ -37,6 +37,8 @@
 #ifndef MYFRAME_H_INCLUDED
 #define MYFRAME_H_INCLUDED
 
+#include "dither_random.h" // class DitherRandom
+
 class WorkerThread;
 class MyFrame;
 struct alert_params;
@@ -197,6 +199,7 @@ private:
     double m_ditherScaleFactor;
     bool m_ditherRaOnly;
     DitherSpiral m_ditherSpiral;
+    DitherRandom m_ditherRandom; // #173: seeded once, when the frame is made at startup
     bool m_serverMode;
     int m_timeLapse; // Delay between frames (useful for vid cameras)
     VarDelayCfg m_varDelayConfig;
