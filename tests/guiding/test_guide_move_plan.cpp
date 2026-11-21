@@ -18,6 +18,7 @@
 #include <chrono>
 #include <climits>
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 #include <random>
 
@@ -961,4 +962,86 @@ TEST(OffsetResult, RaSlewOrAoLimitIsTheResultWhenDecIsNotSent)
 {
     EXPECT_EQ(OffsetResult(MoveResult::ErrorSlewing, MoveResult::Ok), MoveResult::ErrorSlewing);
     EXPECT_EQ(OffsetResult(MoveResult::ErrorAoLimitReached, MoveResult::Ok), MoveResult::ErrorAoLimitReached);
+}
+
+// Runs results through AfterGuideMove from a count of 0 and returns the last one
+static FailedGuideMoves RunGuideMoves(std::initializer_list<MoveResult> results)
+{
+    FailedGuideMoves failed;
+    for (MoveResult r : results)
+        failed = AfterGuideMove(r, failed.inARow);
+    return failed;
+}
+
+TEST(AfterGuideMove, GoodMoveKeepsTheCountAtZero)
+{
+    FailedGuideMoves failed = AfterGuideMove(MoveResult::Ok, 0);
+    EXPECT_EQ(failed.inARow, 0);
+    EXPECT_FALSE(failed.stopGuiding);
+}
+
+TEST(AfterGuideMove, FailedMoveAddsOne)
+{
+    FailedGuideMoves failed = AfterGuideMove(MoveResult::Error, 3);
+    EXPECT_EQ(failed.inARow, 4);
+    EXPECT_FALSE(failed.stopGuiding);
+}
+
+TEST(AfterGuideMove, GoodMoveStartsTheCountAgain)
+{
+    // A single good move resets the count (#213): failures now and then never add up to a stop
+    FailedGuideMoves failed = AfterGuideMove(MoveResult::Ok, MAX_FAILED_GUIDE_MOVES - 1);
+    EXPECT_EQ(failed.inARow, 0);
+    EXPECT_FALSE(failed.stopGuiding);
+}
+
+TEST(AfterGuideMove, TenthFailureInARowStopsGuiding)
+{
+    EXPECT_EQ(MAX_FAILED_GUIDE_MOVES, 10);
+    FailedGuideMoves failed;
+    for (int i = 1; i < MAX_FAILED_GUIDE_MOVES; ++i)
+    {
+        failed = AfterGuideMove(MoveResult::Error, failed.inARow);
+        EXPECT_EQ(failed.inARow, i);
+        EXPECT_FALSE(failed.stopGuiding) << "stopped at failure " << i;
+    }
+    failed = AfterGuideMove(MoveResult::Error, failed.inARow);
+    EXPECT_EQ(failed.inARow, MAX_FAILED_GUIDE_MOVES);
+    EXPECT_TRUE(failed.stopGuiding);
+}
+
+TEST(AfterGuideMove, FailuresBrokenByAGoodMoveDoNotStop)
+{
+    // 9 failures, a good move, 9 failures: 18 failed moves, never 10 in a row
+    FailedGuideMoves failed;
+    for (int run = 0; run < 2; ++run)
+    {
+        failed = AfterGuideMove(MoveResult::Ok, failed.inARow);
+        for (int i = 0; i < MAX_FAILED_GUIDE_MOVES - 1; ++i)
+        {
+            failed = AfterGuideMove(MoveResult::Error, failed.inARow);
+            EXPECT_FALSE(failed.stopGuiding);
+        }
+    }
+    EXPECT_EQ(failed.inARow, MAX_FAILED_GUIDE_MOVES - 1);
+}
+
+TEST(AfterGuideMove, EveryErrorKindCounts)
+{
+    // An RA error the Dec pulse followed is a failed move (#181); OnMoveComplete stops guiding on a
+    // slew and restarts it at an AO limit, a guide start resetting the count
+    EXPECT_EQ(AfterGuideMove(MoveResult::Error, 0).inARow, 1);
+    EXPECT_EQ(AfterGuideMove(OffsetResult(MoveResult::Error, MoveResult::Ok), 0).inARow, 1);
+    EXPECT_EQ(AfterGuideMove(MoveResult::ErrorSlewing, 0).inARow, 1);
+    EXPECT_EQ(AfterGuideMove(MoveResult::ErrorAoLimitReached, 0).inARow, 1);
+}
+
+TEST(AfterGuideMove, MoreThanTenFailuresKeepStopping)
+{
+    // Past the 10th failure in a row every failure still asks to stop
+    FailedGuideMoves failed = RunGuideMoves({ MoveResult::Error, MoveResult::Error, MoveResult::Error, MoveResult::Error,
+                                              MoveResult::Error, MoveResult::Error, MoveResult::Error, MoveResult::Error,
+                                              MoveResult::Error, MoveResult::Error, MoveResult::Error });
+    EXPECT_EQ(failed.inARow, 11);
+    EXPECT_TRUE(failed.stopGuiding);
 }

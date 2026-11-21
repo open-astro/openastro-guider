@@ -38,7 +38,10 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
   during calibration      completes, get_calibration_data reporting the unknown Dec and pierSide as null (#189);
                           the profile's first calibration turns auto_restore_calibration on
   pulseguide errors       pulseguide failing while guiding: the first failed pulse raises an Alert, and then at most
-                          one every 30 s (#188), not one per failed pulse; guiding goes on, the mount stays connected
+                          one every 30 s (#188), not one per failed pulse; guiding goes on through fewer than 10
+                          failed moves in a row, the mount stays connected; failing on, the 10th failed move in a row
+                          stops guiding (#213): an Alert naming the mount, then GuidingStopped; guide (no
+                          recalibration) settles once the pulses go through again
   3rd camera drop         3 frames in a row failing with 1280 while guiding: 2 StarLost, then the #103 reconnect
                           (EquipmentDisconnected reconnecting, EquipmentReconnected) and guiding goes on
   capture timeout         an exposure that never completes (/fake/hold): the camera watchdog disconnects and
@@ -95,6 +98,12 @@ EXPOSURE_MS = 500
 SCALE_ALERT = "Binning or camera pixel size changed unexpectedly"
 PULSEGUIDE_ALERT = "PulseGuide command to mount has failed"
 PULSEGUIDE_ALERT_THROTTLE_S = 30  # the shortest time between two PulseGuide failed Alerts (#188)
+# the failed guide moves in a row of a mount that stop guiding (guide_move_plan::MAX_FAILED_GUIDE_MOVES, #213), and
+# the Alert that says so
+MAX_FAILED_GUIDE_MOVES = 10
+FAILED_MOVES_ALERT = "pulses keep failing"
+# a failed move in the debug log: the worker's line after each Mount::MoveOffset (MOVE_ERROR is 1)
+FAILED_MOVE_LINE = r"move complete, result=1\b"
 # what a reconnect window is: MyFrame::DoTryReconnect allows 3 camera reconnects in 60 s (wall clock)
 RECONNECT_WINDOW_S = 60
 RECONNECT_MAX = 3
@@ -756,20 +765,26 @@ def scenario_mount_read_errors_calibration(lane, args):
 
 
 def scenario_pulseguide_errors(lane):
-    """pulseguide failing while guiding: one Alert, at most one every 30 s (#188), guiding goes on, the mount stays
-    connected."""
+    """pulseguide failing while guiding: one Alert, at most one every 30 s (#188), guiding goes on through fewer than
+    10 failed moves in a row, the mount stays connected; the 10th failed move in a row stops guiding (#213)."""
     cli, fake = lane.cli, lane.fake
     expect(cli.call("get_app_state") == "Guiding", "not guiding")
     # bigger corrections, so every frame sends a pulse
     fake.request("PUT", "/fake/shift", {"dx": 4, "dy": 4})
     mark = cli.mark()
     log0 = fake_log_size(lane)
+    lane.debug.mark()
     fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "error": 1280, "count": 100000,
                                          "message": "e2e pulseguide failed"})
     steps = cli.wait_events(mark, "GuideStep", count=6, timeout=90, abort_on=GUIDE_FAILURES)
     fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "count": 0})
     evs = settle_events(cli, mark)
     failed = fake_log_since(lane, log0).count("injected error 1280 on /api/v1/telescope/0/pulseguide")
+    failed_moves = len(re.findall(FAILED_MOVE_LINE, lane.debug.text()))
+    # a shorter run of failed moves than the stop's keeps guiding (#213)
+    expect(0 < failed_moves < MAX_FAILED_GUIDE_MOVES,
+           f"{failed_moves} failed moves in the short run, expected 1 to {MAX_FAILED_GUIDE_MOVES - 1}")
+    expect(not alerts(evs, FAILED_MOVES_ALERT), f"the failed-moves Alert after {failed_moves} failed moves")
     pulse_alerts = alerts(evs, PULSEGUIDE_ALERT)
     # throttled (#188): the first failed pulse raises the Alert, and then at most one every
     # PULSEGUIDE_ALERT_THROTTLE_S, not one per failed pulse (two a frame when both axes correct)
@@ -788,9 +803,48 @@ def scenario_pulseguide_errors(lane):
     cli.wait_events(mark, "GuideStep", count=4, timeout=60, abort_on=GUIDE_FAILURES)
     pulses = fake.request("GET", "/fake/pulses")["pulses"]
     expect(pulses, "no pulse reached the mount after the errors cleared")
-    return (f"{len(steps)} GuideSteps with pulseguide failing, {failed} failed pulses, {len(pulse_alerts)} Alerts "
-            f"{pulse_alerts[0].get('Msg')!r}, guiding, the mount connected; {len(pulses)} pulses after "
-            f"(before the clear {pulses0})")
+    out = [f"{len(steps)} GuideSteps with pulseguide failing, {failed} failed pulses in {failed_moves} failed moves, "
+           f"{len(pulse_alerts)} Alerts {pulse_alerts[0].get('Msg')!r}, guiding, the mount connected; {len(pulses)} "
+           f"pulses after (before the clear {pulses0})"]
+
+    # failing on: the 10th failed move in a row stops guiding, with an Alert naming the mount (#213)
+    mark = cli.mark()
+    lane.debug.mark()
+    fake.request("PUT", "/fake/shift", {"dx": 4, "dy": 4})
+    fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "error": 1280, "count": 100000,
+                                         "message": "e2e pulseguide failed"})
+    try:
+        cli.wait_events(mark, "GuidingStopped", timeout=120, abort_on=("CalibrationFailed", "LoopingExposuresStopped"))
+        evs = settle_events(cli, mark, quiet_s=2.0)
+    finally:
+        fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "count": 0})
+    failed_moves = len(re.findall(FAILED_MOVE_LINE, lane.debug.text()))
+    expect(failed_moves >= MAX_FAILED_GUIDE_MOVES,
+           f"guiding stopped after {failed_moves} failed moves, expected {MAX_FAILED_GUIDE_MOVES}")
+    stop_alerts = alerts(evs, FAILED_MOVES_ALERT)
+    expect(len(stop_alerts) == 1, f"{len(stop_alerts)} failed-moves Alerts: {names_of(evs)}")
+    msg = stop_alerts[0].get("Msg", "")
+    expect(mount_connected_name(fake) in msg, f"the failed-moves Alert {msg!r} does not name the mount "
+                                              f"{mount_connected_name(fake)!r}")
+    order = [("stop" if e is stop_alerts[0] else e["Event"]) for e in evs
+             if e is stop_alerts[0] or e["Event"] == "GuidingStopped"]
+    expect(order == ["stop", "GuidingStopped"], f"the failed-moves Alert and GuidingStopped: {order}")
+    after = evs[evs.index(stop_alerts[0]) + 1:]
+    expect(not [e for e in after if e["Event"] == "GuideStep"], "GuideSteps after guiding stopped")
+    expect(not [e for e in evs if e["Event"].startswith("Equipment")], f"Equipment* events: {names_of(evs)}")
+    state = cli.call("get_app_state")
+    expect(state in ("Looping", "Selected", "Stopped"), f"app state {state} after the stop")
+    expect(cli.call("get_connected", {"device": "mount"}) is True, "the mount disconnected")
+    out.append(f"failing on: stopped after {failed_moves} failed moves, Alert {msg!r}, then GuidingStopped, {state}")
+
+    # the pulses go through again: guide on the same calibration for the scenarios that follow
+    start = cli.mark()
+    expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": False}) == 0, "guide did not return 0")
+    done = cli.wait_events(start, "SettleDone", timeout=e2e.SETTLE["timeout"] + 60, abort_on=GUIDE_FAILURES)[0]
+    expect(done.get("Status") == 0, f"SettleDone {strip(done)}")
+    cli.wait_events(start, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
+    out.append("guide settled again")
+    return "; ".join(out)
 
 
 def scenario_third_drop(lane):

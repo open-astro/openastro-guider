@@ -9,8 +9,9 @@
  *  alert's throttle and its clock from Scope::AlertLimitReached
  *  (LimitAlertThrottle, AlertClockS), the PulseGuide-failed alert's throttle
  *  from ScopeAlpaca::Guide (PulseFailedAlertThrottle), what a dither's
- *  fast-recenter step moved (MovedPx, AfterRecenterStep), and the result
- *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult).
+ *  fast-recenter step moved (MovedPx, AfterRecenterStep), the result
+ *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult), and
+ *  when MyFrame::OnMoveComplete stops guiding on failed moves (AfterGuideMove).
  *  Kept free of wx so it can be unit tested (tests/guiding/test_guide_move_plan.cpp).
  */
 
@@ -201,6 +202,21 @@ bool SendDecAfter(MoveResult ra);
 // said not to send it) (#181): dec when it failed, else ra, so an RA pulse error is not hidden
 // by a Dec pulse that went through
 MoveResult OffsetResult(MoveResult ra, MoveResult dec);
+
+// The failed guide moves in a row of one mount after which guiding stops (#213)
+constexpr int MAX_FAILED_GUIDE_MOVES = 10;
+
+struct FailedGuideMoves
+{
+    int inARow = 0; // the mount's failed moves in a row, this one included
+    bool stopGuiding = false; // the mount's pulses keep failing: stop guiding
+};
+
+// MyFrame::OnMoveComplete's count of one mount's failed Mount::MoveOffset results while guiding
+// (#213), after a move that returned result, when failedInARow moves in a row failed before it.
+// A failed move adds one and a good one starts the count again, so guiding stops on the
+// MAX_FAILED_GUIDE_MOVES-th failure in a row and a mount that fails now and then guides on.
+FailedGuideMoves AfterGuideMove(MoveResult result, int failedInARow);
 
 } // namespace guide_move_plan
 

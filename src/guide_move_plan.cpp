@@ -191,4 +191,12 @@ MoveResult OffsetResult(MoveResult ra, MoveResult dec)
     return dec != MoveResult::Ok ? dec : ra;
 }
 
+FailedGuideMoves AfterGuideMove(MoveResult result, int failedInARow)
+{
+    // As today: Mount::ErrorCount() counts every failed move and nothing reads it while guiding
+    FailedGuideMoves failed;
+    failed.inARow = result != MoveResult::Ok ? failedInARow + 1 : failedInARow;
+    return failed;
+}
+
 } // namespace guide_move_plan
