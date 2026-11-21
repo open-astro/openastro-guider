@@ -179,6 +179,11 @@ struct FileDropTarget : public wxFileDropTarget
 MyFrame::MyFrame()
     : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pStatsWin(nullptr)
 {
+    // #168: set the global before building anything. PhdApp::OnInit's pFrame = new MyFrame() assigns it only
+    // when this constructor returns, but the guider, the dialogs and the mount built below already call
+    // MyFrame members through pFrame, which were member calls on a null pointer.
+    pFrame = this;
+
     m_mgr.SetManagedWindow(this);
 
     m_frameCounter = 0;

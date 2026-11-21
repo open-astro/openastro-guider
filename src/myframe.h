@@ -209,7 +209,7 @@ private:
     bool m_autoLoadCalibration;
 
     wxAuiManager m_mgr;
-    PHDStatusBar *m_statusbar;
+    PHDStatusBar *m_statusbar = nullptr;
 
     bool m_continueCapturing; // should another image be captured?
     SingleExposure m_singleExposure;
@@ -225,7 +225,9 @@ public:
     MyFrame();
     virtual ~MyFrame();
 
-    Guider *pGuider;
+    // The constructor sets the global pFrame first (#168), so the objects it builds can call back through
+    // pFrame; the members they read are null (or false) until the constructor creates them.
+    Guider *pGuider = nullptr;
     wxMenuBar *Menubar;
     wxMenu *tools_menu, *view_menu, *bookmarks_menu, *darks_menu;
     wxMenuItem *m_showBookmarksMenuItem;
@@ -247,16 +249,16 @@ public:
     wxComboBox *Dur_Choice;
     wxCheckBox *HotPixel_Checkbox;
     wxSlider *Gamma_Slider;
-    AdvancedDialog *pAdvancedDialog;
-    GraphLogWindow *pGraphLog;
+    AdvancedDialog *pAdvancedDialog = nullptr;
+    GraphLogWindow *pGraphLog = nullptr;
     StatsWindow *pStatsWin;
-    GraphStepguiderWindow *pStepGuiderGraph;
-    GearDialog *pGearDialog;
-    ProfileWindow *pProfile;
-    TargetWindow *pTarget;
-    wxWindow *pGuidingAssistant;
-    bool CaptureActive; // Is camera looping captures?
-    bool m_exposurePending; // exposure scheduled and not completed
+    GraphStepguiderWindow *pStepGuiderGraph = nullptr;
+    GearDialog *pGearDialog = nullptr;
+    ProfileWindow *pProfile = nullptr;
+    TargetWindow *pTarget = nullptr;
+    wxWindow *pGuidingAssistant = nullptr;
+    bool CaptureActive = false; // Is camera looping captures?
+    bool m_exposurePending = false; // exposure scheduled and not completed
     double Stretch_gamma;
     unsigned int m_frameCounter;
     wxDateTime m_guidingStarted;
