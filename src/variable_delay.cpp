@@ -24,6 +24,10 @@ double MsToSeconds(int ms)
 
 int ForNextFrame(bool enabled, int shortDelayMs, int longDelayMs, int timeLapseMs, const FrameState& state)
 {
-    return timeLapseMs; // stub (#182)
+    if (!enabled)
+        return timeLapseMs;
+    if (state.guiding && state.controllerIdle && !state.recentering && state.guidingEnabled)
+        return longDelayMs;
+    return shortDelayMs;
 }
 } // namespace VariableDelay
