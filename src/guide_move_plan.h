@@ -6,8 +6,9 @@
  *  length of each axis's pulse from Mount::MoveOffset (PlanOffset), and the
  *  guiding-disabled refusal, Dec guide mode filter, max-duration clamp and
  *  limit-reached counting from Scope::MoveAxis (PlanAxis), the limit-reached
- *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle), and what a
- *  dither's fast-recenter step moved (MovedPx, AfterRecenterStep).
+ *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle), what a
+ *  dither's fast-recenter step moved (MovedPx, AfterRecenterStep), and the result
+ *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult).
  *  Kept free of wx so it can be unit tested (tests/guiding/test_guide_move_plan.cpp).
  */
 
@@ -156,6 +157,23 @@ struct RecenterProgress
 // steps in a row moved nothing (they failed or were refused), so a mount that does not move ends
 // the recenter and a single failed step is made up by the next ones.
 RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double movedX, double movedY, int stalledSteps);
+
+// == Mount::MOVE_RESULT (mount.h); mount.cpp static_asserts the values
+enum class MoveResult
+{
+    Ok = 0,
+    Error, // failed for an unspecified reason
+    ErrorSlewing, // the scope is slewing
+    ErrorAoLimitReached, // the AO hit its travel limit
+};
+
+// Whether Mount::MoveOffset sends its Dec pulse after its RA move returned ra: not when the
+// scope is slewing or the AO hit its travel limit
+bool SendDecAfter(MoveResult ra);
+
+// Mount::MoveOffset's result for its RA move's ra and its Dec move's dec (Ok when SendDecAfter
+// said not to send it) (#181)
+MoveResult OffsetResult(MoveResult ra, MoveResult dec);
 
 } // namespace guide_move_plan
 

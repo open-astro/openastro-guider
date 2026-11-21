@@ -160,4 +160,14 @@ RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double 
     return progress;
 }
 
+bool SendDecAfter(MoveResult ra)
+{
+    return ra != MoveResult::ErrorSlewing && ra != MoveResult::ErrorAoLimitReached;
+}
+
+MoveResult OffsetResult(MoveResult ra, MoveResult dec)
+{
+    return SendDecAfter(ra) ? dec : ra;
+}
+
 } // namespace guide_move_plan
