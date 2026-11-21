@@ -2,8 +2,8 @@
 """Daemon end-to-end run against the fake Alpaca server (#142 Tier 1).
 
 Starts scripts/fake_alpaca_camera.py and the guider daemon (phd2.bin, headless under xvfb-run with a scratch HOME),
-then drives the daemon over JSON-RPC the way Ara does. Two lanes run at once, each with its own fake, daemon,
-instance, port and display, so the second should cost little wall time (none locally):
+then drives the daemon over JSON-RPC the way Ara does. Four lanes run at once, each with its own fake, daemon,
+instance, port and display, so the others should cost little wall time beside the main lane:
 
 the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir):
 
@@ -30,13 +30,18 @@ RA periodic error in simulated time, seeing and per-frame noise (PHYSICS_FAKE_AR
                  low mass" (no star found), LostLock or Guiding meanwhile, guiding not stopped, and GuideSteps
                  again from the first clear frame
 
-then each lane shuts its daemon down over RPC. A lane fails on a failed check, on the daemon exiting before the
+and the gear and faults lanes of scripts/e2e_equipment_scenarios.py (instance, fake port and display + 2 and + 3,
+<work-dir>/gear and <work-dir>/faults; see its docstring): connect side effects, the #139 latch, auto-connect and the
+#104 retry; camera and mount faults, the #105 reconnect, the Guiding Assistant and its restore.
+
+Then each lane shuts its daemon down over RPC. A lane fails on a failed check, on the daemon exiting before the
 shutdown or with a non-zero status, and on any AddressSanitizer / UndefinedBehaviorSanitizer report in the daemon's
-output; the run fails when either lane does. Everything it collects (the daemon's stdout/stderr and debug log, the
-fake's log, the smoke output, every event received) is left in --work-dir (the physics lane's in its physics/).
+output; the run fails when any lane does. Everything it collects (the daemon's stdout/stderr and debug log, the
+fake's log, the smoke output, every event received) is left in --work-dir (each child lane's in its own subdir).
 
     python3 scripts/e2e_guide_scenarios.py --phd2 build-asan/phd2.bin --work-dir /tmp/e2e
     python3 scripts/e2e_guide_scenarios.py --lane physics ...   # one lane only
+    python3 scripts/e2e_guide_scenarios.py --child-lanes gear ...   # the main lane and the gear lane
 """
 import argparse
 import json
@@ -149,10 +154,11 @@ class Daemon:
 class Fake:
     """scripts/fake_alpaca_camera.py and its control endpoints."""
 
-    def __init__(self, port, work, extra_args=()):
+    def __init__(self, port, work, extra_args=(), log_name="fake_alpaca.log"):
+        """`log_name` is the output file in `work`: a fake started again on the same port takes another one."""
         self.host, self.port = "127.0.0.1", port
         self.url = f"http://{self.host}:{port}"
-        self.log = open(os.path.join(work, "fake_alpaca.log"), "wb")
+        self.log = open(os.path.join(work, log_name), "wb")
         cmd = [sys.executable, os.path.join(REPO, "scripts", "fake_alpaca_camera.py"), "--host", self.host,
                "--port", str(port), *extra_args]
         print(f"e2e: starting {' '.join(cmd)}", flush=True)
@@ -773,33 +779,44 @@ AUTO_DISPLAY_LANE_OFFSET = 100
 TERMINATED = []
 
 
-class LaneChild:
-    """The physics lane, run beside the main lane as a second copy of this script: its own daemon instance
-    (--instance + 1), fake port (+ 1), X display (+ 1) and work dir (<work-dir>/physics). Its output is
-    printed with a [physics] prefix as it comes."""
+# The lanes run beside the main lane by --lane all, each a child process on the main lane's instance, fake port and
+# display + its offset: the physics lane (a second copy of this script) and the gear and faults lanes of
+# scripts/e2e_equipment_scenarios.py
+CHILD_LANES = (("physics", 1), ("gear", 2), ("faults", 3))
 
-    def __init__(self, args, work):
-        self.work = os.path.join(work, "physics")
-        display = args.display if args.display == "auto" else str(int(args.display) + 1)
-        # With --display auto both lanes start xvfb-run -a at about the same moment, and two of them can take the
-        # same free display (it checks for a lock file, then starts Xvfb): the lane's search starts
-        # AUTO_DISPLAY_LANE_OFFSET higher, so the two never meet.
-        auto_from = args.auto_display_from + AUTO_DISPLAY_LANE_OFFSET
+
+class LaneChild:
+    """A lane run beside the main lane as a child process: its own daemon instance (--instance + offset), fake port
+    (+ offset), X display (+ offset) and work dir (<work-dir>/<lane>). Its output is printed with a [<lane>]
+    prefix as it comes."""
+
+    def __init__(self, args, work, lane, offset):
+        self.lane = lane
+        self.work = os.path.join(work, lane)
+        display = args.display if args.display == "auto" else str(int(args.display) + offset)
+        # With --display auto the lanes start xvfb-run -a at about the same moment, and two of them can take the
+        # same free display (it checks for a lock file, then starts Xvfb): each lane's search starts
+        # AUTO_DISPLAY_LANE_OFFSET x its offset higher, so they never meet.
+        auto_from = args.auto_display_from + AUTO_DISPLAY_LANE_OFFSET * offset
         # its own whole-run timeout ends it before this one's, so it shuts its daemon down itself
-        cmd = [sys.executable, os.path.abspath(__file__), "--lane", "physics", "--phd2", args.phd2,
-               "--instance", str(args.instance + 1), "--fake-port", str(args.fake_port + 1), "--display", display,
-               "--auto-display-from", str(auto_from),
-               "--work-dir", self.work, "--timeout", str(max(60.0, args.timeout - 120.0)),
-               "--calibration-timeout", str(args.calibration_timeout * PHYSICS_CALIBRATION_TIMEOUT_FACTOR),
-               "--guide-steps", str(args.guide_steps)]
-        print(f"e2e: starting the physics lane: {' '.join(cmd)}", flush=True)
+        common = ["--phd2", args.phd2, "--instance", str(args.instance + offset), "--fake-port",
+                  str(args.fake_port + offset), "--display", display, "--auto-display-from", str(auto_from),
+                  "--work-dir", self.work, "--timeout", str(max(60.0, args.timeout - 120.0))]
+        if lane == "physics":
+            cmd = [sys.executable, os.path.abspath(__file__), "--lane", "physics", *common,
+                   "--calibration-timeout", str(args.calibration_timeout * PHYSICS_CALIBRATION_TIMEOUT_FACTOR),
+                   "--guide-steps", str(args.guide_steps)]
+        else:
+            cmd = [sys.executable, os.path.join(REPO, "scripts", "e2e_equipment_scenarios.py"), "--lane", lane,
+                   *common, "--calibration-timeout", str(args.calibration_timeout)]
+        print(f"e2e: starting the {lane} lane: {' '.join(cmd)}", flush=True)
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.reader = threading.Thread(target=self._relay, daemon=True)
         self.reader.start()
 
     def _relay(self):
         for line in self.proc.stdout:
-            print("[physics] " + line.decode("utf-8", errors="replace").rstrip("\n"), flush=True)
+            print(f"[{self.lane}] " + line.decode("utf-8", errors="replace").rstrip("\n"), flush=True)
 
     def finish(self, timeout):
         """Wait for the lane, then SIGTERM it (and SIGKILL it if that does not end it) when the timeout passes or
@@ -824,7 +841,7 @@ class LaneChild:
             signal.signal(signal.SIGTERM, prev_term)
         self.reader.join(timeout=10)
         if self.proc.returncode != 0:
-            return [("physics lane", f"exited with status {self.proc.returncode}; logs in {self.work}")]
+            return [(f"{self.lane} lane", f"exited with status {self.proc.returncode}; logs in {self.work}")]
         return []
 
     def ok(self):
@@ -852,8 +869,11 @@ def main():
     ap.add_argument("--lane", choices=("all", "main", "physics"), default="all",
                     help="main: the smoke script and the scenarios on the plain fake; physics: the calibration "
                          "truth, dither and clouds scenarios on a fake with camera angle, cos(Dec), backlash, "
-                         "drift, PE and seeing; all (the default): both at once, the physics lane on instance, "
-                         "fake port and display + 1")
+                         "drift, PE and seeing; all (the default): the main lane and, at the same time, the "
+                         "--child-lanes on instance, fake port and display + 1 (physics), + 2 (gear) and + 3 "
+                         "(faults); gear and faults are scripts/e2e_equipment_scenarios.py's")
+    ap.add_argument("--child-lanes", default=",".join(name for name, _ in CHILD_LANES),
+                    help="with --lane all, the lanes run beside the main lane (comma-separated; empty for none)")
     args = ap.parse_args()
     args.rpc_port = 4400 + args.instance - 1
 
@@ -875,17 +895,22 @@ def main():
     signal.signal(signal.SIGTERM, on_term)
     signal.alarm(int(args.timeout))
 
-    child = LaneChild(args, work) if args.lane == "all" else None
+    wanted = [name for name in args.child_lanes.split(",") if name]
+    unknown = sorted(set(wanted) - {name for name, _ in CHILD_LANES})
+    if unknown:
+        ap.error(f"unknown --child-lanes {unknown}")
+    children = [LaneChild(args, work, name, offset) for name, offset in CHILD_LANES
+                if args.lane == "all" and name in wanted]
     results, failures = [], []
     try:
         results, failures = run_lane("physics" if args.lane == "physics" else "main", args, work, t0)
     finally:
-        if child is not None:
+        for child in children:
             failures += child.finish(args.timeout - (time.time() - t0))
             if child.ok():
-                results.append("physics lane")
+                results.append(f"{child.lane} lane")
         if TERMINATED and not any(name == "run" for name, _ in failures):
-            failures.append(("run", "terminated"))  # during a teardown or the physics lane's wait
+            failures.append(("run", "terminated"))  # during a teardown or a child lane's wait
 
     print("")
     print(f"e2e: {len(results)} passed, {len(failures)} failed, {time.time() - t0:.0f} s; logs in {work}")
