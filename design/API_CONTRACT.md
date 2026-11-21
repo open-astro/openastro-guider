@@ -855,3 +855,25 @@ had one 30 s throttle for both axes, restarted by calls that raised nothing.
   raise it (#153), and `GuideStep`'s `RALimited` / `DecLimited`.
 
 ARA: no code change.
+
+## 2026-11-20 — fast recenter counts what the mount moved (#165)
+
+No API change. After a `dither` with fast recenter on (`/guider/FastRecenter`, the default) the
+guider moves the star back to the new lock in recovery steps that bypass the guide algorithm,
+then the guide algorithm takes over and the settle runs as before.
+
+- Each step now counts only what the mount moved of it. A step cut to the 25 s pulse ceiling
+  (#152) or by an AO's travel is made up by another recenter step, so a client can see one or more
+  extra frames before the guide algorithm takes over, each a `GuideStep` with the pulse sent, as
+  before. So is a step that moved nothing because its move failed once. Three steps in a row that
+  moved nothing (the move keeps failing, or guiding is disabled) end the recenter, and the guide
+  algorithm corrects the rest, instead of the guider sending recenter steps until it had counted
+  the whole dither.
+- When every pulse is sent whole the recenter takes the same steps as before, and the variable
+  exposure delay counts the frames as recentering up to the step that moves the rest of the dither,
+  not the frame after it, as before. After a last step that was cut or failed, that frame is
+  followed by the step that makes it up.
+- Not changed: `dither`'s parameters and result, `GuidingDithered`, the settle and `SettleDone`, and
+  recenter steps still ignoring the Dec guide mode (Off included) and the max RA/Dec duration.
+
+ARA: no code change.

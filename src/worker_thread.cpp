@@ -369,7 +369,7 @@ void WorkerThread::HandleMove(MOVE_REQUEST *req)
 
 MoveCompleteEvent::MoveCompleteEvent(const MOVE_REQUEST& move)
     : wxThreadEvent(wxEVT_THREAD, MYFRAME_WORKER_THREAD_MOVE_COMPLETE), moveOptions(move.moveOptions), result(move.moveResult),
-      mount(move.mount)
+      mount(move.mount), mountMoved(move.ofs.mountMoved)
 {
 }
 
