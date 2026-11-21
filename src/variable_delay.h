@@ -27,10 +27,10 @@ double MsToSeconds(int ms);
 // is written, when it schedules the frame's exposure (#182).
 struct FrameState
 {
-    bool guiding; // Guider::IsGuiding()
-    bool controllerIdle; // PhdController::IsIdle(): no settle or other guide / dither request in progress
-    bool recentering; // Guider::IsRecentering(): a dither's fast recenter still has steps to send
-    bool guidingEnabled; // Mount::GetGuidingEnabled()
+    bool guiding = false; // Guider::IsGuiding()
+    bool controllerIdle = false; // PhdController::IsIdle(): no settle or other guide / dither request in progress
+    bool recentering = false; // Guider::IsRecentering(): a dither's fast recenter still has steps to send
+    bool guidingEnabled = false; // Mount::GetGuidingEnabled()
 };
 
 // The delay in ms before the next frame: the time lapse when the variable delay is off; with it on, the long
