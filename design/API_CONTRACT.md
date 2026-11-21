@@ -823,3 +823,21 @@ method that wrote the file or at a clean exit, so a power cut or kill lost it.
 
 ARA: no code change. A setting it sent is kept across a power cut once it has the answer, unless
 the guider's disk refused the write.
+
+## 2026-11-20 — variable delay in fractional seconds (#174)
+
+`set_variable_delay_settings` cast `ShortDelaySeconds` and `LongDelaySeconds` to an integer before
+multiplying by 1000, so 2.5 s was stored as 2000 ms, and `get_variable_delay_settings` reported the
+stored ms divided by 1000 in integers.
+
+- `set_variable_delay_settings` stores each delay rounded to the nearest ms (2.5 s is 2500 ms).
+  Params, result and errors unchanged.
+- `get_variable_delay_settings` reports the stored delays in seconds with their fraction:
+  `{"Enabled":true,"ShortDelaySeconds":2.5,"LongDelaySeconds":7.25}`. A whole number of seconds
+  is still a JSON integer (`3`, not `3.0`), the type PHD2 documents, so a client that only sends
+  whole seconds reads exactly what it read before. The value is printed with 6 significant digits,
+  so it is exact to the ms below 1000 s (PHD2's own dialog allows up to 10 s short, 120 s long).
+- A profile saved before this keeps its delays: they are stored in ms (`/frame/var_delay/*`), and
+  only a fractional delay sent over JSON-RPC was cut.
+
+ARA: read `ShortDelaySeconds` and `LongDelaySeconds` as numbers, not integers, if it shows them.
