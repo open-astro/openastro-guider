@@ -899,3 +899,15 @@ stored ms divided by 1000 in integers.
   `xvfb-run`, where nobody can open the dialog.
 
 ARA: read `ShortDelaySeconds` and `LongDelaySeconds` as numbers, not integers, if it shows them.
+
+## 2026-11-21 — `guiding_assistant_apply` answers with valid JSON (#184)
+
+No new method or field. The success result's `applied` array listed the applied names without quotes,
+`{"applied":[min_move_ra,min_move_dec]}`, which is not JSON: a client's parser failed on the whole response line.
+
+- `applied` is now an array of strings: `{"applied":["min_move_ra","min_move_dec"]}`, in the order the names were
+  applied (RA, then Dec, then backlash), as before.
+- Not changed: which names `which` accepts, what is applied, the refusals (error 1) and the parameter errors.
+
+ARA: no code change needed if it already expected strings; until now any call that applied something failed to
+parse.
