@@ -922,12 +922,14 @@ calibration had a side of pier until the "did not have side-of-pier information"
 - `declination` is `null` when the calibration's Dec is unknown; a known one is in degrees, as before.
 - New field `pierSide`, after `declination`, when `calibrated` is `true`: `"East"` or `"West"`, the side of pier
   the calibration was made on (after `flip_calibration`, the flipped side; for a restored calibration, the saved
-  one), or `null` when the mount did not report it.
+  one), or `null` when the mount did not report it. An AO calibration (`which: AO`) always has `null`: it does not
+  depend on the side of pier, and the guider does not adjust it for one.
 - Not changed: `calibrated`, the angle, rate and parity fields, the errors, and the result when `calibrated` is
   `false` (`{"calibrated":false}` only).
 
-ARA: treat `declination` `null` as unknown instead of showing a number; it can read `pierSide` `null` to warn
-that guiding on this calibration will not adjust for a meridian flip.
+ARA: treat `declination` `null` as unknown instead of showing a number; for `which: Mount` it can read
+`pierSide` `null` to warn that guiding on this calibration will not adjust for a meridian flip. For `which: AO`
+`pierSide` is always `null` and needs no warning.
 
 ## 2026-11-20 — get_exposure while the camera is disconnected (#176)
 
