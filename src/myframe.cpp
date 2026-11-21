@@ -1902,9 +1902,8 @@ bool MyFrame::Dither(double amount, bool raOnly)
         }
         else
         {
-            // DITHER_RANDOM
-            dRa = amount * ((rand() / (double) RAND_MAX) * 2.0 - 1.0);
-            dDec = raOnly ? 0.0 : amount * ((rand() / (double) RAND_MAX) * 2.0 - 1.0);
+            // DITHER_RANDOM; #173: its own generator, so a start does not repeat the last start's dithers
+            m_ditherRandom.GetDither(amount, raOnly, &dRa, &dDec);
         }
 
         Debug.Write(wxString::Format("dither: size=%.2f, dRA=%.2f dDec=%.2f\n", amount, dRa, dDec));

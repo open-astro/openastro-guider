@@ -823,3 +823,19 @@ method that wrote the file or at a clean exit, so a power cut or kill lost it.
 
 ARA: no code change. A setting it sent is kept across a power cut once it has the answer, unless
 the guider's disk refused the write.
+
+## 2026-11-20 — random dither seeded at startup (#173)
+
+No new method or field. With the dither mode Random (the default; Spiral is unchanged), the
+offsets a `dither` moves the lock by, `GuidingDithered` `dx`/`dy`, came from a sequence that only
+the simulator camera ever seeded, so every start of the guider gave the same dithers in the same
+order (the first 3 px one RA +2.04, Dec −0.63 px). They now come from a generator seeded once at
+startup, so each start gives its own sequence.
+
+- Same distribution as before: RA, and Dec unless the dither is RA only (the request's `raOnly`,
+  `set_dither_settings` `RaOnly`, or Dec guide mode Off), each uniform over [−amount, +amount],
+  `amount` being the request's `amount` times `ScaleFactor`; an RA-only dither has `dy` 0.
+- A client that expected a given offset from a fresh start, as nothing should, gets a different
+  one each start.
+
+ARA: no code change.

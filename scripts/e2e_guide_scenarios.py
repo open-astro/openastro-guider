@@ -557,11 +557,14 @@ def scenario_dither_and_settle(cli, fake, args):
     # fake's true angles the lock must move by that vector, to within the rotation the calibration's xAngle may
     # be off by (TRUTH_ANGLE_DEG). An RA dither landing on the Dec axis, or a mirror the wrong way, misses it by
     # about the dither's length. (MoveLockPosition reflects the dither near the frame's edge; the star is not.)
+    # The dither is random and differs from run to run (#173), so it can be well under a pixel, where the rotation
+    # allows next to nothing: the tolerance also allows the rounding, get_lock_position's 0.01 px on each
+    # coordinate (so up to 0.01 px per axis on the move, 0.0142 px together) and GuidingDithered's 0.001 px.
     xa, ya = math.radians(truth0["x_angle_deg"]), math.radians(truth0["y_angle_deg"])
     want_dx = d_ra * math.cos(xa) + d_dec * math.cos(ya)
     want_dy = d_ra * math.sin(xa) + d_dec * math.sin(ya)
     lock_miss = math.hypot(lock_dx - want_dx, lock_dy - want_dy)
-    lock_tol = 2.0 * math.sin(math.radians(TRUTH_ANGLE_DEG) / 2.0) * math.hypot(d_ra, d_dec) + 0.01
+    lock_tol = 2.0 * math.sin(math.radians(TRUTH_ANGLE_DEG) / 2.0) * math.hypot(d_ra, d_dec) + 0.015
     expect(lock_miss <= lock_tol,
            f"the lock moved ({lock_dx:+.2f}, {lock_dy:+.2f}) px for a dither of RA {d_ra:+.2f} Dec {d_dec:+.2f} px, "
            f"expected ({want_dx:+.2f}, {want_dy:+.2f}) from the true angles: {lock_miss:.3f} px off (at most "

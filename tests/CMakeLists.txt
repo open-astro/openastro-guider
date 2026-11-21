@@ -393,6 +393,20 @@ set_property(TARGET test_settle_frame PROPERTY FOLDER "Unit tests")
 add_test(NAME test_settle_frame COMMAND test_settle_frame)
 
 ############################################################################
+# test_dither_random  --  dither_random.cpp: the offsets of a random dither,
+# from a generator of its own seeded at startup so a daemon start does not
+# repeat the last start's dithers, with the old distribution and range
+# (#173). std-only.
+############################################################################
+add_executable(test_dither_random
+  ${PHD_TESTS_DIR}/guiding/test_dither_random.cpp
+  ${phd_src_dir}/dither_random.cpp
+)
+target_link_libraries(test_dither_random PRIVATE phd_test_common)
+set_property(TARGET test_dither_random PROPERTY FOLDER "Unit tests")
+add_test(NAME test_dither_random COMMAND test_dither_random)
+
+############################################################################
 # test_restore_calibration  --  restore_calibration.cpp: when
 # restore_calibration is refused, returns false or ends a stale guide
 # request before restoring (#102); clear_calibration is refused while
