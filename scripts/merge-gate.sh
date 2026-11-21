@@ -11,6 +11,19 @@
 # repo has no test for the script yet (openastro-ara has one).
 set -euo pipefail
 
+# One flaky GitHub API answer must not fail a gate that waits up to 50 minutes.
+gh_retry() {
+  local n
+  for n in 1 2 3 4 5; do
+    if "$@"; then
+      return 0
+    fi
+    echo "::warning::'$1 $2' failed (try ${n} of 5); retrying." >&2
+    sleep $((n * 5))
+  done
+  "$@"
+}
+
 repo="$1"
 ref="$2"
 wait_minutes="${MERGE_GATE_WAIT_MINUTES:-50}"
@@ -20,7 +33,7 @@ if [ -z "$pr" ]; then
   echo "::error::No pull request number in the merge group ref ${ref}."
   exit 1
 fi
-read -r sha author < <(gh pr view "$pr" --repo "$repo" --json headRefOid,author | jq -r '"\(.headRefOid) \(.author.login)"')
+read -r sha author < <(gh_retry gh pr view "$pr" --repo "$repo" --json headRefOid,author | jq -r '"\(.headRefOid) \(.author.login)"')
 echo "Pull request #${pr} by ${author}, head ${sha}."
 
 # A check that is still running is waited for, not judged: the queue may start
@@ -38,10 +51,10 @@ echo "Pull request #${pr} by ${author}, head ${sha}."
 # the whole wait, twice.
 deadline=$(( $(date +%s) + wait_minutes * 60 ))
 while :; do
-  runs="$(gh api --paginate "repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100" \
+  runs="$(gh_retry gh api --paginate "repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100" \
     | jq -s '[.[].check_runs[] | select(.conclusion != "skipped") | {id, name, status, conclusion, started_at}]
              | group_by(.name) | map(max_by(.id))')"
-  statuses="$(gh api "repos/${repo}/commits/${sha}/status" | jq '[.statuses[] | {context, state}]')"
+  statuses="$(gh_retry gh api "repos/${repo}/commits/${sha}/status" | jq '[.statuses[] | {context, state}]')"
   pending="$(jq -n --argjson r "$runs" --argjson s "$statuses" \
     '[($r[] | select(.status != "completed" and .conclusion == null) | .name), ($s[] | select(.state == "pending") | .context)]')"
   if [ "$(jq length <<<"$pending")" = 0 ]; then
@@ -82,20 +95,21 @@ fi
 # sign-off is the comment's last line, so a comment that only quotes it is not
 # a verdict.
 since="$(jq -r '.started_at' <<<"$review")"
-verdict="$(gh api --paginate "repos/${repo}/issues/${pr}/comments?per_page=100" \
+verdict="$(gh_retry gh api --paginate "repos/${repo}/issues/${pr}/comments?per_page=100" \
   | jq -s -r --arg since "$since" \
-    '[.[][] | select(.user.login | test("^(claude|github-actions)(\\[bot\\])?$"))
+    '[.[][] | select(.user.type == "Bot" and (.user.login | test("^(claude|github-actions)\\[bot\\]$")))
             | select(.updated_at >= $since)
             | (.body | split("\n") | map(select(test("\\S"))) | last // "") as $last
             | select($last | test("^\\s*(✅ Approved|⚠️ Issues found)\\s*$"))
             | {updated_at, verdict: $last}]
      | max_by(.updated_at) | .verdict // ""')"
 if [ -z "$verdict" ]; then
-  # The review action skips a PR that edits its own workflow, and the review
-  # job passes such a PR without a comment; the maintainer reviews it by eye.
-  if gh pr diff "$pr" --repo "$repo" --name-only | grep -qxF ".github/workflows/claude-review.yml"; then
-    echo "::warning::This PR edits the review workflow and got no review comment. Review it by eye."
-    exit 0
+  # The review action skips a PR that edits its own workflow, so no verdict can
+  # exist for it. Such a PR never merges through the queue: the maintainer
+  # reviews it by eye and merges it with an admin bypass.
+  if gh_retry gh pr diff "$pr" --repo "$repo" --name-only | grep -qxF ".github/workflows/claude-review.yml"; then
+    echo "::error::This PR edits the review workflow, so it got no review. A maintainer reviews it by eye and merges it directly."
+    exit 1
   fi
   echo "::error::The review on ${sha} posted no verdict."
   exit 1
