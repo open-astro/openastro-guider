@@ -740,7 +740,8 @@ static void deselect_star(JObj& response, const json_value *params)
 
 static void get_exposure(JObj& response, const json_value *params)
 {
-    response << jrpc_result(pFrame->RequestedExposureDuration());
+    // the stored exposure, also while the camera is disconnected (#176)
+    response << jrpc_result(pFrame->SelectedExposureDuration());
 }
 
 static void get_exposure_durations(JObj& response, const json_value *params)

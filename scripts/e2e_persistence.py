@@ -23,8 +23,9 @@ What is checked, by stage:
   before connecting  create_profile, clone_profile, rename_profile, delete_profile, set_profile_by_name and
                      set_profile; set_alpaca_server, set_selected_camera, set_selected_mount, set_camera_bitdepth,
                      set_profile_setup, set_dark_auto_load, set_dither_settings, set_star_detection,
-                     set_auto_exposure, set_noise_reduction, set_guider_options, set_variable_delay_settings
-  connected          set_algo, set_algo_param, set_exposure, set_dec_guide_mode, set_guide_limits, set_dec_comp,
+                     set_auto_exposure, set_noise_reduction, set_guider_options, set_variable_delay_settings,
+                     set_exposure
+  connected          set_algo, set_algo_param, set_dec_guide_mode, set_guide_limits, set_dec_comp,
                      set_mount_options, set_backlash_comp, set_camera_gain, set_camera_timeout, set_use_subframes,
                      set_camera_saturation
 
@@ -172,6 +173,8 @@ def disconnected_settings(fake):
                 guider),
         Setting("set_variable_delay_settings", rpc("set_variable_delay_settings", delay),
                 fields("get_variable_delay_settings", keys=delay), delay),
+        # get_exposure reads the selected exposure with the camera disconnected too (#176); it read 0
+        Setting("set_exposure", rpc("set_exposure", {"exposure": 2500}), fields("get_exposure"), {"value": 2500}),
     ]
 
 
@@ -203,8 +206,6 @@ def connected_settings():
         Setting("set_algo_param", algo_params, read_algo_params,
                 {"ra minMove": 0.29, "ra aggressiveness": 65.0, "dec minMove": 0.37, "dec aggression": 0.85,
                  "dec fastSwitch": 0}),
-        # get_exposure reads 0 while the camera is not connected
-        Setting("set_exposure", rpc("set_exposure", {"exposure": 2500}), fields("get_exposure"), {"value": 2500}),
         Setting("set_dec_guide_mode", rpc("set_dec_guide_mode", {"mode": "North"}), fields("get_dec_guide_mode"),
                 {"value": "North"}),
         Setting("set_guide_limits", rpc("set_guide_limits", limits), fields("get_guide_limits", keys=limits), limits),
