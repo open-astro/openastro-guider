@@ -2,7 +2,8 @@
 //
 // How Mount::MoveOffset turns a mount-axis offset into a pulse per axis (PlanOffset), and what
 // Scope::MoveAxis does to each pulse before it is sent (PlanAxis): the guiding-disabled refusal,
-// the Dec guide mode filter, the max-duration clamp and the limit-reached count. The rules live
+// the Dec guide mode filter, the max-duration clamp and the limit-reached count; and when
+// Scope::AlertLimitReached raises the limit-reached alert (LimitAlertThrottle). The rules live
 // in src/guide_move_plan.cpp; Scope and Mount keep the Debug lines, the alert and the pulse.
 
 #include <gtest/gtest.h>
@@ -554,4 +555,100 @@ TEST(PlanOffsetAndAxis, ZeroRateRecoveryMoveIsCappedNotSentAsIntMax)
     EXPECT_TRUE(raPlan.capped);
     EXPECT_EQ(decPlan.ms, MAX_PULSE_MS);
     EXPECT_TRUE(decPlan.capped);
+}
+
+// --- LimitAlertThrottle: when Scope::AlertLimitReached raises the alert (#164) ---
+
+namespace
+{
+// A grace period that ended long before the calls of a test
+constexpr int64_t NO_GRACE = 0;
+} // namespace
+
+TEST(LimitAlertThrottle, FirstAlertOfAnAxisIsRaised)
+{
+    LimitAlertThrottle throttle;
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Ra, 1000, NO_GRACE));
+}
+
+TEST(LimitAlertThrottle, SameAxisIsHeldForThirtySeconds)
+{
+    LimitAlertThrottle throttle;
+    ASSERT_TRUE(throttle.ShouldRaise(Axis::Dec, 1000, NO_GRACE));
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1000, NO_GRACE));
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1029, NO_GRACE));
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Dec, 1000 + LIMIT_ALERT_THROTTLE_S, NO_GRACE));
+}
+
+TEST(LimitAlertThrottle, HeldCallsDoNotExtendTheThrottle)
+{
+    // Guide steps keep asking every couple of seconds; the throttle counts from the raised alert
+    LimitAlertThrottle throttle;
+    ASSERT_TRUE(throttle.ShouldRaise(Axis::Ra, 1000, NO_GRACE));
+    for (int64_t t = 1002; t < 1030; t += 2)
+        EXPECT_FALSE(throttle.ShouldRaise(Axis::Ra, t, NO_GRACE)) << "t=" << t;
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Ra, 1030, NO_GRACE));
+}
+
+TEST(LimitAlertThrottle, RaAlertDoesNotSuppressDecAlert)
+{
+    // One function-static time used to hold a Dec alert for 30 s after an RA one
+    LimitAlertThrottle throttle;
+    ASSERT_TRUE(throttle.ShouldRaise(Axis::Ra, 1000, NO_GRACE));
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Dec, 1002, NO_GRACE));
+    // and each axis keeps its own 30 s
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Ra, 1004, NO_GRACE));
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1004, NO_GRACE));
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Ra, 1030, NO_GRACE));
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1031, NO_GRACE));
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Dec, 1032, NO_GRACE));
+}
+
+TEST(LimitAlertThrottle, DecAlertDoesNotSuppressRaAlert)
+{
+    LimitAlertThrottle throttle;
+    ASSERT_TRUE(throttle.ShouldRaise(Axis::Dec, 1000, NO_GRACE));
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Ra, 1010, NO_GRACE));
+}
+
+TEST(LimitAlertThrottle, NothingIsRaisedDuringTheGracePeriod)
+{
+    // DeferPulseLimitAlertCheck: 120 s after a calibration or a guide start
+    LimitAlertThrottle throttle;
+    const int64_t graceEnd = 1120;
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Ra, 1000, graceEnd));
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1119, graceEnd));
+}
+
+TEST(LimitAlertThrottle, CallSuppressedByTheGracePeriodDoesNotRestartTheThrottle)
+{
+    // The time used to be restarted before the grace period was checked, so the guide step that
+    // asked just before the grace period ended held the first alert after it for 30 s more
+    LimitAlertThrottle throttle;
+    const int64_t graceEnd = 1120;
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Ra, 1000, graceEnd));
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Ra, 1110, graceEnd));
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Ra, graceEnd, graceEnd));
+}
+
+TEST(LimitAlertThrottle, GuideStepsThroughTheGracePeriodDoNotHoldTheFirstAlertAfterIt)
+{
+    // Clamped guide steps every 2 s from 1001 ask all through the grace period, and the step at
+    // its end raises the alert
+    LimitAlertThrottle throttle;
+    const int64_t graceEnd = 1120;
+    for (int64_t t = 1001; t < graceEnd; t += 2)
+        EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, t, graceEnd)) << "t=" << t;
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Dec, graceEnd, graceEnd));
+}
+
+TEST(LimitAlertThrottle, GracePeriodAfterARaisedAlertKeepsItsThrottle)
+{
+    // A recalibration after an alert defers the next one; once both have passed it is raised
+    LimitAlertThrottle throttle;
+    ASSERT_TRUE(throttle.ShouldRaise(Axis::Dec, 1000, NO_GRACE));
+    const int64_t graceEnd = 1010;
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1005, graceEnd));
+    EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1015, graceEnd));
+    EXPECT_TRUE(throttle.ShouldRaise(Axis::Dec, 1030, graceEnd));
 }
