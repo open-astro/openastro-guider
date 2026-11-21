@@ -30,6 +30,10 @@ name: CI
 
 on:
   pull_request:
+  # The merge queue builds each queued PR on the latest main and waits for the
+  # required checks to report on this event. The PR-diff jobs skip themselves
+  # on it (they are gated on `pull_request`), which counts as satisfied.
+  merge_group:
   push:
     branches:
       - main
@@ -363,6 +367,8 @@ jobs:
 
   build:
     name: Build + GTest (arm64)
+    # Not required by branch protection, so the queue would not wait for it; the PR's own run and main's push run build it. Skipped on a merge group to save the run.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
@@ -414,6 +420,8 @@ jobs:
     # SIGTERM and SIGKILL. A separate job beside the Release build, in its own build dir, so
     # the GTest job above is unchanged and the two run in parallel.
     name: Daemon e2e (arm64, ASan/UBSan)
+    # Not required by branch protection, so the queue would not wait for it; the PR's own run and main's push run build it. Skipped on a merge group to save the run.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
     steps:
