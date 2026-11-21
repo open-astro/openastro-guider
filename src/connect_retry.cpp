@@ -167,7 +167,7 @@ void Tracker::AfterServerChange(const ServerChangeCarry& carry, int64_t nowMs)
     for (int i = 0; i < 3; i++)
     {
         State& s = m_state[i];
-        // Defensive: set_alpaca_server runs GearDialog's AlpacaServerChanging/Changed (BeforeServerChange,
+        // Defensive: set_alpaca_server runs EquipmentManager's AlpacaServerChanging/Changed (BeforeServerChange,
         // then this) back to back with no user disconnect in between, so this cannot fire there today. Kept
         // for the header's contract, which a unit test pins: a device the user disconnected since the
         // snapshot is not wanted again (#110).

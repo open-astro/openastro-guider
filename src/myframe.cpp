@@ -341,8 +341,8 @@ MyFrame::MyFrame()
 
 MyFrame::~MyFrame()
 {
-    // the requests and the #104 retry first (it joins a probe thread), then the devices, while the AdvancedDialog and
-    // the status bar a disconnecting device updates are still there
+    // the manager stops the #104 retry (it joins a probe thread) before it deletes the devices, while the AdvancedDialog
+    // and the status bar a disconnecting device updates are still there
     delete pGearDialog;
     pGearDialog = nullptr;
     delete pEquipment;
@@ -1120,13 +1120,13 @@ void MyFrame::DoTryReconnect()
         if (exposurePending)
             OnExposeComplete(0, true);
         // #104: the headless daemon keeps retrying slowly; EquipmentReconnected follows when the camera is back
-        pGearDialog->NoteCameraReconnectFailed(
+        pEquipment->NoteCameraReconnectFailed(
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         return;
     }
     m_cameraReconnectAttempts.push_back(now);
 
-    bool err = pGearDialog->ReconnectCamera();
+    bool err = pEquipment->ReconnectCamera();
     if (err)
     {
         Debug.Write("Camera Re-connect failed\n");
@@ -1138,7 +1138,7 @@ void MyFrame::DoTryReconnect()
         if (exposurePending)
             OnExposeComplete(0, true);
         // #104: the headless daemon keeps retrying slowly, with the reason the reconnect failed
-        pGearDialog->NoteCameraReconnectFailed(wxEmptyString);
+        pEquipment->NoteCameraReconnectFailed(wxEmptyString);
     }
     else
     {
@@ -1869,7 +1869,7 @@ void MyFrame::OnClose(wxCloseEvent& event)
 
     // #104: before StopWorkerThread pumps the event loop below, so no background connect attempt starts (and could
     // connect equipment that is about to be disconnected) while the app winds down; waits for a probe in flight
-    pGearDialog->StopConnectRetry(true);
+    pEquipment->StopConnectRetry(true);
 
     // a headless Guiding Assistant run can't finish normally any more; put back the settings it changed
     GuidingAssistant::ApiShutdown();

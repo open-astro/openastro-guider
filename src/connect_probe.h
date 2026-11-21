@@ -2,7 +2,7 @@
  *  connect_probe.h
  *  PHD Guiding
  *
- *  The Alpaca reachability-and-connect probe GearDialog runs before it connects a device that failed to connect
+ *  The Alpaca reachability-and-connect probe EquipmentManager runs before it connects a device that failed to connect
  *  (#104), on a short-timeout AlpacaClient of its own. The sequence is ConnectRetry::RunProbe (connect_retry.h,
  *  unit tested); this file only binds it to AlpacaClient.
  */

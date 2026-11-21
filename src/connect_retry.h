@@ -6,7 +6,7 @@
  *  the slow background retry's schedule and per-device state, when a retry has to
  *  wait, the Alpaca reachability probe that runs before a connect, and the texts
  *  clients get. Kept free of wx so it can be unit tested
- *  (tests/equipment/test_connect_retry.cpp); GearDialog drives it.
+ *  (tests/equipment/test_connect_retry.cpp); EquipmentManager drives it.
  */
 
 #ifndef CONNECT_RETRY_H_INCLUDED
@@ -28,7 +28,7 @@ namespace ConnectRetry
 const int kFirstRetryDelaySec = 15;
 const int kSecondRetryDelaySec = 30;
 const int kMaxRetryDelaySec = 60;
-// How often GearDialog's timer checks for a due device. A check is cheap; the attempt itself runs on a thread.
+// How often EquipmentManager's timer checks for a due device. A check is cheap; the attempt itself runs on a thread.
 const int kTimerTickMs = 1000;
 
 // The probe's own AlpacaClient timeouts, much shorter than the drivers' 10 s connect / 30 s total.
@@ -38,7 +38,7 @@ const long kProbeRequestTimeoutMs = 3000;
 // ASCOM Remote, a bridge opening a serial mount or a USB camera) a connect that succeeds can take several seconds.
 // It runs on the probe thread, so it holds nothing up. Still well below the drivers' 30 s.
 const long kProbePutTimeoutMs = 10000;
-// The guide RPC's connect-first (GearDialog::ConnectForGuide) runs on the main thread, which serves no other RPC or
+// The guide RPC's connect-first (EquipmentManager::ConnectForGuide) runs on the main thread, which serves no other RPC or
 // event meanwhile, so all of it, camera and mount together, gets this much: every GET, PUT and poll gets what is left,
 // whatever its own timeout. A device that has not connected by then is refused and left to the background retry.
 // It stays below the 5 s per-call timeout of Ara's liveness ping.
@@ -66,7 +66,7 @@ enum class Intent
     UserDisconnected,
 };
 
-// Per-device retry state for the camera, mount and rotator. Main thread only: every call comes from GearDialog,
+// Per-device retry state for the camera, mount and rotator. Main thread only: every call comes from EquipmentManager,
 // the RPC handlers or the timer, and the probe thread only hands its result back through CallAfter.
 class Tracker
 {
@@ -95,7 +95,7 @@ public:
     // A connect leaf ended with the device's final state. The camera auto-reconnect (#105, autoReconnecting) sends
     // its own EquipmentReconnected, so a success there is recorded without one; its failure is not recorded here at
     // all, but once DoTryReconnect has sent EquipmentReconnectFailed (OnConnectResult through
-    // GearDialog::NoteCameraReconnectFailed).
+    // EquipmentManager::NoteCameraReconnectFailed).
     LeafOutcome OnLeafResult(GearDevice d, bool connected, bool autoReconnecting, int64_t nowMs, const std::string& reason,
                              bool retryable = true);
 
@@ -115,7 +115,7 @@ public:
     // The selection or the profile changed: d is a new device and its old state no longer applies.
     void Forget(GearDevice d);
 
-    // A device was chosen (GearDialog's choice handlers, which also run when the same device is chosen again:
+    // A device was chosen (EquipmentManager::SelectDevice, which also run when the same device is chosen again:
     // set_selected_*, the re-selection set_alpaca_server makes). Returns true when choice differs from the last one,
     // and the caller must then Forget d; choosing the same device again keeps its state and its retries.
     bool Chosen(GearDevice d, const std::string& choice);
@@ -198,7 +198,7 @@ std::string RetryBlocker(GearDevice d, const Gates& gates);
 // The probe: GET <type>/<n>/connected and, when the server says false, PUT Connected=true, then GET connected until it
 // reads true or kProbeConnectWaitMs has passed. It runs on a background thread for the retry, and on the main thread
 // for the guide RPC, each time with its own short-timeout AlpacaClient; only a device the server reports connected is
-// then connected through GearDialog, which is fast because the drivers skip their PUT and wait for such a device.
+// then connected through EquipmentManager, which is fast because the drivers skip their PUT and wait for such a device.
 class ProbeOps
 {
 public:
@@ -320,8 +320,8 @@ struct GuideFailure
 //   "the mount was not tried in time"
 std::string GuideRefusal(const std::vector<GuideFailure>& failures);
 
-// The reason the drivers give for a failed connect, handed to GearDialog. The drivers write it on the main thread
-// during Connect; GearDialog clears the slot just before it calls Connect and takes it just after, so a write from a
+// The reason the drivers give for a failed connect, handed to EquipmentManager. The drivers write it on the main thread
+// during Connect; EquipmentManager clears the slot just before it calls Connect and takes it just after, so a write from a
 // temporary camera object (get_selected_camera_pixelsize) can't leak into the selected device's result.
 struct ConnectError
 {
