@@ -108,7 +108,8 @@ after `shutdown`, and on any sanitizer report; the daemon's debug log and
 output, the fake's log and every event received are uploaded when it does.
 Two checks are left out: LeakSanitizer is off (`detect_leaks=0`; the
 wxWidgets/GTK and PHD2 singletons are never freed, by design), and the UBSan
-vptr check is not compiled in (`-fno-sanitize=vptr`; see
+vptr check is not compiled in yet (`-fno-sanitize=vptr`; it reports a
+pre-existing socket downcast in the event server, see
 `scripts/e2e_ubsan.supp`).
 Locally, after an ASan build (see the job's Configure step):
 

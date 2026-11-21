@@ -10,3 +10,8 @@
 # GuiderMultiStarConfigDialogCtrlSet, ScopeConfigDialogCtrlSet and Scope::SetMaxRaDuration,
 # SetMaxDecDuration and SetDecGuideMode, were suppressed here until MyFrame's constructor set
 # pFrame before building anything that uses it.
+#
+# The CI build still leaves out -fsanitize=vptr. Its first report is a different, pre-existing
+# finding: EventServer::OnEventServerEvent (event_server.cpp) static_casts the wxSocketBase that
+# wxSocketServer::Accept returns to wxSocketClient, which it is not, on every client connect.
+# The check comes back with the fix for that.

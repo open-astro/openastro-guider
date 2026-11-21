@@ -446,9 +446,9 @@ jobs:
 
       - name: Configure (ASan + UBSan)
         # RelWithDebInfo: optimised with NDEBUG like the shipped .deb, plus line numbers for the
-        # sanitizer stacks. Only the daemon is built below, not the GTest targets. No vptr check:
-        # GCC's reads the vptr right after a null report it continues past, so the known null
-        # findings scripts/e2e_ubsan.supp suppresses would crash inside the check (see that file).
+        # sanitizer stacks. Only the daemon is built below, not the GTest targets. No vptr check
+        # yet: it reports a pre-existing downcast of every accepted JSON-RPC socket (see
+        # scripts/e2e_ubsan.supp).
         run: |
           cmake -S . -B build-asan -DUSE_SYSTEM_GTEST=1 -Wno-dev \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
