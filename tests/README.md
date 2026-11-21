@@ -105,6 +105,7 @@ at once, one per signal, each with its own instance, fake port and display:
 | stop | SIGTERM or SIGKILL to `phd2.bin` itself; after SIGTERM it must exit 0 |
 | restart | the same scratch `HOME` and instance, connect again, read every value back; each one that did not survive is reported with its method name |
 | config write | the first daemon of each pass runs under `strace -ff`: every rename onto the config file must be of a file fsynced first, the config file must never be deleted, and its directory must be fsynced after the rename, so a power cut at any point leaves the old or the new file whole |
+| replace the config | on the config the two runs left, under `strace`: the SIGTERM pass runs `phd2.bin -s <file>`, then `-l <file>` twice (a provisioning script restoring a saved config; the second load restores what is already there), and the SIGKILL pass starts the daemon with `-R` (Reset Configuration) and requires one default profile. Each must exit 0 and leave the config file in place, never deleted, with the profiles `-l` restored |
 
 Methods checked: before connecting, `create_profile`, `clone_profile`,
 `rename_profile`, `delete_profile`, `set_profile_by_name` and `set_profile`,
@@ -118,7 +119,7 @@ connected, `set_algo`, `set_algo_param`, `set_exposure`, `set_dec_guide_mode`,
 `set_camera_saturation`. The script's docstring lists the methods left out
 and why (session state, hardware the fake lacks, or a calibration, Guiding
 Assistant run or dark frames needed first). A pass takes a few seconds
-locally. Locally (it needs `strace`):
+locally (about 6 s under ASan). Locally (it needs `strace`):
 
 ```bash
 python3 scripts/e2e_persistence.py --phd2 build-asan/phd2.bin \

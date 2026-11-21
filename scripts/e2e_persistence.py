@@ -13,7 +13,10 @@ The two passes run at once, each with its own daemon instance, fake Alpaca port 
 the next ones up). The first daemon of each pass runs under strace, which records how the config file is written:
 every write must leave the file whole after a power cut at any point, so the new file has to be fsynced before it is
 renamed over the old one, the old one must never be deleted first, and the directory has to be fsynced after the
-rename (see check_write_protocol). No calibration is needed, so a pass takes a minute or so.
+rename (see check_write_protocol). Then the SIGTERM pass saves the config with `phd2.bin -s <file>` and loads it
+back with `-l <file>` twice, and the SIGKILL pass starts the daemon with `-R` (Reset Configuration), each under strace:
+the config file has to be there afterwards, and never deleted, though these replace the whole config. No calibration
+is needed, so a pass takes a few seconds (about 6 s locally under ASan).
 
 What is checked, by stage:
 
@@ -250,7 +253,14 @@ def stop_daemon(daemon, sig, exe):
     os.kill(daemon_pid(daemon, exe), sig)
     status = daemon.wait(90)
     daemon.kill()
-    # xvfb-run does not wait for its Xvfb, which still holds the display until it is gone; the restart needs it
+    release_display(daemon)
+    expect(status is not None, f"the daemon did not exit within 90 s of {sig.name}")
+    return status
+
+
+def release_display(daemon):
+    """Wait for the daemon's process group to be gone. xvfb-run does not wait for its Xvfb, which still holds the
+    display until it is gone, and the next start on that display needs it."""
     deadline = time.time() + 15
     while True:
         try:
@@ -258,8 +268,6 @@ def stop_daemon(daemon, sig, exe):
         except ProcessLookupError:
             break
         time.sleep(0.1)
-    expect(status is not None, f"the daemon did not exit within 90 s of {sig.name}")
-    return status
 
 
 def check_write_protocol(strace_dir, config_path):
@@ -350,8 +358,8 @@ class Pass:
         except FileNotFoundError:
             return None
 
-    def start_daemon(self, n, wrap=()):
-        daemon = e2e.Daemon(self.args, self.work, log_name=f"phd2-{n}.out", wrap=wrap)
+    def start_daemon(self, n, wrap=(), extra_args=()):
+        daemon = e2e.Daemon(self.args, self.work, log_name=f"phd2-{n}.out", wrap=wrap, extra_args=extra_args)
         with self.lock:
             self.procs.append(daemon)
         cli = e2e.Client(self.rpc_port, daemon, os.path.join(self.work, f"events-{n}.jsonl"), connect_timeout=180)
@@ -371,10 +379,7 @@ class Pass:
         before = disconnected_settings(fake)
         after = connected_settings()
         self.config_path = os.path.join(self.work, "home", f".OpenAstroPHD2-instance{self.args.instance}")
-        strace_dir = os.path.join(self.work, "strace")
-        os.makedirs(strace_dir)
-        wrap = ("strace", "-ff", "-qq", "-y", "-s", "4096", "--seccomp-bpf", "-e", f"trace={STRACE_SYSCALLS}", "-o",
-                os.path.join(strace_dir, "phd2"))
+        strace_dir, wrap = self.strace_wrap("strace")
 
         # first run: set everything and read it back, then stop with the signal
         daemon, cli = self.start_daemon(1, wrap)
@@ -451,10 +456,85 @@ class Pass:
         finally:
             cli.close()
             daemon.kill()
+        release_display(daemon)
         self.end_daemon(daemon, "second run")
         e2e.collect_logs(daemon, self.work)
         fake.stop()
+
+        # the other two paths that replace the whole config, on the config the two runs left
+        if self.sig == signal.SIGTERM:
+            self.check_restore()
+        else:
+            self.check_reset()
         self.log(f"done in {time.time() - t0:.0f} s")
+
+    def strace_wrap(self, name):
+        strace_dir = os.path.join(self.work, name)
+        os.makedirs(strace_dir)
+        return strace_dir, ("strace", "-ff", "-qq", "-y", "-s", "4096", "--seccomp-bpf", "-e",
+                            f"trace={STRACE_SYSCALLS}", "-o", os.path.join(strace_dir, "phd2"))
+
+    def config_op(self, label, args, wrap=()):
+        """Run phd2.bin with `args` (`-s` or `-l`, which exit once done) and return its exit status."""
+        daemon = e2e.Daemon(self.args, self.work, log_name=f"phd2-{label}.out", wrap=wrap, extra_args=args)
+        with self.lock:
+            self.procs.append(daemon)
+        status = daemon.wait(120)
+        daemon.kill()
+        release_display(daemon)
+        self.end_daemon(daemon, label)
+        expect(status is not None, f"phd2.bin {' '.join(args)} did not exit within 120 s")
+        return status
+
+    def check_config_kept(self, what, strace_dir):
+        """After `what`: the config file is there and holds the profiles, and strace saw it written whole."""
+        config = self.config_bytes()
+        if config is None:
+            self.fail(what, f"{self.config_path} is gone afterwards, so the next start makes a new default config")
+        elif MAIN.encode() not in config:
+            self.fail(what, f"{self.config_path} no longer holds the profile {MAIN!r}")
+        for p in check_write_protocol(strace_dir, self.config_path)[1]:
+            self.fail(what, p)
+
+    def check_restore(self):
+        """`phd2.bin -s <file>` then `-l <file>` twice, as a provisioning script restoring a saved config would.
+        The second load restores what is already there, so it must leave the file as it is (#142)."""
+        backup = os.path.join(self.work, "backup.txt")
+        status = self.config_op("save", ("-s", backup))
+        if status != 0:
+            self.fail("-s", f"phd2.bin -s exited with status {status}")
+            return
+        for n in (1, 2):
+            what = f"-l (load {n} of 2)"
+            strace_dir, wrap = self.strace_wrap(f"strace-load-{n}")
+            status = self.config_op(f"load-{n}", ("-l", backup), wrap)
+            if status != 0:
+                self.fail(what, f"phd2.bin -l exited with status {status}")
+            self.check_config_kept(what, strace_dir)
+        self.log("checked -s, then -l twice")
+
+    def check_reset(self):
+        """`phd2.bin -R` (Reset Configuration) replaces every profile with the default one: the config file is
+        rewritten, never deleted, so a power cut during the reset leaves the old config or the new one (#142)."""
+        strace_dir, wrap = self.strace_wrap("strace-reset")
+        daemon, cli = self.start_daemon("reset", wrap, ("-R",))
+        try:
+            names = profile_names(cli)
+            if len(names) != 1 or MAIN in names:
+                self.fail("-R", f"the reset left the profiles {names}, not one default profile")
+            e2e.shutdown(cli, daemon)
+        except Failure as e:
+            self.fail("-R", str(e))
+        finally:
+            cli.close()
+            daemon.kill()
+        release_display(daemon)
+        self.end_daemon(daemon, "reset")
+        if self.config_bytes() is None:
+            self.fail("-R", f"{self.config_path} is gone after the reset and a shutdown")
+        for p in check_write_protocol(strace_dir, self.config_path)[1]:
+            self.fail("-R", p)
+        self.log("checked -R")
 
     def stop_all(self):
         with self.lock:

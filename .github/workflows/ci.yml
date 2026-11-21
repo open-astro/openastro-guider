@@ -491,8 +491,9 @@ jobs:
         # `systemctl stop` sends) in one pass and SIGKILL (the stand-in for a power cut on RC51) in
         # another, starts it again on the same HOME and reads every value back; under strace it also
         # checks that each config write fsyncs the new file before the rename and the directory
-        # after. No calibration, so it is quick: about 5 s locally under ASan, so well under a
-        # minute here. Runs after a failed scenario step too, so one run shows both; the two passes
+        # after, and that `-l <file>` (twice) and `-R`, which replace the whole config, never
+        # delete the file. No calibration, so it is quick: about 6 s locally under ASan, so well
+        # under a minute here. Runs after a failed scenario step too, so one run shows both; the two passes
         # use instances 11 and 12, fake ports 11151 and 11152 and displays :111 and :112, apart from
         # the scenarios'.
         if: ${{ !cancelled() && steps.build-phd2.outcome == 'success' && steps.mmap-bits.outcome == 'success' }}
