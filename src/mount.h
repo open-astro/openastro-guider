@@ -352,8 +352,6 @@ public:
 public:
     virtual bool HasNonGuiMove();
     virtual bool SynchronousOnly();
-    virtual bool HasSetupDialog() const;
-    virtual void SetupDialog();
 
     virtual const wxString& Name() const;
     virtual bool IsStepGuider() const;

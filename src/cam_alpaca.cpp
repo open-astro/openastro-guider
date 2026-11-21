@@ -37,7 +37,6 @@
 
 # include "cam_alpaca.h"
 # include "camera.h"
-# include "config_alpaca.h"
 # include "alpaca_client.h"
 # include "alpaca_errors.h"
 # include "alpaca_poll.h"
@@ -98,7 +97,6 @@ CameraAlpaca::CameraAlpaca()
     m_hasGuideOutput = false;
     HasGainControl = false;
     HasSubframes = true;
-    PropertyDialogType = PROPDLG_WHEN_DISCONNECTED;
     Color = false;
     m_driverVersion = 1;
     m_bitsPerPixel = 0;
@@ -169,11 +167,9 @@ bool CameraAlpaca::GetDevicePixelSize(double *devPixelSize)
 bool CameraAlpaca::Connect(const wxString& camId)
 {
     // If not configured, reload the profile settings in case they were set
-    // over the API since this camera object was created. Never open the setup
-    // dialog from Connect(): connects arrive over JSON-RPC on the headless
-    // daemon, where a modal dialog would hang the main loop (or surface the
-    // hidden GUI on a desktop). The setup dialog is reachable only from the
-    // hidden GUI's camera-setup menu (MyFrame::OnSetupCamera) until S8.
+    // over the API since this camera object was created. The server and
+    // device are set only over JSON-RPC (set_alpaca_server,
+    // set_selected_alpaca_device); there is no setup dialog.
     if (m_port == 0)
     {
         m_host = pConfig->Profile.GetString("/alpaca/host", _T("localhost"));
@@ -196,14 +192,15 @@ bool CameraAlpaca::Connect(const wxString& camId)
 
     Debug.Write(wxString::Format("Alpaca Camera connecting to %s:%ld device %ld\n", m_host, m_port, m_deviceNumber));
 
-    // Recreate client if it doesn't exist or if settings have changed
-    // (AlpacaClient stores host/port for URL building, so we need a new one if they changed)
+    // The client keeps the host, port and device it was made with. They cannot
+    // change under it: set_alpaca_server, set_selected_alpaca_device and a
+    // profile switch re-select the camera, which builds a new CameraAlpaca
+    // (EquipmentManager::SelectCamera), and a camera that was never
+    // configured has no client yet.
     if (!m_client)
     {
         m_client = new AlpacaClient(m_host, m_port, m_deviceNumber);
     }
-    // Note: If client exists but settings changed, CameraSetup() should have deleted it
-    // But we check here just in case Connect() is called directly after profile change
 
     // Check if device is connected
     wxString endpoint = wxString::Format("camera/%ld/connected", m_deviceNumber);
@@ -652,43 +649,6 @@ bool CameraAlpaca::Disconnect()
     Connected = false;
     ClearStatus();
     return false;
-}
-
-void CameraAlpaca::ShowPropertyDialog()
-{
-    CameraSetup();
-}
-
-void CameraAlpaca::CameraSetup()
-{
-    // show the server and device configuration
-    AlpacaConfig alpacaDlg(wxGetApp().GetTopWindow(), _("Alpaca Camera Selection"), ALPACA_TYPE_CAMERA);
-    alpacaDlg.m_host = m_host;
-    alpacaDlg.m_port = m_port;
-    alpacaDlg.m_deviceNumber = m_deviceNumber;
-
-    // initialize with actual values
-    alpacaDlg.SetSettings();
-
-    if (alpacaDlg.ShowModal() == wxID_OK)
-    {
-        // if OK save the values to the current profile
-        alpacaDlg.SaveSettings();
-        m_host = alpacaDlg.m_host;
-        m_port = alpacaDlg.m_port;
-        m_deviceNumber = alpacaDlg.m_deviceNumber;
-        pConfig->Profile.SetString("/alpaca/host", m_host);
-        pConfig->Profile.SetLong("/alpaca/port", m_port);
-        pConfig->Profile.SetLong("/alpaca/camera_device", m_deviceNumber);
-        Name = wxString::Format("Alpaca Camera [%s:%ld/%ld]", m_host, m_port, m_deviceNumber);
-
-        // Recreate client with new settings
-        if (m_client)
-        {
-            delete m_client;
-            m_client = nullptr;
-        }
-    }
 }
 
 bool CameraAlpaca::HasNonGuiCapture()

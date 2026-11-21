@@ -49,7 +49,6 @@ private:
     long m_deviceNumber;
     wxString m_Name;
 
-    void SetupDialog();
     bool WaitForConnected();
 
 public:
@@ -60,8 +59,6 @@ public:
     bool Disconnect() override;
     wxString Name() const override;
     float Position() const override;
-
-    void ShowPropertyDialog() override;
 };
 
 class AlpacaRotatorFactory

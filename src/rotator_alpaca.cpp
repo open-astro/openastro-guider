@@ -36,7 +36,6 @@
 #ifdef ROTATOR_ALPACA
 
 # include "rotator_alpaca.h"
-# include "config_alpaca.h"
 # include "alpaca_client.h"
 # include "connect_retry.h"
 
@@ -238,38 +237,6 @@ float RotatorAlpaca::Position() const
     }
 
     return static_cast<float>(position);
-}
-
-void RotatorAlpaca::ShowPropertyDialog()
-{
-    SetupDialog();
-}
-
-void RotatorAlpaca::SetupDialog()
-{
-    AlpacaConfig alpacaDlg(wxGetApp().GetTopWindow(), _("Alpaca Rotator Selection"), ALPACA_TYPE_ROTATOR);
-    alpacaDlg.m_host = m_host;
-    alpacaDlg.m_port = m_port;
-    alpacaDlg.m_deviceNumber = m_deviceNumber;
-    alpacaDlg.SetSettings();
-
-    if (alpacaDlg.ShowModal() == wxID_OK)
-    {
-        alpacaDlg.SaveSettings();
-        m_host = alpacaDlg.m_host;
-        m_port = alpacaDlg.m_port;
-        m_deviceNumber = alpacaDlg.m_deviceNumber;
-        pConfig->Profile.SetString("/alpaca/host", m_host);
-        pConfig->Profile.SetLong("/alpaca/port", m_port);
-        pConfig->Profile.SetLong("/alpaca/rotator_device", m_deviceNumber);
-        m_Name = wxString::Format("Alpaca Rotator [%s:%ld/%ld]", m_host, m_port, m_deviceNumber);
-
-        if (m_client)
-        {
-            delete m_client;
-            m_client = nullptr;
-        }
-    }
 }
 
 Rotator *AlpacaRotatorFactory::MakeAlpacaRotator()

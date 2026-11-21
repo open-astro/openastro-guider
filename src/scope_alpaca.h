@@ -64,9 +64,6 @@ public:
     bool Connect() override;
     bool Disconnect() override;
 
-    bool HasSetupDialog() const override;
-    void SetupDialog() override;
-
     bool HasNonGuiMove() override;
 
     MOVE_RESULT Guide(GUIDE_DIRECTION direction, int durationMs) override;

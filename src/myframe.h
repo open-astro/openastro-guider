@@ -233,7 +233,6 @@ public:
     wxMenuItem *m_guideMenuItem;
     wxMenuItem *m_stopMenuItem;
     wxMenuItem *m_brainMenuItem;
-    wxMenuItem *m_cameraMenuItem;
     wxMenuItem *m_autoSelectStarMenuItem;
     wxMenuItem *m_takeDarksMenuItem;
     wxMenuItem *m_useDarksMenuItem;
@@ -279,7 +278,6 @@ public:
     void OnIdle(wxIdleEvent& evt);
     void OnEEGG(wxCommandEvent& evt);
     void OnGuidingAssistant(wxCommandEvent& evt);
-    void OnSetupCamera(wxCommandEvent& evt);
     void OnExposureDurationSelected(wxCommandEvent& evt);
     void OnGammaSlider(wxScrollEvent& evt);
     void OnSockServerEvent(wxSocketEvent& evt);
@@ -501,7 +499,6 @@ enum
     BUTTON_AUTOSTAR,
     BUTTON_DURATION,
     BUTTON_ADVANCED,
-    BUTTON_CAM_PROPERTIES,
     BUTTON_ALERT_ACTION,
     BUTTON_ALERT_CLOSE,
     BUTTON_ALERT_HELP,
@@ -520,7 +517,6 @@ enum
     MENU_GUIDE,
     MENU_STOP,
     MENU_BRAIN,
-    MENU_CAM_SETTINGS,
     MENU_XHAIR0,
     MENU_XHAIR1,
     MENU_XHAIR2,
