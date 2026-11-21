@@ -69,11 +69,14 @@ Not a ctest target: the `Daemon e2e (arm64, ASan/UBSan)` CI job builds
 `phd2.bin` with `-fsanitize=address,undefined` in its own build dir and runs
 `scripts/e2e_guide_scenarios.py` (#142). The script starts
 `scripts/fake_alpaca_camera.py` and the daemon (headless under `xvfb-run`,
-scratch `HOME`) and drives it over JSON-RPC, in two lanes at once, each with its
-own fake and daemon (the physics lane on instance, fake port and display + 1, its
-logs in `physics/`), so the second lane should add little wall time (locally,
-under ASan on 8 cores, 289 s for both against 287 s for the main lane alone; on
-the 4-vCPU CI runner that is still to be read off the first run's log):
+scratch `HOME`) and drives it over JSON-RPC, in four lanes at once, each with its
+own fake and daemon: the main lane; the physics lane on instance, fake port and
+display + 1, its logs in `physics/`; and the gear and faults lanes of
+`scripts/e2e_equipment_scenarios.py` on + 2 and + 3, in `gear/` and `faults/`. The
+other lanes should add little wall time to the main lane's (locally, under ASan on
+8 cores, 289 s for the main and physics lanes against 287 s for the main lane
+alone; with the gear and faults lanes see the timings below; on the 4-vCPU CI
+runner that is still to be read off the first run's log):
 
 | Scenario | Checks |
 |---|---|
@@ -84,6 +87,19 @@ the 4-vCPU CI runner that is still to be read off the first run's log):
 | physics: calibration truth | the fake with its mount and sky physics on (a 37° camera, RA moving cos(Dec) as far, 800 ms Dec backlash, drift and RA periodic error in simulated time, 0.15 px seeing, a new noise background each frame, sideofpier following the slews; seeded): slew to Dec 60, `loop`, `find_star`, `guide` with `recalibrate: true`; `get_calibration_data` `xAngle`/`yAngle` within 2° of `GET /fake/truth` and `xRate`/`yRate` within 5 %, plus the full calibration and the guide request's event order as above |
 | physics: dither and settle | on that calibration, `dither` 3 px (random offsets, different on each run since #173) with a settle: `LockPositionSet`, `GuidingDithered`, `SettleBegin`, `Settling`/`GuideStep`…, exactly one `SettleDone` with `Status` 0; the lock moves by the dither mapped through the fake's true camera angles (as a vector, within the 2° the calibration may be off), the first `GuideStep` is the lock's move away from the new lock (as a vector) and the last before `SettleDone` within the settle pixels, and the fake's true star followed the lock to within 0.75 px |
 | physics: clouds | `PUT /fake/clouds` hides the stars for 5 frames while guiding: 5 `StarLost`, each the guider finding no star (`ErrorCode` 2 "Star lost - low SNR" or 3 "Star lost - low mass"; not a mass change, not a camera error), `get_app_state` `LostLock` or `Guiding` meanwhile, guiding not stopped, and a `GuideStep` on the first clear frame |
+| gear: connect side effects | the safety net for #115 step 3, pinning today's behaviour. A new profile with `pixel_size` 2.4 against the fake's 3.75 and a 400 mm focal length. Before connecting: `get_connected` false for `all`, `camera`, `mount`, `rotator`; `get_current_equipment` the two choices, not connected; `get_pixel_scale` from the profile's pixel size. `set_connected true`: `0`, events `ConfigurationChange`, `Alert` (exactly one "Binning or camera pixel size changed unexpectedly", no `Equipment*` event), `get_connected` true but `rotator` false, the names now `<choice> - FakeCam (Synthetic Alpaca camera for tests)` and `<choice> - FakeScope` (kept after a disconnect), the profile's `pixel_size` the camera's, `calibration_duration` recomputed (750 → 300) and both `minMove` the new scale's default (#139); `minMove` 0.42/0.37 and `calibration_duration` 1234 set since are kept by reconnects of all and per device, with no `Alert`. A disconnect sends no event. Refusals (code 1): `set_connected` rotator "no rotator is selected in the profile" (a rotator disconnect is a no-op `0`), a bad device `-32602`; while anything is connected (the camera alone too) `set_selected_camera`, `set_selected_mount`, `set_alpaca_server`, `set_profile_setup`, `set_profile` to another profile and `delete_profile`; `create_profile` (`select` defaults to true) creates the profile and then fails with "cannot set profile when equipment is connected", leaving it there; `set_profile` to the current profile returns `0`. While looping, disconnecting all ("cannot disconnect equipment while capture active") or the camera is refused, the mount's disconnect and connect are accepted and the loop goes on |
+| gear: camera change with the mount off | #139: calibrate (auto-restore on), a reconnect auto-loads the calibration; the pixel size changed and the fake's telescope refusing `Connected=true`: `set_connected true` fails with `"equipment failed to connect: mount (<the server's reason> (Alpaca 1280))"`, the camera connected and one scale `Alert`; the mount connected alone later: `EquipmentReconnected` `mount`, the calibration cleared then (`get_calibrated` false) and not auto-loaded by later reconnects in this process; a new calibration is kept by reconnects of all and per device |
+| gear: `--auto-connect` | the daemon restarted with `--auto-connect`, as `debian/openastro-guider.service` runs it, on the running fake: everything connected when the RPC port first answers, the events on connecting `Version`, `CalibrationComplete` (the auto-loaded calibration), `AppState`, no `Equipment*` event |
+| gear: `--auto-connect`, late fake (#104) | restarted with no Alpaca server: not connected, `Stopped`; the debug log has the auto-connect failure for camera and mount with the reason, then each retry 15 s and then 30 s after the last failure, with no event and no `Alert`; the fake started after the second failure: `EquipmentReconnected` `camera` and `mount` at the third attempt, 30 s later, connected, no `Alert` |
+| faults: camera drop while looping | (an ImageBytes fake, a 2500 ms calibration step and 15 px distance, so a calibration is a few steps a leg) one 1280 while looping: an `Alert`, `LoopingExposuresStopped` twice, `Stopped`, the camera still connected; one 1031: `EquipmentDisconnected` (`reconnecting` true, "The Alpaca server reports the camera as not connected: …"), `Alert`, `EquipmentReconnected`, and the loop goes on |
+| faults: mount read errors during calibration | `declination` and `sideofpier` failing for the whole calibration: it completes (all legs), with no `Alert`; `get_calibration_data` reports the unknown Dec as 57123.9 (`UNKNOWN_DECLINATION`, 997 rad, in degrees), and every `SideOfPier()` read is unknown; the profile's first calibration turns `auto_restore_calibration` on; guiding on that calibration later raises the "did not have side-of-pier information" `Alert` |
+| faults: pulseguide errors | `pulseguide` failing while guiding: one `Alert` per failed pulse (12 for 6 `GuideStep`s), guiding goes on, the mount stays connected, no `Equipment*` event; pulses reach the mount again once it clears |
+| faults: 3rd camera drop | 3 frames in a row failing with 1280 while guiding: `StarLost`, `StarLost`, `EquipmentDisconnected` ("The camera failed 3 image acquisitions in a row (Alpaca error 1280: …)", `reconnecting` true), `EquipmentReconnected`, and guiding goes on |
+| faults: capture timeout | an exposure that never completes (`PUT /fake/hold`) with a 5 s camera timeout: `EquipmentDisconnected` ("After 5.5 sec the camera has not completed a 0.5 sec exposure…"), `EquipmentReconnected`, no `StarLost`, guiding goes on |
+| faults: Alpaca server killed (#105) | the fake stopped while guiding: `Alert` ("Alpaca error -- Cannot poll image ready: no response from the Alpaca server…"), `GuidingStopped`, `LoopingExposuresStopped` twice, `LockPositionLost`, no `StarLost` and no `Equipment*` event; `Stopped`, while `get_connected` still reads true for both; the fake back on the same port: `guide` without recalibrating settles |
+| faults: Guiding Assistant | `guiding_assistant_apply` before a run fails; started while guiding, it turns guide output, multi-star and variable delay off (`GuideParamChange` `MultiStar` and `MountGuidingEnabled`), refuses `guide`, a second start and apply; stopped after 6 samples: `done` with recommendations, every setting restored, and restoring multi-star stops guiding (`GuidingStopped`), auto-selects a star and starts guiding again (`StartGuiding`, no `StarSelected`, `LockPositionSet` or settle). Apply: an unknown name and `dec_backlash` (none measured) refused; `min_move_ra`/`min_move_dec` applied, but the response is not valid JSON (`{"applied":[min_move_ra,min_move_dec]}`, read on a raw connection). Started from looping on the calibration it guides with no calibration and no settle and ends looping on a selected star (`Selected`) |
+| faults: reconnect throttle | 3 camera reconnects (1031) in a few seconds, then a 4th: `EquipmentDisconnected`, `EquipmentReconnectFailed` (`attempts` 3, "auto-reconnect throttle exhausted (3 attempts in 60 s)"), `LoopingExposuresStopped` twice, `Stopped`, the camera disconnected; the #104 retry reconnects it about 15 s later (`EquipmentReconnected`) without restarting capture |
+| faults: GA exit restore | `shutdown` while a Guiding Assistant run measures: the daemon exits 0, and after a restart the multi-star and variable-delay settings the run had turned off read as before it |
 
 The job fails on a failed check, on the daemon crashing or exiting non-zero
 after `shutdown`, and on any sanitizer report; the daemon's debug log and
@@ -99,8 +115,12 @@ python3 scripts/e2e_guide_scenarios.py --phd2 build-asan/phd2.bin \
     --instance 10 --fake-port 11150 --display 110 --work-dir /tmp/e2e
 ```
 
-That also takes instance 11, fake port 11151 and display 111 for the physics
-lane; `--lane main` or `--lane physics` runs one lane only. With `--display auto`
+That also takes instances 11-13, fake ports 11151-11153 and displays 111-113 for
+the physics, gear and faults lanes; `--lane main` or `--lane physics` runs one
+lane only, `--child-lanes` picks the lanes run beside the main lane, and
+`scripts/e2e_equipment_scenarios.py --lane gear|faults` runs an equipment lane
+alone. The equipment lanes pin today's behaviour, quirks included, for #115 step 3;
+a failed check there is a change of behaviour to look at, not always a bug. With `--display auto`
 each lane takes a free display through `xvfb-run -a`, the physics lane searching
 from 100 numbers higher (`--auto-display-from`), so two lanes starting at once
 never take the same one. The fake's physics
