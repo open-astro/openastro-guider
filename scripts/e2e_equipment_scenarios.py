@@ -42,14 +42,14 @@ the gear lane, on a fake that answers ImageBytes (no calibration except the one 
 
 the faults lane, on a fake that answers ImageBytes, with one calibration (a long calibration step, so it is quick):
 
-  camera drop mid-loop    one Alpaca 1280 while looping stops the loop (LoopingExposuresStopped twice); a 1031
+  camera drop mid-loop    one Alpaca 1280 while looping stops the loop (one LoopingExposuresStopped, #186); a 1031
                           reconnects the camera (EquipmentDisconnected reconnecting, EquipmentReconnected) and the
                           loop goes on
   mount read errors       declination and sideofpier failing through the whole calibration: the calibration
   during calibration      completes, get_calibration_data reporting the unknown Dec as 57123.9 (997 rad in degrees);
                           the profile's first calibration turns auto_restore_calibration on
-  pulseguide errors       pulseguide failing while guiding: an Alert for each failed pulse, guiding goes on, the
-                          mount stays connected
+  pulseguide errors       pulseguide failing while guiding: the first failed pulse raises an Alert, and then at most
+                          one every 30 s (#188), not one per failed pulse; guiding goes on, the mount stays connected
   3rd camera drop         3 frames in a row failing with 1280 while guiding: 2 StarLost, then the #103 reconnect
                           (EquipmentDisconnected reconnecting, EquipmentReconnected) and guiding goes on
   capture timeout         an exposure that never completes (/fake/hold): the camera watchdog disconnects and
@@ -104,6 +104,7 @@ QUICK_CALIBRATION = {"calibration_duration": 2500, "calibration_distance": 15}
 EXPOSURE_MS = 500
 SCALE_ALERT = "Binning or camera pixel size changed unexpectedly"
 PULSEGUIDE_ALERT = "PulseGuide command to mount has failed"
+PULSEGUIDE_ALERT_THROTTLE_S = 30  # the shortest time between two PulseGuide failed Alerts (#188)
 # what a reconnect window is: MyFrame::DoTryReconnect allows 3 camera reconnects in 60 s (wall clock)
 RECONNECT_WINDOW_S = 60
 RECONNECT_MAX = 3
@@ -942,10 +943,9 @@ def scenario_camera_drop_loop(lane):
     cli.wait_events(mark, "LoopingExposuresStopped", timeout=60)
     evs = settle_events(cli, mark)
     drop_names = names_of(evs)
-    # a failed frame stops the loop with LoopingExposuresStopped twice (a quirk, pinned as it is)
-    expect(drop_names == ["Alert", "LoopingExposuresStopped", "LoopingExposuresStopped"],
-           f"events of a 1280 while looping: {drop_names}, expected ['Alert', 'LoopingExposuresStopped', "
-           "'LoopingExposuresStopped']")
+    # #186: a failed frame stops the loop with one LoopingExposuresStopped
+    expect(drop_names == ["Alert", "LoopingExposuresStopped"],
+           f"events of a 1280 while looping: {drop_names}, expected ['Alert', 'LoopingExposuresStopped']")
     expect(cli.call("get_app_state") == "Stopped", f"app state {cli.call('get_app_state')} after a 1280 while looping")
     expect(cli.call("get_connected") is True, "the camera disconnected after a 1280 while looping")
     out.append(f"1280 while looping: {drop_names}, Stopped")
@@ -1009,7 +1009,8 @@ def scenario_mount_read_errors_calibration(lane, args):
 
 
 def scenario_pulseguide_errors(lane):
-    """pulseguide failing while guiding: an Alert for each failed pulse, guiding goes on, the mount stays connected."""
+    """pulseguide failing while guiding: one Alert, at most one every 30 s (#188), guiding goes on, the mount stays
+    connected."""
     cli, fake = lane.cli, lane.fake
     expect(cli.call("get_app_state") == "Guiding", "not guiding")
     # bigger corrections, so every frame sends a pulse
@@ -1023,9 +1024,13 @@ def scenario_pulseguide_errors(lane):
     evs = settle_events(cli, mark)
     failed = fake_log_since(lane, log0).count("injected error 1280 on /api/v1/telescope/0/pulseguide")
     pulse_alerts = alerts(evs, PULSEGUIDE_ALERT)
-    # one Alert per failed pulse, not throttled (two a frame when both axes correct)
-    expect(failed > 0 and len(pulse_alerts) == failed,
-           f"{len(pulse_alerts)} PulseGuide Alerts for {failed} failed pulses: {names_of(evs)}")
+    # throttled (#188): the first failed pulse raises the Alert, and then at most one every
+    # PULSEGUIDE_ALERT_THROTTLE_S, not one per failed pulse (two a frame when both axes correct)
+    expect(failed > 1 and pulse_alerts, f"{len(pulse_alerts)} PulseGuide Alerts for {failed} failed pulses")
+    gaps = [b["_t"] - a["_t"] for a, b in zip(pulse_alerts, pulse_alerts[1:])]
+    expect(all(g > PULSEGUIDE_ALERT_THROTTLE_S - 1 for g in gaps),
+           f"{len(pulse_alerts)} PulseGuide Alerts for {failed} failed pulses, "
+           f"{[round(g, 1) for g in gaps]} s apart, expected at most one every {PULSEGUIDE_ALERT_THROTTLE_S} s")
     expect(cli.call("get_app_state") == "Guiding", "not guiding after the pulseguide errors")
     expect(cli.call("get_connected", {"device": "mount"}) is True, "the mount disconnected")
     expect(not [e for e in evs if e["Event"].startswith("Equipment")], f"Equipment* events: {names_of(evs)}")
@@ -1107,8 +1112,8 @@ def scenario_fake_killed(lane):
     expect(not [e for e in evs if e["Event"].startswith("Equipment")], f"Equipment* events: {names}")
     lost = [e for e in evs if e["Event"] == "StarLost"]
     seq = [n for n in names if n != "ConfigurationChange"]
-    expect(seq == ["Alert", "GuidingStopped", "LoopingExposuresStopped", "LoopingExposuresStopped",
-                   "LockPositionLost"], f"events with the server gone: {seq}")
+    expect(seq == ["Alert", "GuidingStopped", "LoopingExposuresStopped", "LockPositionLost"],
+           f"events with the server gone: {seq}")  # one LoopingExposuresStopped (#186)
     alert = alerts(evs)[0].get("Msg", "")
     expect(alert.startswith("Alpaca error -- Cannot poll image ready: no response from the Alpaca server") or
            alert.startswith("Error reading image: no response from the Alpaca server"), f"Alert {alert!r}")
@@ -1268,8 +1273,7 @@ def scenario_reconnect_throttle(lane):
     expect(cli.call("get_app_state") == "Stopped", f"app state {cli.call('get_app_state')} after the throttle")
     expect(cli.call("get_connected", {"device": "camera"}) is False, "the camera reads connected after the throttle")
     seq = [n for n in names if n.startswith("Equipment") or n == "LoopingExposuresStopped"]
-    want_seq = ["EquipmentDisconnected", "EquipmentReconnectFailed", "LoopingExposuresStopped",
-                "LoopingExposuresStopped"]
+    want_seq = ["EquipmentDisconnected", "EquipmentReconnectFailed", "LoopingExposuresStopped"]  # one (#186)
     expect(seq == want_seq, f"events of the 4th reconnect: {seq}, expected {want_seq}")
     # the #104 retry takes over
     rec = cli.wait_events(mark, "EquipmentReconnected", timeout=RETRY_FIRST_S + 45)[0]

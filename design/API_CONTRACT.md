@@ -945,3 +945,55 @@ parse.
 
 ARA: no code change needed. It can read `get_exposure` before connecting and show the selected
 exposure; it no longer has to treat `0` as "not connected".
+
+## 2026-11-20 — setters answered without the 40 ms delayed-ACK wait (#175)
+
+A setter that sends an event before its response (`ConfigurationChange` for any profile write)
+took about 45 ms to answer, against about 0.1 ms for a getter: the event and the response are two
+small writes, and without `TCP_NODELAY` the response waited for the client's delayed ACK of the
+event. The event server now sets `TCP_NODELAY` on every accepted JSON-RPC (`:4400`) and HTTP
+(`:8080`) connection, and a setter is answered in well under a millisecond on a Release build.
+
+- No change to any method, event, or the order of the bytes on the wire: the `ConfigurationChange`
+  event still arrives before the response, only without the wait between them.
+
+ARA: no code change. Its connect and profile-change setter sequences finish about 45 ms per call
+sooner.
+
+## 2026-11-21 — one `LoopingExposuresStopped` per failed capture frame (#186)
+
+No new method or field. A capture frame that failed for good (not one of the #116 / #136 retried
+frames) while the guider was looping, calibrating or guiding sent `LoopingExposuresStopped` twice in
+a row: a 1280 while looping, the Alpaca server going away while guiding, and the camera reconnect
+throttle running out (`EquipmentReconnectFailed`) each ended with two.
+
+- It is now sent once, in the same place as the first one was, so the order is otherwise unchanged:
+  `Alert`, then `GuidingStopped` when guiding, `LoopingExposuresStopped`, then `LockPositionLost`
+  when the lock is lost; and `EquipmentDisconnected`, `EquipmentReconnectFailed`,
+  `LoopingExposuresStopped` for the throttle.
+- With a `guide` request in flight, its `SettleDone` follows the one `LoopingExposuresStopped` when
+  looping or selecting a star, and no event comes after it (the second stop used to come after it);
+  when calibrating or guiding the order is `GuidingStopped`, `SettleDone`, `LoopingExposuresStopped`.
+  `doc/jsonrpc_api.md` gives the same order.
+- Not changed: a frame that fails after a `stop_capture`, or a `capture_single_frame` that fails,
+  still sends one; the failure reasons in the `Alert` and in a failed guide request's `SettleDone`;
+  `get_app_state` reading `Stopped`.
+
+ARA: no code change. A client that counted the stops, or took the second one as a new stop after it
+had already started looping again, now sees one.
+
+## 2026-11-21 — PulseGuide-failed alert throttled (#188)
+
+No new method, field or event. The `Alert` event "PulseGuide command to mount has failed - guiding is
+likely to be ineffective." was sent for every guide pulse the Alpaca mount failed, so a mount that
+stops taking pulses sent two identical alerts a frame when both axes corrected.
+
+- The first failed pulse still sends the alert at once; after it, at most one is sent every 30 s per
+  mount, whichever axis failed. The 30 s is timed to the whole second, so two alerts can be just
+  over 29 s apart. It starts only when an alert is sent, and runs on a steady clock, so a system clock change does not hold it back.
+- Not changed: the alert text and flags, its "don't show again" setting
+  (`/Confirm/<profile>/PulseGuideFailedAlertEnabled`), the failed pulse counting as a failed move,
+  guiding going on, and the "Guiding stopped: the scope started slewing." alert.
+
+ARA: no code change; it gets one alert for a run of failed pulses instead of one per pulse, so it
+should not count `Alert` events to judge how many pulses failed.
