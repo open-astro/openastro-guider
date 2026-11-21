@@ -117,4 +117,15 @@ AxisPlan PlanAxis(Dir dir, int ms, unsigned moveOptions, const AxisPolicy& polic
     return plan;
 }
 
+bool LimitAlertThrottle::ShouldRaise(Axis /*axis*/, int64_t nowS, int64_t deferredUntilS)
+{
+    // #164 red: what Scope::AlertLimitReached does today, one time for both axes, restarted
+    // before the grace period is checked
+    if (m_raised[0] && nowS < m_lastRaisedS[0] + LIMIT_ALERT_THROTTLE_S)
+        return false;
+    m_raised[0] = true;
+    m_lastRaisedS[0] = nowS;
+    return nowS >= deferredUntilS;
+}
+
 } // namespace guide_move_plan
