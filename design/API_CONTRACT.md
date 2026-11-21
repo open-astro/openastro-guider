@@ -893,5 +893,9 @@ stored ms divided by 1000 in integers.
   so it is exact to the ms below 1000 s (PHD2's own dialog allows up to 10 s short, 120 s long).
 - A profile saved before this keeps its delays: they are stored in ms (`/frame/var_delay/*`), and
   only a fractional delay sent over JSON-RPC was cut.
+- The inherited Advanced Settings dialog still shows whole seconds and writes both delays back when
+  it is closed with OK, so on a desktop run that cuts a fractional delay to whole seconds (2.5 s
+  becomes 2 s) even if its delay fields were not touched. The packaged service runs headless under
+  `xvfb-run`, where nobody can open the dialog.
 
 ARA: read `ShortDelaySeconds` and `LongDelaySeconds` as numbers, not integers, if it shows them.
