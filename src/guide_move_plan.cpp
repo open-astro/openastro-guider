@@ -135,6 +135,13 @@ bool LimitAlertThrottle::ShouldRaise(Axis axis, int64_t nowS, int64_t deferredUn
     return true;
 }
 
+bool PulseFailedAlertThrottle::ShouldRaise(int64_t nowS)
+{
+    // Stub: what ScopeAlpaca::Guide does today, an alert for every failed pulse (#188)
+    (void) nowS;
+    return true;
+}
+
 double MovedPx(double distancePx, int requestedMs, int sentMs, double rate)
 {
     double distance = std::fabs(distancePx);

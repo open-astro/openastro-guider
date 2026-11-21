@@ -3,7 +3,8 @@
 // How Mount::MoveOffset turns a mount-axis offset into a pulse per axis (PlanOffset), and what
 // Scope::MoveAxis does to each pulse before it is sent (PlanAxis): the guiding-disabled refusal,
 // the Dec guide mode filter, the max-duration clamp and the limit-reached count; and when
-// Scope::AlertLimitReached raises the limit-reached alert (LimitAlertThrottle); and what a
+// Scope::AlertLimitReached raises the limit-reached alert (LimitAlertThrottle); when
+// ScopeAlpaca::Guide raises the PulseGuide-failed alert (PulseFailedAlertThrottle); what a
 // dither's fast-recenter step moved (MovedPx, AfterRecenterStep); and the result Mount::MoveOffset
 // reports for its two pulses (SendDecAfter, OffsetResult). The rules live
 // in src/guide_move_plan.cpp; Scope and Mount keep the Debug lines, the alert and the pulse.
@@ -654,6 +655,47 @@ TEST(LimitAlertThrottle, GracePeriodAfterARaisedAlertKeepsItsThrottle)
     EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1005, graceEnd));
     EXPECT_FALSE(throttle.ShouldRaise(Axis::Dec, 1015, graceEnd));
     EXPECT_TRUE(throttle.ShouldRaise(Axis::Dec, 1030, graceEnd));
+}
+
+// --- PulseFailedAlertThrottle: when ScopeAlpaca::Guide raises the PulseGuide-failed alert (#188) ---
+
+TEST(PulseFailedAlertThrottle, FirstFailedPulseRaisesTheAlert)
+{
+    PulseFailedAlertThrottle throttle;
+    EXPECT_TRUE(throttle.ShouldRaise(1000));
+}
+
+TEST(PulseFailedAlertThrottle, BothAxesFailingEveryFrameRaiseOneAlertEveryThirtySeconds)
+{
+    // A mount that stops taking pulses: an RA and a Dec pulse fail every 2 s frame. Each failed
+    // pulse used to raise its own alert, 12 for 6 frames
+    PulseFailedAlertThrottle throttle;
+    int raised = 0;
+    for (int64_t t = 1000; t < 1000 + 3 * PULSE_FAILED_ALERT_THROTTLE_S; t += 2)
+    {
+        raised += throttle.ShouldRaise(t) ? 1 : 0; // RA
+        raised += throttle.ShouldRaise(t) ? 1 : 0; // Dec
+    }
+    EXPECT_EQ(raised, 3);
+}
+
+TEST(PulseFailedAlertThrottle, HeldForThirtySecondsFromTheRaisedAlert)
+{
+    PulseFailedAlertThrottle throttle;
+    ASSERT_TRUE(throttle.ShouldRaise(1000));
+    EXPECT_FALSE(throttle.ShouldRaise(1000));
+    for (int64_t t = 1001; t < 1000 + PULSE_FAILED_ALERT_THROTTLE_S; ++t)
+        EXPECT_FALSE(throttle.ShouldRaise(t)) << "t=" << t;
+    EXPECT_TRUE(throttle.ShouldRaise(1000 + PULSE_FAILED_ALERT_THROTTLE_S));
+    EXPECT_FALSE(throttle.ShouldRaise(1001 + PULSE_FAILED_ALERT_THROTTLE_S));
+}
+
+TEST(PulseFailedAlertThrottle, FailureAfterAQuietSpellIsRaisedAtOnce)
+{
+    // Pulses failed, then went through for a while; the next failure is past the 30 s
+    PulseFailedAlertThrottle throttle;
+    ASSERT_TRUE(throttle.ShouldRaise(1000));
+    EXPECT_TRUE(throttle.ShouldRaise(1300));
 }
 
 // --- MovedPx: what one axis of a fast-recenter step moved (#165) ---
