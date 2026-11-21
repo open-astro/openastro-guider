@@ -39,6 +39,8 @@ enum class CaptureFailureAction
     Reconnect, // disconnect with RECONNECT: EquipmentDisconnected{reconnecting:true}, then the auto-reconnect
 };
 
+struct CallError;
+
 // Counts consecutive 1280 capture failures across capture attempts. 1031 reconnects at
 // once; the kAcquisitionFailuresBeforeReconnect-th 1280 in a row reconnects. Either one
 // starts a new run. A good frame, Connect and Disconnect reset the count (OnSuccess /
@@ -49,6 +51,9 @@ class CaptureFailureTracker
 {
 public:
     CaptureFailureAction OnFailure(long errorNumber);
+    // The failed capture call's CallError: an Alpaca error goes by its number; HTTP, transport and parse
+    // failures carry none, so they count as 0.
+    CaptureFailureAction OnFailure(const CallError& error);
     void OnSuccess() { m_consecutive.store(0); }
     void Reset() { m_consecutive.store(0); }
     int Consecutive() const { return m_consecutive.load(); }
@@ -79,6 +84,7 @@ struct CallError
     long httpStatus = 0; // 0 when no response came
     long alpacaError = 0; // the Alpaca ErrorNumber; 0 unless kind is Alpaca
     std::string message; // raw bytes from the server or curl, not necessarily valid UTF-8
+    long curlCode = 0; // the curl error (CURLcode) of a Transport failure; 0 otherwise
 };
 
 // The cap, in bytes, on a reason built by CallErrorReason or OneLine.

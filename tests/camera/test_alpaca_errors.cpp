@@ -500,3 +500,68 @@ TEST(CallErrorScope, NullTargetIsFine)
     scope.Set(CallError::Kind::Transport, 0, 0, "x");
     EXPECT_NE(scope.Target(), nullptr);
 }
+
+// #190: the CallError a capture call failed with. A refused connection (CURLE_COULDNT_CONNECT: nothing is
+// listening on the Alpaca port, the server is not running) reconnects the camera at once, like 1031, so the
+// outage is reported as EquipmentDisconnected{reconnecting:true} and the camera is recovered when the server is
+// back. It is told by curl's code, not its text, which curl 8.14 changed from "Couldn't connect to server" to
+// "Could not connect to server". Other transport failures, HTTP and parse failures keep the alert, and an
+// Alpaca error is counted by its number.
+namespace
+{
+const long kCurleCouldntConnect = 7; // CURLE_COULDNT_CONNECT
+const long kCurleOperationTimedOut = 28; // CURLE_OPERATION_TIMEDOUT
+const long kCurleCouldntResolveHost = 6; // CURLE_COULDNT_RESOLVE_HOST
+
+AlpacaErrors::CallError MakeCallError(AlpacaErrors::CallError::Kind kind, long httpStatus, long alpacaError,
+                                      const std::string& message, long curlCode = 0)
+{
+    AlpacaErrors::CallError e;
+    e.kind = kind;
+    e.httpStatus = httpStatus;
+    e.alpacaError = alpacaError;
+    e.message = message;
+    e.curlCode = curlCode;
+    return e;
+}
+
+using Kind = AlpacaErrors::CallError::Kind;
+} // namespace
+
+TEST(CaptureFailureTracker, RefusedConnectionReconnectsOnFirstFailure)
+{
+    CaptureFailureTracker t;
+    t.OnFailure(1280);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "Couldn't connect to server", kCurleCouldntConnect)),
+              CaptureFailureAction::Reconnect);
+    EXPECT_EQ(t.Consecutive(), 0);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "Could not connect to server", kCurleCouldntConnect)),
+              CaptureFailureAction::Reconnect);
+}
+
+TEST(CaptureFailureTracker, OtherCallFailuresKeepTheAlert)
+{
+    CaptureFailureTracker t;
+    t.OnFailure(1280);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "Timeout was reached", kCurleOperationTimedOut)),
+              CaptureFailureAction::Alert);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "Couldn't resolve host name", kCurleCouldntResolveHost)),
+              CaptureFailureAction::Alert);
+    // "curl not initialized": no curl call was made
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "curl not initialized")), CaptureFailureAction::Alert);
+    // only the code counts, not the text
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "Couldn't connect to server")), CaptureFailureAction::Alert);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Http, 500, 0, "Couldn't connect to server")), CaptureFailureAction::Alert);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Parse, 200, 0, "bad JSON")), CaptureFailureAction::Alert);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Alpaca, 200, 1035, "Couldn't connect to server")), CaptureFailureAction::Alert);
+    EXPECT_EQ(t.Consecutive(), 1);
+}
+
+TEST(CaptureFailureTracker, AlpacaCallErrorsCountByNumber)
+{
+    CaptureFailureTracker t;
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Alpaca, 200, 1031, "not connected")), CaptureFailureAction::Reconnect);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Alpaca, 200, 1280, "drop")), CaptureFailureAction::Alert);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Alpaca, 200, 1280, "drop")), CaptureFailureAction::Alert);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Alpaca, 200, 1280, "drop")), CaptureFailureAction::Reconnect);
+}

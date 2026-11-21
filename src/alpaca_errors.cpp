@@ -36,6 +36,11 @@ CaptureFailureAction CaptureFailureTracker::OnFailure(long errorNumber)
     return CaptureFailureAction::Alert;
 }
 
+CaptureFailureAction CaptureFailureTracker::OnFailure(const CallError& error)
+{
+    return OnFailure(error.kind == CallError::Kind::Alpaca ? error.alpacaError : 0);
+}
+
 bool ReadError(const json_value *root, long *errorNumber, std::string *errorMessage)
 {
     if (!root || root->type != JSON_OBJECT)
