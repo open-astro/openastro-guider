@@ -226,7 +226,9 @@ void GuiderMultiStar::SetMultiStarMode(bool val)
             // and starting again moved the lock to wherever the star was, with no StarSelected, LockPositionSet or
             // settle for the client. Secondary stars from the selection are found again at their offsets from the
             // primary once it has stabilized, as after a lock position change; without any, guiding goes on with
-            // the single star until the next selection.
+            // the single star until the next selection. Their references are taken again once the primary has
+            // stabilized, the same refresh PHD2 makes after a dither. The lock did not move here, so any offset
+            // left when stabilization ends is carried into them; keeping the selection's references would avoid it.
             if (m_guideStars.size() > 1)
             {
                 m_lockPositionMoved = true;
