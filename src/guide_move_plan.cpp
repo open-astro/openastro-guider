@@ -134,4 +134,20 @@ bool LimitAlertThrottle::ShouldRaise(Axis axis, int64_t nowS, int64_t deferredUn
     return true;
 }
 
+double MovedPx(double distancePx, int /*requestedMs*/, int /*sentMs*/, double /*rate*/)
+{
+    // #165 red: what Guider does today, the step counts as moved whatever was sent
+    return std::fabs(distancePx);
+}
+
+RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double movedX, double movedY)
+{
+    // #165 red: what Guider does today
+    RecenterProgress progress;
+    progress.remainingX = remainingX - movedX;
+    progress.remainingY = remainingY - movedY;
+    progress.done = progress.remainingX < 0.5 && progress.remainingY < 0.5;
+    return progress;
+}
+
 } // namespace guide_move_plan

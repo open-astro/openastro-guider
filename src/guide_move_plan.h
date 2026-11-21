@@ -5,8 +5,9 @@
  *  How a guide correction becomes mount pulses (#142): the direction and
  *  length of each axis's pulse from Mount::MoveOffset (PlanOffset), and the
  *  guiding-disabled refusal, Dec guide mode filter, max-duration clamp and
- *  limit-reached counting from Scope::MoveAxis (PlanAxis), and the limit-reached
- *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle).
+ *  limit-reached counting from Scope::MoveAxis (PlanAxis), the limit-reached
+ *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle), and what a
+ *  dither's fast-recenter step moved (MovedPx, AfterRecenterStep).
  *  Kept free of wx so it can be unit tested (tests/guiding/test_guide_move_plan.cpp).
  */
 
@@ -129,6 +130,26 @@ private:
     bool m_raised[2] = { false, false };
     int64_t m_lastRaisedS[2] = { 0, 0 };
 };
+
+// The px one axis of a Mount::MoveOffset moved of distancePx (#165). MoveOffset asked MoveAxis for
+// requestedMs (the axis's PulseMs, plus any Dec backlash compensation) and MoveAxis sent sentMs
+// (MoveResultInfo::amountMoved), which is less when PlanAxis caps the pulse at MAX_PULSE_MS or an
+// AO's travel cuts its steps, and 0 when the move fails or is refused. rate is the px per ms (per
+// step for an AO) MoveOffset sized the pulse with. All of |distancePx| when the whole pulse was
+// sent, none when nothing was, else |distancePx| less the unsent part at rate, at least 0.
+double MovedPx(double distancePx, int requestedMs, int sentMs, double rate);
+
+struct RecenterProgress
+{
+    double remainingX = 0.0; // px still to move on each mount axis
+    double remainingY = 0.0;
+    bool done = false; // the fast recenter is over: the guide algorithm corrects what is left
+};
+
+// Guider's dither fast recenter after one of its steps (#165): remainingX/Y px (magnitudes) less
+// the movedX/Y px the step moved. It is done when under 0.5 px is left on both axes, or when the
+// step moved nothing (it failed or was refused), so a mount that does not move ends the recenter.
+RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double movedX, double movedY);
 
 } // namespace guide_move_plan
 
