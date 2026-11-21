@@ -160,4 +160,16 @@ RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double 
     return progress;
 }
 
+bool SendDecAfter(MoveResult ra)
+{
+    return ra != MoveResult::ErrorSlewing && ra != MoveResult::ErrorAoLimitReached;
+}
+
+MoveResult OffsetResult(MoveResult ra, MoveResult dec)
+{
+    // A failed Dec pulse fails the move; else the RA pulse's result stands. With the Dec pulse
+    // sent, RA was Ok or Error, so a Dec slew or AO limit, which OnMoveComplete acts on, wins
+    return dec != MoveResult::Ok ? dec : ra;
+}
+
 } // namespace guide_move_plan
