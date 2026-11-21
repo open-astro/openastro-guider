@@ -114,8 +114,6 @@ public:
     void AlpacaServerChanged();
     // Shutdown: stop retrying and ask a probe in flight to stop; join also waits for it (a request timeout at most).
     void StopConnectRetry(bool join);
-    wxString SelectedCameraId() const;
-    static wxString CameraSelectionKey(const wxString& camName);
 
 private:
     void Initialize();

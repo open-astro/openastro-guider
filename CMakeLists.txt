@@ -174,6 +174,8 @@ set(cam_SRC
   ${phd_src_dir}/imaging_gear_poller.h
   ${phd_src_dir}/connect_request.cpp
   ${phd_src_dir}/connect_request.h
+  ${phd_src_dir}/gear_selection.cpp
+  ${phd_src_dir}/gear_selection.h
   ${phd_src_dir}/connect_retry.cpp
   ${phd_src_dir}/connect_retry.h
   ${phd_src_dir}/connect_probe.cpp

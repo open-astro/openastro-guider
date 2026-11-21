@@ -303,6 +303,10 @@ private:
     CaptureFailures::Failure m_lastCaptureFailure;
 };
 
+// The profile key of the camera id saved for a camera choice (GearSelection::CameraSelectionKeyFor of the name);
+// get/set_selected_camera_id and the camera connect read it
+wxString CameraSelectionKey(const wxString& camName);
+
 inline int GuideCamera::GetTimeoutMs() const
 {
     return m_timeoutMs;

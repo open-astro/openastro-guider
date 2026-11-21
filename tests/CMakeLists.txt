@@ -337,6 +337,20 @@ set_property(TARGET test_connect_request PROPERTY FOLDER "Unit tests")
 add_test(NAME test_connect_request COMMAND test_connect_request)
 
 ############################################################################
+# test_gear_selection  --  gear_selection.cpp: which camera, mount and
+# rotator a profile's saved choices select (#115 step 3): the list match
+# without case, the INDI rule, the stale-choice fallbacks, the camera's
+# saved-name chain, the camera-change test and the camera-id key. std-only.
+############################################################################
+add_executable(test_gear_selection
+  ${PHD_TESTS_DIR}/equipment/test_gear_selection.cpp
+  ${phd_src_dir}/gear_selection.cpp
+)
+target_link_libraries(test_gear_selection PRIVATE phd_test_common)
+set_property(TARGET test_gear_selection PROPERTY FOLDER "Unit tests")
+add_test(NAME test_gear_selection COMMAND test_gear_selection)
+
+############################################################################
 # test_connect_retry  --  connect_retry.cpp: the background retry of a
 # selected device that failed to connect, its gates, the Alpaca probe run
 # before a connect, and the guide refusal text (#104). std-only.

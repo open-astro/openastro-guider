@@ -1816,7 +1816,7 @@ static void get_selected_camera(JObj& response, const json_value *params)
 static void get_selected_camera_id(JObj& response, const json_value *params)
 {
     wxString camName = selected_camera_choice();
-    wxString key = GearDialog::CameraSelectionKey(camName);
+    wxString key = CameraSelectionKey(camName);
     wxString camId = pConfig->Profile.GetString(key, GuideCamera::DEFAULT_CAMERA_ID);
     response << jrpc_result(camId);
 }
@@ -1862,7 +1862,7 @@ static void set_selected_camera_id(JObj& response, const json_value *params)
     }
 
     wxString camName = selected_camera_choice();
-    wxString key = GearDialog::CameraSelectionKey(camName);
+    wxString key = CameraSelectionKey(camName);
     pConfig->Profile.SetString(key, cameraId->string_value);
     pConfig->Flush();
     response << jrpc_result(0);
@@ -2085,7 +2085,7 @@ static void get_selected_camera_pixelsize(JObj& response, const json_value *para
 
     if (pixelSize <= 0.0)
     {
-        wxString camId = pConfig->Profile.GetString(GearDialog::CameraSelectionKey(camChoice), GuideCamera::DEFAULT_CAMERA_ID);
+        wxString camId = pConfig->Profile.GetString(CameraSelectionKey(camChoice), GuideCamera::DEFAULT_CAMERA_ID);
         GuideCamera *cam = GuideCamera::Factory(camChoice);
         if (!cam)
         {

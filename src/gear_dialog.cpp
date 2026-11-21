@@ -36,6 +36,7 @@
 #include "guiding_assistant.h"
 #include "imaging_gear_alpaca.h"
 #include "connect_probe.h"
+#include "gear_selection.h"
 
 #include <chrono>
 #include <functional>
@@ -108,29 +109,30 @@ void GearDialog::Initialize()
     UpdateAdvancedDialog(false);
 }
 
-static bool DeviceSelectionMatches(const wxString& val, const wxString& item)
+static std::vector<std::wstring> ChoiceItems(const wxChoice *ctrl)
 {
-    if (val.Contains("INDI"))
-        return item.Contains("INDI");
-    return val == item;
+    std::vector<std::wstring> items;
+    for (unsigned int i = 0; i < ctrl->GetCount(); ++i)
+        items.push_back(ctrl->GetString(i).ToStdWstring());
+    return items;
 }
 
+// select the item matching val (GearSelection::FindChoice: without case, then the INDI rule); no match leaves the
+// selection as it is
 static void SetMatchingSelection(wxChoice *ctrl, const wxString& val)
 {
-    if (ctrl->SetStringSelection(val))
-        return;
+    int i = GearSelection::FindChoice(ChoiceItems(ctrl), val.ToStdWstring());
+    if (i >= 0)
+        ctrl->SetSelection(i);
+}
 
-    // special case for INDI:  INDI device selection will be "INDI Camera" or "INDI Camera [indi driver name]"
-    // allow either one to match
-    for (int i = 0; i < ctrl->GetCount(); ++i)
-    {
-        const wxString& item = ctrl->GetString(i);
-        if (DeviceSelectionMatches(val, item))
-        {
-            ctrl->SetSelection(i);
-            return;
-        }
-    }
+// a freshly loaded list (no selection): select the item a saved choice resolves to, with the device's fallback for a
+// stale choice (the camera's first item; no mount or rotator)
+static void SelectSavedChoice(wxChoice *ctrl, GearDevice device, const wxString& saved)
+{
+    int i = GearSelection::ResolveChoiceIndex(device, ChoiceItems(ctrl), saved.ToStdWstring());
+    if (i >= 0)
+        ctrl->SetSelection(i);
 }
 
 static void LoadChoices(wxChoice *ctl, const wxArrayString& ary)
@@ -163,20 +165,19 @@ void GearDialog::LoadGearChoices()
     LoadRotators(m_pRotators);
 
     wxCommandEvent dummyEvent;
-    m_lastCamera = pConfig->Profile.GetString("/camera/LastMenuChoice", wxEmptyString);
-    if (m_lastCamera.IsEmpty())
-        m_lastCamera = pConfig->Profile.GetString("/camera/LastMenuchoice", _("None"));
-    if (m_lastCamera.IsEmpty())
-        m_lastCamera = _("None");
-    SetMatchingSelection(m_pCameras, m_lastCamera);
+    // the camera baseline: the camera-change test of DoConnectCamera, and the name its camera id is keyed from
+    m_lastCamera = GearSelection::SavedChoice([](const std::string& key, const std::wstring& defaultValue)
+                                              { return pConfig->Profile.GetString(key, defaultValue).ToStdWstring(); },
+                                              wxString(_("None")).ToStdWstring());
+    SelectSavedChoice(m_pCameras, GearDevice::Camera, m_lastCamera);
     OnChoiceCamera(dummyEvent);
 
     wxString lastScope = pConfig->Profile.GetString("/scope/LastMenuChoice", _("None"));
-    SetMatchingSelection(m_pScopes, lastScope);
+    SelectSavedChoice(m_pScopes, GearDevice::Mount, lastScope);
     OnChoiceScope(dummyEvent);
 
     wxString lastRotator = pConfig->Profile.GetString("/rotator/LastMenuChoice", _("None"));
-    SetMatchingSelection(m_pRotators, lastRotator);
+    SelectSavedChoice(m_pRotators, GearDevice::Rotator, lastRotator);
     OnChoiceRotator(dummyEvent);
 }
 
@@ -273,12 +274,9 @@ void GearDialog::OnChoiceCamera(wxCommandEvent& event)
     }
     try
     {
+        // never empty: LoadGearChoices gives a stale choice the first item (GearSelection::ResolveChoiceIndex), and
+        // apply_selection_to_control selects an item of the list before it sends the event
         wxString choice = m_pCameras->GetStringSelection();
-        if (choice.IsEmpty() && m_pCameras->GetCount() > 0)
-        {
-            m_pCameras->SetSelection(0);
-            choice = m_pCameras->GetStringSelection();
-        }
         NoteChosen(GearDevice::Camera, choice); // another camera: its retry state starts over (#104)
 
         delete m_pCamera;
@@ -328,22 +326,10 @@ static void AutoLoadDarks()
     }
 }
 
-wxString GearDialog::CameraSelectionKey(const wxString& camName)
-{
-    std::hash<std::string> hash_fn;
-    std::string name(camName.c_str());
-    return wxString::Format("/cam_hash/%lx/whichCamera", (unsigned long) hash_fn(name));
-}
-
 static wxString SelectedCameraId(const wxString& camName)
 {
-    wxString key = GearDialog::CameraSelectionKey(camName);
+    wxString key = CameraSelectionKey(camName);
     return pConfig->Profile.GetString(key, GuideCamera::DEFAULT_CAMERA_ID);
-}
-
-wxString GearDialog::SelectedCameraId() const
-{
-    return ::SelectedCameraId(m_lastCamera);
 }
 
 void GearDialog::DoConnectCamera(bool autoReconnecting)
@@ -366,6 +352,8 @@ void GearDialog::DoConnectCamera(bool autoReconnecting)
 
         pFrame->StatusMsgNoTimeout(_("Connecting to Camera ..."));
 
+        // keyed from the baseline, not newCam: after a set_selected_camera or a server change the id is read under the
+        // name the profile was loaded with (inert for the Alpaca camera, which ignores the id)
         wxString cameraId = ::SelectedCameraId(m_lastCamera);
 
         Debug.Write(wxString::Format("Connecting to camera [%s] id = [%s]\n", newCam, cameraId));
@@ -395,7 +383,8 @@ void GearDialog::DoConnectCamera(bool autoReconnecting)
         // potential loss of dark/bpm files and later, to adjust guide params as best we can
         if (!m_camLatch.warningIssued && !autoReconnecting)
         {
-            if ((m_lastCamera != _("None") && newCam != _("None") && !DeviceSelectionMatches(m_lastCamera, newCam)) ||
+            if (GearSelection::CameraChanged(m_lastCamera.ToStdWstring(), newCam.ToStdWstring(),
+                                             wxString(_("None")).ToStdWstring()) ||
                 m_camLatch.ScaleChanged())
             {
                 int currProfileId = pConfig->GetCurrentProfileId();
