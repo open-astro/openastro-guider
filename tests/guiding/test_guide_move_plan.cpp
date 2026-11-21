@@ -3,17 +3,19 @@
 // How Mount::MoveOffset turns a mount-axis offset into a pulse per axis (PlanOffset), and what
 // Scope::MoveAxis does to each pulse before it is sent (PlanAxis): the guiding-disabled refusal,
 // the Dec guide mode filter, the max-duration clamp and the limit-reached count; and when
-// Scope::AlertLimitReached raises the limit-reached alert (LimitAlertThrottle); when
-// ScopeAlpaca::Guide raises the PulseGuide-failed alert (PulseFailedAlertThrottle); what a
-// dither's fast-recenter step moved (MovedPx, AfterRecenterStep); and the result Mount::MoveOffset
-// reports for its two pulses (SendDecAfter, OffsetResult). The rules live
-// in src/guide_move_plan.cpp; Scope and Mount keep the Debug lines, the alert and the pulse.
+// Scope::AlertLimitReached raises the limit-reached alert (LimitAlertThrottle) and the clock it
+// runs on (AlertClockS); when ScopeAlpaca::Guide raises the PulseGuide-failed alert
+// (PulseFailedAlertThrottle); what a dither's fast-recenter step moved (MovedPx,
+// AfterRecenterStep); and the result Mount::MoveOffset reports for its two pulses (SendDecAfter,
+// OffsetResult). The rules live in src/guide_move_plan.cpp; Scope and Mount keep the Debug lines,
+// the alert and the pulse.
 
 #include <gtest/gtest.h>
 
 #include "guide_move_plan.h"
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <limits>
@@ -696,6 +698,28 @@ TEST(PulseFailedAlertThrottle, FailureAfterAQuietSpellIsRaisedAtOnce)
     PulseFailedAlertThrottle throttle;
     ASSERT_TRUE(throttle.ShouldRaise(1000));
     EXPECT_TRUE(throttle.ShouldRaise(1300));
+}
+
+// --- AlertClockS: the clock Scope::AlertLimitReached's throttle and grace period run on (#212) ---
+
+namespace
+{
+int64_t SteadyS()
+{
+    return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+} // namespace
+
+TEST(AlertClockS, IsTheSteadyClock)
+{
+    // The wall clock held the alert back for as long as a step back of the system time (a Pi
+    // that boots with a stale clock and then syncs it) and cut the grace period short by a step
+    // forward; the monotonic clock is moved by neither
+    int64_t before = SteadyS();
+    int64_t now = AlertClockS();
+    int64_t after = SteadyS();
+    EXPECT_GE(now, before);
+    EXPECT_LE(now, after);
 }
 
 // --- MovedPx: what one axis of a fast-recenter step moved (#165) ---

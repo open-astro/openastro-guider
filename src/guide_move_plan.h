@@ -6,9 +6,10 @@
  *  length of each axis's pulse from Mount::MoveOffset (PlanOffset), and the
  *  guiding-disabled refusal, Dec guide mode filter, max-duration clamp and
  *  limit-reached counting from Scope::MoveAxis (PlanAxis), the limit-reached
- *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle), the
- *  PulseGuide-failed alert's throttle from ScopeAlpaca::Guide (PulseFailedAlertThrottle),
- *  what a dither's fast-recenter step moved (MovedPx, AfterRecenterStep), and the result
+ *  alert's throttle and its clock from Scope::AlertLimitReached
+ *  (LimitAlertThrottle, AlertClockS), the PulseGuide-failed alert's throttle
+ *  from ScopeAlpaca::Guide (PulseFailedAlertThrottle), what a dither's
+ *  fast-recenter step moved (MovedPx, AfterRecenterStep), and the result
  *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult).
  *  Kept free of wx so it can be unit tested (tests/guiding/test_guide_move_plan.cpp).
  */
@@ -150,6 +151,11 @@ private:
     bool m_raised = false;
     int64_t m_lastRaisedS = 0;
 };
+
+// The clock, in whole seconds, Scope::AlertLimitReached's throttle and its grace period run on
+// (#212): the monotonic one, which a wall-clock step (a Pi syncing a stale time at boot) does not
+// move. Its zero is arbitrary, so it only measures time between two of its own readings.
+int64_t AlertClockS();
 
 // The px one axis of a Mount::MoveOffset moved of distancePx (#165). MoveOffset asked MoveAxis for
 // requestedMs (the axis's PulseMs, plus any Dec backlash compensation) and MoveAxis sent sentMs

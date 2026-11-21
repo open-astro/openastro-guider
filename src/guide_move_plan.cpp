@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <climits>
 #include <cmath>
+#include <ctime>
 
 namespace guide_move_plan
 {
@@ -144,6 +145,12 @@ bool PulseFailedAlertThrottle::ShouldRaise(int64_t nowS)
     m_raised = true;
     m_lastRaisedS = nowS;
     return true;
+}
+
+int64_t AlertClockS()
+{
+    // Stub: the wall clock AlertLimitReached reads today (wxDateTime::GetTimeNow)
+    return static_cast<int64_t>(std::time(nullptr));
 }
 
 double MovedPx(double distancePx, int requestedMs, int sentMs, double rate)
