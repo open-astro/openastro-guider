@@ -94,6 +94,7 @@ class Scope : public Mount
     time_t m_limitReachedDeferralTime;
     guide_move_plan::LimitTracker m_raLimitReached;
     guide_move_plan::LimitTracker m_decLimitReached;
+    guide_move_plan::LimitAlertThrottle m_limitAlertThrottle; // AlertLimitReached's, one per axis (#164)
 
     // Calibration variables
     int m_calibrationDistance;

@@ -503,15 +503,9 @@ void Scope::DeferPulseLimitAlertCheck()
 
 void Scope::AlertLimitReached(int duration, GuideAxis axis)
 {
-    static time_t s_lastLogged;
-
-    time_t now = wxDateTime::GetTimeNow();
-    if (s_lastLogged != 0 && now < s_lastLogged + 30)
-        return;
-
-    s_lastLogged = now;
-
-    if (now < m_limitReachedDeferralTime)
+    // Not during the grace period, and at most once every 30 s per axis (guide_move_plan.cpp, #164)
+    guide_move_plan::Axis throttleAxis = axis == GUIDE_RA ? guide_move_plan::Axis::Ra : guide_move_plan::Axis::Dec;
+    if (!m_limitAlertThrottle.ShouldRaise(throttleAxis, wxDateTime::GetTimeNow(), m_limitReachedDeferralTime))
         return;
 
     if (duration < MAX_DURATION_MAX)

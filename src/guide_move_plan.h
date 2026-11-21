@@ -5,12 +5,15 @@
  *  How a guide correction becomes mount pulses (#142): the direction and
  *  length of each axis's pulse from Mount::MoveOffset (PlanOffset), and the
  *  guiding-disabled refusal, Dec guide mode filter, max-duration clamp and
- *  limit-reached counting from Scope::MoveAxis (PlanAxis).
+ *  limit-reached counting from Scope::MoveAxis (PlanAxis), and the limit-reached
+ *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle).
  *  Kept free of wx so it can be unit tested (tests/guiding/test_guide_move_plan.cpp).
  */
 
 #ifndef GUIDE_MOVE_PLAN_H_INCLUDED
 #define GUIDE_MOVE_PLAN_H_INCLUDED
+
+#include <cstdint>
 
 namespace guide_move_plan
 {
@@ -101,6 +104,31 @@ struct AxisPlan
 // are capped at MAX_PULSE_MS. Calibration (no bits) and manual moves pass through as asked. The
 // tracker of the move's axis is updated.
 AxisPlan PlanAxis(Dir dir, int ms, unsigned moveOptions, const AxisPolicy& policy, LimitTracker& ra, LimitTracker& dec);
+
+// == GuideAxis (guide_algorithm.h)
+enum class Axis
+{
+    Ra = 0,
+    Dec = 1,
+};
+
+// The shortest time between two limit-reached alerts of one axis
+constexpr int64_t LIMIT_ALERT_THROTTLE_S = 30;
+
+// Scope::AlertLimitReached's throttle (#164), one per axis, on the caller's clock in seconds.
+// No alert is raised before the grace period Scope::DeferPulseLimitAlertCheck starts after a
+// calibration or a guide start ends, and an axis's alert is raised at most once every
+// LIMIT_ALERT_THROTTLE_S. Only a raised alert restarts its axis's throttle.
+class LimitAlertThrottle
+{
+public:
+    // Whether to raise the axis's alert at nowS, when the grace period ends at deferredUntilS
+    bool ShouldRaise(Axis axis, int64_t nowS, int64_t deferredUntilS);
+
+private:
+    bool m_raised[2] = { false, false };
+    int64_t m_lastRaisedS[2] = { 0, 0 };
+};
 
 } // namespace guide_move_plan
 
