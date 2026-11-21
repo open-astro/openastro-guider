@@ -172,7 +172,8 @@ enum class MoveResult
 bool SendDecAfter(MoveResult ra);
 
 // Mount::MoveOffset's result for its RA move's ra and its Dec move's dec (Ok when SendDecAfter
-// said not to send it) (#181)
+// said not to send it) (#181): dec when it failed, else ra, so an RA pulse error is not hidden
+// by a Dec pulse that went through
 MoveResult OffsetResult(MoveResult ra, MoveResult dec);
 
 } // namespace guide_move_plan
