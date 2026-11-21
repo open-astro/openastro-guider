@@ -59,3 +59,76 @@ TEST(VariableDelay, RoundTripsEveryMs)
     for (int ms = 0; ms <= 120000; ++ms)
         ASSERT_EQ(SecondsToMs(MsToSeconds(ms)), ms) << "ms=" << ms;
 }
+
+// The delay a frame gets (#182). MyFrame::GetExposureDelay ran on the worker thread at the start of each
+// exposure and read guider, controller, mount and frame state that the main thread writes, unsynchronized.
+// MyFrame now decides the delay on the main thread when it schedules the exposure, from a FrameState it
+// reads there, and the worker sleeps the delay that came with the request. The rule is unchanged.
+
+using VariableDelay::ForNextFrame;
+using VariableDelay::FrameState;
+
+namespace
+{
+constexpr int kShort = 1000;
+constexpr int kLong = 10000;
+constexpr int kTimeLapse = 250;
+
+FrameState SteadyGuiding()
+{
+    FrameState s;
+    s.guiding = true;
+    s.controllerIdle = true;
+    s.recentering = false;
+    s.guidingEnabled = true;
+    return s;
+}
+
+int Delay(const FrameState& s)
+{
+    return ForNextFrame(true, kShort, kLong, kTimeLapse, s);
+}
+} // namespace
+
+TEST(VariableDelayForNextFrame, SteadyGuidingGetsTheLongDelay)
+{
+    EXPECT_EQ(Delay(SteadyGuiding()), kLong);
+}
+
+TEST(VariableDelayForNextFrame, RecenteringAfterADitherGetsTheShortDelay)
+{
+    FrameState s = SteadyGuiding();
+    s.recentering = true;
+    EXPECT_EQ(Delay(s), kShort);
+}
+
+TEST(VariableDelayForNextFrame, SettlingGetsTheShortDelay)
+{
+    FrameState s = SteadyGuiding();
+    s.controllerIdle = false;
+    EXPECT_EQ(Delay(s), kShort);
+}
+
+TEST(VariableDelayForNextFrame, LoopingOrCalibratingGetsTheShortDelay)
+{
+    FrameState s = SteadyGuiding();
+    s.guiding = false;
+    EXPECT_EQ(Delay(s), kShort);
+}
+
+TEST(VariableDelayForNextFrame, GuideOutputDisabledGetsTheShortDelay)
+{
+    FrameState s = SteadyGuiding();
+    s.guidingEnabled = false;
+    EXPECT_EQ(Delay(s), kShort);
+}
+
+TEST(VariableDelayForNextFrame, OffUsesTheTimeLapseWhateverTheState)
+{
+    FrameState s = SteadyGuiding();
+    EXPECT_EQ(ForNextFrame(false, kShort, kLong, kTimeLapse, s), kTimeLapse);
+    s.recentering = true;
+    EXPECT_EQ(ForNextFrame(false, kShort, kLong, kTimeLapse, s), kTimeLapse);
+    s.guiding = false;
+    EXPECT_EQ(ForNextFrame(false, kShort, kLong, kTimeLapse, s), kTimeLapse);
+}

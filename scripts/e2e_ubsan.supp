@@ -5,25 +5,13 @@
 # as UBSan allows (one check in one function), so that every other report still fails CI.
 # Remove an entry with the fix for its finding.
 #
-# All of them are one finding, inherited from PHD2 (#168): `pFrame = new MyFrame()` (phd.cpp) sets
-# the global pFrame only after MyFrame's constructor returns, but that constructor already builds
-# objects that call member functions through pFrame, so each call is a member call on a null
-# pointer, once per startup. It is undefined behaviour but harmless in practice, because none of
-# these MyFrame members reads `this`:
-#   SetMultiStarMode      pFrame->NotifyGuidingParam  (guider_multistar.cpp, from LoadProfileSettings)
-#   TargetWindow          pFrame->MakeSpinCtrlDouble  (target.cpp)
-#   GuiderMultiStarConfigDialogCtrlSet  pFrame->MakeSpinCtrl / MakeSpinCtrlDouble (guider_multistar.cpp)
-#   ScopeConfigDialogCtrlSet            pFrame->MakeSpinCtrl  (scope.cpp)
-# The ScopeConfigDialogCtrlSet and GuiderMultiStarConfigDialogCtrlSet ones run from AdvancedDialog's
-# constructor, inside MyFrame's. The profile's devices are no longer among them: EquipmentManager
-# creates them from PhdApp::OnInit once pFrame is set (#115 step 3), so the Scope constructor's
-# SetMaxRaDuration, SetMaxDecDuration and SetDecGuideMode reach a real MyFrame;
-# scripts/e2e_persistence.py restarts the daemon on a profile with a mount.
+# There are none at the moment. The null member calls through the global pFrame from MyFrame's
+# constructor (#168), in GuiderMultiStar::SetMultiStarMode, TargetWindow::TargetWindow,
+# GuiderMultiStarConfigDialogCtrlSet, ScopeConfigDialogCtrlSet and Scope::SetMaxRaDuration,
+# SetMaxDecDuration and SetDecGuideMode, were suppressed here until MyFrame's constructor set
+# pFrame before building anything that uses it.
 #
-# The CI build also leaves out -fsanitize=vptr: GCC's vptr check reads the object's vptr right
-# after a null report it was told to continue past, so a suppressed null member call would crash
-# inside the check itself (SEGV at address 0 in SetMultiStarMode).
-null:GuiderMultiStar::SetMultiStarMode
-null:TargetWindow::TargetWindow
-null:GuiderMultiStarConfigDialogCtrlSet::GuiderMultiStarConfigDialogCtrlSet
-null:ScopeConfigDialogCtrlSet::ScopeConfigDialogCtrlSet
+# The CI build still leaves out -fsanitize=vptr. Its first report is a different, pre-existing
+# finding: EventServer::OnEventServerEvent (event_server.cpp) static_casts the wxSocketBase that
+# wxSocketServer::Accept returns to wxSocketClient, which it is not, on every client connect.
+# The check comes back with the fix for that.

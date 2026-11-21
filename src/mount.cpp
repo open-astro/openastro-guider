@@ -43,6 +43,12 @@
 #include <wx/tokenzr.h>
 #include <cstdarg>
 
+// Mount::MoveOffset casts its moves' results into guide_move_plan (#181)
+static_assert(static_cast<int>(guide_move_plan::MoveResult::Ok) == Mount::MOVE_OK &&
+              static_cast<int>(guide_move_plan::MoveResult::Error) == Mount::MOVE_ERROR &&
+              static_cast<int>(guide_move_plan::MoveResult::ErrorSlewing) == Mount::MOVE_ERROR_SLEWING &&
+              static_cast<int>(guide_move_plan::MoveResult::ErrorAoLimitReached) == Mount::MOVE_ERROR_AO_LIMIT_REACHED);
+
 enum
 {
     Algo_RA_Layout_Height = 200,
@@ -1051,18 +1057,21 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
         MoveResultInfo xMoveResult;
         // Time the moves: the worker starts the next exposure only after they return (#119)
         wxStopWatch moveWatch;
-        result = MoveAxis(xDirection, requestedXAmount, moveOptions, &xMoveResult);
+        MOVE_RESULT xResult = MoveAxis(xDirection, requestedXAmount, moveOptions, &xMoveResult);
         long raMoveMs = moveWatch.Time();
 
         MoveResultInfo yMoveResult;
         int requestedYAmount = plan.decMs;
-        if (result != MOVE_ERROR_SLEWING && result != MOVE_ERROR_AO_LIMIT_REACHED)
+        MOVE_RESULT yResult = MOVE_OK;
+        if (guide_move_plan::SendDecAfter(static_cast<guide_move_plan::MoveResult>(xResult)))
         {
             if (m_backlashComp)
                 m_backlashComp->ApplyBacklashComp(moveOptions, yDistance, &requestedYAmount);
 
-            result = MoveAxis(yDirection, requestedYAmount, moveOptions, &yMoveResult);
+            yResult = MoveAxis(yDirection, requestedYAmount, moveOptions, &yMoveResult);
         }
+        result = static_cast<MOVE_RESULT>(guide_move_plan::OffsetResult(static_cast<guide_move_plan::MoveResult>(xResult),
+                                                                        static_cast<guide_move_plan::MoveResult>(yResult)));
 
         long moveMs = moveWatch.Time();
         Debug.Write(
