@@ -784,21 +784,27 @@ ARA: no code change. It waits for `SettleDone` as the end of the request, which 
 ## 2026-11-20 — settings on disk when the call returns (#142)
 
 A setting changed over JSON-RPC is now in the config file on disk by the time the response is
-sent, for every method: the event server writes the config after each request, when the request
-changed it. Before, most setters (`set_dither_settings`, `set_star_detection`, `set_auto_exposure`,
-`set_noise_reduction`, `set_guider_options`, `set_variable_delay_settings`, `set_algo`,
-`set_algo_param`, `set_exposure`, `set_dec_guide_mode`, `set_guide_limits`, `set_dec_comp`,
-`set_mount_options`, `set_backlash_comp`, `set_camera_gain`, `set_camera_timeout`,
-`set_use_subframes`, `set_camera_saturation`, and the profile create, clone, rename, delete and
-select methods) changed it in memory only, and it reached the disk at the next method that wrote
-the file or at a clean exit, so a power cut or kill lost it.
+sent, for every method, unless the write fails: the event server writes the config after each
+request, when the request changed it. Before, most setters (`set_dither_settings`,
+`set_star_detection`, `set_auto_exposure`, `set_noise_reduction`, `set_guider_options`,
+`set_variable_delay_settings`, `set_algo`, `set_algo_param`, `set_exposure`, `set_dec_guide_mode`,
+`set_guide_limits`, `set_dec_comp`, `set_mount_options`, `set_backlash_comp`, `set_camera_gain`,
+`set_camera_timeout`, `set_use_subframes`, `set_camera_saturation`, and the profile create, clone,
+rename, delete and select methods) changed it in memory only, and it reached the disk at the next
+method that wrote the file or at a clean exit, so a power cut or kill lost it.
 
 - The write leaves the old file or the new one whole whatever the moment of a power cut
   (temporary file, fsync, rename, directory fsync); a request that changed nothing writes nothing.
 - A daemon stopped with SIGTERM (`systemctl stop`) or `shutdown` with a camera and mount in its
   profile no longer reads freed memory on the way out.
+- A write that fails (a full disk, an SD card remounted read-only) does not change the response:
+  the setting is changed in memory and the request succeeds as before, the debug log gets
+  `PhdConfig flush failed: <step and error>`, and the write is tried again after every later
+  request, and at exit, until one succeeds. A client cannot tell from the response that the
+  setting is not on disk yet.
 - No change to any method's parameters, results or errors. A request that changes a setting takes
   the time of the write longer to answer: about 1 ms on an NVMe disk, more on an SD card.
 - `scripts/e2e_persistence.py` (CI) checks it for 29 settings across SIGTERM and SIGKILL.
 
-ARA: no code change. A setting it sent is kept across a power cut once it has the answer.
+ARA: no code change. A setting it sent is kept across a power cut once it has the answer, unless
+the guider's disk refused the write.
