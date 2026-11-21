@@ -86,7 +86,7 @@ const double Scope::DEFAULT_MOUNT_GUIDE_SPEED = 0.5;
 
 Scope::Scope()
     : m_maxDecDuration(0), m_maxRaDuration(0), m_decGuideMode(DEC_NONE), m_bogusGuideRatesFlagged(0),
-      m_limitReachedDeferralTime(wxDateTime::GetTimeNow())
+      m_limitReachedDeferralTime(guide_move_plan::AlertClockS())
 {
     m_graphControlPane = nullptr;
     m_CalDetailsValidated = false;
@@ -507,14 +507,15 @@ void Scope::DeferPulseLimitAlertCheck()
         LIMIT_REACHED_GRACE_PERIOD_SECONDS = 120
     };
 
-    m_limitReachedDeferralTime = wxDateTime::GetTimeNow() + LIMIT_REACHED_GRACE_PERIOD_SECONDS;
+    m_limitReachedDeferralTime = guide_move_plan::AlertClockS() + LIMIT_REACHED_GRACE_PERIOD_SECONDS;
 }
 
 void Scope::AlertLimitReached(int duration, GuideAxis axis)
 {
-    // Not during the grace period, and at most once every 30 s per axis (guide_move_plan.cpp, #164)
+    // Not during the grace period, and at most once every 30 s per axis (guide_move_plan.cpp, #164),
+    // both on the monotonic clock (#212)
     guide_move_plan::Axis throttleAxis = axis == GUIDE_RA ? guide_move_plan::Axis::Ra : guide_move_plan::Axis::Dec;
-    if (!m_limitAlertThrottle.ShouldRaise(throttleAxis, wxDateTime::GetTimeNow(), m_limitReachedDeferralTime))
+    if (!m_limitAlertThrottle.ShouldRaise(throttleAxis, guide_move_plan::AlertClockS(), m_limitReachedDeferralTime))
         return;
 
     if (duration < MAX_DURATION_MAX)

@@ -8,6 +8,7 @@
 #include "guide_move_plan.h"
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cmath>
 
@@ -144,6 +145,13 @@ bool PulseFailedAlertThrottle::ShouldRaise(int64_t nowS)
     m_raised = true;
     m_lastRaisedS = nowS;
     return true;
+}
+
+int64_t AlertClockS()
+{
+    // Not the wall clock: a step back of the system time held the alert back for as long as the
+    // step, and a step forward cut the grace period short (#212)
+    return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 double MovedPx(double distancePx, int requestedMs, int sentMs, double rate)
