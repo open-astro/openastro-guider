@@ -15,6 +15,7 @@ class RpcClient:
         self._sock.settimeout(timeout)
         self._file = self._sock.makefile("rwb", buffering=0)
         self._id = 1
+        self.last_events = []  # the events that arrived while request() waited for its response
 
     def close(self):
         try:
@@ -41,6 +42,7 @@ class RpcClient:
         self._file.write((json.dumps(req) + "\n").encode("utf-8"))
 
         deadline = time.time() + timeout_s
+        self.last_events = []
         while time.time() < deadline:
             line = self._file.readline()
             if not line:
@@ -48,6 +50,8 @@ class RpcClient:
             msg = json.loads(line.decode("utf-8", errors="replace").strip())
             if isinstance(msg, dict) and msg.get("id") == req_id:
                 return msg
+            if isinstance(msg, dict) and "Event" in msg:
+                self.last_events.append(msg["Event"])
         raise RuntimeError(f"timeout waiting for response to {method}")
 
     def raw_request(self, line: str, match, timeout_s: float = 5.0):
@@ -136,6 +140,38 @@ def ra_calibration_step_ms(step_ms, dec_deg):
     """#141: the West/East calibration pulse for a step at a Dec (calibration_run.cpp RaCalibrationStepMs)."""
     c = max(abs(math.cos(math.radians(dec_deg))), 1.0 / 4.0)
     return max(step_ms, math.ceil(step_ms / c))
+
+
+def setter_latency_check(cli, calls=50, limit_ms=10.0):
+    """A setter is answered about as fast as a getter (#175). A setter sends a ConfigurationChange event and then its
+    response, two small writes on the client's socket; without TCP_NODELAY, Nagle held the response until the client
+    acknowledged the event, and Linux delays that ACK by about 40 ms, so every setter took about 45 ms against about
+    0.1 ms for a getter. The setter here writes back the profile's own RaOnly, so it changes nothing and writes no
+    config file: what is timed is the round trip, not a disk write. ConfigurationChange is sent at most once per pass
+    of the main loop, so calls answered at once can see fewer events than calls; a call that waited for the ACK
+    always lets the next one send its event, so without TCP_NODELAY every call has one and is delayed."""
+    ra_only = cli.call("get_dither_settings")["RaOnly"]
+
+    def median_ms(method, params):
+        times = []
+        events = 0
+        for _ in range(calls):
+            t0 = time.perf_counter()
+            msg = cli.request(method, params)
+            times.append((time.perf_counter() - t0) * 1000.0)
+            if msg.get("error"):
+                raise RuntimeError(f"{method} error: {msg['error']}")
+            events += "ConfigurationChange" in cli.last_events
+        times.sort()
+        return times[len(times) // 2], times[-1], events
+
+    get_med, get_max, _ = median_ms("get_dither_settings", None)
+    set_med, set_max, set_events = median_ms("set_dither_settings", {"RaOnly": ra_only})
+    summary = (f"set_dither_settings median {set_med:.2f} ms (max {set_max:.2f}), get_dither_settings median "
+               f"{get_med:.2f} ms (max {get_max:.2f}), {calls} calls each, {set_events} ConfigurationChange events")
+    if set_med > limit_ms:
+        raise RuntimeError(f"setter median over {limit_ms:g} ms: {summary}")
+    return summary
 
 
 def profile_setup_live_checks(cli, fake, run_check):
@@ -644,6 +680,8 @@ def main():
             run_check("delete_profile renamed", lambda: cli.call("delete_profile", {"name": test_name2, "delete_dark_files": False}))
             if isinstance(base_id, int) and base_id > 0:
                 run_check("restore_profile", lambda: cli.call("set_profile", {"id": base_id}))
+
+        run_check("setter latency", lambda: setter_latency_check(cli))
 
         if args.fake_alpaca_url:
             if cli.call("get_connected"):
