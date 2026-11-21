@@ -388,7 +388,7 @@ A mount that did not answer when the guider started (the Pi up before the rig's 
 tried again, so every `guide` was refused with "all equipment must be connected first" until
 someone sent `set_connected` by hand. Headless daemon only; the desktop GUI is unchanged. The
 schedule, per-device state, gates, probe sequence and texts are in the wx-free
-`src/connect_retry.cpp` (unit-tested by `test_connect_retry`); GearDialog drives them.
+`src/connect_retry.cpp` (unit-tested by `test_connect_retry`); `EquipmentManager` drives them (until #115 step 3, `GearDialog`).
 
 - Background retry: a selected camera, mount or rotator the guider was asked to connect
   (`--auto-connect`, `set_connected` true, `guide`, or the camera auto-reconnect ending in
@@ -426,7 +426,7 @@ schedule, per-device state, gates, probe sequence and texts are in the wx-free
 - `EquipmentReconnected{device_type}`: device_type can now be "mount" or "rotator" as well as
   "camera". Also sent once when a device that had failed to connect connects by any path (not for a
   device's first connect),
-  flushed at the end of `GearDialog::EndModal` (after the calibration auto-load, before the RPC
+  flushed at the end of the gear request, `GearSession::End` (`GearDialog::EndModal` until #115 step 3; after the calibration auto-load, before the RPC
   response). This fixes the RC51 finding: `set_connected` after `EquipmentReconnectFailed` now
   sends `EquipmentReconnected{camera}`. `EquipmentReconnectFailed` is still terminal for the
   automatic reconnection, but the camera then joins the slow retry.
