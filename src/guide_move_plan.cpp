@@ -117,15 +117,21 @@ AxisPlan PlanAxis(Dir dir, int ms, unsigned moveOptions, const AxisPolicy& polic
     return plan;
 }
 
-bool LimitAlertThrottle::ShouldRaise(Axis /*axis*/, int64_t nowS, int64_t deferredUntilS)
+bool LimitAlertThrottle::ShouldRaise(Axis axis, int64_t nowS, int64_t deferredUntilS)
 {
-    // #164 red: what Scope::AlertLimitReached does today, one time for both axes, restarted
-    // before the grace period is checked
-    if (m_raised[0] && nowS < m_lastRaisedS[0] + LIMIT_ALERT_THROTTLE_S)
+    if (nowS < deferredUntilS)
         return false;
-    m_raised[0] = true;
-    m_lastRaisedS[0] = nowS;
-    return nowS >= deferredUntilS;
+
+    // One time per axis, restarted only by a raised alert: one shared time, restarted by every
+    // call that got this far, held a Dec alert back after an RA one and the first alert after the
+    // grace period back after a guide step during it (#164)
+    int i = axis == Axis::Ra ? 0 : 1;
+    if (m_raised[i] && nowS < m_lastRaisedS[i] + LIMIT_ALERT_THROTTLE_S)
+        return false;
+
+    m_raised[i] = true;
+    m_lastRaisedS[i] = nowS;
+    return true;
 }
 
 } // namespace guide_move_plan
