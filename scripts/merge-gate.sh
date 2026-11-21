@@ -7,8 +7,8 @@
 # Usage: merge-gate.sh <owner/repo> <merge group head ref>
 # The head ref is refs/heads/gh-readonly-queue/<base>/pr-<N>-<base sha>.
 # Needs GH_TOKEN with checks, statuses and pull-requests read.
-# scripts/tests/test_merge_gate.py runs it against a fake gh on PATH; every gh
-# call returns raw JSON or text, and jq does the selecting here.
+# Every gh call returns raw JSON or text, and jq does the selecting here. This
+# repo has no test for the script yet (openastro-ara has one).
 set -euo pipefail
 
 repo="$1"
