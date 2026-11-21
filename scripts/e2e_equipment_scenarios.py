@@ -841,10 +841,11 @@ def scenario_capture_timeout(lane):
 
 
 def scenario_fake_killed(lane):
-    """The Alpaca server gone while guiding, then back on the same port (#105)."""
+    """The Alpaca server gone while guiding, then back on the same port (#105, #190)."""
     cli = lane.cli
     expect(cli.call("get_app_state") == "Guiding", "not guiding")
     truth = lane.fake.truth()["field_offset_px"]
+    server = f"{lane.fake.host}:{lane.fake.port}"
     mark = cli.mark()
     lane.stop_fake()
     cli.wait_events(mark, "GuidingStopped", timeout=90)
@@ -854,20 +855,40 @@ def scenario_fake_killed(lane):
     conn = connected_by_device(cli)
     stopped = [e for e in evs if e["Event"] in ("GuidingStopped", "LoopingExposuresStopped")]
     expect(state == "Stopped", f"app state {state} with the server gone")
-    expect(conn == {"all": True, "camera": True, "mount": True, "rotator": False},
+    # the mount is not changed by #190: it still reads connected
+    expect(conn == {"all": False, "camera": False, "mount": True, "rotator": False},
            f"get_connected with the server gone: {conn}")
-    expect(not [e for e in evs if e["Event"].startswith("Equipment")], f"Equipment* events: {names}")
+    # #190: the refused connection goes through the camera reconnect path, which fails with the server gone
+    equip = [e for e in evs if e["Event"].startswith("Equipment")]
+    expect([e["Event"] for e in equip] == ["EquipmentDisconnected", "EquipmentReconnectFailed"],
+           f"Equipment* events with the server gone: {names}")
+    disc, failed = equip
+    t_failed = failed["_t"]
+    want = f"Cannot connect to the Alpaca server at {server} (refused or unreachable)"
+    expect(disc.get("device_type") == "camera" and disc.get("reconnecting") is True and disc.get("reason") == want,
+           f"EquipmentDisconnected {strip(disc)}")
+    expect(failed.get("device_type") == "camera" and failed.get("reason") == "the camera did not reconnect",
+           f"EquipmentReconnectFailed {strip(failed)}")
     lost = [e for e in evs if e["Event"] == "StarLost"]
     seq = [n for n in names if n != "ConfigurationChange"]
-    expect(seq == ["Alert", "GuidingStopped", "LoopingExposuresStopped", "LockPositionLost"],
-           f"events with the server gone: {seq}")  # one LoopingExposuresStopped (#186)
-    alert = alerts(evs)[0].get("Msg", "")
-    expect(alert.startswith("Alpaca error -- Cannot poll image ready: no response from the Alpaca server") or
-           alert.startswith("Error reading image: no response from the Alpaca server"), f"Alert {alert!r}")
+    # the camera's Alert, then the reconnect's own connect failure Alert ("Cannot reach server")
+    want_seq = ["EquipmentDisconnected", "Alert", "Alert", "EquipmentReconnectFailed", "GuidingStopped",
+                "LoopingExposuresStopped", "LockPositionLost"]  # one LoopingExposuresStopped (#186)
+    expect(seq == want_seq, f"events with the server gone: {seq}, expected {want_seq}")
+    camera_alerts = [a.get("Msg", "") for a in alerts(evs) if a.get("Msg", "").startswith(want)]
+    expect(camera_alerts, f"no camera Alert {want!r}: {[a.get('Msg') for a in alerts(evs)]}")
+    alert = camera_alerts[0]
 
-    # back: the same field, so the star is where the lock is
+    # back: the same field, so the star is where the lock is; the #104 retry reconnects the camera
     lane.start_fake()
     lane.fake.request("PUT", "/fake/shift", {"dx": truth["x"], "dy": truth["y"], "absolute": "true"})
+    rec = cli.wait_events(mark, "EquipmentReconnected", timeout=RETRY_FIRST_S + RETRY_SECOND_S + 45)[0]
+    t_rec = time.time()
+    expect(rec.get("device_type") == "camera", f"EquipmentReconnected {strip(rec)}")
+    conn_back = connected_by_device(cli)
+    expect(conn_back == {"all": True, "camera": True, "mount": True, "rotator": False},
+           f"get_connected after the retry: {conn_back}")
+    expect(cli.call("get_app_state") == "Stopped", "the retry restarted capture")
     start = cli.mark()
     expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": False}) == 0, "guide did not return 0")
     done = cli.wait_events(start, "SettleDone", timeout=e2e.SETTLE["timeout"] + 60, abort_on=GUIDE_FAILURES)[0]
@@ -880,7 +901,8 @@ def scenario_fake_killed(lane):
            f"no side-of-pier Alert guiding on a calibration without it: {names_of(resumed)}")
     cli.wait_events(start, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
     return (f"server gone: {seq} ({len(lost)} StarLost; Alert {alert[:60]!r}), state {state}, get_connected "
-            f"still {conn['all']}; back: guide settled without recalibrating, with the side-of-pier Alert "
+            f"{conn}; back: the #104 retry reconnected the camera {t_rec - t_failed:.0f} s after "
+            f"EquipmentReconnectFailed, guide settled without recalibrating, with the side-of-pier Alert "
             f"({len(stopped)} stop events)")
 
 

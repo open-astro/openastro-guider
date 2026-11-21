@@ -1016,3 +1016,34 @@ turns it off the same way).
 
 ARA: no code change needed. It no longer sees guiding stop and start again without a settle at the end of a GA run;
 a handler that re-armed its guiding state on that `StartGuiding` will simply not run.
+
+## 2026-11-21 — an Alpaca server outage reconnects the camera (#190)
+
+No new method, field or event. When the Alpaca server went away mid-guide (refused or unreachable),
+guiding stopped at the first failed frame with an `Alert`, but the camera was never disconnected:
+`get_connected` kept reading `true` for the camera while the server was down, no `Equipment*`
+event went out, and nothing reconnected the camera when the server came back. A client could not
+tell an outage from a stop.
+
+- A capture call the server refuses (curl's `CURLE_COULDNT_CONNECT`: nothing is listening on the
+  Alpaca port, or its host cannot be reached, such as the Pi's Wi-Fi dropping) now disconnects the camera with reconnect at once, like a 1031:
+  `EquipmentDisconnected{device_type:"camera", reconnecting:true}` with the reason
+  `"Cannot connect to the Alpaca server at <host>:<port> (refused or unreachable)"`, the same text in
+  an `Alert`, then the auto-reconnect. With the server still down that fails:
+  `EquipmentReconnectFailed{device_type:"camera", reason:"the camera did not reconnect"}` (or the
+  throttle's reason when it is the 4th camera reconnect in 60 s), after the reconnect's own
+  connect-failure `Alert`. Guiding stops as before (`GuidingStopped`, `LoopingExposuresStopped`,
+  `LockPositionLost`).
+- While the server is down, `get_connected` reads `false` for `camera` and for `all` (no params).
+- When the server is back, the #104 background retry (15 s, 30 s, then every 60 s after the failed
+  reconnect) reconnects the camera and sends `EquipmentReconnected{device_type:"camera"}`. It does
+  not restart capture: the client calls `guide` (the calibration is kept, no recalibration is
+  forced) or `loop` as after any `EquipmentReconnectFailed`.
+- Not changed: the mount. Its calls fail as before while the server is down and it still reads
+  connected; no `Equipment*` event goes out for it. A timed-out call (a stalled server), an
+  unresolved host name, HTTP and parse failures keep the `Alert` without a reconnect, as before.
+
+ARA: no code change needed. An outage now reaches the `EquipmentDisconnected` handler
+(`PHD2Guider.cs`, the `on_guider_lost` policy) and then `EquipmentReconnectFailed`, as a camera
+that stays unplugged does; Ara can show "Alpaca server unreachable" from the reason and wait for
+`EquipmentReconnected` before resuming with `guide`, instead of reading a plain `GuidingStopped`.
