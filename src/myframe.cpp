@@ -38,6 +38,7 @@
 
 #include "aui_controls.h"
 #include "guiding_assistant.h"
+#include "variable_delay.h"
 
 #include <algorithm>
 #include <memory>
@@ -478,18 +479,19 @@ int MyFrame::GetTextWidth(wxControl *pControl, const wxString& string)
 }
 
 // Get either timelapse value or state-dependent variable-exposure-delay
+// #182: main thread only, where the state it reads is written; ScheduleExposure hands the result to the worker
 int MyFrame::GetExposureDelay()
 {
-    int rslt;
+    assert(wxThread::IsMain());
 
-    if (!m_varDelayConfig.enabled)
-        rslt = m_timeLapse;
-    else if (pGuider->IsGuiding() && PhdController::IsIdle() && !pGuider->IsRecentering() && pMount->GetGuidingEnabled())
-    {
-        rslt = m_varDelayConfig.longDelay;
-    }
-    else
-        rslt = m_varDelayConfig.shortDelay;
+    VariableDelay::FrameState state;
+    state.guiding = pGuider->IsGuiding();
+    state.controllerIdle = PhdController::IsIdle();
+    state.recentering = pGuider->IsRecentering();
+    state.guidingEnabled = pMount && pMount->GetGuidingEnabled();
+
+    int rslt = VariableDelay::ForNextFrame(m_varDelayConfig.enabled, m_varDelayConfig.shortDelay, m_varDelayConfig.longDelay,
+                                           m_timeLapse, state);
 
     static int s_lastExposureDelay = -1;
     if (rslt != s_lastExposureDelay)
@@ -1523,12 +1525,15 @@ void MyFrame::ScheduleExposure()
     if (pCamera)
         pCamera->ClearCaptureFailure();
 
+    // #182: decided here, after the previous frame updated the guide and controller state, not on the worker
+    int delayMs = GetExposureDelay();
+
     usImage *img = new usImage();
 
     wxCriticalSectionLocker lock(m_CSpWorkerThread);
 
     if (m_pPrimaryWorkerThread) // can be null when app is shutting down (unlikely but possible)
-        m_pPrimaryWorkerThread->EnqueueWorkerThreadExposeRequest(img, captureParams);
+        m_pPrimaryWorkerThread->EnqueueWorkerThreadExposeRequest(img, captureParams, delayMs);
 }
 
 void MyFrame::SchedulePrimaryMove(Mount *mount, const GuiderOffset& ofs, unsigned int moveOptions)
