@@ -105,7 +105,7 @@ class StepGuider : public Mount
     bool m_forceStartBump;
     bool m_bumpInProgress;
     bool m_bumpTimeoutAlertSent;
-    long m_bumpStartTime;
+    int64_t m_bumpStartTime; // monotonic_timers::ClockS, not the wall clock (#231)
     double m_bumpStepWeight;
 
     StepInfo m_failedStep; // position info for failed ao step
