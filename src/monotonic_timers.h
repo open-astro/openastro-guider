@@ -6,11 +6,12 @@
  *  (ClockMs), both readings of the same steady_clock, and the timers that run
  *  on it. In whole seconds (#226): how long ago Guider last found the star
  *  (StarFoundTimer, behind Guider::CurrentError's 100 px "large distance") and
- *  MyFrame's camera reconnect throttle (ReconnectThrottle, 3 attempts in 60 s).
- *  In milliseconds (#231): the set_pa_session lease (PaSessionLease); the
- *  multi-star DistanceChecker's wait and the star mass-change window read
- *  ClockMs. The timers take the time from their caller, so they are tested on
- *  an injected clock. Kept free of wx so it can be unit tested
+ *  MyFrame's camera reconnect throttle (ReconnectThrottle, 3 attempts in 60 s);
+ *  StepGuider's AO bump timeout reads ClockS too (#231). In milliseconds
+ *  (#231): the set_pa_session lease (PaSessionLease); the multi-star
+ *  DistanceChecker's wait and the star mass-change window read ClockMs. The
+ *  timers take the time from their caller, so they are tested on an injected
+ *  clock. Kept free of wx so it can be unit tested
  *  (tests/guiding/test_monotonic_timers.cpp).
  */
 
@@ -23,9 +24,9 @@
 namespace monotonic_timers
 {
 
-// The clock, in whole seconds, StarFoundTimer and ReconnectThrottle are given the time from: the
-// monotonic one, which a wall-clock step does not move. Its zero is arbitrary, so it only measures
-// time between two of its own readings.
+// The clock, in whole seconds, StarFoundTimer, ReconnectThrottle and the AO bump timeout are given
+// the time from: the monotonic one, which a wall-clock step does not move. Its zero is arbitrary,
+// so it only measures time between two of its own readings.
 int64_t ClockS();
 
 // The same clock in milliseconds, for the set_pa_session lease, the multi-star DistanceChecker's

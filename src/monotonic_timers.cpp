@@ -21,7 +21,9 @@ int64_t ClockS()
 
 int64_t ClockMs()
 {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    // ClockS's clock in milliseconds. Not the wall clock: a step of the system time lengthened or
+    // cut short a running set_pa_session lease by the size of the step (#231)
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 void StarFoundTimer::Found(int64_t nowS)

@@ -36,6 +36,7 @@
 
 #include "gear_simulator.h"
 #include "image_math.h"
+#include "monotonic_timers.h"
 #include "socket_server.h"
 #include "stepguiders.h"
 
@@ -1134,7 +1135,7 @@ Mount::MOVE_RESULT StepGuider::MoveOffset(GuiderOffset *ofs, unsigned int moveOp
 
             if (m_bumpInProgress && !m_bumpTimeoutAlertSent)
             {
-                long now = ::wxGetUTCTime();
+                int64_t now = monotonic_timers::ClockS();
                 if (now - m_bumpStartTime > BumpWarnTime)
                 {
                     pFrame->SuppressibleAlert(SlowBumpWarningEnabledKey(),
@@ -1150,7 +1151,7 @@ Mount::MOVE_RESULT StepGuider::MoveOffset(GuiderOffset *ofs, unsigned int moveOp
             {
                 // start a new bump
                 m_bumpInProgress = true;
-                m_bumpStartTime = ::wxGetUTCTime();
+                m_bumpStartTime = monotonic_timers::ClockS();
                 m_bumpTimeoutAlertSent = false;
 
                 Debug.Write("starting a new bump\n");
