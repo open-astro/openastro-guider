@@ -845,3 +845,17 @@ stored ms divided by 1000 in integers.
   `xvfb-run`, where nobody can open the dialog.
 
 ARA: read `ShortDelaySeconds` and `LongDelaySeconds` as numbers, not integers, if it shows them.
+
+## 2026-11-20 — get_exposure while the camera is disconnected (#176)
+
+`get_exposure` returned `0` whenever the camera was not connected, even right after a
+`set_exposure` that succeeded.
+
+- `get_exposure` now returns the stored exposure in ms whatever the connection state: what the
+  last `set_exposure` (or the profile) selected; with Auto (`set_exposure` `-1`) the exposure auto
+  exposure is at, as with a camera connected. With a camera connected it returns what it did
+  before.
+- `set_exposure`, `get_exposure_durations` and the other exposure methods are unchanged.
+
+ARA: no code change needed. It can read `get_exposure` before connecting and show the selected
+exposure; it no longer has to treat `0` as "not connected".
