@@ -104,6 +104,11 @@ small control endpoint and is off until used, so the default behaviour is unchan
         startexposure until the next startexposure (a camera that stopped reading
         out, for the guider's capture timeout, #142); frames=0 clears it. The
         next exposure after them is a normal one.
+    PUT /fake/guiderate [ra=<x sidereal>][&dec=<x sidereal>]
+        The guide rates the telescope reports (guideraterightascension and
+        guideratedeclination) as multiples of the sidereal rate, 15"/s; the pulses
+        still move the star at 1x. Without a value that rate goes back to 1x, and
+        clear_faults puts both back (the guider's DetermineGuideSpeed, #115 N4).
     GET /fake/state    the injections, the unplugged flags, the stalls and the holds, as JSON.
 
 Alpaca management (#155, for the guider's query_alpaca_devices):
@@ -718,6 +723,9 @@ class Handler(BaseHTTPRequestHandler):
                                    "message": params.get("message", "injected error"),
                                    "format": params.get("format", "json"),
                                    "http": int(params.get("http", "200"))}
+            elif method == "PUT" and name == "/fake/guiderate":
+                SCOPE_PROPS["guideraterightascension"] = GUIDE_RATE_DEG_S * float(params.get("ra", "1"))
+                SCOPE_PROPS["guideratedeclination"] = GUIDE_RATE_DEG_S * float(params.get("dec", "1"))
             elif method == "PUT" and name == "/fake/clear_faults":
                 # every injected fault off (#233): errors, unplugs, stalls, held exposures, clouds and decoys.
                 # The star's shift stays, so a guider that is guiding keeps its star where it is.
@@ -733,6 +741,7 @@ class Handler(BaseHTTPRequestHandler):
                 hold["held"] = False
                 clouds.update(frames=0)
                 decoys.clear()
+                SCOPE_PROPS["guideraterightascension"] = SCOPE_PROPS["guideratedeclination"] = GUIDE_RATE_DEG_S
             elif method == "PUT" and name == "/fake/clouds":
                 clouds.update(frames=max(0, int(params.get("frames", "0"))),
                               dim=max(1.0, float(params.get("dim", "1e6"))))
