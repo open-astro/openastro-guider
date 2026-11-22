@@ -465,12 +465,14 @@ add_test(NAME test_settle_frame COMMAND test_settle_frame)
 # test_settle_tracker  --  settle_tracker.cpp: PhdController's settle timers
 # (the timeout from the settle's start, the in-range run from its first
 # frame) and frame counts, on an injected clock, with steps of the system
-# time of +-1 h, and the clock PhdController gives it (#142). std-only.
+# time of +-1 h, and the clock PhdController gives it, the steady one (#142,
+# #257). std-only.
 ############################################################################
 add_executable(test_settle_tracker
   ${PHD_TESTS_DIR}/guiding/test_settle_tracker.cpp
   ${phd_src_dir}/settle_tracker.cpp
   ${phd_src_dir}/settle_frame.cpp
+  ${phd_src_dir}/monotonic_timers.cpp
 )
 target_link_libraries(test_settle_tracker PRIVATE phd_test_common)
 set_property(TARGET test_settle_tracker PROPERTY FOLDER "Unit tests")
