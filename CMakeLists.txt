@@ -297,6 +297,8 @@ set(phd2_SRC
   ${phd_src_dir}/debuglog.cpp
   ${phd_src_dir}/debuglog.h
   ${phd_src_dir}/eegg.cpp
+  ${phd_src_dir}/equipment_manager.cpp
+  ${phd_src_dir}/equipment_manager.h
   ${phd_src_dir}/event_server.cpp
   ${phd_src_dir}/event_server.h
 

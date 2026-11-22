@@ -291,6 +291,8 @@ MyFrame::MyFrame()
 
     pAdvancedDialog = new AdvancedDialog(this);
 
+    // no devices yet: PhdApp::OnInit loads them from the profile once pFrame is set (their constructors call through it)
+    pEquipment = new EquipmentManager();
     pGearDialog = new GearDialog(this);
 
     pGuidingAssistant = nullptr;
@@ -345,8 +347,12 @@ MyFrame::MyFrame()
 
 MyFrame::~MyFrame()
 {
+    // the requests and the #104 retry first (it joins a probe thread), then the devices, while the AdvancedDialog and
+    // the status bar a disconnecting device updates are still there
     delete pGearDialog;
     pGearDialog = nullptr;
+    delete pEquipment;
+    pEquipment = nullptr;
 
     pAdvancedDialog->Destroy();
 

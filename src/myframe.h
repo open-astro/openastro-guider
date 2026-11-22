@@ -248,6 +248,7 @@ public:
     wxSlider *Gamma_Slider;
     AdvancedDialog *pAdvancedDialog = nullptr;
     GuideHistory *pGuideHistory = nullptr;
+    EquipmentManager *pEquipment = nullptr; // the devices and their selection
     GearDialog *pGearDialog = nullptr;
     wxWindow *pGuidingAssistant = nullptr;
     bool CaptureActive = false; // Is camera looping captures?
@@ -513,12 +514,6 @@ enum
     BUTTON_ALERT_CLOSE,
     BUTTON_ALERT_HELP,
     BUTTON_ALERT_DONTSHOW,
-    GEAR_DIALOG_IDS_BEGIN,
-    GEAR_PROFILES,
-    GEAR_CHOICE_CAMERA,
-    GEAR_CHOICE_SCOPE,
-    GEAR_CHOICE_ROTATOR,
-    GEAR_DIALOG_IDS_END,
     CTRL_GAMMA,
     WIN_VFW, // Dummy event to capture VFW streams
     MGUIDE1_UP,
