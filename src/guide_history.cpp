@@ -38,6 +38,15 @@
 
 #include <cmath>
 
+const char *GuideHistoryDirection(int dir, int duration)
+{
+    if (duration <= 0)
+        return "";
+    // the order of GUIDE_DIRECTION, which this file can't include (mount.h needs wx)
+    static const char *const letters[] = { "N", "S", "E", "W" };
+    return dir >= 0 && dir < 4 ? letters[dir] : "";
+}
+
 unsigned int GuideHistory::ValidMinLength(unsigned int minLength)
 {
     return minLength < 1 ? (unsigned int) DefaultMinLength : minLength;

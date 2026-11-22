@@ -965,6 +965,25 @@ ARA: treat `declination` `null` as unknown instead of showing a number; for `whi
 ARA: no code change needed. It can read `get_exposure` before connecting and show the selected
 exposure; it no longer has to treat `0` as "not connected".
 
+## 2026-11-21 — `get_guide_history` times and directions (#133)
+
+No new method, parameter or field. Two fields of each `points` entry did not say what this document
+documents for them (see the 2026-06-10 web app section):
+
+- `t` is the integer UTC time in ms the step was recorded at, e.g. `1795296221372`. It was printed with
+  `%g`, `1.7953e+12`: a float rounded to steps of about 2.8 hours: the points of a session
+  shared one `t` until it crossed a step, then jumped to the next.
+- `ra_dir` / `dec_dir` are `"N"`, `"S"`, `"E"` or `"W"` when that axis got a pulse (`ra_dur` / `dec_dur`
+  above 0), the first letter of the matching `GuideStep` event's `RADirection` / `DECDirection`, and `""`
+  when it did not. They were always `""`. With an AO the letters stand for its Up, Down, Right and Left
+  in that order, as the history stores them; the `GuideStep` event names those `Up`, `Down`, `Right`, `Left`.
+- Not changed: the other fields, `stats`, `max_points` and the errors.
+
+ARA: no code change needed. `MapHistory` already reads `t` as a number of either JSON type and signs the
+durations by `"E"` and `"S"`; the history it seeds the graph with now has its East and South pulses
+negative, as the live `guider.step` ones are, and its ages come from the steps' real times (a rounded `t`
+was either hours off or, when it rounded into the future, made `MapHistory` fall back to 2 s spacing).
+
 ## 2026-11-20 — setters answered without the 40 ms delayed-ACK wait (#175)
 
 A setter that sends an event before its response (`ConfigurationChange` for any profile write)
