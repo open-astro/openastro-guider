@@ -1124,7 +1124,7 @@ When server mode is enabled, the daemon also listens for HTTP on all interfaces 
 The HTTP port carries image data only. Everything else, including setup, discovery and control, goes over JSON-RPC.
 
 - `GET /api/capture/<filename>`: raw FITS bytes of a file saved by `capture_single_frame` (see "Single Frame Capture With Save"). `<filename>` is the `Filename` field of the `SingleFrameComplete` event, URL-encoded. Files are served only from the capture directory; an empty name, `..`, a leading `/` or `\`, or a symlink that resolves outside the capture directory returns `404`. Response: `200` with `Content-Type: application/fits`.
-- `GET /api/frame.jpg`: the current guide frame as a JPEG, display-stretched the same way the guider display stretches it. The response carries an `ETag` taken from the frame number; a request whose `If-None-Match` matches it gets `304 Not Modified` without re-encoding the frame. When there is no frame yet it returns `404` with the body `no image available`.
+- `GET /api/frame.jpg`: the current guide frame as a JPEG, display-stretched the same way the guider display stretches it. The response carries an `ETag` that is new for every image the guider holds (from a per-process sequence that never resets, not the frame number, which restarts at each capture and guiding start); a request whose `If-None-Match` matches it gets `304 Not Modified` without re-encoding the frame. When there is no frame yet it returns `404` with the body `no image available`.
 
 Every response sets `Connection: close`. Every response except the `304` also sets `Cache-Control: no-store`.
 

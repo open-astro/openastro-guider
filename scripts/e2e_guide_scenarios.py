@@ -14,8 +14,8 @@ the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir
                  "3x3 Median" during the exposure: the saved frame is unfiltered, and the next one filtered (#210)
   http-frame     after a single frame, /api/frame.jpg: 200 image/jpeg with Content-Length and an ETag "f<N>", 304 on
                  a matching If-None-Match, a baseline JPEG of the frame's size with 3 components whose grey level
-                 matches the frame's FITS through the display stretch, the fake's stars where it put them; the ETag
-                 "f1" again on the next single frame (pinned), rising while looping; /api/capture serving the file
+                 matches the frame's FITS through the display stretch, the fake's stars where it put them; a new ETag
+                 on the next single frame (#259), rising while looping; /api/capture serving the file
                  save_image wrote, and 404 for ../-style names, a POST and a symlink out of the capture dir (N2)
   calibrate      connect the Alpaca camera and mount, loop, find_star, guide with recalibrate true: a full
                  calibration, StartGuiding, a settle that ends in exactly one SettleDone with Status 0, then
@@ -906,12 +906,13 @@ def scenario_http_frame_and_capture(cli, args, work):
     """N2: /api/frame.jpg and /api/capture as Ara's live view and polar alignment use them, pinned before S5.3 and
     S7.1-S7.3 replace the painting code and the wxImage JPEG path behind them. On a stopped capture, after one
     single frame: frame.jpg is 200 image/jpeg with Content-Length, Cache-Control no-store and an ETag "f<N>"
-    (the frame counter), 304 with the ETag and no body on a matching If-None-Match, 200 on another one, and
-    "f<N+1>" after the next frame. The JPEG is a baseline SOF0 of the frame's size with 3 components; decoded,
-    its grey level matches the FITS of the same frame through the display stretch (mean and percentiles), and
-    each of the fake's stars is where the fake put it. /api/capture/<name> serves the file save_image wrote,
-    byte for byte, as application/fits; the traversal guard answers 404 for ../-style names of that file, a
-    POST, and a symlink in the capture dir to a file outside it."""
+    (a per-process image id that never restarts, #259), 304 with the ETag and no body on a matching
+    If-None-Match, 200 on another one, and a new, higher ETag after the next single frame and each looping frame.
+    The JPEG is a baseline SOF0 of the frame's size with 3 components; decoded, its grey level matches the FITS
+    of the same frame through the display stretch (mean and percentiles), and each of the fake's stars is where
+    the fake put it. /api/capture/<name> serves the file save_image wrote, byte for byte, as application/fits;
+    the traversal guard answers 404 for ../-style names of that file, a POST, and a symlink in the capture dir to
+    a file outside it."""
     import numpy as np
 
     port = args.http_port
@@ -1005,19 +1006,24 @@ def scenario_http_frame_and_capture(cli, args, work):
     finally:
         os.unlink(link)
 
-    # A suspected bug, pinned as it is (N2): the ETag is the frame counter, which StartCapturing sets back to 0
-    # for every capture (and NotifyGuidingStarted when guiding starts), so each single frame is "f1": the next
-    # one, a new exposure (save_image's DATE-OBS moves on), still answers 304 to If-None-Match "f1", and a client
-    # that caches by ETag keeps the old frame. Within a loop the counter goes up, so the ETag changes each frame.
+    # #259: the ETag was the frame counter, which StartCapturing sets back to 0 for every capture (and
+    # NotifyGuidingStarted when guiding starts), so each single frame was "f1" and the next one, a new exposure
+    # (save_image's DATE-OBS moves on), answered 304 to If-None-Match "f1". It is now an image id that never
+    # restarts: the next single frame answers 200 with a new, higher ETag, and 304 to its own; it rises while
+    # looping, and the loop's first frames are newer than the single frames before it.
     obs1 = fits_card(on_disk, "DATE-OBS")
     single_frame(cli)
     with open(cli.call("save_image")["filename"], "rb") as f:
         obs2 = fits_card(f.read(), "DATE-OBS")
     expect(obs1 and obs2 and obs1 != obs2, f"the next single frame's DATE-OBS {obs2!r}, the first's {obs1!r}")
-    status, h3, _ = http_request(port, "/api/frame.jpg", headers={"If-None-Match": etag})
-    expect(etag == '"f1"' and status == 304 and h3.get("etag") == etag,
+    status, h3, body3 = http_request(port, "/api/frame.jpg", headers={"If-None-Match": etag})
+    etag2 = h3.get("etag", "")
+    m2 = re.fullmatch(r'"f(\d+)"', etag2)
+    expect(status == 200 and body3 and m2 and int(m2.group(1)) > frame_no,
            f"the next single frame (DATE-OBS {obs2} after {obs1}) with If-None-Match {etag}: {status}, ETag "
-           f"{h3.get('etag')!r}; today each single frame is \"f1\" and answers 304 (the counter restarts)")
+           f"{etag2!r}, {len(body3)} body bytes; expected 200 and a new, higher ETag (#259)")
+    status, _, _ = http_request(port, "/api/frame.jpg", headers={"If-None-Match": etag2})
+    expect(status == 304, f"the next single frame with its own ETag {etag2} as If-None-Match: {status}, expected 304")
     start = cli.mark()
     expect(cli.call("loop") == 0, "loop did not return 0")
     try:
@@ -1030,10 +1036,11 @@ def scenario_http_frame_and_capture(cli, args, work):
         cli.call("stop_capture")
         cli.wait_state("Stopped", 30)
     n4, n5 = (int(re.fullmatch(r'"f(\d+)"', h.get("etag", '"f-1"')).group(1)) for h in (h4, h5))
-    expect(n5 > n4 >= 1, f"while looping, the ETag went from {h4.get('etag')!r} to {h5.get('etag')!r}")
+    expect(n5 > n4 > int(m2.group(1)), f"after the single frames' {etag} and {etag2}, while looping the ETag went "
+           f"from {h4.get('etag')!r} to {h5.get('etag')!r}")
     return (f"ETag {etag}, 304 on a match; SOF0 {sof['width']}x{sof['height']}x3, {len(jpeg)} bytes; {stats}; "
             f"{seen} stars at the fake's places (moved {ox}, {oy}); /api/capture served {name} ({len(fits)} bytes), "
-            f"traversal 404; the next single frame is {etag} again (304), looping {h4.get('etag')} -> "
+            f"traversal 404; the next single frame is {etag2} (200 to {etag}), looping {h4.get('etag')} -> "
             f"{h5.get('etag')}")
 
 

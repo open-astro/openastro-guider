@@ -7136,9 +7136,10 @@ static std::string handle_http_request(const HttpRequest& req)
         if (!img || !img->ImageData)
             return http_response(404, "text/plain", "no image available");
 
-        // ETag from the frame counter so a client can poll fast: an
-        // unchanged frame answers 304 without paying the JPEG encode.
-        std::string etag(wxString::Format("\"f%u\"", img->FrameNum).ToUTF8().data());
+        // ETag from the image's never-reset id so a client can poll fast: an
+        // unchanged frame answers 304 without paying the JPEG encode. Not
+        // FrameNum, which restarts at every capture and guiding start (#259).
+        std::string etag(wxString::Format("\"f%u\"", img->ImageId).ToUTF8().data());
         auto inm = req.headers.find("if-none-match");
         if (inm != req.headers.end() && inm->second == etag)
             return "HTTP/1.1 304 Not Modified\r\nConnection: close\r\nETag: " + etag + "\r\n\r\n";
