@@ -520,7 +520,7 @@ bool PhdApp::OnInit()
         if (m_headlessAutoConnect)
         {
             wxString errMsg;
-            bool error = pFrame->pGearDialog->ConnectAll(&errMsg);
+            bool error = pFrame->pEquipment->ConnectAll(&errMsg);
             if (error)
                 Debug.Write(wxString::Format("headless: auto-connect failed: %s\n", errMsg));
             else

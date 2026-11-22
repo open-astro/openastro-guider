@@ -270,7 +270,7 @@ TEST_F(GearSessionTest, SetDeviceDisconnectsOneDevice)
 {
     port.dev[GearDevice::Camera].connected = true;
     EXPECT_FALSE(session.SetDevice(GearDevice::Camera, false, &error));
-    // the leaf records the user's disconnect itself (GearDialog's leaves do); the session adds none
+    // the leaf records the user's disconnect itself (EquipmentManager's leaves do); the session adds none
     EXPECT_EQ(port.calls, Concat({ "trace gear_dialog: SetDeviceConnected camera 0\n", "disconnect camera" }, kEnd));
 }
 

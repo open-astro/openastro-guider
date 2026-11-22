@@ -35,15 +35,13 @@
 #include "phd.h"
 #include "guiding_assistant.h"
 #include "connect_probe.h"
-#include "gear_selection.h"
 
 #include <chrono>
-#include <functional>
 
 GearDialog::GearDialog(wxWindow *pParent)
     : wxDialog(pParent, wxID_ANY, _("Connect Equipment"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX),
       m_connectRetryStopped(false), m_probeCancel(false), m_probeRunning(false), m_probeDevice(GearDevice::Camera),
-      m_probeToken(0), m_session(*this)
+      m_probeToken(0)
 {
     m_connectRetryTimer.SetOwner(this);
     Bind(wxEVT_TIMER, &GearDialog::OnConnectRetryTimer, this, m_connectRetryTimer.GetId());
@@ -55,498 +53,13 @@ GearDialog::~GearDialog()
     StopConnectRetry(true);
 }
 
-// ---- GearPort: what m_session (gear_session.cpp) sequences each gear request over ----
-
-bool GearDialog::CaptureActive() const
-{
-    return pFrame->CaptureActive;
-}
-
-bool GearDialog::CalibratingOrGuiding() const
-{
-    return pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding();
-}
-
-void GearDialog::ConnectLeaf(GearDevice dev)
-{
-    wxCommandEvent dummy;
-    switch (dev)
-    {
-    case GearDevice::Camera:
-        DoConnectCamera(false);
-        break;
-    case GearDevice::Mount:
-        OnButtonConnectScope(dummy);
-        break;
-    default:
-        OnButtonConnectRotator(dummy);
-        break;
-    }
-}
-
-void GearDialog::DisconnectLeaf(GearDevice dev)
-{
-    wxCommandEvent dummy;
-    switch (dev)
-    {
-    case GearDevice::Camera:
-        OnButtonDisconnectCamera(dummy);
-        break;
-    case GearDevice::Mount:
-        OnButtonDisconnectScope(dummy);
-        break;
-    default:
-        OnButtonDisconnectRotator(dummy);
-        break;
-    }
-}
-
-void GearDialog::OnConnectRequested(GearDevice dev)
-{
-    m_connectRetry.OnConnectRequested(dev);
-}
-
-void GearDialog::Trace(const std::string& line)
-{
-    Debug.Write(wxString::FromUTF8(line.c_str()));
-}
-
-void GearDialog::RefreshFrameControls()
-{
-    assert(pCamera == pFrame->pEquipment->CameraDevice());
-    assert(pMount == pFrame->pEquipment->MountDevice());
-    assert(pSecondaryMount == nullptr);
-
-    pFrame->UpdateButtonsStatus();
-}
-
-bool GearDialog::AutoLoadCalibration() const
-{
-    return pFrame->GetAutoLoadCalibration() && (!pSecondaryMount || pSecondaryMount->IsConnected());
-}
-
-void GearDialog::LoadCalibration()
-{
-    Debug.Write("Auto-loading calibration data\n");
-    pFrame->LoadCalibration();
-}
-
-void GearDialog::ClearCalibration()
-{
-    // Force a recalibration if the camera has changed
-    Debug.Write("Clearing calibration data because camera was changed\n");
-    pMount->ClearCalibration();
-}
-
-void GearDialog::HandleImageScaleChange()
-{
-    // the log line keeps its old text, which debug-log searches use
-    Debug.Write("GearDialog::EndModal: imageScaleRatio changed\n");
-    pFrame->HandleImageScaleChange();
-}
-
-void GearDialog::SendReconnected(GearDevice dev)
-{
-    Debug.Write(wxString::Format("connect retry: EquipmentReconnected %s\n", GearDeviceName(dev)));
-    EvtServer.NotifyEquipmentReconnected(GearDeviceName(dev));
-}
-
-void GearDialog::RefreshAdvancedDialog()
-{
-    pFrame->pEquipment->UpdateAdvancedDialog(true);
-}
-
-static void AutoLoadDefectMap()
-{
-    if (pConfig->Profile.GetBoolean("/camera/AutoLoadDefectMap", true))
-    {
-        Debug.AddLine("auto-loading defect map");
-        pFrame->LoadDefectMapHandler(true);
-    }
-}
-
-static void AutoLoadDarks()
-{
-    if (pConfig->Profile.GetBoolean("/camera/AutoLoadDarks", true))
-    {
-        Debug.AddLine("Auto-loading dark library");
-        pFrame->LoadDarkHandler(true);
-    }
-}
-
-static wxString SelectedCameraId(const wxString& camName)
-{
-    wxString key = CameraSelectionKey(camName);
-    return pConfig->Profile.GetString(key, GuideCamera::DEFAULT_CAMERA_ID);
-}
-
-void GearDialog::DoConnectCamera(bool autoReconnecting)
-{
-    EquipmentManager *gear = pFrame->pEquipment;
-    GuideCamera *camera = gear->CameraDevice();
-    try
-    {
-        if (!camera)
-        {
-            throw ERROR_INFO("DoConnectCamera called with m_pCamera == NULL");
-        }
-
-        if (camera->Connected)
-        {
-            throw THROW_INFO("DoConnectCamera: called when connected");
-        }
-
-        wxString newCam = gear->SelectedChoice(GearDevice::Camera);
-
-        Debug.Write(wxString::Format(_T("gear_dialog: DoConnectCamera [%s]\n"), newCam));
-
-        pFrame->StatusMsgNoTimeout(_("Connecting to Camera ..."));
-
-        // keyed from the baseline, not newCam: after a set_selected_camera or a server change the id is read under the
-        // name the profile was loaded with (inert for the Alpaca camera, which ignores the id)
-        wxString cameraId = ::SelectedCameraId(gear->BaselineCamera());
-
-        Debug.Write(wxString::Format("Connecting to camera [%s] id = [%s]\n", newCam, cameraId));
-
-        int profileBinning = camera->GetBinning();
-        ConnectRetry::ClearConnectError(GearDevice::Camera); // the driver records why the connect failed (#104)
-        if (GuideCamera::ConnectCamera(camera, cameraId))
-        {
-            throw THROW_INFO("DoConnectCamera: connect failed");
-        }
-
-        // update camera pixel size from the driver, cam must be connected for reliable results
-        double prevPixelSize = camera->GetProfilePixelSize();
-        double pixelSize;
-        bool err = camera->GetDevicePixelSize(&pixelSize);
-        if (!err)
-        {
-            camera->SetCameraPixelSize(pixelSize);
-            m_session.Latch().NotePixelSize(prevPixelSize, pixelSize);
-        }
-
-        Debug.Write(wxString::Format("DoConnectCamera: reconnecting=%d warningIssued=%d lastCam=[%s] scaleRatio=%.3f\n",
-                                     autoReconnecting, m_session.Latch().warningIssued, gear->BaselineCamera(),
-                                     m_session.Latch().scaleRatio));
-
-        // No very reliable way to know if cam selection has changed - id's and name strings may be the same for different cams
-        // from same mfr so do what we can here including consideration of image scale change Purpose is to warn user of
-        // potential loss of dark/bpm files and later, to adjust guide params as best we can
-        if (!m_session.Latch().warningIssued && !autoReconnecting)
-        {
-            if (GearSelection::CameraChanged(gear->BaselineCamera().ToStdWstring(), newCam.ToStdWstring(),
-                                             wxString(_("None")).ToStdWstring()) ||
-                m_session.Latch().ScaleChanged())
-            {
-                int currProfileId = pConfig->GetCurrentProfileId();
-                wxString darkName = MyFrame::DarkLibFileName(currProfileId);
-                wxString bpmName = DefectMap::DefectMapFileName(currProfileId);
-
-                m_session.Latch().NoteCameraChange();
-
-                // Can't use standard checks because we don't want to consider sensor-size
-                if (wxFileExists(darkName) || wxFileExists(bpmName))
-                {
-                    Debug.Write("DoConnectCamera: displaying camera-change warning\n");
-
-                    // the connect arrived over JSON-RPC and nobody is there to answer a modal: proceed (the API
-                    // client made the selection deliberately) but surface the warning as a non-modal alert
-                    pFrame->Alert(_("Camera changed in this profile - the existing dark library / bad-pixel map "
-                                    "may no longer match. Consider a separate profile per camera."));
-                    m_session.Latch().warningIssued = true;
-                    gear->SetBaselineCamera(newCam);
-                }
-
-                Debug.Write("DoConnectCamera: camera changed\n");
-            }
-        }
-
-        // update default gain setting from the driver
-        if (camera->HasGainControl && !pConfig->Profile.HasEntry("/camera/gain"))
-        {
-            int defaultGain = camera->GetDefaultCameraGain();
-            Debug.Write(wxString::Format("Initializing camera gain to %d%%\n", defaultGain));
-            camera->SetCameraGain(defaultGain);
-        }
-
-        // See if the profile was created with a binning level that isn't supported by
-        // the camera (user mistake) - if so, reset binning to 1. Must be done here
-        // because orig binning level is not saved
-        auto choices = camera->GetBinningChoices();
-        if (choices.find(profileBinning) == choices.end())
-        {
-            int rslt;
-            if (TheScope())
-            {
-                rslt = TheScope()->GetCalibrationDuration() / profileBinning;
-                TheScope()->SetCalibrationDuration(rslt);
-            }
-            camera->SetBinning(1, 1);
-            Debug.Write(wxString::Format("CamConfigDlg correcting bogus user binning value from %d to 1\n", profileBinning));
-        }
-
-        // force re-build of camera tab in case Connect updated any of
-        // the camera properties that influence the camera tab. For
-        // example, binning options.
-        gear->MarkUpdated(GearDevice::Camera);
-
-        Debug.AddLine("Connected Camera: " + camera->Name);
-        auto frameSize = camera->GetFrameSize();
-        Debug.Write(wxString::Format("FrameSize=(%d,%d)\n", frameSize.x, frameSize.y));
-        Debug.Write(wxString::Format("PixelSize=%.2f\n", camera->GetCameraPixelSize()));
-        Debug.Write(wxString::Format("BitsPerPixel=%u\n", camera->BitsPerPixel()));
-        Debug.Write(wxString::Format("HasGainControl=%d\n", camera->HasGainControl));
-
-        if (camera->HasGainControl)
-        {
-            Debug.Write(wxString::Format("GuideCameraGain=%d\n", camera->GuideCameraGain));
-        }
-
-        Debug.Write(wxString::Format("HasShutter=%d\n", camera->HasShutter));
-        Debug.Write(wxString::Format("HasSubFrames=%d\n", camera->HasSubframes));
-
-        if (!autoReconnecting) // On a reconnect, this stuff is already established
-        {
-            AutoLoadDefectMap();
-            if (!pCamera->CurrentDefectMap)
-            {
-                AutoLoadDarks();
-            }
-            pFrame->SetDarkMenuState();
-        }
-
-        pFrame->StatusMsg(_("Camera Connected"));
-        GuidingAssistant::NotifyGearConnected();
-
-        pFrame->UpdateStatusBarStateLabels();
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        pFrame->StatusMsg(_("Camera Connect Failed"));
-        pFrame->UpdateStatusBarStateLabels();
-    }
-
-    gear->PublishGear();
-
-    // #104: record the result from the final state. The auto-reconnect (#105) sends its own EquipmentReconnected,
-    // and its failure is recorded by NoteCameraReconnectFailed once DoTryReconnect has sent EquipmentReconnectFailed.
-    if (camera)
-        NoteConnectResult(GearDevice::Camera, camera->Connected, autoReconnecting);
-}
-
 bool GearDialog::ReconnectCamera()
 {
     Debug.Write("gear_dialog: ReconnectCamera\n");
-    DoConnectCamera(true);
+    pFrame->pEquipment->ConnectCamera(true);
     GuideCamera *camera = pFrame->pEquipment->CameraDevice();
     bool err = !camera || !camera->Connected;
     return err;
-}
-
-void GearDialog::OnButtonDisconnectCamera(wxCommandEvent& event)
-{
-    Debug.Write("gear_dialog: OnButtonDisconnectCamera\n");
-
-    if (DarkBuildActive())
-    {
-        // A dark capture is using the camera on its own thread (#100); the build ends within one exposure.
-        pFrame->Alert(_("Dark-frame capture in progress; try again when the build has finished."));
-        return;
-    }
-
-    GuideCamera *camera = pFrame->pEquipment->CameraDevice();
-    try
-    {
-        if (!camera)
-        {
-            throw ERROR_INFO("OnButtonDisconnectCamera called with m_pCamera == NULL");
-        }
-
-        if (!camera->Connected)
-        {
-            throw THROW_INFO("OnButtonDisconnectCamera: called when not connected");
-        }
-
-        camera->Disconnect();
-        NoteUserDisconnect(GearDevice::Camera);
-
-        pFrame->StatusMsg(_("Camera Disconnected"));
-        pFrame->UpdateStatusBarStateLabels();
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-    }
-
-    pFrame->pEquipment->PublishGear();
-}
-
-void GearDialog::OnButtonConnectScope(wxCommandEvent& event)
-{
-    Debug.Write("gear_dialog: OnButtonConnectScope\n");
-
-    Scope *mount = pFrame->pEquipment->MountDevice();
-    try
-    {
-        // the mount is NULL when scope selection is "None"
-
-        if (mount && mount->IsConnected())
-        {
-            throw THROW_INFO("OnButtonConnectScope: called when connected");
-        }
-
-        if (mount)
-        {
-            pFrame->StatusMsgNoTimeout(_("Connecting to Mount ..."));
-
-            Debug.Write(wxString::Format("Connecting to mount [%s]\n", pFrame->pEquipment->SelectedChoice(GearDevice::Mount)));
-
-            ConnectRetry::ClearConnectError(GearDevice::Mount); // the driver records why the connect failed (#104)
-            if (mount->Connect())
-            {
-                throw THROW_INFO("OnButtonConnectScope: connect failed");
-            }
-
-            pFrame->StatusMsg(_("Mount Connected"));
-            GuidingAssistant::NotifyGearConnected();
-            pFrame->UpdateStatusBarStateLabels();
-        }
-        else
-        {
-            pFrame->UpdateStatusBarStateLabels();
-        }
-
-        Debug.AddLine("Connected Scope:" + (mount ? mount->Name() : wxString("None")));
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        pFrame->StatusMsg(_("Mount Connect Failed"));
-        pFrame->UpdateStatusBarStateLabels();
-    }
-
-    pFrame->pEquipment->PublishGear();
-
-    // #104: from the final state, so the "called when connected" throw above is not a failure
-    if (mount)
-        NoteConnectResult(GearDevice::Mount, mount->IsConnected());
-}
-
-void GearDialog::OnButtonDisconnectScope(wxCommandEvent& event)
-{
-    Debug.Write("gear_dialog: OnButtonDisconnectScope\n");
-
-    Scope *mount = pFrame->pEquipment->MountDevice();
-    try
-    {
-        if (!mount)
-        {
-            throw ERROR_INFO("OnButtonDisconnectScope called with m_pScope == NULL");
-        }
-
-        if (!mount->IsConnected())
-        {
-            throw THROW_INFO("OnButtonDisconnectScope: called when not connected");
-        }
-
-        mount->Disconnect();
-        NoteUserDisconnect(GearDevice::Mount);
-
-        pFrame->StatusMsg(_("Mount Disconnected"));
-        pFrame->UpdateStatusBarStateLabels();
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-    }
-
-    pFrame->pEquipment->PublishGear();
-}
-
-void GearDialog::OnButtonConnectRotator(wxCommandEvent& event)
-{
-    Debug.Write("gear_dialog: OnButtonConnectRotator\n");
-
-    Rotator *rotator = pFrame->pEquipment->RotatorDevice();
-    try
-    {
-        // the rotator is NULL when stepguider selection is "None"
-
-        if (rotator && rotator->IsConnected())
-        {
-            throw THROW_INFO("OnButtonConnectRotator: called when connected");
-        }
-
-        if (rotator)
-        {
-            pFrame->StatusMsgNoTimeout(_("Connecting to Rotator ..."));
-
-            Debug.Write(
-                wxString::Format("Connecting to rotator [%s]\n", pFrame->pEquipment->SelectedChoice(GearDevice::Rotator)));
-
-            ConnectRetry::ClearConnectError(GearDevice::Rotator); // the driver records why the connect failed (#104)
-            if (rotator->Connect())
-            {
-                throw THROW_INFO("OnButtonConnectRotator: connect failed");
-            }
-        }
-
-        if (rotator)
-        {
-            pFrame->StatusMsg(_("Rotator Connected"));
-            pFrame->UpdateStatusBarStateLabels();
-        }
-        else
-        {
-            pFrame->UpdateStatusBarStateLabels();
-        }
-
-        Debug.AddLine("Connected Rotator:" + (rotator ? rotator->Name() : wxString("None")));
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        pFrame->StatusMsg(_("Rotator Connect Failed"));
-        pFrame->UpdateStatusBarStateLabels();
-    }
-
-    pFrame->pEquipment->PublishGear();
-
-    // #104: from the final state, so the "called when connected" throw above is not a failure
-    if (rotator)
-        NoteConnectResult(GearDevice::Rotator, rotator->IsConnected());
-}
-
-void GearDialog::OnButtonDisconnectRotator(wxCommandEvent& event)
-{
-    Debug.Write("gear_dialog: OnButtonDisconnectRotator\n");
-
-    Rotator *rotator = pFrame->pEquipment->RotatorDevice();
-    try
-    {
-        if (rotator == NULL)
-        {
-            throw ERROR_INFO("OnButtonDisconnectRotator called with m_pRotator == NULL");
-        }
-
-        if (!rotator->IsConnected())
-        {
-            throw THROW_INFO("OnButtonDisconnectRotator: called when not connected");
-        }
-
-        rotator->Disconnect();
-        NoteUserDisconnect(GearDevice::Rotator);
-
-        pFrame->StatusMsg(_("Rotator Disconnected"));
-        pFrame->UpdateStatusBarStateLabels();
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-    }
-
-    pFrame->pEquipment->PublishGear();
 }
 
 namespace
@@ -565,65 +78,6 @@ int DeviceIndex(GearDevice dev)
 
 const GearDevice kRetryDevices[] = { GearDevice::Camera, GearDevice::Mount, GearDevice::Rotator };
 } // namespace
-
-// The gear requests are sequenced by m_session (gear_session.cpp): the latch session (#139) and the request depth
-// (#104: the retry timer, which can fire in any nested event loop, never starts an attempt in the middle of one), the
-// order of the leaves, the no-op and refusal checks, the error texts and the one end of request.
-static bool SessionResult(bool failed, const std::string& err, wxString *error)
-{
-    if (failed)
-        *error = wxString::FromUTF8(err.c_str());
-    return failed;
-}
-
-bool GearDialog::ConnectAll(wxString *error)
-{
-    std::string err;
-    return SessionResult(m_session.ConnectAll(&err), err, error);
-}
-
-bool GearDialog::DisconnectAll(wxString *error)
-{
-    std::string err;
-    return SessionResult(m_session.DisconnectAll(&err), err, error);
-}
-
-bool GearDialog::SetDeviceConnected(GearDevice device, bool connect, wxString *error)
-{
-    std::string err;
-    return SessionResult(m_session.SetDevice(device, connect, &err), err, error);
-}
-
-void GearDialog::Shutdown(bool forced)
-{
-    Debug.Write(wxString::Format("Shutdown: forced=%d\n", forced));
-
-    // OnClose stopped the retry before it stopped the worker threads; this is the backstop (#104)
-    StopConnectRetry(true);
-
-    Scope *mount = pFrame->pEquipment->MountDevice();
-    if (!forced && mount && mount->IsConnected())
-    {
-        Debug.AddLine("Shutdown: disconnect scope");
-        mount->Disconnect();
-    }
-
-    GuideCamera *camera = pFrame->pEquipment->CameraDevice();
-    if (!forced && camera && camera->Connected)
-    {
-        Debug.AddLine("Shutdown: disconnect camera");
-        camera->Disconnect();
-    }
-
-    Rotator *rotator = pFrame->pEquipment->RotatorDevice();
-    if (rotator && rotator->IsConnected())
-    {
-        Debug.AddLine("Shutdown: disconnect rotator");
-        rotator->Disconnect();
-    }
-
-    Debug.AddLine("Shutdown complete");
-}
 
 // ---- #104: recovery of a selected device that failed to connect ----
 //
@@ -721,13 +175,13 @@ ConnectRetry::Gates GearDialog::CurrentRetryGates() const
     gates.darkBuild = DarkBuildActive();
     gates.paSession = PaSessionActive();
     gates.guidingAssistant = GuidingAssistant::ApiIsRunning();
-    gates.connectInProgress = m_session.Depth() > 0;
+    gates.connectInProgress = pFrame->pEquipment->Session().Depth() > 0;
     gates.captureActive = pFrame->CaptureActive;
     gates.calibratingOrGuiding = pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding();
     return gates;
 }
 
-// Called at the end of each connect leaf (DoConnectCamera, OnButtonConnectScope, OnButtonConnectRotator) with the
+// Called at the end of each connect leaf (EquipmentManager::ConnectCamera, ConnectMount, ConnectRotator) with the
 // device's final state; autoReconnecting for the camera auto-reconnect (#105), which sends its own events
 // (Tracker::OnLeafResult). The reason is kept for the RPC error texts either way.
 void GearDialog::NoteConnectResult(GearDevice dev, bool connected, bool autoReconnecting)
@@ -743,7 +197,7 @@ void GearDialog::NoteConnectResult(GearDevice dev, bool connected, bool autoReco
     if (out.reconnected)
     {
         Debug.Write(wxString::Format("connect retry: the %s is connected again\n", GearDeviceName(dev)));
-        m_session.QueueReconnected(dev);
+        pFrame->pEquipment->Session().QueueReconnected(dev);
     }
     if (!out.failed)
         return;
@@ -769,6 +223,11 @@ void GearDialog::LogNextRetry(GearDevice dev)
         Debug.Write(wxString::Format("connect retry: the %s failed to connect (%s); next attempt in %d s (failure %d)\n", name,
                                      reason, (int) ((inMs + 999) / 1000), m_connectRetry.Attempts(dev)));
     }
+}
+
+void GearDialog::OnConnectRequested(GearDevice dev)
+{
+    m_connectRetry.OnConnectRequested(dev);
 }
 
 void GearDialog::NoteUserDisconnect(GearDevice dev)
@@ -1011,7 +470,7 @@ void GearDialog::RetryConnect(GearDevice dev)
     Debug.Write(wxString::Format("connect retry: connecting the %s\n", GearDeviceName(dev)));
     {
         ConnectRetry::QuietConnectScope quiet;
-        SetDeviceConnected(dev, true, &err);
+        pFrame->pEquipment->SetDeviceConnected(dev, true, &err);
     }
     // returned before reaching a connect (a refusal the gates missed): the schedule still moves on, or the device
     // would be due again at every tick
@@ -1142,7 +601,7 @@ bool GearDialog::ConnectForGuide(wxString *error)
 
         uint64_t before = m_connectRetry.Results(dev);
         wxString err;
-        SetDeviceConnected(dev, true, &err);
+        pFrame->pEquipment->SetDeviceConnected(dev, true, &err);
         if (DeviceConnected(dev))
             continue;
         // the driver's reason when a connect ran (its leaf recorded the failure), else SetDeviceConnected's own
