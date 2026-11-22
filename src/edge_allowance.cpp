@@ -26,7 +26,9 @@ int EdgeAllowance(const CalibrationGear& mount, const CalibrationGear& ao, bool 
 
 bool ClearOfEdge(double x, double y, int width, int height, int edgeDist)
 {
-    return x > edgeDist && x < width - edgeDist && y > edgeDist && y < height - edgeDist;
+    // + 1 on the far edges as ValidLockPosition: a peak at width - edgeDist - 1 was kept, and with no
+    // allowance that is a lock position IsValidLockPosition rejects (#142)
+    return x > edgeDist && x + 1 + edgeDist < width && y > edgeDist && y + 1 + edgeDist < height;
 }
 
 bool StarClearForRecalibration(double x, double y, int width, int height, int searchRegion, const CalibrationGear& mount,

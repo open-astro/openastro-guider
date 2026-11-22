@@ -28,7 +28,8 @@ int EdgeAllowance(bool mountCalibrated, bool willForceRecal, int calTotDist);
 int EdgeAllowance(const CalibrationGear& mount, const CalibrationGear& ao, bool willForceRecal);
 
 // GuideStar::AutoFind's edge rule: whether a star at (x, y) is more than edgeDist (the search region plus
-// the allowance) inside a width x height frame.
+// the allowance) inside a width x height frame, and a pixel more on the right and bottom, so that with no
+// allowance it keeps exactly the ValidLockPosition pixels.
 bool ClearOfEdge(double x, double y, int width, int height, int edgeDist);
 
 // Whether a star already selected (find_star while looping, which on a calibrated mount keeps only the search

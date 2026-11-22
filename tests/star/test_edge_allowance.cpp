@@ -95,15 +95,18 @@ TEST(EdgeAllowance, DisconnectedGearDoesNotCount)
 
 TEST(ClearOfEdge, MatchesAutoFindsRule)
 {
-    // AutoFind drops a peak at x <= edgeDist or x >= width - edgeDist (and the same for y)
+    // AutoFind drops a peak at x <= edgeDist or x + 1 + edgeDist >= width (and the same for y)
     EXPECT_FALSE(ClearOfEdge(40, 240, 640, 480, 40));
     EXPECT_TRUE(ClearOfEdge(41, 240, 640, 480, 40));
     EXPECT_FALSE(ClearOfEdge(600, 240, 640, 480, 40));
-    EXPECT_TRUE(ClearOfEdge(599, 240, 640, 480, 40));
+    EXPECT_FALSE(ClearOfEdge(599, 240, 640, 480, 40)); // kept until #142, an invalid lock position with no allowance
+    EXPECT_TRUE(ClearOfEdge(598, 240, 640, 480, 40));
     EXPECT_FALSE(ClearOfEdge(320, 40, 640, 480, 40));
     EXPECT_FALSE(ClearOfEdge(320, 440, 640, 480, 40));
+    EXPECT_FALSE(ClearOfEdge(320, 439, 640, 480, 40));
     EXPECT_TRUE(ClearOfEdge(320, 240, 640, 480, 40));
-    EXPECT_TRUE(ClearOfEdge(320.5, 439.5, 640, 480, 40));
+    EXPECT_TRUE(ClearOfEdge(320.5, 438.5, 640, 480, 40));
+    EXPECT_FALSE(ClearOfEdge(320.5, 439.5, 640, 480, 40));
 }
 
 TEST(ClearOfEdge, StarSelectedByFindStarIsReselectedForARecalibration)
