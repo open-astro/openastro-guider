@@ -132,27 +132,6 @@ protected:
         void LayoutControls(wxPanel *pParent, BrainCtrlIdMap& CtrlMap) override;
     };
 
-    class ScopeGraphControlPane : public GraphControlPane
-    {
-    public:
-        ScopeGraphControlPane(wxWindow *pParent, Scope *pScope, const wxString& label);
-        ~ScopeGraphControlPane();
-
-    private:
-        friend class Scope;
-
-        Scope *m_pScope;
-        wxSpinCtrl *m_pMaxRaDuration;
-        wxSpinCtrl *m_pMaxDecDuration;
-        wxChoice *m_pDecMode;
-
-        void OnMaxRaDurationSpinCtrl(wxSpinEvent& evt);
-        void OnMaxDecDurationSpinCtrl(wxSpinEvent& evt);
-        void OnDecModeChoice(wxCommandEvent& evt);
-    };
-    ScopeGraphControlPane *m_graphControlPane;
-
-    friend class GraphLogWindow;
     friend class ScopeConfigDialogCtrlSet;
 
     GUIDE_ALGORITHM DefaultXGuideAlgorithm() const override;
@@ -181,7 +160,6 @@ public:
     MountConfigDialogCtrlSet *GetConfigDialogCtrlSet(wxWindow *pParent, Mount *pScope, AdvancedDialog *pAdvancedDialog,
                                                      BrainCtrlIdMap& CtrlMap) override;
 
-    GraphControlPane *GetGraphControlPane(wxWindow *pParent, const wxString& label) override;
     wxString GetSettingsSummary() const override;
     wxString CalibrationSettingsSummary() const override;
     wxString GetMountClassName() const override;

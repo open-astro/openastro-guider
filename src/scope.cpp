@@ -88,7 +88,6 @@ Scope::Scope()
     : m_maxDecDuration(0), m_maxRaDuration(0), m_decGuideMode(DEC_NONE), m_bogusGuideRatesFlagged(0),
       m_limitReachedDeferralTime(guide_move_plan::AlertClockS())
 {
-    m_graphControlPane = nullptr;
     m_CalDetailsValidated = false;
 
     wxString prefix = "/" + GetMountClassName();
@@ -131,13 +130,7 @@ void Scope::LoadProfileSetup()
     m_hasHPEncoders = pConfig->Profile.GetBoolean("/scope/HiResEncoders", false);
 }
 
-Scope::~Scope()
-{
-    if (m_graphControlPane)
-    {
-        m_graphControlPane->m_pScope = nullptr;
-    }
-}
+Scope::~Scope() { }
 
 GUIDE_ALGORITHM Scope::DefaultXGuideAlgorithm() const
 {
@@ -311,8 +304,6 @@ bool Scope::SetDecGuideMode(int decGuideMode)
         if (m_decGuideMode != decGuideMode)
         {
             m_decGuideMode = (DEC_GUIDE_MODE) decGuideMode;
-            if (pFrame && pFrame->pGraphLog)
-                pFrame->pGraphLog->EnableDecControls(decGuideMode != DEC_NONE);
 
             wxString s = DecGuideModeStr(m_decGuideMode);
             Debug.Write(wxString::Format("DecGuideMode set to %s (%d)\n", s, decGuideMode));
@@ -1708,70 +1699,4 @@ void ScopeConfigDialogCtrlSet::OnDecModeChoice(wxCommandEvent& evt)
         m_pUseBacklashComp->SetValue(m_origBLCEnabled);
         m_pUseBacklashComp->Enable(true);
     }
-}
-
-GraphControlPane *Scope::GetGraphControlPane(wxWindow *pParent, const wxString& label)
-{
-    return new ScopeGraphControlPane(pParent, this, label);
-}
-
-Scope::ScopeGraphControlPane::ScopeGraphControlPane(wxWindow *pParent, Scope *pScope, const wxString& label)
-    : GraphControlPane(pParent, label)
-{
-    int width;
-    m_pScope = pScope;
-    pScope->m_graphControlPane = this;
-
-    width = StringWidth(_T("0000"));
-    m_pMaxRaDuration = pFrame->MakeSpinCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(width, -1),
-                                            wxSP_ARROW_KEYS, MAX_DURATION_MIN, MAX_DURATION_MAX, 0);
-    m_pMaxRaDuration->SetToolTip(_("Longest length of pulse to send in RA\nDefault = 2500 ms."));
-    m_pMaxRaDuration->Bind(wxEVT_COMMAND_SPINCTRL_UPDATED, &Scope::ScopeGraphControlPane::OnMaxRaDurationSpinCtrl, this);
-    DoAdd(m_pMaxRaDuration, _("Mx RA"));
-
-    width = StringWidth(_T("0000"));
-    m_pMaxDecDuration = pFrame->MakeSpinCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(width, -1),
-                                             wxSP_ARROW_KEYS, MAX_DURATION_MIN, MAX_DURATION_MAX, 0);
-    m_pMaxDecDuration->SetToolTip(
-        _("Longest length of pulse to send in declination\nDefault = 2500 ms.  Increase if drift is fast."));
-    m_pMaxDecDuration->Bind(wxEVT_COMMAND_SPINCTRL_UPDATED, &Scope::ScopeGraphControlPane::OnMaxDecDurationSpinCtrl, this);
-    DoAdd(m_pMaxDecDuration, _("Mx DEC"));
-
-    wxString dec_choices[] = {
-        DecGuideModeLocaleStr(DEC_NONE),
-        DecGuideModeLocaleStr(DEC_AUTO),
-        DecGuideModeLocaleStr(DEC_NORTH),
-        DecGuideModeLocaleStr(DEC_SOUTH),
-    };
-    m_pDecMode = new wxChoice(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, WXSIZEOF(dec_choices), dec_choices);
-    m_pDecMode->SetToolTip(_("Directions in which Dec guide commands will be issued"));
-    m_pDecMode->Bind(wxEVT_COMMAND_CHOICE_SELECTED, &Scope::ScopeGraphControlPane::OnDecModeChoice, this);
-    m_pControlSizer->Add(m_pDecMode);
-
-    m_pMaxRaDuration->SetValue(m_pScope->GetMaxRaDuration());
-    m_pMaxDecDuration->SetValue(m_pScope->GetMaxDecDuration());
-    m_pDecMode->SetSelection(m_pScope->GetDecGuideMode());
-}
-
-Scope::ScopeGraphControlPane::~ScopeGraphControlPane()
-{
-    if (m_pScope)
-    {
-        m_pScope->m_graphControlPane = nullptr;
-    }
-}
-
-void Scope::ScopeGraphControlPane::OnMaxRaDurationSpinCtrl(wxSpinEvent& WXUNUSED(evt))
-{
-    m_pScope->SetMaxRaDuration(m_pMaxRaDuration->GetValue());
-}
-
-void Scope::ScopeGraphControlPane::OnMaxDecDurationSpinCtrl(wxSpinEvent& WXUNUSED(evt))
-{
-    m_pScope->SetMaxDecDuration(m_pMaxDecDuration->GetValue());
-}
-
-void Scope::ScopeGraphControlPane::OnDecModeChoice(wxCommandEvent& WXUNUSED(evt))
-{
-    m_pScope->SetDecGuideMode(m_pDecMode->GetSelection());
 }

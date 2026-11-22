@@ -171,7 +171,6 @@ bool StepGuider::Connect()
         }
 
         InitBumpPositions();
-        pFrame->pStepGuiderGraph->SetLimits(MaxPosition(LEFT), MaxPosition(UP), m_xBumpPos1, m_yBumpPos1);
     }
     catch (const wxString& Msg)
     {
@@ -188,8 +187,6 @@ bool StepGuider::Disconnect()
 
     try
     {
-        pFrame->pStepGuiderGraph->SetLimits(0, 0, 0, 0);
-
         if (Mount::Disconnect())
         {
             throw ERROR_INFO("Mount::Disconnect() failed");
@@ -296,7 +293,6 @@ bool StepGuider::SetBumpPercentage(int bumpPercentage, bool updateGraph)
     if (updateGraph)
     {
         InitBumpPositions();
-        pFrame->pStepGuiderGraph->SetLimits(MaxPosition(LEFT), MaxPosition(UP), m_xBumpPos1, m_yBumpPos1);
     }
 
     return bError;
@@ -434,9 +430,6 @@ bool StepGuider::MoveToCenter()
         POSSIBLY_UNUSED(Msg);
         bError = true;
     }
-
-    // show updated position on graph
-    pFrame->pStepGuiderGraph->AppendData(wxPoint(m_xOffset, m_yOffset), m_avgOffset);
 
     return bError;
 }
@@ -844,8 +837,6 @@ void StepGuider::NotifyGuidingStopped()
     m_bumpInProgress = false;
     m_bumpStepWeight = 1.0;
     m_bumpTimeoutAlertSent = false;
-    // clear bump display
-    pFrame->pStepGuiderGraph->ShowBump(PHD_Point());
 
     MoveToCenter(); // ignore failure
 }
@@ -1033,11 +1024,6 @@ static void SuppressSlowBumpWarning(intptr_t)
     pConfig->Global.SetBoolean(SlowBumpWarningEnabledKey(), false);
 }
 
-inline static void UpdateAOGraphPos(const wxPoint& pos, const PHD_Point& avgpos)
-{
-    PhdApp::ExecInMainThread([pos, avgpos]() { pFrame->pStepGuiderGraph->AppendData(pos, avgpos); });
-}
-
 Mount::MOVE_RESULT StepGuider::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions)
 {
     MOVE_RESULT result = MOVE_OK;
@@ -1071,8 +1057,6 @@ Mount::MOVE_RESULT StepGuider::MoveOffset(GuiderOffset *ofs, unsigned int moveOp
         {
             m_avgOffset.SetXY((double) m_xOffset, (double) m_yOffset);
         }
-
-        UpdateAOGraphPos(wxPoint(m_xOffset, m_yOffset), m_avgOffset);
 
         bool secondaryIsBusy = pSecondaryMount && pSecondaryMount->IsBusy();
 
@@ -1165,7 +1149,6 @@ Mount::MOVE_RESULT StepGuider::MoveOffset(GuiderOffset *ofs, unsigned int moveOp
                 {
                     Debug.Write("Stop bumping, close enough to center -- clearing m_bumpInProgress\n");
                     m_bumpInProgress = false;
-                    PhdApp::ExecInMainThread([]() { pFrame->pStepGuiderGraph->ShowBump(PHD_Point()); });
                 }
             }
         }
@@ -1249,15 +1232,6 @@ Mount::MOVE_RESULT StepGuider::MoveOffset(GuiderOffset *ofs, unsigned int moveOp
                 {
                     thisBump *= sqrt(maxDist2 / pixels2);
                 }
-            }
-
-            // display the current bump vector on the stepguider graph
-            {
-                PHD_Point tcur;
-                TransformCameraCoordinatesToMountCoordinates(thisBump, tcur, false);
-                tcur.X /= xRate();
-                tcur.Y /= yRate();
-                PhdApp::ExecInMainThread([tcur]() { pFrame->pStepGuiderGraph->ShowBump(tcur); });
             }
 
             Debug.Write(wxString::Format("Scheduling Mount bump of (%.3f, %.3f)\n", thisBump.X, thisBump.Y));

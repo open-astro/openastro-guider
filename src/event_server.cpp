@@ -2477,7 +2477,7 @@ static void delete_profile(JObj& response, const json_value *params)
         pFrame->LoadProfileSettings();
         pFrame->pGuider->LoadProfileSettings();
         pFrame->UpdateTitle();
-        pFrame->pGraphLog->ResetData();
+        pFrame->pGuideHistory->ResetData();
     }
 
     JObj current;
@@ -4918,8 +4918,8 @@ static void get_camera_frame_size(JObj& response, const json_value *params)
         response << jrpc_error(1, "camera not connected");
 }
 
-// Guide-step history + summary stats from the graph's data store — the web
-// UI's guide graph polls this (there is no event stream over HTTP).
+// Guide-step history + summary stats from MyFrame's GuideHistory. Ara's
+// guide graph polls this.
 static void get_guide_history(JObj& response, const json_value *params)
 {
     Params p("max_points", params);
@@ -4931,14 +4931,14 @@ static void get_guide_history(JObj& response, const json_value *params)
         return;
     }
 
-    if (!pFrame->pGraphLog)
+    if (!pFrame->pGuideHistory)
     {
         response << jrpc_error(1, "graph data not available");
         return;
     }
 
-    const circular_buffer<S_HISTORY>& hist = pFrame->pGraphLog->History();
-    const SummaryStats& stats = pFrame->pGraphLog->Stats();
+    const circular_buffer<S_HISTORY>& hist = pFrame->pGuideHistory->History();
+    const SummaryStats& stats = pFrame->pGuideHistory->Stats();
 
     double scale = pFrame->GetCameraPixelScale();
 
@@ -5110,8 +5110,6 @@ static void set_algo_param(JObj& response, const json_value *params)
     if (ok)
     {
         response << jrpc_result(0);
-        if (pFrame->pGraphLog)
-            pFrame->pGraphLog->UpdateControls();
     }
     else
         response << jrpc_error(1, "could not set param");
@@ -5154,9 +5152,6 @@ static void set_dec_guide_mode(JObj& response, const json_value *params)
     Scope *scope = TheScope();
     if (scope)
         scope->SetDecGuideMode(m);
-
-    if (pFrame->pGraphLog)
-        pFrame->pGraphLog->UpdateControls();
 
     response << jrpc_result(0);
 }
@@ -5262,8 +5257,6 @@ static void set_algo(JObj& response, const json_value *params)
         pMount->SetXGuideAlgorithm(alg);
     else
         pMount->SetYGuideAlgorithm(alg);
-    if (pFrame->pGraphLog)
-        pFrame->pGraphLog->UpdateControls();
     response << jrpc_result(0);
 }
 

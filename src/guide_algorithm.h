@@ -59,7 +59,6 @@
  */
 
 class Mount;
-class GraphControlPane;
 
 enum GuideAxis
 {
@@ -95,7 +94,6 @@ public:
     virtual void GuidingDisabled();
 
     virtual ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) = 0;
-    virtual GraphControlPane *GetGraphControlPane(wxWindow *pParent, const wxString& label) { return nullptr; };
     virtual wxString GetSettingsSummary() const { return wxEmptyString; }
     virtual wxString GetGuideAlgorithmClassName() const = 0;
     virtual void GetParamNames(wxArrayString& names) const;

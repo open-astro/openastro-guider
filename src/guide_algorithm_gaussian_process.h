@@ -80,23 +80,6 @@ protected:
     };
 
 protected:
-    class GuideAlgorithmGPGraphControlPane : public GraphControlPane
-    {
-    public:
-        GuideAlgorithmGPGraphControlPane(wxWindow *pParent, GuideAlgorithmGaussianProcess *pAlgorithm, const wxString& label);
-        ~GuideAlgorithmGPGraphControlPane();
-
-    private:
-        GuideAlgorithmGaussianProcess *m_pGuideAlgorithm;
-        wxSpinCtrl *m_pWeight;
-        wxSpinCtrl *m_pAggressiveness;
-        wxSpinCtrlDouble *m_pMinMove;
-
-        void OnWeightSpinCtrl(wxSpinEvent& evt);
-        void OnAggressivenessSpinCtrl(wxSpinEvent& evt);
-        void OnMinMoveSpinCtrlDouble(wxSpinDoubleEvent& evt);
-    };
-
     GPExpertDialog *m_expertDialog; // Exactly one per GP instance independent from ConfigDialogPane lifetimes
 
 private:
@@ -160,7 +143,6 @@ public:
     GUIDE_ALGORITHM Algorithm() const override;
 
     ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
-    GraphControlPane *GetGraphControlPane(wxWindow *pParent, const wxString& label) override;
 
     /**
      * Calculates the control value based on the current input. 1. The input is

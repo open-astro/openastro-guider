@@ -159,7 +159,7 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 | `set_dither_settings` | `ScaleFactor`, `RaOnly` (either optional) | **(Batch A)** Set default dither scale / RA-only. |
 | `get_guide_output_enabled` | — | Whether guide output (corrections) is enabled. |
 | `set_guide_output_enabled` | `enabled` (bool) | Enable/disable sending guide corrections. |
-| `get_guide_history` | `max_points` (1–400, default 200) | Guide-step history + summary stats from the graph's data store (for clients that poll instead of reading the event stream): `{pixel_scale, stats {n, rms_ra, rms_dec, rms_tot, osc_index, ra_peak, dec_peak, star_lost, ra_limited, dec_limited}, points [{t (ms epoch), dx, dy, ra, dec (px), ra_dur, dec_dur (ms), ra_dir, dec_dir, mass, snr}]}`. |
+| `get_guide_history` | `max_points` (1–400, default 200) | Guide-step history + summary stats from the guider's guide history (for clients that poll instead of reading the event stream): `{pixel_scale, stats {n, rms_ra, rms_dec, rms_tot, osc_index, ra_peak, dec_peak, star_lost, ra_limited, dec_limited}, points [{t (ms epoch), dx, dy, ra, dec (px), ra_dur, dec_dur (ms), ra_dir, dec_dir, mass, snr}]}`. |
 | `get_mount_options` | — | **(Batch C)** `{AssumeOrthogonal, CalFlipRequiresDecFlip, StopGuidingWhenSlewing}`. |
 | `set_mount_options` | `AssumeOrthogonal`?, `CalFlipRequiresDecFlip`?, `StopGuidingWhenSlewing`? (bool) | **(Batch C)** Set the mount behaviour flags (all optional). |
 | `get_backlash_comp` | — | **(Batch C)** `{Enabled, PulseWidth, Floor, Ceiling}` (ms) for declination backlash compensation. |

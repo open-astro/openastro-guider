@@ -295,10 +295,6 @@ public:
 
     void LogGuideStepInfo();
 
-    GraphControlPane *GetXGuideAlgorithmControlPane(wxWindow *pParent);
-    GraphControlPane *GetYGuideAlgorithmControlPane(wxWindow *pParent);
-    virtual GraphControlPane *GetGraphControlPane(wxWindow *pParent, const wxString& label);
-
     virtual bool DecCompensationEnabled() const;
     virtual void AdjustCalibrationForScopePointing();
 

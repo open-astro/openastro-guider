@@ -279,8 +279,6 @@ source_group(Guiding FILES ${guiding_SRC})
 set(phd2_SRC
   ${phd_src_dir}/advanced_dialog.cpp
   ${phd_src_dir}/advanced_dialog.h
-  ${phd_src_dir}/aui_controls.cpp
-  ${phd_src_dir}/aui_controls.h
 
   ${phd_src_dir}/calstep_dialog.cpp
   ${phd_src_dir}/calstep_dialog.h
@@ -305,10 +303,8 @@ set(phd2_SRC
   ${phd_src_dir}/gear_dialog.h
   ${phd_src_dir}/gear_simulator.h
   ${phd_src_dir}/gear_simulator.cpp
-  ${phd_src_dir}/graph-stepguider.cpp
-  ${phd_src_dir}/graph-stepguider.h
-  ${phd_src_dir}/graph.cpp
-  ${phd_src_dir}/graph.h
+  ${phd_src_dir}/guide_history.cpp
+  ${phd_src_dir}/guide_history.h
   ${phd_src_dir}/guiding_assistant.cpp
   ${phd_src_dir}/guiding_assistant.h
   ${phd_src_dir}/guiding_assistant_math.cpp
@@ -332,8 +328,6 @@ set(phd2_SRC
   ${phd_src_dir}/myframe.cpp
   ${phd_src_dir}/myframe.h
   ${phd_src_dir}/myframe_events.cpp
-  ${phd_src_dir}/optionsbutton.cpp
-  ${phd_src_dir}/optionsbutton.h
   ${phd_src_dir}/phd.cpp
   ${phd_src_dir}/phd.h
   ${phd_src_dir}/phdconfig.cpp
@@ -366,23 +360,15 @@ set(phd2_SRC
   ${phd_src_dir}/serialports.h
   ${phd_src_dir}/socket_server.cpp
   ${phd_src_dir}/socket_server.h
-  ${phd_src_dir}/statswindow.cpp
-  ${phd_src_dir}/statswindow.h
 
   ${phd_src_dir}/star.cpp
   ${phd_src_dir}/star.h
   ${phd_src_dir}/star_find_core.cpp
   ${phd_src_dir}/star_find_core.h
-  ${phd_src_dir}/star_profile.cpp
-  ${phd_src_dir}/star_profile.h
-  ${phd_src_dir}/target.cpp
-  ${phd_src_dir}/target.h
   ${phd_src_dir}/usImage.cpp
   ${phd_src_dir}/usImage.h
   ${phd_src_dir}/worker_thread.cpp
   ${phd_src_dir}/worker_thread.h
-  ${phd_src_dir}/wxled.cpp
-  ${phd_src_dir}/wxled.h
 )
 
 source_group(src FILES ${phd2_SRC})

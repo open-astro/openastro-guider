@@ -350,8 +350,6 @@ bool GuideCamera::SetCameraPixelSize(double pixel_size)
         }
 
         m_pixelSize = pixel_size;
-        if (pFrame->pStatsWin)
-            pFrame->pStatsWin->ResetImageSize();
     }
     catch (const wxString& Msg)
     {
@@ -787,8 +785,6 @@ void CameraConfigDialogCtrlSet::UnloadValues()
         m_pCamera->SetCoolerSetpoint(setpt);
         pConfig->Profile.SetDouble("/camera/CoolerSetpt", setpt);
     }
-
-    pFrame->pStatsWin->UpdateCooler();
 }
 
 double CameraConfigDialogCtrlSet::GetPixelSize()

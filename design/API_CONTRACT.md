@@ -234,7 +234,7 @@ Server-side additions backing it:
   `stats` { `n`, `rms_ra`, `rms_dec`, `rms_tot`, `osc_index`, `ra_peak`, `dec_peak`,
   `star_lost`, `ra_limited`, `dec_limited` }, `points` [{ `t` (ms epoch), `dx`, `dy`, `ra`,
   `dec` (px), `ra_dur`, `dec_dur` (ms), `ra_dir`, `dec_dir` ("E"/"W"/"N"/"S" or ""), `mass`,
-  `snr` }] } — the graph window's data store, for HTTP clients that have no event stream.
+  `snr` }] } — the guider's guide history, for HTTP clients that have no event stream.
   (Direction chars are "" when no correction was issued; emitting the raw 0 char corrupted
   the JSON — caught by the contract test.)
 - `GET /api/frame.jpg` — the current guide frame stretched exactly as the GUI displays it

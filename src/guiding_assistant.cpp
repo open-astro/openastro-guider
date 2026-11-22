@@ -38,7 +38,6 @@
 #include "guiding_stats.h"
 #include "guiding_assistant_math.h"
 #include "monotonic_timers.h"
-#include "optionsbutton.h"
 
 #include <wx/textwrapper.h>
 #include <wx/tokenzr.h>
@@ -479,7 +478,6 @@ static bool ApplyGAMinMove(GuideAlgorithm *algo, double minMove, const wxString&
         if (!algo->SetMinMove(minMove))
         {
             Debug.Write(wxString::Format("GuideAssistant changed %s to %0.2f\n", debugName, minMove));
-            pFrame->pGraphLog->UpdateControls();
             pFrame->NotifyGuidingParam(axisName + " " + algo->GetGuideAlgorithmClassName() + " MinMove ", minMove);
             return true;
         }
@@ -507,7 +505,6 @@ static bool ConfigureGADecLowpass2(double decMinMove)
     decAlgo->SetParam("minMove", decMinMove);
     Debug.Write(
         wxString::Format("GuideAssistant set Lowpass2 aggressiveness = %0.2f, min-move = %0.2f\n", newAggr, decMinMove));
-    pFrame->pGraphLog->UpdateControls();
     pFrame->NotifyGuidingParam("Declination algorithm", wxString("Lowpass2"));
     pFrame->NotifyGuidingParam("Declination Lowpass2 aggressivness", newAggr);
     pFrame->NotifyGuidingParam("Declination Lowpass2 MinMove", decMinMove);
@@ -612,7 +609,7 @@ struct GuidingAsstWin : public wxDialog
 
     wxButton *m_start;
     wxButton *m_stop;
-    OptionsButton *btnReviewPrev;
+    wxButton *btnReviewPrev;
     wxTextCtrl *m_report;
     wxStaticText *m_instructions;
     wxGrid *m_statusgrid;
@@ -981,7 +978,7 @@ GuidingAsstWin::GuidingAsstWin()
     btnSizer->Add(m_start, 0, wxALL, 5);
     m_start->Enable(false);
 
-    btnReviewPrev = new OptionsButton(this, GA_REVIEW_BUTTON, _("Review previous"), wxDefaultPosition, wxDefaultSize, 0);
+    btnReviewPrev = new wxButton(this, GA_REVIEW_BUTTON, _("Review previous"), wxDefaultPosition, wxDefaultSize, 0);
     btnReviewPrev->SetToolTip(_("Review previous Guiding Assistant results"));
     btnReviewPrev->Enable(GetGAHistoryCount() > 0);
     btnSizer->Add(btnReviewPrev, 0, wxALL, 5);
@@ -2610,8 +2607,6 @@ bool GuidingAssistant::ApiApply(const std::vector<wxString>& which, std::vector<
             break;
         case ApplyItem::DecGuideMode:
             TheScope()->SetDecGuideMode(r.singleDirection == ga_math::DecDirection::South ? DEC_SOUTH : DEC_NORTH);
-            if (pFrame->pGraphLog)
-                pFrame->pGraphLog->UpdateControls();
             break;
         }
 

@@ -972,9 +972,9 @@ This section is normative for integrator behavior. Each method entry describes:
 | `set_guide_output_enabled` | `enabled:bool` | mount object should exist | `0` | `-32602` invalid boolean; `1` mount not defined | guide output enable state changes |
 | `get_algo_param_names` | `axis:string` (`ra|dec|x|y`) | none | string[] incl. `algorithmName` | `1` invalid axis | none. `get_algo_param_names` stays the authoritative per-profile list (names depend on the selected algorithm); as a static reference, the common writable names are — Hysteresis: `hysteresis`,`aggression`,`minMove`; ResistSwitch: `aggression`,`minMove`,`fastSwitch`; LowPass: `minMove`,`slopeWeight`; LowPass2: `aggressiveness`,`minMove`; ZFilter: `expFactor`,`minMove`; GaussianProcess (Predictive PEC, RA only): `minMove`,`predictiveWeight`,`reactiveWeight`,`periodLength` (`periodLength` changes only the period; the other GP hyperparameters keep their values). Verify against the live list before writing |
 | `get_algo_param` | `axis:string`, `name:string` | none | number or string (`algorithmName`) | `1` invalid args or unknown param | none |
-| `set_algo_param` | `axis:string`, `name:string`, `value:number` | none | `0` | `-32602` `value` missing or not a number ("expected numeric value param"); `1` invalid axis or name, or set failure | algorithm parameter updated; graph controls refreshed |
+| `set_algo_param` | `axis:string`, `name:string`, `value:number` | none | `0` | `-32602` `value` missing or not a number ("expected numeric value param"); `1` invalid axis or name, or set failure | algorithm parameter updated |
 | `get_dec_guide_mode` | none | none | mode string (`Scope::DecGuideModeStr`) | none expected | none |
-| `set_dec_guide_mode` | `mode:string` | none | `0` | `1` invalid mode | DEC guide mode updated; graph controls refreshed |
+| `set_dec_guide_mode` | `mode:string` | none | `0` | `1` invalid mode | DEC guide mode updated |
 | `get_calibrated` | none | none | `bool` | none expected | none |
 | `clear_calibration` | optional `which:string` (`mount|ao|both`) | not calibrating (allowed while guiding) | `0` | `-32602` invalid `which`; `1` calibrating | mount/AO calibration cleared |
 | `flip_calibration` | none | none | `0` | `1` flip failure | calibration parity/geometry flipped; `CalibrationDataFlipped` event |

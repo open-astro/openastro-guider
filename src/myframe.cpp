@@ -36,7 +36,6 @@
 
 #include "phd.h"
 
-#include "aui_controls.h"
 #include "guiding_assistant.h"
 #include "variable_delay.h"
 
@@ -67,7 +66,6 @@ wxDEFINE_EVENT(REQUEST_EXPOSURE_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(REQUEST_MOUNT_MOVE_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(WXMESSAGEBOX_PROXY_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(STATUSBAR_ENQUEUE_EVENT, wxCommandEvent);
-wxDEFINE_EVENT(STATUSBAR_TIMER_EVENT, wxTimerEvent);
 wxDEFINE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDEFINE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
 wxDEFINE_EVENT(RECONNECT_CAMERA_EVENT, wxThreadEvent);
@@ -75,9 +73,6 @@ wxDEFINE_EVENT(RECONNECT_CAMERA_EVENT, wxThreadEvent);
 // clang-format off
 // clang-format off
 wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
-EVT_MENU_HIGHLIGHT_ALL(MyFrame::OnMenuHighlight)
-EVT_MENU_CLOSE(MyFrame::OnAnyMenuClose)
-EVT_MENU(wxID_ANY, MyFrame::OnAnyMenu)
 EVT_MENU(wxID_EXIT, MyFrame::OnQuit)
 EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
 EVT_MENU(MENU_GUIDING_ASSISTANT, MyFrame::OnGuidingAssistant)
@@ -100,12 +95,7 @@ EVT_MENU(MENU_BOOKMARKS_CLEAR_ALL, MyFrame::OnBookmarksClearAll)
 EVT_CHAR_HOOK(MyFrame::OnCharHook)
 
 EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
-EVT_MENU(MENU_GRAPH, MyFrame::OnGraph)
-EVT_MENU(MENU_STATS, MyFrame::OnStats)
-EVT_MENU(MENU_AO_GRAPH, MyFrame::OnAoGraph)
-EVT_MENU(MENU_TARGET, MyFrame::OnTarget)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
-EVT_MENU(MENU_STARPROFILE, MyFrame::OnStarProfile)
 EVT_MENU(MENU_RESTORE_WINDOWS, MyFrame::OnRestoreWindows)
 EVT_MENU(MENU_AUTOSTAR, MyFrame::OnAutoStar)
 EVT_TOOL(BUTTON_GEAR, MyFrame::OnSelectGear)
@@ -137,7 +127,6 @@ EVT_THREAD(SET_STATUS_TEXT_EVENT, MyFrame::OnStatusMsg)
 EVT_THREAD(ALERT_FROM_THREAD_EVENT, MyFrame::OnAlertFromThread)
 EVT_THREAD(RECONNECT_CAMERA_EVENT, MyFrame::OnReconnectCameraFromThread)
 EVT_COMMAND(wxID_ANY, REQUEST_MOUNT_MOVE_EVENT, MyFrame::OnRequestMountMove)
-EVT_TIMER(STATUSBAR_TIMER_EVENT, MyFrame::OnStatusBarTimerEvent)
 
 EVT_AUI_PANE_CLOSE(MyFrame::OnPanelClose)
 wxEND_EVENT_TABLE();
@@ -174,10 +163,35 @@ struct FileDropTarget : public wxFileDropTarget
     }
 };
 
+// The guide-step history behind get_guide_history, sized from the /graph/* keys the
+// History graph used (the key names are kept so existing configs still apply).
+static GuideHistory *NewGuideHistory()
+{
+    int cfgMinLength = pConfig->Global.GetInt("/graph/minLength", GuideHistory::DefaultMinLength);
+    int cfgMaxLength = pConfig->Global.GetInt("/graph/maxLength", GuideHistory::DefaultMaxLength);
+    unsigned int minLength = GuideHistory::ValidMinLength(cfgMinLength);
+    unsigned int length = pConfig->Global.GetInt("/graph/length", minLength * 2);
+
+    GuideHistory *history = new GuideHistory(cfgMinLength, cfgMaxLength, length, ::wxGetUTCTimeMillis().GetValue());
+
+    if (history->MinLength() != (unsigned int) cfgMinLength)
+        Debug.Write(
+            wxString::Format("GuideHistory: /graph/minLength %d invalid, using %u\n", cfgMinLength, history->MinLength()));
+    if (history->Capacity() != (unsigned int) cfgMaxLength)
+        Debug.Write(
+            wxString::Format("GuideHistory: /graph/maxLength %d invalid, using %u\n", cfgMaxLength, history->Capacity()));
+
+    pConfig->Global.SetInt("/graph/minLength", history->MinLength());
+    pConfig->Global.SetInt("/graph/maxLength", history->Capacity());
+    Debug.Write(wxString::Format("GraphStats window size = %d\n", (int) history->Length()));
+
+    return history;
+}
+
 // ---------------------- Main Frame -------------------------------------
 // frame constructor
 MyFrame::MyFrame()
-    : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pStatsWin(nullptr)
+    : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pGuideHistory(nullptr)
 {
     // #168: set the global before building anything. PhdApp::OnInit's pFrame = new MyFrame() assigns it only
     // when this constructor returns, but the guider, the dialogs and the mount built below already call
@@ -191,8 +205,6 @@ MyFrame::MyFrame()
     StartWorkerThread(m_pPrimaryWorkerThread);
     m_pSecondaryWorkerThread = nullptr;
     StartWorkerThread(m_pSecondaryWorkerThread);
-
-    m_statusbarTimer.SetOwner(this, STATUSBAR_TIMER_EVENT);
 
     SocketServer = nullptr;
 
@@ -215,9 +227,6 @@ MyFrame::MyFrame()
 
     // Setup button panel
     SetupToolBar();
-
-    // Setup Status bar
-    SetupStatusBar();
 
     LoadProfileSettings();
 
@@ -280,20 +289,7 @@ MyFrame::MyFrame()
     m_mgr.AddPane(guiderWin,
                   wxAuiPaneInfo().Name(_T("Guider")).Caption(_T("Guider")).CenterPane().MinSize(wxSize(XWinSize, YWinSize)));
 
-    pGraphLog = new GraphLogWindow(this);
-    m_mgr.AddPane(pGraphLog, wxAuiPaneInfo().Name(_T("GraphLog")).Caption(_("History")).Hide());
-
-    pStatsWin = new StatsWindow(this);
-    m_mgr.AddPane(pStatsWin, wxAuiPaneInfo().Name(_T("Stats")).Caption(_("Guide Stats")).Hide());
-
-    pStepGuiderGraph = new GraphStepguiderWindow(this);
-    m_mgr.AddPane(pStepGuiderGraph, wxAuiPaneInfo().Name(_T("AOPosition")).Caption(_("AO Position")).Hide());
-
-    pProfile = new ProfileWindow(this);
-    m_mgr.AddPane(pProfile, wxAuiPaneInfo().Name(_T("Profile")).Caption(_("Star Profile")).Hide());
-
-    pTarget = new TargetWindow(this);
-    m_mgr.AddPane(pTarget, wxAuiPaneInfo().Name(_T("Target")).Caption(_("Target")).Hide());
+    pGuideHistory = NewGuideHistory();
 
     pAdvancedDialog = new AdvancedDialog(this);
 
@@ -335,11 +331,6 @@ MyFrame::MyFrame()
         m_mgr.LoadPerspective(perspective);
         m_mgr.GetPane(_T("MainToolBar")).Caption(_T("Main tool bar"));
         m_mgr.GetPane(_T("Guider")).Caption(_T("Guider"));
-        m_mgr.GetPane(_T("GraphLog")).Caption(_("History"));
-        m_mgr.GetPane(_T("Stats")).Caption(_("Guide Stats"));
-        m_mgr.GetPane(_T("AOPosition")).Caption(_("AO Position"));
-        m_mgr.GetPane(_T("Profile")).Caption(_("Star Profile"));
-        m_mgr.GetPane(_T("Target")).Caption(_("Target"));
         m_mgr.GetPane(_T("Guider")).PaneBorder(false);
     }
 
@@ -347,26 +338,6 @@ MyFrame::MyFrame()
 
     panel_state = m_mgr.GetPane(_T("MainToolBar")).IsShown();
     Menubar->Check(MENU_TOOLBAR, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("GraphLog")).IsShown();
-    pGraphLog->SetState(panel_state);
-    Menubar->Check(MENU_GRAPH, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("Stats")).IsShown();
-    pStatsWin->SetState(panel_state);
-    Menubar->Check(MENU_STATS, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("AOPosition")).IsShown();
-    pStepGuiderGraph->SetState(panel_state);
-    Menubar->Check(MENU_AO_GRAPH, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("Profile")).IsShown();
-    pProfile->SetState(panel_state);
-    Menubar->Check(MENU_STARPROFILE, panel_state);
-
-    panel_state = m_mgr.GetPane(_T("Target")).IsShown();
-    pTarget->SetState(panel_state);
-    Menubar->Check(MENU_TARGET, panel_state);
 
     m_mgr.Update();
 
@@ -382,6 +353,9 @@ MyFrame::~MyFrame()
     pAdvancedDialog->Destroy();
 
     m_mgr.UnInit();
+
+    delete pGuideHistory;
+    pGuideHistory = nullptr;
 
     delete m_showBookmarksAccel;
     delete m_bookmarkLockPosAccel;
@@ -426,11 +400,6 @@ void MyFrame::SetupMenuBar()
 
     view_menu = new wxMenu();
     view_menu->AppendCheckItem(MENU_TOOLBAR, _("Display Toolbar"), _("Enable / disable tool bar"));
-    view_menu->AppendCheckItem(MENU_GRAPH, _("Display &Graph"), _("Enable / disable graph"));
-    view_menu->AppendCheckItem(MENU_STATS, _("Display &Stats"), _("Enable / disable guide stats"));
-    view_menu->AppendCheckItem(MENU_AO_GRAPH, _("Display &AO Graph"), _("Enable / disable AO graph"));
-    view_menu->AppendCheckItem(MENU_TARGET, _("Display &Target"), _("Enable / disable target"));
-    view_menu->AppendCheckItem(MENU_STARPROFILE, _("Display Star &Profile"), _("Enable / disable star profile view"));
     (void) view_menu->AppendSeparator();
     view_menu->AppendRadioItem(MENU_XHAIR0, _("&No Overlay"), _("No additional crosshairs"));
     view_menu->AppendRadioItem(MENU_XHAIR1, _("&Bullseye"), _("Centered bullseye overlay"));
@@ -873,16 +842,6 @@ void MyFrame::SetupToolBar()
     MainToolbar->EnableTool(BUTTON_GUIDE, false);
     MainToolbar->EnableTool(BUTTON_STOP, false);
     MainToolbar->Realize();
-
-    MainToolbar->SetArtProvider(new PHDToolBarArt); // Get the custom background we want
-}
-
-void MyFrame::SetupStatusBar()
-{
-    m_statusbar = PHDStatusBar::CreateInstance(this, wxSTB_DEFAULT_STYLE);
-    SetStatusBar(m_statusbar);
-    PositionStatusBar();
-    UpdateStatusBarCalibrationStatus();
 }
 
 void MyFrame::SetupKeyboardShortcuts()
@@ -963,10 +922,6 @@ void MyFrame::UpdateButtonsStatus()
 
     if (need_update)
     {
-        if (pGuider->GetState() < STATE_SELECTED)
-            m_statusbar->ClearStarInfo();
-        if (!guiding_active)
-            m_statusbar->ClearGuiderInfo();
         Update();
         Refresh();
     }
@@ -1064,7 +1019,6 @@ void MyFrame::DoAlert(const alert_params& params)
     }
     int showMessageFlags = params.flags;
     m_infoBar->ShowMessage(wrappedText, showMessageFlags);
-    m_statusbar->UpdateStates(); // might have disconnected a device
     EvtServer.NotifyAlert(params.msg, params.flags);
 }
 
@@ -1253,33 +1207,23 @@ void MyFrame::DoTryReconnect()
  *
  */
 
-// Use a timer to show a status message for 10 seconds, then revert back to basic state info
-static void StartStatusBarTimer(wxTimer& timer)
-{
-    const int DISPLAY_MS = 10000;
-    timer.Start(DISPLAY_MS, wxTIMER_ONE_SHOT);
-}
-
-static void SetStatusMsg(PHDStatusBar *statusbar, const wxString& text)
+// There is no status bar since #115 step 2; a status message is only written to the debug log
+static void SetStatusMsg(const wxString& text)
 {
     Debug.Write(wxString::Format("Status Line: %s\n", text));
-    statusbar->StatusMsg(text);
 }
 
 enum StatusBarThreadMsgType
 {
     THR_SB_MSG_TEXT,
-    THR_SB_STATE_LABELS,
-    THR_SB_CALIBRATION,
     THR_SB_BUTTON_STATE,
 };
 
-static void QueueStatusBarTextMsg(wxEvtHandler *frame, const wxString& text, bool withTimeout)
+static void QueueStatusBarTextMsg(wxEvtHandler *frame, const wxString& text)
 {
     wxThreadEvent *event = new wxThreadEvent(wxEVT_THREAD, SET_STATUS_TEXT_EVENT);
     event->SetExtraLong(THR_SB_MSG_TEXT);
     event->SetString(text);
-    event->SetInt(withTimeout);
     wxQueueEvent(frame, event);
 }
 
@@ -1293,20 +1237,17 @@ static void QueueStatusBarUpdateMsg(wxEvtHandler *frame, StatusBarThreadMsgType 
 void MyFrame::StatusMsg(const wxString& text)
 {
     if (wxThread::IsMain())
-    {
-        SetStatusMsg(m_statusbar, text);
-        StartStatusBarTimer(m_statusbarTimer);
-    }
+        SetStatusMsg(text);
     else
-        QueueStatusBarTextMsg(this, text, true);
+        QueueStatusBarTextMsg(this, text);
 }
 
 void MyFrame::StatusMsgNoTimeout(const wxString& text)
 {
     if (wxThread::IsMain())
-        SetStatusMsg(m_statusbar, text);
+        SetStatusMsg(text);
     else
-        QueueStatusBarTextMsg(this, text, false);
+        QueueStatusBarTextMsg(this, text);
 }
 
 void MyFrame::OnStatusMsg(wxThreadEvent& event)
@@ -1314,21 +1255,7 @@ void MyFrame::OnStatusMsg(wxThreadEvent& event)
     switch (event.GetExtraLong())
     {
     case THR_SB_MSG_TEXT:
-    {
-        wxString msg(event.GetString());
-        bool withTimeout = event.GetInt() ? true : false;
-
-        SetStatusMsg(m_statusbar, msg);
-
-        if (withTimeout)
-            StartStatusBarTimer(m_statusbarTimer);
-        break;
-    }
-    case THR_SB_STATE_LABELS:
-        m_statusbar->UpdateStates();
-        break;
-    case THR_SB_CALIBRATION:
-        UpdateStatusBarCalibrationStatus();
+        SetStatusMsg(event.GetString());
         break;
     case THR_SB_BUTTON_STATE:
         UpdateButtonsStatus();
@@ -1336,39 +1263,19 @@ void MyFrame::OnStatusMsg(wxThreadEvent& event)
     }
 }
 
-void MyFrame::UpdateStatusBarStarInfo(double SNR, bool Saturated)
+void MyFrame::UpdateStatusBarStarInfo(double, bool)
 {
-    assert(wxThread::IsMain());
-    m_statusbar->UpdateStarInfo(SNR, Saturated);
+    // no status bar since #115 step 2; MyFrame goes in step 6
 }
 
 void MyFrame::UpdateStatusBarStateLabels()
 {
-    if (wxThread::IsMain())
-        m_statusbar->UpdateStates();
-    else
-        QueueStatusBarUpdateMsg(this, THR_SB_STATE_LABELS);
+    // no status bar since #115 step 2; MyFrame goes in step 6
 }
 
 void MyFrame::UpdateStatusBarCalibrationStatus()
 {
-    if (wxThread::IsMain())
-    {
-        m_statusbar->UpdateStates();
-        UpdateStatsWindowScopePointing();
-    }
-    else
-    {
-        QueueStatusBarUpdateMsg(this, THR_SB_CALIBRATION);
-    }
-}
-
-void MyFrame::UpdateStatsWindowScopePointing()
-{
-    if (pStatsWin)
-    {
-        pStatsWin->UpdateScopePointing();
-    }
+    // no status bar since #115 step 2; MyFrame goes in step 6
 }
 
 void MyFrame::NotifyUpdateButtonsStatus()
@@ -1388,15 +1295,11 @@ void MyFrame::UpdateStatusBarGuiderInfo(const GuideStepInfo& info)
     Debug.Write(wxString::Format("GuideStep: %.1f px %d ms %s, %.1f px %d ms %s\n", info.mountOffset.X, info.durationRA,
                                  info.directionRA == EAST ? "EAST" : "WEST", info.mountOffset.Y, info.durationDec,
                                  info.directionDec == NORTH ? "NORTH" : "SOUTH"));
-
-    assert(wxThread::IsMain());
-    m_statusbar->UpdateGuiderInfo(info);
 }
 
 void MyFrame::ClearStatusBarGuiderInfo()
 {
-    assert(wxThread::IsMain());
-    m_statusbar->ClearGuiderInfo();
+    // no status bar since #115 step 2; MyFrame goes in step 6
 }
 
 bool MyFrame::StartWorkerThread(WorkerThread *& pWorkerThread)
@@ -1513,16 +1416,6 @@ void MyFrame::OnRequestMountMove(wxCommandEvent& evt)
 
     request->semaphore->Post();
     Debug.Write("OnRequestMountMove() ends\n");
-}
-
-void MyFrame::OnStatusBarTimerEvent(wxTimerEvent& evt)
-{
-    if (pGuider->IsGuiding())
-        m_statusbar->StatusMsg(_("Guiding"));
-    else if (CaptureActive)
-        m_statusbar->StatusMsg(_("Looping"));
-    else
-        m_statusbar->StatusMsg(wxEmptyString);
 }
 
 void MyFrame::ScheduleExposure()
@@ -1952,7 +1845,7 @@ bool MyFrame::Dither(double amount, bool raOnly)
         info.timestamp = ::wxGetUTCTimeMillis().GetValue();
         info.dRa = dRa;
         info.dDec = dDec;
-        pGraphLog->AppendData(info);
+        pGuideHistory->AppendData(info);
 
         if (pMount->IsStepGuider())
         {
@@ -2527,7 +2420,6 @@ void MyFrame::CheckDarkFrameGeometry()
     }
 
     m_prevDarkFrameSize = pCamera->DarkFrameSize();
-    m_statusbar->UpdateStates();
 }
 
 void MyFrame::SetDarkMenuState()
@@ -2540,7 +2432,6 @@ void MyFrame::SetDarkMenuState()
     m_useDefectMapMenuItem->Enable(haveDefectMap);
     if (!haveDefectMap)
         m_useDefectMapMenuItem->Check(false);
-    m_statusbar->UpdateStates();
 }
 
 bool MyFrame::LoadDarkLibrary()
@@ -2642,8 +2533,6 @@ bool MyFrame::SetFocalLength(int focalLength)
         }
 
         m_focalLength = focalLength;
-        if (pStatsWin)
-            pStatsWin->ResetImageSize();
     }
     catch (const wxString& Msg)
     {
@@ -2757,22 +2646,8 @@ void MyFrame::HandleImageScaleChange()
         pFrame->pAdvancedDialog->MakeImageScaleAdjustments();
     }
 
-    wxCommandEvent dummyEvt;
-    if (pGraphLog)
-    {
-        pGraphLog->OnButtonClear(dummyEvt);
-        pGraphLog->UpdateControls();
-    }
-
-    // Give the image-scale dependent windows a chance to reset
-    if (pStepGuiderGraph)
-        pStepGuiderGraph->OnButtonClear(dummyEvt);
-
-    if (pTarget)
-    {
-        pTarget->OnButtonClear(dummyEvt);
-        pTarget->UpdateControls();
-    }
+    if (pGuideHistory)
+        pGuideHistory->ResetData();
 
     Alert(_("Binning or camera pixel size changed unexpectedly. "
             "You should use separate profiles for different image scales."));
