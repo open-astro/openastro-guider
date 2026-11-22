@@ -37,4 +37,8 @@ bool ClearOfEdge(double x, double y, int width, int height, int edgeDist);
 bool StarClearForRecalibration(double x, double y, int width, int height, int searchRegion, const CalibrationGear& mount,
                                const CalibrationGear& ao);
 
+// GuiderMultiStar::IsValidLockPosition's rule: whether a lock position at (x, y) leaves Star::Find
+// its whole search region and a pixel more inside a width x height frame.
+bool ValidLockPosition(double x, double y, int width, int height, int searchRegion);
+
 #endif

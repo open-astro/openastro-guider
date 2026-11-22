@@ -119,3 +119,50 @@ TEST(ClearOfEdge, StarSelectedByFindStarIsReselectedForARecalibration)
     EXPECT_TRUE(StarClearForRecalibration(41, 240, 640, 480, kSearch, Gear(true, kScopeDist), kNoAo));
     EXPECT_TRUE(StarClearForRecalibration(320, 240, 640, 480, kSearch, Gear(true, kScopeDist), Gear(true, kAoDist)));
 }
+
+TEST(ValidLockPosition, LeavesTheSearchRegionAndAPixelInsideTheFrame)
+{
+    // GuiderMultiStar::IsValidLockPosition, with a 15 px search region in 640 x 480
+    EXPECT_FALSE(ValidLockPosition(15, 240, 640, 480, 15));
+    EXPECT_TRUE(ValidLockPosition(16, 240, 640, 480, 15));
+    EXPECT_TRUE(ValidLockPosition(623, 240, 640, 480, 15));
+    EXPECT_FALSE(ValidLockPosition(624, 240, 640, 480, 15));
+    EXPECT_FALSE(ValidLockPosition(320, 15, 640, 480, 15));
+    EXPECT_TRUE(ValidLockPosition(320, 463, 640, 480, 15));
+    EXPECT_FALSE(ValidLockPosition(320, 464, 640, 480, 15));
+}
+
+// With no edge allowance (a calibrated mount, find_star and get_star_centroids), AutoFind's edge
+// rule kept a peak at x = width - searchRegion - 1 (or y = height - searchRegion - 1), which
+// IsValidLockPosition rejects, so the star AutoSelect locked on already failed the guider's own
+// lock-position check: with a lock-position shift on, any shift not inward raised
+// LockPositionShiftLimitReached at once and turned the shift off. Every peak AutoFind keeps must be a
+// valid lock position.
+TEST(ClearOfEdge, KeepsOnlyValidLockPositions)
+{
+    for (int searchRegion : { 7, 15, 50 })
+        for (int allowance : { 0, 25 })
+        {
+            const int width = 640, height = 480;
+            int kept = 0;
+            for (int y = 0; y < height; ++y)
+                for (int x = 0; x < width; ++x)
+                    if (ClearOfEdge(x, y, width, height, searchRegion + allowance))
+                    {
+                        ++kept;
+                        ASSERT_TRUE(ValidLockPosition(x, y, width, height, searchRegion))
+                            << x << ", " << y << " search region " << searchRegion << " allowance " << allowance;
+                    }
+            EXPECT_GT(kept, 0) << searchRegion << " " << allowance;
+        }
+}
+
+TEST(ClearOfEdge, KeepsEveryValidLockPositionWithNoAllowance)
+{
+    // and drops nothing more than it has to: with no allowance the two rules agree on every pixel
+    const int width = 160, height = 120, searchRegion = 15;
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+            ASSERT_EQ(ClearOfEdge(x, y, width, height, searchRegion), ValidLockPosition(x, y, width, height, searchRegion))
+                << x << ", " << y;
+}

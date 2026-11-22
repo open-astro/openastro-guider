@@ -34,3 +34,8 @@ bool StarClearForRecalibration(double x, double y, int width, int height, int se
 {
     return ClearOfEdge(x, y, width, height, searchRegion + EdgeAllowance(mount, ao, true));
 }
+
+bool ValidLockPosition(double x, double y, int width, int height, int searchRegion)
+{
+    return x >= 1 + searchRegion && x + 1 + searchRegion < width && y >= 1 + searchRegion && y + 1 + searchRegion < height;
+}
