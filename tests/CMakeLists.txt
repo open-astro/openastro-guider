@@ -298,6 +298,18 @@ set_property(TARGET test_variable_delay PROPERTY FOLDER "Unit tests")
 add_test(NAME test_variable_delay COMMAND test_variable_delay)
 
 ############################################################################
+# test_profile_defaults  --  reads src/*.cpp: every read of a profile key
+# passes the same default (#191). std-only, links no production code.
+############################################################################
+add_executable(test_profile_defaults
+  ${PHD_TESTS_DIR}/event_server/test_profile_defaults.cpp
+)
+target_compile_definitions(test_profile_defaults PRIVATE PHD_SRC_DIR="${phd_src_dir}")
+target_link_libraries(test_profile_defaults PRIVATE phd_test_common)
+set_property(TARGET test_profile_defaults PROPERTY FOLDER "Unit tests")
+add_test(NAME test_profile_defaults COMMAND test_profile_defaults)
+
+############################################################################
 # test_alpaca_gain  --  alpaca_gain.cpp: the GainMin/GainMax support
 # decision and the 0-100 % -> raw gain mapping CameraAlpaca uses. std-only.
 ############################################################################
@@ -347,6 +359,36 @@ add_executable(test_connect_request
 target_link_libraries(test_connect_request PRIVATE phd_test_common)
 set_property(TARGET test_connect_request PROPERTY FOLDER "Unit tests")
 add_test(NAME test_connect_request COMMAND test_connect_request)
+
+############################################################################
+# test_gear_selection  --  gear_selection.cpp: which camera, mount and
+# rotator a profile's saved choices select (#115 step 3): the list match
+# without case, the INDI rule, the stale-choice fallbacks, the camera's
+# saved-name chain, the camera-change test and the camera-id key. std-only.
+############################################################################
+add_executable(test_gear_selection
+  ${PHD_TESTS_DIR}/equipment/test_gear_selection.cpp
+  ${phd_src_dir}/gear_selection.cpp
+)
+target_link_libraries(test_gear_selection PRIVATE phd_test_common)
+set_property(TARGET test_gear_selection PROPERTY FOLDER "Unit tests")
+add_test(NAME test_gear_selection COMMAND test_gear_selection)
+
+############################################################################
+# test_gear_session  --  gear_session.cpp: the sequencing of a gear request
+# (#115 step 3) over a recording fake GearPort: the leaf order of connect
+# all and disconnect all, every error text, no-ops and refusals, the
+# request depth and latch session (#139), and the end of request, run once
+# per accepted request. std-only.
+############################################################################
+add_executable(test_gear_session
+  ${PHD_TESTS_DIR}/equipment/test_gear_session.cpp
+  ${phd_src_dir}/gear_session.cpp
+  ${phd_src_dir}/connect_request.cpp
+)
+target_link_libraries(test_gear_session PRIVATE phd_test_common)
+set_property(TARGET test_gear_session PROPERTY FOLDER "Unit tests")
+add_test(NAME test_gear_session COMMAND test_gear_session)
 
 ############################################################################
 # test_connect_retry  --  connect_retry.cpp: the background retry of a
@@ -498,6 +540,24 @@ add_executable(test_edge_allowance
 target_link_libraries(test_edge_allowance PRIVATE phd_test_common)
 set_property(TARGET test_edge_allowance PROPERTY FOLDER "Unit tests")
 add_test(NAME test_edge_allowance COMMAND test_edge_allowance)
+
+############################################################################
+# test_monotonic_timers  --  monotonic_timers.cpp: how long ago Guider last
+# found the star (the 100 px large distance after 20 s) and MyFrame's camera
+# reconnect throttle (3 attempts in 60 s), on an injected clock, and the
+# clock their callers read (#226); the set_pa_session lease on an injected
+# clock, and that ClockMs is the same steady clock in milliseconds (#231);
+# RunTimer, the GA sampling's and the backlash measurement's timer, on an
+# injected clock and on the clock it reads itself (#235).
+# std-only.
+############################################################################
+add_executable(test_monotonic_timers
+  ${PHD_TESTS_DIR}/guiding/test_monotonic_timers.cpp
+  ${phd_src_dir}/monotonic_timers.cpp
+)
+target_link_libraries(test_monotonic_timers PRIVATE phd_test_common)
+set_property(TARGET test_monotonic_timers PROPERTY FOLDER "Unit tests")
+add_test(NAME test_monotonic_timers COMMAND test_monotonic_timers)
 
 ############################################################################
 # test_closed_loop_calibration  --  closed-loop tests of the mount

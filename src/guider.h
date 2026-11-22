@@ -41,6 +41,7 @@
 #define GUIDER_H_INCLUDED
 
 #include "guider_state.h" // enum GUIDER_STATE
+#include "monotonic_timers.h"
 
 #include <atomic>
 
@@ -150,11 +151,11 @@ class Guider : public wxWindow
     PHD_Point m_ditherRecenterRemaining;
     int m_ditherRecenterStepsPending; // recenter steps sent whose moves have not completed (#165)
     int m_ditherRecenterStalledSteps; // completed recenter steps in a row that moved nothing (#165)
-    // IsRecentering(), read by the worker thread for the next frame's exposure delay. Written on the
-    // main thread only before that frame's move and exposure are queued, never when a recenter step's
-    // move completes, which races with the worker starting the next exposure (#165)
+    // IsRecentering(), read for the next frame's exposure delay when its exposure is scheduled, on the
+    // main thread since #182. Written only before that frame's move and exposure are queued, never when a
+    // recenter step's move completes, so the delay is decided when the step is sent (#165)
     std::atomic<bool> m_recenteringForWorker;
-    time_t m_starFoundTimestamp; // timestamp when star was last found
+    monotonic_timers::StarFoundTimer m_starFound; // when the star was last found, on monotonic_timers::ClockS (#226)
     double m_avgDistance; // averaged distance for distance reporting
     double m_avgDistanceRA; // averaged distance, RA only
     double m_avgDistanceLong; // averaged distance, more smoothed

@@ -37,6 +37,7 @@
 #include "phd.h"
 
 #include "guiding_assistant.h"
+#include "variable_delay.h"
 
 #include <algorithm>
 #include <memory>
@@ -97,8 +98,6 @@ EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
 EVT_MENU(MENU_RESTORE_WINDOWS, MyFrame::OnRestoreWindows)
 EVT_MENU(MENU_AUTOSTAR, MyFrame::OnAutoStar)
-EVT_TOOL(BUTTON_GEAR, MyFrame::OnSelectGear)
-EVT_MENU(MENU_CONNECT, MyFrame::OnSelectGear)
 EVT_TOOL(BUTTON_LOOP, MyFrame::OnButtonLoop)
 EVT_MENU(MENU_LOOP, MyFrame::OnButtonLoop)
 EVT_TOOL(BUTTON_STOP, MyFrame::OnButtonStop)
@@ -109,8 +108,6 @@ EVT_MENU(MENU_BRAIN, MyFrame::OnAdvanced)
 EVT_TOOL(BUTTON_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(MENU_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(BUTTON_ALERT_CLOSE, MyFrame::OnAlertButton) // Bit of a hack -- not actually on the menu but need an event to accelerate
-EVT_TOOL(BUTTON_CAM_PROPERTIES, MyFrame::OnSetupCamera)
-EVT_MENU(MENU_CAM_SETTINGS, MyFrame::OnSetupCamera)
 EVT_COMMAND_SCROLL(CTRL_GAMMA, MyFrame::OnGammaSlider)
 EVT_COMBOBOX(BUTTON_DURATION, MyFrame::OnExposureDurationSelected)
 EVT_SOCKET(SOCK_SERVER_ID, MyFrame::OnSockServerEvent)
@@ -192,6 +189,11 @@ static GuideHistory *NewGuideHistory()
 MyFrame::MyFrame()
     : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pGuideHistory(nullptr)
 {
+    // #168: set the global before building anything. PhdApp::OnInit's pFrame = new MyFrame() assigns it only
+    // when this constructor returns, but the guider, the dialogs and the mount built below already call
+    // MyFrame members through pFrame, which were member calls on a null pointer.
+    pFrame = this;
+
     m_mgr.SetManagedWindow(this);
 
     m_frameCounter = 0;
@@ -287,7 +289,8 @@ MyFrame::MyFrame()
 
     pAdvancedDialog = new AdvancedDialog(this);
 
-    pGearDialog = new GearDialog(this);
+    // no devices yet: PhdApp::OnInit loads them from the profile once pFrame is set (their constructors call through it)
+    pEquipment = new EquipmentManager();
 
     pGuidingAssistant = nullptr;
     m_starFindMode = Star::FIND_CENTROID;
@@ -341,8 +344,10 @@ MyFrame::MyFrame()
 
 MyFrame::~MyFrame()
 {
-    delete pGearDialog;
-    pGearDialog = nullptr;
+    // the manager stops the #104 retry (it joins a probe thread) before it deletes the devices, while the AdvancedDialog
+    // and the status bar a disconnecting device updates are still there
+    delete pEquipment;
+    pEquipment = nullptr;
 
     pAdvancedDialog->Destroy();
 
@@ -373,7 +378,6 @@ void MyFrame::SetupMenuBar()
     file_menu->Append(wxID_EXIT, _("E&xit\tAlt-X"), _("Quit this program"));
 
     wxMenu *guide_menu = new wxMenu();
-    m_connectMenuItem = guide_menu->Append(MENU_CONNECT, _("&Connect Equipment\tCtrl-C"), _("Connect or disconnect equipment"));
     m_loopMenuItem = guide_menu->Append(MENU_LOOP, _("&Loop Exposures\tCtrl-L"), _("Begin looping exposures"));
     m_loopMenuItem->Enable(false);
     m_guideMenuItem = guide_menu->Append(MENU_GUIDE, _("&Guide\tCtrl-G"), _("Begin guiding"));
@@ -381,8 +385,6 @@ void MyFrame::SetupMenuBar()
     m_stopMenuItem = guide_menu->Append(MENU_STOP, _("&Stop\tCtrl-S"), _("Stop looping and guiding"));
     m_stopMenuItem->Enable(false);
     m_brainMenuItem = guide_menu->Append(MENU_BRAIN, _("&Advanced Settings\tCtrl-A"), _("Advanced Settings"));
-    m_cameraMenuItem = guide_menu->Append(MENU_CAM_SETTINGS, _("&Camera Settings"), _("Camera settings"));
-    m_cameraMenuItem->Enable(false);
 
     tools_menu = new wxMenu;
     m_autoSelectStarMenuItem = tools_menu->Append(MENU_AUTOSTAR, _("&Auto-select Star\tAlt-S"), _("Automatically select star"));
@@ -447,18 +449,19 @@ int MyFrame::GetTextWidth(wxControl *pControl, const wxString& string)
 }
 
 // Get either timelapse value or state-dependent variable-exposure-delay
+// #182: main thread only, where the state it reads is written; ScheduleExposure hands the result to the worker
 int MyFrame::GetExposureDelay()
 {
-    int rslt;
+    assert(wxThread::IsMain());
 
-    if (!m_varDelayConfig.enabled)
-        rslt = m_timeLapse;
-    else if (pGuider->IsGuiding() && PhdController::IsIdle() && !pGuider->IsRecentering() && pMount->GetGuidingEnabled())
-    {
-        rslt = m_varDelayConfig.longDelay;
-    }
-    else
-        rslt = m_varDelayConfig.shortDelay;
+    VariableDelay::FrameState state;
+    state.guiding = pGuider->IsGuiding();
+    state.controllerIdle = PhdController::IsIdle();
+    state.recentering = pGuider->IsRecentering();
+    state.guidingEnabled = pMount && pMount->GetGuidingEnabled();
+
+    int rslt = VariableDelay::ForNextFrame(m_varDelayConfig.enabled, m_varDelayConfig.shortDelay, m_varDelayConfig.longDelay,
+                                           m_timeLapse, state);
 
     static int s_lastExposureDelay = -1;
     if (rslt != s_lastExposureDelay)
@@ -776,20 +779,8 @@ void MyFrame::SetupToolBar()
 #include "icons/auto_select_disabled.png.h"
     wxBitmap auto_select_disabled_bmp(wxBITMAP_PNG_FROM_DATA(auto_select_disabled));
 
-#include "icons/connect.png.h"
-    wxBitmap connect_bmp(wxBITMAP_PNG_FROM_DATA(connect));
-
-#include "icons/connect_disabled.png.h"
-    wxBitmap connect_bmp_disabled(wxBITMAP_PNG_FROM_DATA(connect_disabled));
-
 #include "icons/brain.png.h"
     wxBitmap brain_bmp(wxBITMAP_PNG_FROM_DATA(brain));
-
-#include "icons/cam_setup.png.h"
-    wxBitmap cam_setup_bmp(wxBITMAP_PNG_FROM_DATA(cam_setup));
-
-#include "icons/cam_setup_disabled.png.h"
-    wxBitmap cam_setup_bmp_disabled(wxBITMAP_PNG_FROM_DATA(cam_setup_disabled));
 
     int dur_values[] = {
         10,    20,   50,   100,  200,  500,  1000, 1500, 2000,  2500,  3000,
@@ -815,8 +806,6 @@ void MyFrame::SetupToolBar()
     Gamma_Slider->SetBackgroundColour(wxColor(60, 60, 60)); // Slightly darker than toolbar background
     Gamma_Slider->SetToolTip(_("Screen gamma (brightness)"));
 
-    MainToolbar->AddTool(BUTTON_GEAR, connect_bmp, connect_bmp_disabled, false, 0,
-                         _("Connect to equipment. Shift-click to reconnect the same equipment last connected."));
     MainToolbar->AddTool(BUTTON_LOOP, loop_bmp, loop_bmp_disabled, false, 0, _("Begin looping exposures for frame and focus"));
     MainToolbar->AddTool(BUTTON_AUTOSTAR, auto_select_bmp, auto_select_disabled_bmp, false, 0,
                          _("Auto-select Star. Shift-click to de-select star."));
@@ -828,8 +817,6 @@ void MyFrame::SetupToolBar()
     MainToolbar->AddControl(Gamma_Slider, _("Gamma"));
     MainToolbar->AddSeparator();
     MainToolbar->AddTool(BUTTON_ADVANCED, _("Advanced Settings"), brain_bmp, _("Advanced Settings"));
-    MainToolbar->AddTool(BUTTON_CAM_PROPERTIES, cam_setup_bmp, cam_setup_bmp_disabled, false, 0, _("Camera settings"));
-    MainToolbar->EnableTool(BUTTON_CAM_PROPERTIES, false);
     MainToolbar->EnableTool(BUTTON_LOOP, false);
     MainToolbar->EnableTool(BUTTON_AUTOSTAR, false);
     MainToolbar->EnableTool(BUTTON_GUIDE, false);
@@ -841,8 +828,6 @@ void MyFrame::SetupKeyboardShortcuts()
 {
     wxAcceleratorEntry entries[] = {
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'A', MENU_BRAIN),
-        wxAcceleratorEntry(wxACCEL_CTRL, (int) 'C', MENU_CONNECT),
-        wxAcceleratorEntry(wxACCEL_CTRL | wxACCEL_SHIFT, (int) 'C', MENU_CONNECT),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'G', MENU_GUIDE),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', MENU_LOOP),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'S', MENU_STOP),
@@ -875,9 +860,6 @@ void MyFrame::UpdateButtonsStatus()
     if (cond_update_tool(MainToolbar, BUTTON_LOOP, m_loopMenuItem, loop_enabled))
         need_update = true;
 
-    if (cond_update_tool(MainToolbar, BUTTON_GEAR, m_connectMenuItem, !CaptureActive))
-        need_update = true;
-
     if (cond_update_tool(MainToolbar, BUTTON_STOP, m_stopMenuItem, CaptureActive))
         need_update = true;
 
@@ -903,11 +885,6 @@ void MyFrame::UpdateButtonsStatus()
     bool bGuideable = pGuider->GetState() == STATE_SELECTED && pMount && pMount->IsConnected();
 
     if (cond_update_tool(MainToolbar, BUTTON_GUIDE, m_guideMenuItem, bGuideable))
-        need_update = true;
-
-    bool cam_props = pCamera && (pCamera->PropertyDialogType & PROPDLG_WHEN_CONNECTED) != 0 && pCamera->Connected;
-
-    if (cond_update_tool(MainToolbar, BUTTON_CAM_PROPERTIES, m_cameraMenuItem, cam_props))
         need_update = true;
 
     // also drives a headless (JSON-RPC) Guiding Assistant run, which has no window
@@ -1107,17 +1084,30 @@ void MyFrame::DoTryReconnect()
     // no exposure pending: it only sends the events, and must not start or stop the capture loop.
     bool exposurePending = m_exposurePending;
 
-    // do not reconnect more than 3 times in 1 minute
+    // The camera the last reconnect brought back failed again before it delivered a frame: the server read it
+    // as connected while it was not (AlpacaBridge does, for an ASI camera unbound from USB). That reconnect
+    // failed, and reconnecting again at once would fail the same way, so the #104 retry takes over.
+    if (m_cameraReconnectUnconfirmed)
+    {
+        m_cameraReconnectUnconfirmed = false;
+        const wxString reason(_("the camera failed its first frame after reconnecting"));
+        Debug.Write("Camera Re-connect not confirmed: " + reason + "\n");
+        EvtServer.NotifyEquipmentReconnectFailed("camera", m_cameraReconnectThrottle.Attempts(), reason);
+        if (exposurePending)
+            OnExposeComplete(0, true);
+        pEquipment->NoteCameraReconnectFailed(reason);
+        return;
+    }
+
+    // do not reconnect more than 3 times in 1 minute (monotonic_timers.cpp, #226)
     enum
     {
-        TIME_WINDOW = 60,
-        MAX_ATTEMPTS = 3
+        TIME_WINDOW = monotonic_timers::ReconnectThrottle::TIME_WINDOW_S,
+        MAX_ATTEMPTS = monotonic_timers::ReconnectThrottle::MAX_ATTEMPTS
     };
-    time_t now = wxDateTime::GetTimeNow();
-    Debug.Write(wxString::Format("Try camera reconnect, now = %lu\n", (unsigned long) now));
-    while (m_cameraReconnectAttempts.size() > 0 && now - m_cameraReconnectAttempts[0] > TIME_WINDOW)
-        m_cameraReconnectAttempts.erase(m_cameraReconnectAttempts.begin());
-    if (m_cameraReconnectAttempts.size() + 1 > MAX_ATTEMPTS)
+    int64_t now = monotonic_timers::ClockS();
+    Debug.Write(wxString::Format("Try camera reconnect, now = %lld\n", (long long) now));
+    if (!m_cameraReconnectThrottle.TryAttempt(now))
     {
         Debug.Write(wxString::Format("More than %d camera reconnect attempts in less than %d seconds, "
                                      "return without reconnect.\n",
@@ -1125,38 +1115,44 @@ void MyFrame::DoTryReconnect()
         // Terminal signal so clients waiting on EquipmentDisconnected{reconnecting:true}
         // don't hang forever on a permanent unplug (they get no EquipmentReconnected).
         EvtServer.NotifyEquipmentReconnectFailed(
-            "camera", (int) m_cameraReconnectAttempts.size(),
+            "camera", m_cameraReconnectThrottle.Attempts(),
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         if (exposurePending)
             OnExposeComplete(0, true);
         // #104: the headless daemon keeps retrying slowly; EquipmentReconnected follows when the camera is back
-        pGearDialog->NoteCameraReconnectFailed(
+        pEquipment->NoteCameraReconnectFailed(
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         return;
     }
-    m_cameraReconnectAttempts.push_back(now);
-
-    bool err = pGearDialog->ReconnectCamera();
+    bool err = pEquipment->ReconnectCamera();
     if (err)
     {
         Debug.Write("Camera Re-connect failed\n");
         // Terminal too: EquipmentDisconnected{reconnecting:true} is always followed by
         // EquipmentReconnected or EquipmentReconnectFailed.
-        EvtServer.NotifyEquipmentReconnectFailed("camera", (int) m_cameraReconnectAttempts.size(),
+        EvtServer.NotifyEquipmentReconnectFailed("camera", m_cameraReconnectThrottle.Attempts(),
                                                  "the camera did not reconnect");
         // complete the pending exposure notification
         if (exposurePending)
             OnExposeComplete(0, true);
         // #104: the headless daemon keeps retrying slowly, with the reason the reconnect failed
-        pGearDialog->NoteCameraReconnectFailed(wxEmptyString);
+        pEquipment->NoteCameraReconnectFailed(wxEmptyString);
     }
     else
     {
         Debug.Write(exposurePending ? "Camera Re-connect succeeded, resume exposures\n"
                                     : "Camera Re-connect succeeded, no exposure pending\n");
         // ARA integration (PHD2-GAP gap 2): the recovered twin of
-        // EquipmentDisconnected, so clients can clear their fault state.
-        EvtServer.NotifyEquipmentReconnected("camera");
+        // EquipmentDisconnected, so clients can clear their fault state. During a capture the server's word that
+        // the camera is connected is not enough: the next frame sends it once it arrives (OnExposeComplete).
+        // With no capture going on there is no frame to wait for.
+        if (exposurePending)
+        {
+            Debug.Write("Camera Re-connect: EquipmentReconnected waits for the next frame\n");
+            m_cameraReconnectUnconfirmed = true;
+        }
+        else
+            EvtServer.NotifyEquipmentReconnected("camera");
         UpdateStatusBarStateLabels();
         if (exposurePending)
         {
@@ -1416,12 +1412,17 @@ void MyFrame::ScheduleExposure()
     if (pCamera)
         pCamera->ClearCaptureFailure();
 
+    // #182: decided here, after the previous frame updated the guide and controller state, not on the worker
+    int delayMs = GetExposureDelay();
+    // #210: likewise the noise reduction, which set_noise_reduction writes on this thread
+    NOISE_REDUCTION_METHOD noiseReduction = GetNoiseReductionMethod();
+
     usImage *img = new usImage();
 
     wxCriticalSectionLocker lock(m_CSpWorkerThread);
 
     if (m_pPrimaryWorkerThread) // can be null when app is shutting down (unlikely but possible)
-        m_pPrimaryWorkerThread->EnqueueWorkerThreadExposeRequest(img, captureParams);
+        m_pPrimaryWorkerThread->EnqueueWorkerThreadExposeRequest(img, captureParams, delayMs, noiseReduction);
 }
 
 void MyFrame::SchedulePrimaryMove(Mount *mount, const GuiderOffset& ofs, unsigned int moveOptions)
@@ -1855,7 +1856,7 @@ void MyFrame::OnClose(wxCloseEvent& event)
 {
     if (DarkBuildActive() && event.CanVeto())
     {
-        // #100: a dark frame is being captured on its own thread while this event loop runs; pGearDialog->Shutdown()
+        // #100: a dark frame is being captured on its own thread while this event loop runs; pEquipment->Shutdown()
         // below would disconnect the camera under it. The build ends within one exposure; the RPC `shutdown` is
         // refused the same way. A close that cannot be vetoed (an OS session end) goes on regardless.
         Debug.Write("MyFrame::OnClose vetoed: dark-frame capture in progress\n");
@@ -1879,7 +1880,7 @@ void MyFrame::OnClose(wxCloseEvent& event)
 
     // #104: before StopWorkerThread pumps the event loop below, so no background connect attempt starts (and could
     // connect equipment that is about to be disconnected) while the app winds down; waits for a probe in flight
-    pGearDialog->StopConnectRetry(true);
+    pEquipment->StopConnectRetry(true);
 
     // a headless Guiding Assistant run can't finish normally any more; put back the settings it changed
     GuidingAssistant::ApiShutdown();
@@ -1891,7 +1892,7 @@ void MyFrame::OnClose(wxCloseEvent& event)
         killed = true;
 
     // disconnect all gear
-    pGearDialog->Shutdown(killed);
+    pEquipment->Shutdown(killed);
 
     // stop the socket server and event server
     StartServer(false);

@@ -44,17 +44,13 @@ const char *GearDeviceName(GearDevice device)
     }
 }
 
-std::string ConnectRefusal(GearDevice device, bool connect, bool captureActive, bool calibratingOrGuiding, bool dialogOpen)
+std::string ConnectRefusal(GearDevice device, bool connect, bool captureActive, bool calibratingOrGuiding)
 {
     // these error messages are internal to the event server and are not translated
-    if (dialogOpen)
-        return connect ? "cannot connect equipment when Connect Equipment dialog is open"
-                       : "cannot disconnect equipment when Connect Equipment dialog is open";
-
     switch (device)
     {
     case GearDevice::All:
-        // same messages as GearDialog::ConnectAll / DisconnectAll
+        // same messages as GearSession::ConnectAll / DisconnectAll
         if (captureActive)
             return connect ? "cannot connect equipment when capture is active"
                            : "cannot disconnect equipment while capture active";
@@ -103,7 +99,7 @@ GearCalibrationAction CameraChangeLatch::TakeCalibrationAction(bool autoLoad, bo
     return GearCalibrationAction::Clear;
 }
 
-bool BeginsGearRequest(int connectDepth, bool dialogOpen)
+bool BeginsGearRequest(int connectDepth)
 {
-    return connectDepth == 0 && !dialogOpen;
+    return connectDepth == 0;
 }

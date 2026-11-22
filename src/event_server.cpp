@@ -41,6 +41,7 @@
 #include "connect_retry.h"
 #include "restore_calibration.h"
 #include "capture_cleanup.h"
+#include "monotonic_timers.h"
 #include "variable_delay.h"
 
 #include <wx/dir.h>
@@ -59,6 +60,8 @@
 #include <sstream>
 #include <thread>
 #include <string.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 #if defined(ALPACA_CAMERA) || defined(GUIDE_ALPACA) || defined(ROTATOR_ALPACA)
 # include "alpaca_client.h"
@@ -470,7 +473,7 @@ struct ClientReadBuf
 
 struct ClientData
 {
-    wxSocketClient *cli;
+    wxSocketBase *cli;
     // Atomic so AddRef/RemoveRef stay correct if a future change ever touches the
     // refcount off the main (socket-event) thread; safe and free in the current
     // single-thread model.
@@ -479,7 +482,7 @@ struct ClientData
     wxMutex wrlock;
     std::string sendbuf; // notification bytes the non-blocking socket hasn't accepted yet
 
-    ClientData(wxSocketClient *cli_) : cli(cli_), refcnt(1) { }
+    ClientData(wxSocketBase *cli_) : cli(cli_), refcnt(1) { }
     void AddRef() { ++refcnt; }
     void RemoveRef()
     {
@@ -494,7 +497,7 @@ struct ClientData
 struct ClientDataGuard
 {
     ClientData *cd;
-    ClientDataGuard(wxSocketClient *cli) : cd((ClientData *) cli->GetClientData()) { cd->AddRef(); }
+    ClientDataGuard(wxSocketBase *cli) : cd((ClientData *) cli->GetClientData()) { cd->AddRef(); }
     ~ClientDataGuard() { cd->RemoveRef(); }
     ClientData *operator->() const { return cd; }
 };
@@ -533,7 +536,7 @@ static wxString SockErrStr(wxSocketError e)
 // Write silently drops whatever exceeds the kernel send buffer, and a truncated
 // line corrupts every subsequent message in the client's newline-framed JSON
 // stream — so a stalled reader must not cost us bytes.
-static void send_buf(wxSocketClient *client, const wxCharBuffer& buf)
+static void send_buf(wxSocketBase *client, const wxCharBuffer& buf)
 {
     ClientData *cd = (ClientData *) client->GetClientData();
     wxMutexLocker lock(cd->wrlock);
@@ -561,7 +564,7 @@ static void send_buf(wxSocketClient *client, const wxCharBuffer& buf)
 }
 
 // Drain queued notification bytes after a short write; called on OUTPUT events.
-static void flush_event_pending(wxSocketClient *client)
+static void flush_event_pending(wxSocketBase *client)
 {
     ClientData *cd = (ClientData *) client->GetClientData();
     wxMutexLocker lock(cd->wrlock);
@@ -579,12 +582,12 @@ static void flush_event_pending(wxSocketClient *client)
     client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG);
 }
 
-static void do_notify1(wxSocketClient *client, const JAry& ary)
+static void do_notify1(wxSocketBase *client, const JAry& ary)
 {
     send_buf(client, (JAry(ary).str() + "\r\n").ToUTF8());
 }
 
-static void do_notify1(wxSocketClient *client, const JObj& j)
+static void do_notify1(wxSocketBase *client, const JObj& j)
 {
     send_buf(client, (JObj(j).str() + "\r\n").ToUTF8());
 }
@@ -614,7 +617,7 @@ inline static void simple_notify_ev(const EventServer::CliSockSet& cli, const Ev
 #define SIMPLE_NOTIFY(s) simple_notify(m_eventServerClients, s)
 #define SIMPLE_NOTIFY_EV(ev) simple_notify_ev(m_eventServerClients, ev)
 
-static void send_catchup_events(wxSocketClient *cli)
+static void send_catchup_events(wxSocketBase *cli)
 {
     EXPOSED_STATE st = Guider::GetExposedState();
 
@@ -654,7 +657,7 @@ static void send_catchup_events(wxSocketClient *cli)
     do_notify1(cli, ev_app_state());
 }
 
-static void destroy_client(wxSocketClient *cli)
+static void destroy_client(wxSocketBase *cli)
 {
     ClientData *buf = (ClientData *) cli->GetClientData();
     buf->RemoveRef();
@@ -991,12 +994,13 @@ static bool any_equipment_connected()
 // the mount (guide/loop/dither/guide_pulse/dark-building/connect changes) are
 // rejected, so a stray client can't silently violate the single-camera-client
 // rule mid-routine. The lease auto-expires so a crashed orchestrator can't
-// wedge the daemon; renew by calling set_pa_session again.
-static wxLongLong s_paSessionExpiresMs(0);
+// wedge the daemon; renew by calling set_pa_session again. Timed on
+// monotonic_timers::ClockMs, not the wall clock (monotonic_timers.cpp, #231).
+static monotonic_timers::PaSessionLease s_paSession;
 
 static bool pa_session_active()
 {
-    return s_paSessionExpiresMs != 0 && wxGetUTCTimeMillis() < s_paSessionExpiresMs;
+    return s_paSession.Active(monotonic_timers::ClockMs());
 }
 
 // clang-format off
@@ -1087,25 +1091,6 @@ static void end_dark_build()
     } while (0)
 // clang-format on
 
-static void apply_selection_to_control(int choiceControlId, const wxArrayString& choices, const wxString& selectedChoice)
-{
-    wxWindow *wnd = pFrame->pGearDialog->FindWindow(choiceControlId);
-    wxChoice *ctrl = wxDynamicCast(wnd, wxChoice);
-    if (!ctrl)
-        return;
-
-    ctrl->Freeze();
-    ctrl->Clear();
-    ctrl->Append(choices);
-    ctrl->SetStringSelection(selectedChoice);
-    ctrl->Thaw();
-
-    wxCommandEvent evt(wxEVT_CHOICE, choiceControlId);
-    evt.SetEventObject(ctrl);
-    evt.SetString(selectedChoice);
-    pFrame->pGearDialog->GetEventHandler()->ProcessEvent(evt);
-}
-
 static wxString selected_camera_choice()
 {
     wxString camera = pConfig->Profile.GetString("/camera/LastMenuChoice", wxEmptyString);
@@ -1154,14 +1139,14 @@ struct NVRaw
 
 struct HttpClientData
 {
-    wxSocketClient *cli;
+    wxSocketBase *cli;
     std::atomic<int> refcnt; // atomic for the same reason as ClientData::refcnt
     wxMutex wrlock;
     std::string recvbuf;
     std::string sendbuf; // response bytes the non-blocking socket hasn't accepted yet
     bool closeAfterSend = false; // one-shot connection: destroy once sendbuf drains
 
-    HttpClientData(wxSocketClient *cli_) : cli(cli_), refcnt(1) { }
+    HttpClientData(wxSocketBase *cli_) : cli(cli_), refcnt(1) { }
     void AddRef() { ++refcnt; }
     void RemoveRef()
     {
@@ -1176,12 +1161,12 @@ struct HttpClientData
 struct HttpClientDataGuard
 {
     HttpClientData *cd;
-    HttpClientDataGuard(wxSocketClient *cli) : cd((HttpClientData *) cli->GetClientData()) { cd->AddRef(); }
+    HttpClientDataGuard(wxSocketBase *cli) : cd((HttpClientData *) cli->GetClientData()) { cd->AddRef(); }
     ~HttpClientDataGuard() { cd->RemoveRef(); }
     HttpClientData *operator->() const { return cd; }
 };
 
-inline static wxMutex *http_client_wrlock(wxSocketClient *cli)
+inline static wxMutex *http_client_wrlock(wxSocketBase *cli)
 {
     return &((HttpClientData *) cli->GetClientData())->wrlock;
 }
@@ -1191,7 +1176,7 @@ inline static wxMutex *http_client_wrlock(wxSocketClient *cli)
 // events. A single Write silently drops whatever exceeds the kernel send
 // buffer (~140 KB on a real NIC), which truncated every large response —
 // the live-view frame JPEGs — for any client not on loopback.
-static void send_buf_http(wxSocketClient *client, const std::string& buf)
+static void send_buf_http(wxSocketBase *client, const std::string& buf)
 {
     HttpClientData *cd = (HttpClientData *) client->GetClientData();
     wxMutexLocker lock(cd->wrlock);
@@ -1216,7 +1201,7 @@ static void send_buf_http(wxSocketClient *client, const std::string& buf)
 
 // Drain queued response bytes after a short write; returns true when the
 // queue is empty (caller may then close a one-shot connection).
-static bool flush_http_pending(wxSocketClient *client)
+static bool flush_http_pending(wxSocketBase *client)
 {
     HttpClientData *cd = (HttpClientData *) client->GetClientData();
     wxMutexLocker lock(cd->wrlock);
@@ -1273,13 +1258,12 @@ static bool json_to_bool(const json_value *val, bool *out)
 
 static void pa_session_status(JObj& rslt)
 {
-    // snapshot the clock once so a session expiring mid-call cannot yield
+    // one clock reading, so a session expiring mid-call cannot yield
     // {"active":true,"expires_in_s":<negative>}
-    wxLongLong now = wxGetUTCTimeMillis();
-    bool active = s_paSessionExpiresMs != 0 && now < s_paSessionExpiresMs;
-    rslt << NV("active", active);
-    if (active)
-        rslt << NV("expires_in_s", (int) ((s_paSessionExpiresMs - now).GetValue() / 1000));
+    monotonic_timers::PaSessionLease::Status st = s_paSession.StatusAt(monotonic_timers::ClockMs());
+    rslt << NV("active", st.active);
+    if (st.active)
+        rslt << NV("expires_in_s", st.expiresInS);
 }
 
 static void get_pa_session(JObj& response, const json_value *params)
@@ -1318,12 +1302,12 @@ static void set_pa_session(JObj& response, const json_value *params)
             response << jrpc_error(1, "cannot start polar-alignment session while calibrating or guiding");
             return;
         }
-        s_paSessionExpiresMs = wxGetUTCTimeMillis() + timeoutS * 1000;
+        s_paSession.Start(monotonic_timers::ClockMs(), timeoutS);
         Debug.Write(wxString::Format("PA session started/renewed, timeout %ld s\n", timeoutS));
     }
     else
     {
-        s_paSessionExpiresMs = 0;
+        s_paSession.End();
         Debug.Write("PA session ended\n");
     }
 
@@ -1380,7 +1364,7 @@ static void apply_alpaca_choice_if_selected()
         if (FindMatchingChoice(camChoices, target, &resolved))
         {
             pConfig->Profile.SetString("/camera/LastMenuChoice", resolved);
-            apply_selection_to_control(GEAR_CHOICE_CAMERA, camChoices, resolved);
+            pFrame->pEquipment->SelectDevice(GearDevice::Camera, resolved);
         }
     }
 
@@ -1391,7 +1375,7 @@ static void apply_alpaca_choice_if_selected()
         if (FindMatchingChoice(mountChoices, target, &resolved))
         {
             pConfig->Profile.SetString("/scope/LastMenuChoice", resolved);
-            apply_selection_to_control(GEAR_CHOICE_SCOPE, mountChoices, resolved);
+            pFrame->pEquipment->SelectDevice(GearDevice::Mount, resolved);
         }
     }
 
@@ -1402,7 +1386,7 @@ static void apply_alpaca_choice_if_selected()
         if (FindMatchingChoice(rotChoices, target, &resolved))
         {
             pConfig->Profile.SetString("/rotator/LastMenuChoice", resolved);
-            apply_selection_to_control(GEAR_CHOICE_ROTATOR, rotChoices, resolved);
+            pFrame->pEquipment->SelectDevice(GearDevice::Rotator, resolved);
         }
     }
 }
@@ -1473,10 +1457,12 @@ static void set_alpaca_server(JObj& response, const json_value *params)
 
     // the re-selection forgets each Alpaca device; a device that was still to be connected (retrying, or parked as
     // "not configured") stays asked for and is retried at once (#104)
-    pFrame->pGearDialog->AlpacaServerChanging();
+    pFrame->pEquipment->AlpacaServerChanging();
     apply_alpaca_choice_if_selected();
     pConfig->Flush();
-    pFrame->pGearDialog->AlpacaServerChanged();
+    pFrame->pEquipment->AlpacaServerChanged();
+    // the imaging-gear reader reads the new server now, not at the next connect (#236)
+    ImagingGearLog::EquipmentChanged();
     response << jrpc_result(0);
 }
 
@@ -1739,7 +1725,7 @@ static void set_selected_alpaca_device(JObj& response, const json_value *params)
         if (FindMatchingChoice(choices, target, &choice))
         {
             pConfig->Profile.SetString("/camera/LastMenuChoice", choice);
-            apply_selection_to_control(GEAR_CHOICE_CAMERA, choices, choice);
+            pFrame->pEquipment->SelectDevice(GearDevice::Camera, choice);
         }
     }
     else if (type == "TELESCOPE" || type == "MOUNT")
@@ -1753,7 +1739,7 @@ static void set_selected_alpaca_device(JObj& response, const json_value *params)
         if (FindMatchingChoice(choices, target, &choice))
         {
             pConfig->Profile.SetString("/scope/LastMenuChoice", choice);
-            apply_selection_to_control(GEAR_CHOICE_SCOPE, choices, choice);
+            pFrame->pEquipment->SelectDevice(GearDevice::Mount, choice);
         }
     }
     else
@@ -1767,7 +1753,7 @@ static void set_selected_alpaca_device(JObj& response, const json_value *params)
         if (FindMatchingChoice(choices, target, &choice))
         {
             pConfig->Profile.SetString("/rotator/LastMenuChoice", choice);
-            apply_selection_to_control(GEAR_CHOICE_ROTATOR, choices, choice);
+            pFrame->pEquipment->SelectDevice(GearDevice::Rotator, choice);
         }
     }
 
@@ -1806,7 +1792,7 @@ static void set_selected_mount(JObj& response, const json_value *params)
 
     pConfig->Profile.SetString("/scope/LastMenuChoice", choice);
     pConfig->Flush();
-    apply_selection_to_control(GEAR_CHOICE_SCOPE, choices, choice);
+    pFrame->pEquipment->SelectDevice(GearDevice::Mount, choice);
     response << jrpc_result(0);
 }
 
@@ -1818,7 +1804,7 @@ static void get_selected_camera(JObj& response, const json_value *params)
 static void get_selected_camera_id(JObj& response, const json_value *params)
 {
     wxString camName = selected_camera_choice();
-    wxString key = GearDialog::CameraSelectionKey(camName);
+    wxString key = CameraSelectionKey(camName);
     wxString camId = pConfig->Profile.GetString(key, GuideCamera::DEFAULT_CAMERA_ID);
     response << jrpc_result(camId);
 }
@@ -1849,7 +1835,7 @@ static void set_selected_camera(JObj& response, const json_value *params)
 
     pConfig->Profile.SetString("/camera/LastMenuChoice", choice);
     pConfig->Flush();
-    apply_selection_to_control(GEAR_CHOICE_CAMERA, choices, choice);
+    pFrame->pEquipment->SelectDevice(GearDevice::Camera, choice);
     response << jrpc_result(0);
 }
 
@@ -1864,7 +1850,7 @@ static void set_selected_camera_id(JObj& response, const json_value *params)
     }
 
     wxString camName = selected_camera_choice();
-    wxString key = GearDialog::CameraSelectionKey(camName);
+    wxString key = CameraSelectionKey(camName);
     pConfig->Profile.SetString(key, cameraId->string_value);
     pConfig->Flush();
     response << jrpc_result(0);
@@ -1950,7 +1936,7 @@ static void set_selected_rotator(JObj& response, const json_value *params)
 
     pConfig->Profile.SetString("/rotator/LastMenuChoice", choice);
     pConfig->Flush();
-    apply_selection_to_control(GEAR_CHOICE_ROTATOR, choices, choice);
+    pFrame->pEquipment->SelectDevice(GearDevice::Rotator, choice);
     response << jrpc_result(0);
 }
 
@@ -1976,7 +1962,7 @@ static void set_profile(JObj& response, const json_value *params)
     VERIFY_NO_DARK_BUILD(response); // a profile switch deletes the camera a dark capture is using (#100)
 
     wxString errMsg;
-    bool error = pFrame->pGearDialog->SetProfile(id->int_value, &errMsg);
+    bool error = pFrame->pEquipment->SetProfile(id->int_value, &errMsg);
 
     if (error)
     {
@@ -2087,7 +2073,7 @@ static void get_selected_camera_pixelsize(JObj& response, const json_value *para
 
     if (pixelSize <= 0.0)
     {
-        wxString camId = pConfig->Profile.GetString(GearDialog::CameraSelectionKey(camChoice), GuideCamera::DEFAULT_CAMERA_ID);
+        wxString camId = pConfig->Profile.GetString(CameraSelectionKey(camChoice), GuideCamera::DEFAULT_CAMERA_ID);
         GuideCamera *cam = GuideCamera::Factory(camChoice);
         if (!cam)
         {
@@ -2189,11 +2175,24 @@ static void set_profile_by_name(JObj& response, const json_value *params)
     VERIFY_NO_DARK_BUILD(response); // a profile switch deletes the camera a dark capture is using (#100)
 
     wxString errMsg;
-    bool error = pFrame->pGearDialog->SetProfile(profileId, &errMsg);
+    bool error = pFrame->pEquipment->SetProfile(profileId, &errMsg);
     if (error)
         response << jrpc_error(1, errMsg);
     else
         response << jrpc_result(0);
+}
+
+// The refusal EquipmentManager::SetProfile gives while equipment is connected, checked by create_profile and
+// clone_profile before they create a profile they are asked to select, so a refusal leaves nothing behind (#185).
+static bool refuse_profile_switch(JObj& response)
+{
+    // EquipmentManager::SetProfile's own refusal, made before anything is created (#185), so the two cannot
+    // drift apart: the camera, mount or rotator connected
+    wxString error;
+    if (!pFrame->pEquipment->ProfileSwitchRefused(&error))
+        return false;
+    response << jrpc_error(1, error);
+    return true;
 }
 
 static void create_profile(JObj& response, const json_value *params)
@@ -2247,6 +2246,19 @@ static void create_profile(JObj& response, const json_value *params)
         sourceName = pConfig->GetProfileName(copyFromId->int_value);
     }
 
+    bool selectCreated = true;
+    if (select && !json_to_bool(select, &selectCreated))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected boolean select param");
+        return;
+    }
+    if (selectCreated)
+    {
+        VERIFY_GUIDER(response);
+        if (refuse_profile_switch(response))
+            return;
+    }
+
     bool error = !sourceName.IsEmpty() ? pConfig->CloneProfile(newName, sourceName) : pConfig->CreateProfile(newName);
     if (error)
     {
@@ -2261,18 +2273,10 @@ static void create_profile(JObj& response, const json_value *params)
         return;
     }
 
-    bool selectCreated = true;
-    if (select && !json_to_bool(select, &selectCreated))
-    {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected boolean select param");
-        return;
-    }
-
     if (selectCreated)
     {
-        VERIFY_GUIDER(response);
         wxString errMsg;
-        if (pFrame->pGearDialog->SetProfile(newId, &errMsg))
+        if (pFrame->pEquipment->SetProfile(newId, &errMsg))
         {
             response << jrpc_error(1, errMsg);
             return;
@@ -2313,6 +2317,19 @@ static void clone_profile(JObj& response, const json_value *params)
         return;
     }
 
+    bool selectCloned = true;
+    if (select && !json_to_bool(select, &selectCloned))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected boolean select param");
+        return;
+    }
+    if (selectCloned)
+    {
+        VERIFY_GUIDER(response);
+        if (refuse_profile_switch(response))
+            return;
+    }
+
     if (pConfig->CloneProfile(dst, pConfig->GetProfileName(srcId)))
     {
         response << jrpc_error(1, "could not clone profile");
@@ -2326,18 +2343,10 @@ static void clone_profile(JObj& response, const json_value *params)
         return;
     }
 
-    bool selectCloned = true;
-    if (select && !json_to_bool(select, &selectCloned))
-    {
-        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected boolean select param");
-        return;
-    }
-
     if (selectCloned)
     {
-        VERIFY_GUIDER(response);
         wxString errMsg;
-        if (pFrame->pGearDialog->SetProfile(newId, &errMsg))
+        if (pFrame->pEquipment->SetProfile(newId, &errMsg))
         {
             response << jrpc_error(1, errMsg);
             return;
@@ -2378,13 +2387,15 @@ static void rename_profile(JObj& response, const json_value *params)
 
     wxString oldName = pConfig->GetProfileName(profileId);
     wxString newNameStr = newName->string_value;
-    if (oldName.CmpNoCase(newNameStr) == 0)
+    if (oldName == newNameStr)
     {
         response << jrpc_result(0);
         return;
     }
 
-    if (pConfig->GetProfileId(newNameStr) > 0)
+    // names match without case, so a case-only rename (rc51 -> RC51) finds this profile, not a collision (#232)
+    int existingId = pConfig->GetProfileId(newNameStr);
+    if (existingId > 0 && existingId != profileId)
     {
         response << jrpc_error(JSONRPC_INVALID_PARAMS, "new profile name already exists");
         return;
@@ -2443,7 +2454,7 @@ static void delete_profile(JObj& response, const json_value *params)
     {
         // another profile is current now: rebuild its gear, as set_profile does. A set_profile to it afterwards
         // returns at once and would leave the deleted profile's camera and mount in place (#117).
-        pFrame->pGearDialog->ReloadProfileGear();
+        pFrame->pEquipment->ReloadProfileGear();
         pFrame->LoadProfileSettings();
         pFrame->pGuider->LoadProfileSettings();
         pFrame->UpdateTitle();
@@ -2472,7 +2483,7 @@ static void get_profile_setup(JObj& response, const json_value *params)
          << NV("calibration_distance", pConfig->Profile.GetInt("/scope/CalibrationDistance", DEFAULT_CALIBRATION_DISTANCE))
          << NV("high_res_encoders", pConfig->Profile.GetBoolean("/scope/HiResEncoders", false))
          << NV("auto_restore_calibration", pConfig->Profile.GetBoolean("/AutoLoadCalibration", false))
-         << NV("multistar_enabled", pConfig->Profile.GetBoolean("/guider/multistar/enabled", true))
+         << NV("multistar_enabled", pConfig->Profile.GetBoolean("/guider/multistar/enabled", false))
          << NV("mass_change_threshold_enabled",
                pConfig->Profile.GetBoolean("/guider/onestar/MassChangeThresholdEnabled", true));
 
@@ -2692,7 +2703,7 @@ static void set_connected(JObj& response, const json_value *params)
     VERIFY_GUIDER(response);
 
     wxString errMsg;
-    bool error = pFrame->pGearDialog->SetDeviceConnected(device, val->int_value != 0, &errMsg);
+    bool error = pFrame->pEquipment->SetDeviceConnected(device, val->int_value != 0, &errMsg);
 
     if (error)
     {
@@ -4772,7 +4783,7 @@ static void guide(JObj& response, const json_value *params)
     // #104: a selected camera or mount that is not connected (a mount that was off when the guider started) is
     // connected first, not refused; the refusal names the device and the server's reason
     wxString connErr;
-    if (pFrame->pGearDialog->ConnectForGuide(&connErr))
+    if (pFrame->pEquipment->ConnectForGuide(&connErr))
     {
         response << jrpc_error(1, connErr);
         return;
@@ -4861,7 +4872,7 @@ static void shutdown(JObj& response, const json_value *params)
     // that pump would tear the camera down under it. The build ends within one exposure; ask again then.
     VERIFY_NO_DARK_BUILD(response);
     // no background connect attempt may start while the app winds down (#104)
-    pFrame->pGearDialog->StopConnectRetry(false);
+    pFrame->pEquipment->StopConnectRetry(false);
     wxGetApp().TerminateApp();
 
     response << jrpc_result(0);
@@ -6369,8 +6380,20 @@ static void get_calibration_data(JObj& response, const json_value *params)
     {
         rslt << NV("xAngle", degrees(m->xAngle()), 1) << NV("xRate", m->xRate() * 1000.0, 3)
              << NV("xParity", parity_str(m->RAParity())) << NV("yAngle", degrees(m->yAngle()), 1)
-             << NV("yRate", m->yRate() * 1000.0, 3) << NV("yParity", parity_str(m->DecParity()))
-             << NV("declination", degrees(m->GetCalibrationDeclination()));
+             << NV("yRate", m->yRate() * 1000.0, 3) << NV("yParity", parity_str(m->DecParity()));
+
+        // a Dec or side of pier the mount could not report during the calibration is null (#189)
+        double dec = m->GetCalibrationDeclination();
+        if (dec == UNKNOWN_DECLINATION)
+            rslt << NV("declination", NULL_VALUE);
+        else
+            rslt << NV("declination", degrees(dec));
+
+        PierSide side = m->MountCal().pierSide;
+        if (side == PIER_SIDE_EAST || side == PIER_SIDE_WEST)
+            rslt << NV("pierSide", Mount::PierSideStr(side));
+        else
+            rslt << NV("pierSide", NULL_VALUE);
     }
 
     response << jrpc_result(rslt);
@@ -6490,12 +6513,12 @@ static void export_config_settings(JObj& response, const json_value *params)
 
 struct JRpcCall
 {
-    wxSocketClient *cli;
+    wxSocketBase *cli;
     const json_value *req;
     const json_value *method;
     JRpcResponse response;
 
-    JRpcCall(wxSocketClient *cli_, const json_value *req_) : cli(cli_), req(req_), method(nullptr) { }
+    JRpcCall(wxSocketBase *cli_, const json_value *req_) : cli(cli_), req(req_), method(nullptr) { }
 };
 
 static void dump_request(const JRpcCall& call)
@@ -6733,7 +6756,7 @@ static bool handle_request(JRpcCall& call)
     }
 }
 
-static void handle_cli_input_complete(wxSocketClient *cli, char *input)
+static void handle_cli_input_complete(wxSocketBase *cli, char *input)
 {
     // a dedicated JsonParser instance is used for each line of input since
     // handle_request can recurse if the request causes the event loop to run and we
@@ -6810,7 +6833,7 @@ static void handle_cli_input_complete(wxSocketClient *cli, char *input)
     }
 }
 
-static void handle_cli_input(wxSocketClient *cli)
+static void handle_cli_input(wxSocketBase *cli)
 {
     // Bump refcnt to protect against reentrancy.
     //
@@ -7144,13 +7167,13 @@ static std::string handle_http_request(const HttpRequest& req)
     return http_not_found();
 }
 
-static void destroy_http_client(wxSocketClient *cli)
+static void destroy_http_client(wxSocketBase *cli)
 {
     HttpClientData *buf = (HttpClientData *) cli->GetClientData();
     buf->RemoveRef();
 }
 
-static bool handle_http_cli_input(wxSocketClient *cli)
+static bool handle_http_cli_input(wxSocketBase *cli)
 {
     HttpClientDataGuard clidata(cli);
     wxSocketInputStream sis(*cli);
@@ -7285,6 +7308,16 @@ void EventServer::EventServerStop()
     Debug.AddLine("event server stopped");
 }
 
+// A request's events and its response go out as separate small writes. With Nagle's algorithm on, a write made while
+// an earlier one is unacknowledged waits for the client's ACK, which Linux delays by about 40 ms, so every setter that
+// sends ConfigurationChange before its response took about 45 ms (#175). Send every write at once.
+static void set_no_delay(wxSocketBase *sock, const char *server)
+{
+    int one = 1;
+    if (!sock->SetOption(IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)))
+        Debug.Write(wxString::Format("%s: cli %p: TCP_NODELAY not set\n", server, sock));
+}
+
 void EventServer::OnEventServerEvent(wxSocketEvent& event)
 {
     wxSocketServer *server = static_cast<wxSocketServer *>(event.GetSocket());
@@ -7292,7 +7325,7 @@ void EventServer::OnEventServerEvent(wxSocketEvent& event)
     if (event.GetSocketEvent() != wxSOCKET_CONNECTION)
         return;
 
-    wxSocketClient *client = static_cast<wxSocketClient *>(server->Accept(false));
+    wxSocketBase *client = server->Accept(false);
 
     if (!client)
         return;
@@ -7305,6 +7338,7 @@ void EventServer::OnEventServerEvent(wxSocketEvent& event)
     // the client is keeping up.
     client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG);
     client->SetFlags(wxSOCKET_NOWAIT);
+    set_no_delay(client, "evsrv");
     client->Notify(true);
     client->SetClientData(new ClientData(client));
 
@@ -7315,7 +7349,7 @@ void EventServer::OnEventServerEvent(wxSocketEvent& event)
 
 void EventServer::OnEventServerClientEvent(wxSocketEvent& event)
 {
-    wxSocketClient *cli = static_cast<wxSocketClient *>(event.GetSocket());
+    wxSocketBase *cli = event.GetSocket();
 
     if (event.GetSocketEvent() == wxSOCKET_LOST)
     {
@@ -7348,7 +7382,7 @@ void EventServer::OnHttpServerEvent(wxSocketEvent& event)
     if (event.GetSocketEvent() != wxSOCKET_CONNECTION)
         return;
 
-    wxSocketClient *client = static_cast<wxSocketClient *>(server->Accept(false));
+    wxSocketBase *client = server->Accept(false);
     if (!client)
         return;
 
@@ -7357,6 +7391,7 @@ void EventServer::OnHttpServerEvent(wxSocketEvent& event)
     client->SetEventHandler(*this, HTTP_SERVER_CLIENT_ID);
     client->SetNotify(wxSOCKET_LOST_FLAG | wxSOCKET_INPUT_FLAG | wxSOCKET_OUTPUT_FLAG);
     client->SetFlags(wxSOCKET_NOWAIT);
+    set_no_delay(client, "httpsrv");
     client->Notify(true);
     client->SetClientData(new HttpClientData(client));
 
@@ -7365,7 +7400,7 @@ void EventServer::OnHttpServerEvent(wxSocketEvent& event)
 
 void EventServer::OnHttpServerClientEvent(wxSocketEvent& event)
 {
-    wxSocketClient *cli = static_cast<wxSocketClient *>(event.GetSocket());
+    wxSocketBase *cli = event.GetSocket();
 
     if (event.GetSocketEvent() == wxSOCKET_LOST)
     {
@@ -7858,7 +7893,7 @@ void EventServer::NotifyCalibrationBuildFailed(const wxString& artifact, const w
 //                                            auto-reconnect).
 // On the headless daemon a device that failed to connect (at startup, on a
 // connect request, or after EquipmentReconnectFailed) is retried slowly in the
-// background (#104, GearDialog), and EquipmentReconnected{camera|mount|rotator}
+// background (#104, EquipmentManager), and EquipmentReconnected{camera|mount|rotator}
 // is sent once when it connects by any path, with or without an earlier
 // EquipmentDisconnected.
 

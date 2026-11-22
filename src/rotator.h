@@ -86,7 +86,6 @@ public:
     virtual ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent);
     RotatorConfigDialogCtrlSet *GetConfigDlgCtrlSet(wxWindow *pParent, Rotator *pRotator, AdvancedDialog *pAdvancedDialog,
                                                     BrainCtrlIdMap& CtrlMap);
-    virtual void ShowPropertyDialog();
 
     // get the display name of the rotator device
     virtual wxString Name() const = 0;

@@ -72,45 +72,12 @@ public:
     virtual void OnKill();
 };
 
-inline static wxWindow *GetConnectGearParentWindow(void)
-{
-    if (pFrame->pGearDialog->IsActive())
-        return pFrame->pGearDialog;
-    else
-        return pFrame;
-}
-
-class ConnectMountInBg : public RunInBg
-{
-public:
-    ConnectMountInBg(wxWindow *parent = GetConnectGearParentWindow())
-        : RunInBg(parent, _("Connect"), _("Connecting to Mount..."))
-    {
-    }
-};
-
-class ConnectAoInBg : public RunInBg
-{
-public:
-    ConnectAoInBg(wxWindow *parent = GetConnectGearParentWindow()) : RunInBg(parent, _("Connect"), _("Connecting to AO...")) { }
-};
-
+// The camera simulator's connect (CameraSimulator::Connect) is the only user. Its progress popup is parented to the
+// main frame, as since step 3's S1: the Connect Equipment dialog it could also be parented to was never shown after it.
 class ConnectCameraInBg : public RunInBg
 {
 public:
-    ConnectCameraInBg(wxWindow *parent = GetConnectGearParentWindow())
-        : RunInBg(parent, _("Connect"), _("Connecting to Camera..."))
-    {
-    }
-};
-
-class ConnectRotatorInBg : public RunInBg
-{
-public:
-    ConnectRotatorInBg(wxWindow *parent = GetConnectGearParentWindow())
-        : RunInBg(parent, _("Connect"), _("Connecting to Rotator..."))
-    {
-    }
+    ConnectCameraInBg(wxWindow *parent = pFrame) : RunInBg(parent, _("Connect"), _("Connecting to Camera...")) { }
 };
 
 #endif // RUNINBG_INLCUDED

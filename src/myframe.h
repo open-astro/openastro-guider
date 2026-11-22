@@ -38,6 +38,7 @@
 #define MYFRAME_H_INCLUDED
 
 #include "dither_random.h" // class DitherRandom
+#include "monotonic_timers.h"
 
 class WorkerThread;
 class MyFrame;
@@ -222,19 +223,19 @@ public:
     MyFrame();
     virtual ~MyFrame();
 
-    Guider *pGuider;
+    // The constructor sets the global pFrame first (#168), so the objects it builds can call back through
+    // pFrame; the members they read are null (or false) until the constructor creates them.
+    Guider *pGuider = nullptr;
     wxMenuBar *Menubar;
     wxMenu *tools_menu, *view_menu, *bookmarks_menu, *darks_menu;
     wxMenuItem *m_showBookmarksMenuItem;
     wxMenuItem *m_bookmarkLockPosMenuItem;
     wxAcceleratorEntry *m_showBookmarksAccel;
     wxAcceleratorEntry *m_bookmarkLockPosAccel;
-    wxMenuItem *m_connectMenuItem;
     wxMenuItem *m_loopMenuItem;
     wxMenuItem *m_guideMenuItem;
     wxMenuItem *m_stopMenuItem;
     wxMenuItem *m_brainMenuItem;
-    wxMenuItem *m_cameraMenuItem;
     wxMenuItem *m_autoSelectStarMenuItem;
     wxMenuItem *m_takeDarksMenuItem;
     wxMenuItem *m_useDarksMenuItem;
@@ -244,12 +245,15 @@ public:
     wxComboBox *Dur_Choice;
     wxCheckBox *HotPixel_Checkbox;
     wxSlider *Gamma_Slider;
-    AdvancedDialog *pAdvancedDialog;
-    GuideHistory *pGuideHistory;
-    GearDialog *pGearDialog;
-    wxWindow *pGuidingAssistant;
-    bool CaptureActive; // Is camera looping captures?
-    bool m_exposurePending; // exposure scheduled and not completed
+    AdvancedDialog *pAdvancedDialog = nullptr;
+    GuideHistory *pGuideHistory = nullptr;
+    EquipmentManager *pEquipment = nullptr; // the devices and their selection
+    wxWindow *pGuidingAssistant = nullptr;
+    bool CaptureActive = false; // Is camera looping captures?
+    bool m_exposurePending = false; // exposure scheduled and not completed
+    // The camera auto-reconnect succeeded during a capture, and its EquipmentReconnected waits for the first frame
+    // after it: a good frame sends it, a failed one EquipmentReconnectFailed (DoTryReconnect, OnExposeComplete).
+    bool m_cameraReconnectUnconfirmed = false;
     double Stretch_gamma;
     unsigned int m_frameCounter;
     wxDateTime m_guidingStarted;
@@ -268,7 +272,6 @@ public:
     void OnOverlaySlitCoords(wxCommandEvent& evt);
     void OnSave(wxCommandEvent& evt);
     void OnSettings(wxCommandEvent& evt);
-    void OnSelectGear(wxCommandEvent& evt);
     void OnButtonLoop(wxCommandEvent& evt);
     void OnButtonStop(wxCommandEvent& evt);
     void OnButtonAutoStar(wxCommandEvent& evt);
@@ -281,7 +284,6 @@ public:
     void OnIdle(wxIdleEvent& evt);
     void OnEEGG(wxCommandEvent& evt);
     void OnGuidingAssistant(wxCommandEvent& evt);
-    void OnSetupCamera(wxCommandEvent& evt);
     void OnExposureDurationSelected(wxCommandEvent& evt);
     void OnGammaSlider(wxScrollEvent& evt);
     void OnSockServerEvent(wxSocketEvent& evt);
@@ -450,7 +452,8 @@ private:
     alert_fn *m_alertSpecialFn;
     intptr_t m_alertFnArg;
 
-    std::vector<time_t> m_cameraReconnectAttempts; // for rate-limiting camera reconnect attempts
+    // for rate-limiting camera reconnect attempts, on monotonic_timers::ClockS (#226)
+    monotonic_timers::ReconnectThrottle m_cameraReconnectThrottle;
 
     bool StartWorkerThread(WorkerThread *& pWorkerThread);
     bool StopWorkerThread(WorkerThread *& pWorkerThread);
@@ -496,7 +499,6 @@ enum
     AO_SXAO,
     AO_SIMULATOR,
     END_STEPGUIDERS,
-    BUTTON_GEAR,
     BUTTON_CAL,
     BUTTON_LOOP,
     BUTTON_GUIDE,
@@ -504,41 +506,10 @@ enum
     BUTTON_AUTOSTAR,
     BUTTON_DURATION,
     BUTTON_ADVANCED,
-    BUTTON_CAM_PROPERTIES,
     BUTTON_ALERT_ACTION,
     BUTTON_ALERT_CLOSE,
     BUTTON_ALERT_HELP,
     BUTTON_ALERT_DONTSHOW,
-    GEAR_DIALOG_IDS_BEGIN,
-    GEAR_PROFILES,
-    GEAR_PROFILE_MANAGE,
-    GEAR_PROFILE_NEW,
-    GEAR_PROFILE_DELETE,
-    GEAR_PROFILE_RENAME,
-    GEAR_PROFILE_LOAD,
-    GEAR_PROFILE_SAVE,
-
-    GEAR_CHOICE_CAMERA,
-    GEAR_BUTTON_SELECT_CAMERA,
-    MENU_SELECT_CAMERA_BEGIN, // a range of ids camera selection popup menu
-    MENU_SELECT_CAMERA_END = MENU_SELECT_CAMERA_BEGIN + 10,
-    GEAR_BUTTON_SETUP_CAMERA,
-    GEAR_BUTTON_CONNECT_CAMERA,
-    GEAR_BUTTON_DISCONNECT_CAMERA,
-
-    GEAR_CHOICE_SCOPE,
-    GEAR_BUTTON_SETUP_SCOPE,
-    GEAR_BUTTON_CONNECT_SCOPE,
-    GEAR_BUTTON_DISCONNECT_SCOPE,
-
-    GEAR_CHOICE_ROTATOR,
-    GEAR_BUTTON_SETUP_ROTATOR,
-    GEAR_BUTTON_CONNECT_ROTATOR,
-    GEAR_BUTTON_DISCONNECT_ROTATOR,
-
-    GEAR_BUTTON_CONNECT_ALL,
-    GEAR_BUTTON_DISCONNECT_ALL,
-    GEAR_DIALOG_IDS_END,
     CTRL_GAMMA,
     WIN_VFW, // Dummy event to capture VFW streams
     MGUIDE1_UP,
@@ -549,12 +520,10 @@ enum
     MGUIDE2_DOWN,
     MGUIDE2_RIGHT,
     MGUIDE2_LEFT,
-    MENU_CONNECT,
     MENU_LOOP,
     MENU_GUIDE,
     MENU_STOP,
     MENU_BRAIN,
-    MENU_CAM_SETTINGS,
     MENU_XHAIR0,
     MENU_XHAIR1,
     MENU_XHAIR2,

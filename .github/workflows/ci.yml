@@ -30,6 +30,10 @@ name: CI
 
 on:
   pull_request:
+  # The merge queue builds each queued PR on the latest main and waits for the
+  # required checks to report on this event. The PR-diff jobs skip themselves
+  # on it (they are gated on `pull_request`), which counts as satisfied.
+  merge_group:
   push:
     branches:
       - main
@@ -363,6 +367,8 @@ jobs:
 
   build:
     name: Build + GTest (arm64)
+    # Not required by branch protection, so the queue would not wait for it; the PR's own run and main's push run build it. Skipped on a merge group to save the run.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
@@ -414,6 +420,8 @@ jobs:
     # SIGTERM and SIGKILL. A separate job beside the Release build, in its own build dir, so
     # the GTest job above is unchanged and the two run in parallel.
     name: Daemon e2e (arm64, ASan/UBSan)
+    # Not required by branch protection, so the queue would not wait for it; the PR's own run and main's push run build it. Skipped on a merge group to save the run.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
     steps:
@@ -446,14 +454,14 @@ jobs:
 
       - name: Configure (ASan + UBSan)
         # RelWithDebInfo: optimised with NDEBUG like the shipped .deb, plus line numbers for the
-        # sanitizer stacks. Only the daemon is built below, not the GTest targets. No vptr check:
-        # GCC's reads the vptr right after a null report it continues past, so the known null
-        # findings scripts/e2e_ubsan.supp suppresses would crash inside the check (see that file).
+        # sanitizer stacks. Only the daemon is built below, not the GTest targets. The UBSan vptr
+        # check is on in every file (#209), so a downcast to a type the object is not fails the
+        # run.
         run: |
           cmake -S . -B build-asan -DUSE_SYSTEM_GTEST=1 -Wno-dev \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize=vptr -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
 
       - name: Build phd2.bin

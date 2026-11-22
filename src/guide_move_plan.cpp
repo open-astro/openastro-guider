@@ -8,6 +8,7 @@
 #include "guide_move_plan.h"
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cmath>
 
@@ -135,6 +136,24 @@ bool LimitAlertThrottle::ShouldRaise(Axis axis, int64_t nowS, int64_t deferredUn
     return true;
 }
 
+bool PulseFailedAlertThrottle::ShouldRaise(int64_t nowS)
+{
+    // One alert per failed pulse, two a frame when both axes correct, flooded the client (#188)
+    if (m_raised && nowS < m_lastRaisedS + PULSE_FAILED_ALERT_THROTTLE_S)
+        return false;
+
+    m_raised = true;
+    m_lastRaisedS = nowS;
+    return true;
+}
+
+int64_t AlertClockS()
+{
+    // Not the wall clock: a step back of the system time held the alert back for as long as the
+    // step, and a step forward cut the grace period short (#212)
+    return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 double MovedPx(double distancePx, int requestedMs, int sentMs, double rate)
 {
     double distance = std::fabs(distancePx);
@@ -158,6 +177,28 @@ RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double 
     progress.done =
         (progress.remainingX < 0.5 && progress.remainingY < 0.5) || progress.stalledSteps >= RECENTER_MAX_STALLED_STEPS;
     return progress;
+}
+
+bool SendDecAfter(MoveResult ra)
+{
+    return ra != MoveResult::ErrorSlewing && ra != MoveResult::ErrorAoLimitReached;
+}
+
+MoveResult OffsetResult(MoveResult ra, MoveResult dec)
+{
+    // A failed Dec pulse fails the move; else the RA pulse's result stands. With the Dec pulse
+    // sent, RA was Ok or Error, so a Dec slew or AO limit, which OnMoveComplete acts on, wins
+    return dec != MoveResult::Ok ? dec : ra;
+}
+
+FailedGuideMoves AfterGuideMove(MoveResult result, int failedInARow)
+{
+    // Mount::ErrorCount() counts every failed move and nothing read it while guiding, so a mount
+    // that rejected every pulse guided on (#213); a good move shows the mount can still guide
+    FailedGuideMoves failed;
+    failed.inARow = result != MoveResult::Ok ? failedInARow + 1 : 0;
+    failed.stopGuiding = failed.inARow >= MAX_FAILED_GUIDE_MOVES;
+    return failed;
 }
 
 } // namespace guide_move_plan

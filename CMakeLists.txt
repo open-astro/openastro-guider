@@ -174,6 +174,10 @@ set(cam_SRC
   ${phd_src_dir}/imaging_gear_poller.h
   ${phd_src_dir}/connect_request.cpp
   ${phd_src_dir}/connect_request.h
+  ${phd_src_dir}/gear_selection.cpp
+  ${phd_src_dir}/gear_selection.h
+  ${phd_src_dir}/gear_session.cpp
+  ${phd_src_dir}/gear_session.h
   ${phd_src_dir}/connect_retry.cpp
   ${phd_src_dir}/connect_retry.h
   ${phd_src_dir}/connect_probe.cpp
@@ -202,8 +206,6 @@ set(cam_SRC
   ${phd_src_dir}/alpaca_errors.h
   ${phd_src_dir}/alpaca_discovery.cpp
   ${phd_src_dir}/alpaca_discovery.h
-  ${phd_src_dir}/config_alpaca.cpp
-  ${phd_src_dir}/config_alpaca.h
   ${phd_src_dir}/scope_alpaca.h
   ${phd_src_dir}/scope_alpaca.cpp
 
@@ -263,6 +265,8 @@ set(guiding_SRC
   ${phd_src_dir}/guide_algorithms.h
   ${phd_src_dir}/edge_allowance.cpp
   ${phd_src_dir}/edge_allowance.h
+  ${phd_src_dir}/monotonic_timers.cpp
+  ${phd_src_dir}/monotonic_timers.h
   ${phd_src_dir}/guider_multistar.cpp
   ${phd_src_dir}/guider_multistar.h
   ${phd_src_dir}/guider.cpp
@@ -291,14 +295,14 @@ set(phd2_SRC
   ${phd_src_dir}/debuglog.cpp
   ${phd_src_dir}/debuglog.h
   ${phd_src_dir}/eegg.cpp
+  ${phd_src_dir}/equipment_manager.cpp
+  ${phd_src_dir}/equipment_manager.h
   ${phd_src_dir}/event_server.cpp
   ${phd_src_dir}/event_server.h
 
   ${phd_src_dir}/fitsiowrap.cpp
   ${phd_src_dir}/fitsiowrap.h
 
-  ${phd_src_dir}/gear_dialog.cpp
-  ${phd_src_dir}/gear_dialog.h
   ${phd_src_dir}/gear_simulator.h
   ${phd_src_dir}/gear_simulator.cpp
   ${phd_src_dir}/guide_history.cpp

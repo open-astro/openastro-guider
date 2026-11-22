@@ -37,6 +37,7 @@
 #include "darks_dialog.h"
 #include "image_math.h"
 #include "capture_cleanup.h"
+#include "guide_move_plan.h"
 
 #include <algorithm>
 #include <memory>
@@ -526,6 +527,23 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             Debug.Write(wxString::Format("OnExposeComplete: %s\n", failure));
 
             bool stopping = !m_continueCapturing;
+            // The camera the auto-reconnect brought back failed its first frame: that reconnect failed, and the
+            // camera is disconnected below for the #104 retry. A frame cut short by a stop request proves nothing
+            // either way, and the server reads the camera as connected, so that one confirms the reconnect.
+            bool reconnectFailed = false;
+            if (m_cameraReconnectUnconfirmed)
+            {
+                m_cameraReconnectUnconfirmed = false;
+                if (stopping)
+                    EvtServer.NotifyEquipmentReconnected("camera");
+                else
+                {
+                    reconnectFailed = true;
+                    EvtServer.NotifyEquipmentReconnectFailed(
+                        "camera", m_cameraReconnectThrottle.Attempts(),
+                        wxString::Format(_("the camera failed its first frame after reconnecting: %s"), failure));
+                }
+            }
             // the guide / dither request this ends fails with the reason, and so does an interrupted calibration
             // (NotifyGuidingStopped, FinishStop and Guider::StopGuiding read it, so the event order is unchanged)
             if (!stopping)
@@ -539,18 +557,36 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             }
             if (m_singleExposure.enabled)
                 m_singleExposure.Complete(false, failure);
-            EvtServer.NotifyLoopingStopped();
+            // #186: when capture was going on, StopCapturing reached FinishStop, which already sent
+            // LoopingExposuresStopped; only a capture already stopping (or a single exposure) sends it here
+            if (stopping)
+                EvtServer.NotifyLoopingStopped();
             pGuider->Reset(false);
             CaptureActive = m_continueCapturing;
             UpdateButtonsStatus();
             PhdController::AbortController(stopping ? wxString("Image capture stopped") : failure);
             StatusMsg(_("Stopped."));
 
+            if (reconnectFailed && pCamera->Connected)
+            {
+                Debug.Write("OnExposeComplete: disconnecting the camera whose reconnect was not confirmed\n");
+                pCamera->Disconnect();
+                pEquipment->NoteCameraReconnectFailed(failure);
+            }
+
             throw ERROR_INFO("Error reported capturing image");
         }
 
         pNewFrame->FrameNum = ++m_frameCounter;
         m_frameRetries.OnGoodFrame(); // #116, #136: the retry budget is for consecutive failures
+
+        // the first frame after a camera auto-reconnect: the camera is back
+        if (m_cameraReconnectUnconfirmed)
+        {
+            m_cameraReconnectUnconfirmed = false;
+            Debug.Write("OnExposeComplete: frame received, camera reconnect confirmed\n");
+            EvtServer.NotifyEquipmentReconnected("camera");
+        }
 
         if (m_rawImageMode && !m_rawImageModeWarningDone)
         {
@@ -630,6 +666,19 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
             pFrame->NotifyGuidingStopped();
         }
 
+        // While guiding, a mount whose moves keep failing stops guiding (#213); a slew or the AO's
+        // travel limit is handled below. With the mount's guide output off (set_guide_output_enabled,
+        // the Guiding Assistant) MoveAxis refused the move, "Guiding disabled", and sent no pulse: a
+        // refusal is not a failed move and leaves the count as it was
+        bool stopForFailedMoves = false;
+        if (pGuider->IsGuiding() && mount->GetGuidingEnabled())
+        {
+            guide_move_plan::FailedGuideMoves failed = guide_move_plan::AfterGuideMove(
+                static_cast<guide_move_plan::MoveResult>(moveResult), mount->FailedGuideMovesInARow());
+            mount->SetFailedGuideMovesInARow(failed.inARow);
+            stopForFailedMoves = failed.stopGuiding && moveResult == Mount::MOVE_ERROR;
+        }
+
         if (moveResult != Mount::MOVE_OK)
         {
             mount->IncrementErrorCount();
@@ -668,6 +717,15 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
                     pGuider->StartGuiding();
                     pGuider->SetLockPosIsSticky(saveSticky);
                 }
+            }
+            else if (stopForFailedMoves)
+            {
+                Debug.Write(
+                    wxString::Format("%d guide moves in a row failed, stopping guiding\n", mount->FailedGuideMovesInARow()));
+                pFrame->Alert(wxString::Format(_("Guiding stopped: the last %d guide moves to %s failed. Its guide "
+                                                 "pulses keep failing; check the mount and its connection."),
+                                               mount->FailedGuideMovesInARow(), mount->Name()));
+                pGuider->StopGuiding();
             }
 
             throw ERROR_INFO("Error reported moving");
@@ -863,16 +921,6 @@ void MyFrame::OnAutoStar(wxCommandEvent& WXUNUSED(evt))
     AutoSelectStar();
 }
 
-void MyFrame::OnSetupCamera(wxCommandEvent& WXUNUSED(event))
-{
-    if (pCamera &&
-        (((pCamera->PropertyDialogType & PROPDLG_WHEN_CONNECTED) != 0 && pCamera->Connected) ||
-         ((pCamera->PropertyDialogType & PROPDLG_WHEN_DISCONNECTED) != 0 && !pCamera->Connected)))
-    {
-        pCamera->ShowPropertyDialog();
-    }
-}
-
 void MyFrame::OnAdvanced(wxCommandEvent& WXUNUSED(event))
 {
     pAdvancedDialog->LoadValues();
@@ -996,55 +1044,6 @@ void MyFrame::OnPanelClose(wxAuiManagerEvent& evt)
     if (p->name == _T("MainToolBar"))
     {
         Menubar->Check(MENU_TOOLBAR, false);
-    }
-}
-
-static void AlertSetRAOnly(intptr_t param)
-{
-    pFrame->SetDitherRaOnly(true);
-    pFrame->m_infoBar->Dismiss();
-}
-
-static void CheckDecGuideModeAlert()
-{
-    // One-time, per-profile check to highlight new dithering behavior when Dec guide mode is north or south
-
-    if (pConfig->Profile.GetBoolean("/ShowDecModeWarning", true))
-    {
-        if (pMount && !pMount->IsStepGuider())
-        {
-            Scope *scope = static_cast<Scope *>(pMount);
-            DEC_GUIDE_MODE dgm = scope->GetDecGuideMode();
-
-            if ((dgm == DEC_NORTH || dgm == DEC_SOUTH) && !pFrame->GetDitherRaOnly())
-            {
-                wxString msg = _("With your current setting for Dec guide mode, this version of PHD2 will "
-                                 "dither in Declination. To restore the old behavior you can set the RA-only "
-                                 "option in the Dither Settings of the Advanced Dialog.");
-                pFrame->Alert(msg, 0, _("Set RA-only now"), AlertSetRAOnly, 0);
-
-                pConfig->Profile.SetBoolean("/ShowDecModeWarning", false);
-            }
-        }
-    }
-}
-
-void MyFrame::OnSelectGear(wxCommandEvent& WXUNUSED(evt))
-{
-    try
-    {
-        if (CaptureActive)
-        {
-            throw ERROR_INFO("OnSelectGear called while CaptureActive");
-        }
-
-        pGearDialog->ShowGearDialog(wxGetKeyState(WXK_SHIFT));
-
-        CheckDecGuideModeAlert();
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
     }
 }
 

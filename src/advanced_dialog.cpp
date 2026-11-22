@@ -217,8 +217,8 @@ AdvancedDialog::~AdvancedDialog()
     delete m_tipTimer;
 }
 
-// Let a client(GearDialog) ask to preload the UI elements - prevents any visible delay when the AdvancedDialog is shown for the
-// first time
+// Let a client (EquipmentManager) ask to preload the UI elements - prevents any visible delay when the AdvancedDialog is shown
+// for the first time
 void AdvancedDialog::Preload()
 {
     if (m_rebuildPanels)

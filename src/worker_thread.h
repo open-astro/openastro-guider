@@ -60,6 +60,8 @@ struct EXPOSE_REQUEST
 {
     usImage *pImage;
     CaptureParams captureParams;
+    int delayMs; // sleep before the exposure; MyFrame::GetExposureDelay on the main thread (#182)
+    NOISE_REDUCTION_METHOD noiseReduction; // applied after the capture; read on the main thread (#210)
     bool error;
     wxSemaphore *pSemaphore;
 };
@@ -179,7 +181,8 @@ protected:
 
     /*************      Expose      **************************/
 public:
-    void EnqueueWorkerThreadExposeRequest(usImage *pImage, const CaptureParams& captureParams);
+    void EnqueueWorkerThreadExposeRequest(usImage *pImage, const CaptureParams& captureParams, int delayMs,
+                                          NOISE_REDUCTION_METHOD noiseReduction);
     void SetSkipExposeComplete();
 
 protected:

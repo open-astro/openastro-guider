@@ -5,29 +5,13 @@
 # as UBSan allows (one check in one function), so that every other report still fails CI.
 # Remove an entry with the fix for its finding.
 #
-# All of them are one finding, inherited from PHD2: `pFrame = new MyFrame()` (phd.cpp) sets the
-# global pFrame only after MyFrame's constructor returns, but that constructor already builds
-# objects that call member functions through pFrame, so each call is a member call on a null
-# pointer, once per startup. It is undefined behaviour but harmless in practice, because none of
-# these MyFrame members reads `this`:
-#   SetMultiStarMode      pFrame->NotifyGuidingParam  (guider_multistar.cpp, from LoadProfileSettings)
-#   TargetWindow          pFrame->MakeSpinCtrlDouble  (target.cpp)
-#   GuiderMultiStarConfigDialogCtrlSet  pFrame->MakeSpinCtrl / MakeSpinCtrlDouble (guider_multistar.cpp)
-#   ScopeConfigDialogCtrlSet            pFrame->MakeSpinCtrl  (scope.cpp)
-#   Scope::SetMaxRaDuration, SetMaxDecDuration, SetDecGuideMode
-#                         pFrame->NotifyGuidingParam  (scope.cpp, from Scope's constructor)
-# The ScopeConfigDialogCtrlSet and GuiderMultiStarConfigDialogCtrlSet ones run from AdvancedDialog's
-# constructor, inside MyFrame's. The Scope ones run when the profile selected at startup has a mount,
-# which GearDialog's constructor, inside MyFrame's, then creates: scripts/e2e_persistence.py restarts
-# the daemon on such a profile.
+# There are none at the moment. The null member calls through the global pFrame from MyFrame's
+# constructor (#168), in GuiderMultiStar::SetMultiStarMode, TargetWindow::TargetWindow,
+# GuiderMultiStarConfigDialogCtrlSet, ScopeConfigDialogCtrlSet and Scope::SetMaxRaDuration,
+# SetMaxDecDuration and SetDecGuideMode, were suppressed here until MyFrame's constructor set
+# pFrame before building anything that uses it.
 #
-# The CI build also leaves out -fsanitize=vptr: GCC's vptr check reads the object's vptr right
-# after a null report it was told to continue past, so a suppressed null member call would crash
-# inside the check itself (SEGV at address 0 in SetMultiStarMode).
-null:GuiderMultiStar::SetMultiStarMode
-null:TargetWindow::TargetWindow
-null:GuiderMultiStarConfigDialogCtrlSet::GuiderMultiStarConfigDialogCtrlSet
-null:ScopeConfigDialogCtrlSet::ScopeConfigDialogCtrlSet
-null:Scope::SetMaxRaDuration
-null:Scope::SetMaxDecDuration
-null:Scope::SetDecGuideMode
+# The CI build checks vptr too (-fsanitize=vptr, part of -fsanitize=undefined, #209). It was left
+# out while those null calls were suppressed, since GCC's vptr check reads the vptr right after a
+# null report it continues past and so crashed inside the check, and then for the event server's
+# cast of every accepted wxSocketBase to wxSocketClient, which it is not (fixed in #209).

@@ -27,9 +27,9 @@ bool ParseGearDevice(const std::string& name, GearDevice *device);
 const char *GearDeviceName(GearDevice device);
 
 // why the request can't be done now, or "" when it can
-std::string ConnectRefusal(GearDevice device, bool connect, bool captureActive, bool calibratingOrGuiding, bool dialogOpen);
+std::string ConnectRefusal(GearDevice device, bool connect, bool captureActive, bool calibratingOrGuiding);
 
-// What GearDialog::EndModal does with the mount's calibration (#139)
+// What the end of a gear request (GearSession::End) does with the mount's calibration (#139)
 enum class GearCalibrationAction
 {
     None,
@@ -37,15 +37,15 @@ enum class GearCalibrationAction
     Clear, // the camera changed: the calibration no longer fits it
 };
 
-// What a gear session saw of the camera, for GearDialog::EndModal (#139). A session is one run of the Connect Equipment
-// dialog, or one gear request (set_connected, set_profile) in the headless daemon, which never runs the dialog.
-// - The image-scale change of the session's camera connects is taken once, by the EndModal that acts on it
-//   (calibration step, MinMove, Alert): a later request, or the second EndModal of a connect all, must not redo it
-//   over what the client has set since. The camera-change warning is given once per session.
-// - A camera change outlives a headless request, because it is the mount's calibration it invalidates and the mount
-//   may connect in a later request (guide's connect, the #104 retry, a per-device set_connected): the calibration is
-//   cleared once, by the first EndModal with the mount connected, and the saved one is never auto-loaded again in
-//   this process, since it was made with the old camera. A run of the dialog starts it over (PHD2 behaviour).
+// What a gear session saw of the camera, for GearSession::End (#139). A session is one gear request
+// (set_connected, set_profile, and the #104 retry and guide connects).
+// - The image-scale change of the session's camera connects is taken once, by the end of request that acts on it
+//   (calibration step, MinMove, Alert): a later request must not redo it over what the client has set since. The
+//   camera-change warning is given once per session.
+// - A camera change outlives a request, because it is the mount's calibration it invalidates and the mount may
+//   connect in a later request (guide's connect, the #104 retry, a per-device set_connected): the calibration is
+//   cleared once, by the first end of request with the mount connected, and the saved one is never auto-loaded again
+//   in this process, since it was made with the old camera.
 struct CameraChangeLatch
 {
     double scaleRatio = 1.0;
@@ -53,9 +53,7 @@ struct CameraChangeLatch
     bool clearPending = false; // ... and the mount's calibration is still to be cleared for it
     bool warningIssued = false;
 
-    // a run of the Connect Equipment dialog: everything starts over
-    void Begin() { *this = CameraChangeLatch(); }
-    // a headless gear request: a camera change, and its calibration clear if the mount has not had it yet, carry over
+    // a gear request: a camera change, and its calibration clear if the mount has not had it yet, carry over
     void BeginRequest()
     {
         scaleRatio = 1.0;
@@ -73,20 +71,13 @@ struct CameraChangeLatch
         camChanged = true;
         clearPending = true;
     }
-    // the user cancelled the connect at the camera-change warning (dialog only)
-    void CancelCameraChange()
-    {
-        camChanged = false;
-        clearPending = false;
-    }
-    // what EndModal does with the mount's calibration; a Clear is taken. autoLoad: the profile's auto-load setting is on
-    // (and an AO, if any, is connected); mountConnected: the mount is connected
+    // what the end of request does with the mount's calibration; a Clear is taken. autoLoad: the profile's auto-load
+    // setting is on (and an AO, if any, is connected); mountConnected: the mount is connected
     GearCalibrationAction TakeCalibrationAction(bool autoLoad, bool mountConnected);
 };
 
 // whether a gear request begins a session of the latch: only the outermost request (one nested in it, from a nested
-// event loop, is part of it), and not while the Connect Equipment dialog runs its own session, so a request it refuses
-// does not wipe what the dialog saw (#139)
-bool BeginsGearRequest(int connectDepth, bool dialogOpen);
+// event loop, is part of it) (#139)
+bool BeginsGearRequest(int connectDepth);
 
 #endif

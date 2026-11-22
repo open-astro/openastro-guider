@@ -37,7 +37,6 @@
 
 # include "cam_alpaca.h"
 # include "camera.h"
-# include "config_alpaca.h"
 # include "alpaca_client.h"
 # include "alpaca_errors.h"
 # include "alpaca_poll.h"
@@ -98,7 +97,6 @@ CameraAlpaca::CameraAlpaca()
     m_hasGuideOutput = false;
     HasGainControl = false;
     HasSubframes = true;
-    PropertyDialogType = PROPDLG_WHEN_DISCONNECTED;
     Color = false;
     m_driverVersion = 1;
     m_bitsPerPixel = 0;
@@ -169,10 +167,9 @@ bool CameraAlpaca::GetDevicePixelSize(double *devPixelSize)
 bool CameraAlpaca::Connect(const wxString& camId)
 {
     // If not configured, reload the profile settings in case they were set
-    // over the API since this camera object was created. Never open the setup
-    // dialog from Connect(): connects arrive over JSON-RPC on the headless
-    // daemon, where a modal dialog would hang the main loop (or surface the
-    // hidden GUI on a desktop). The GUI's gear dialog has its own setup button.
+    // over the API since this camera object was created. The server and
+    // device are set only over JSON-RPC (set_alpaca_server,
+    // set_selected_alpaca_device); there is no setup dialog.
     if (m_port == 0)
     {
         m_host = pConfig->Profile.GetString("/alpaca/host", _T("localhost"));
@@ -195,14 +192,15 @@ bool CameraAlpaca::Connect(const wxString& camId)
 
     Debug.Write(wxString::Format("Alpaca Camera connecting to %s:%ld device %ld\n", m_host, m_port, m_deviceNumber));
 
-    // Recreate client if it doesn't exist or if settings have changed
-    // (AlpacaClient stores host/port for URL building, so we need a new one if they changed)
+    // The client keeps the host, port and device it was made with. They cannot
+    // change under it: set_alpaca_server, set_selected_alpaca_device and a
+    // profile switch re-select the camera, which builds a new CameraAlpaca
+    // (EquipmentManager::SelectCamera), and a camera that was never
+    // configured has no client yet.
     if (!m_client)
     {
         m_client = new AlpacaClient(m_host, m_port, m_deviceNumber);
     }
-    // Note: If client exists but settings changed, CameraSetup() should have deleted it
-    // But we check here just in case Connect() is called directly after profile change
 
     // Check if device is connected
     wxString endpoint = wxString::Format("camera/%ld/connected", m_deviceNumber);
@@ -653,43 +651,6 @@ bool CameraAlpaca::Disconnect()
     return false;
 }
 
-void CameraAlpaca::ShowPropertyDialog()
-{
-    CameraSetup();
-}
-
-void CameraAlpaca::CameraSetup()
-{
-    // show the server and device configuration
-    AlpacaConfig alpacaDlg(wxGetApp().GetTopWindow(), _("Alpaca Camera Selection"), ALPACA_TYPE_CAMERA);
-    alpacaDlg.m_host = m_host;
-    alpacaDlg.m_port = m_port;
-    alpacaDlg.m_deviceNumber = m_deviceNumber;
-
-    // initialize with actual values
-    alpacaDlg.SetSettings();
-
-    if (alpacaDlg.ShowModal() == wxID_OK)
-    {
-        // if OK save the values to the current profile
-        alpacaDlg.SaveSettings();
-        m_host = alpacaDlg.m_host;
-        m_port = alpacaDlg.m_port;
-        m_deviceNumber = alpacaDlg.m_deviceNumber;
-        pConfig->Profile.SetString("/alpaca/host", m_host);
-        pConfig->Profile.SetLong("/alpaca/port", m_port);
-        pConfig->Profile.SetLong("/alpaca/camera_device", m_deviceNumber);
-        Name = wxString::Format("Alpaca Camera [%s:%ld/%ld]", m_host, m_port, m_deviceNumber);
-
-        // Recreate client with new settings
-        if (m_client)
-        {
-            delete m_client;
-            m_client = nullptr;
-        }
-    }
-}
-
 bool CameraAlpaca::HasNonGuiCapture()
 {
     return true;
@@ -717,13 +678,18 @@ bool CameraAlpaca::AbortExposure()
     return !result;
 }
 
-// The EquipmentDisconnected reason for a capture error that reconnects the camera (#103). The server's
+// The EquipmentDisconnected reason for a capture error that reconnects the camera (#103, #190). The server's
 // message says why (for example "camera removed from USB"), so clients can show it; the clause is left out
-// when the server sent none.
-static wxString CaptureReconnectReason(long alpacaError, const wxString& serverMessage)
+// when the server sent none. A refused connection (the Alpaca server is gone) names the server.
+wxString CameraAlpaca::CaptureReconnectReason(const AlpacaErrors::CallError& error) const
 {
-    wxString message(serverMessage);
+    if (error.kind != AlpacaErrors::CallError::Kind::Alpaca)
+        return wxString::Format(_("Cannot connect to the Alpaca server at %s:%ld (refused or unreachable)"), m_host, m_port);
+    // the same clean-up as every other reason: valid UTF-8, one line, capped (a raw wxConvUTF8 conversion gives
+    // an empty message for invalid UTF-8 and stops at an embedded NUL)
+    wxString message(wxString::FromUTF8(AlpacaErrors::OneLine(error.message).c_str()));
     message.Trim(true).Trim(false);
+    long alpacaError = error.alpacaError;
     if (alpacaError == AlpacaErrors::kNotConnected)
     {
         if (message.empty())
@@ -738,24 +704,21 @@ static wxString CaptureReconnectReason(long alpacaError, const wxString& serverM
 }
 
 // Fails the frame of a capture call that returned an error. The failed call is recorded as the frame's
-// failure reason (#97). 1031, or the kAcquisitionFailuresBeforeReconnect-th 1280 in a row (counted across
-// capture attempts), disconnects the camera with RECONNECT: EquipmentDisconnected{reconnecting:true}, then
-// the auto-reconnect. Any other error, and a 1280 below the threshold, keeps the alert, "<alert>: <reason>".
-// HTTP, transport and parse failures carry no Alpaca number, so they count as 0. Returns true, Capture's
-// error result.
+// failure reason (#97). 1031, a refused connection (the Alpaca server is gone, #190), or the
+// kAcquisitionFailuresBeforeReconnect-th 1280 in a row (counted across capture attempts), disconnects the
+// camera with RECONNECT: EquipmentDisconnected{reconnecting:true}, then the auto-reconnect. Any other error,
+// and a 1280 below the threshold, keeps the alert, "<alert>: <reason>". Other HTTP, transport and parse
+// failures carry no Alpaca number, so they count as 0. Returns true, Capture's error result.
 bool CameraAlpaca::CaptureFailed(const AlpacaErrors::CallError& error, const wxString& alert)
 {
     RecordCaptureFailure(error);
-    long alpacaError = error.kind == AlpacaErrors::CallError::Kind::Alpaca ? error.alpacaError : 0;
-    if (m_captureFailures.OnFailure(alpacaError) == AlpacaErrors::CaptureFailureAction::Reconnect)
+    if (m_captureFailures.OnFailure(error) == AlpacaErrors::CaptureFailureAction::Reconnect)
     {
-        // the same clean-up as every other reason: valid UTF-8, one line, capped (a raw wxConvUTF8 conversion gives
-        // an empty message for invalid UTF-8 and stops at an embedded NUL)
-        DisconnectWithAlert(
-            CaptureReconnectReason(alpacaError, wxString::FromUTF8(AlpacaErrors::OneLine(error.message).c_str())), RECONNECT);
+        DisconnectWithAlert(CaptureReconnectReason(error), RECONNECT);
     }
     else
     {
+        long alpacaError = error.kind == AlpacaErrors::CallError::Kind::Alpaca ? error.alpacaError : 0;
         Debug.Write(wxString::Format("Alpaca Camera: capture error %ld (kind %d, HTTP %ld), %d consecutive acquisition "
                                      "failure(s) of %d\n",
                                      alpacaError, static_cast<int>(error.kind), error.httpStatus,

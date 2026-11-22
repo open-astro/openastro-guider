@@ -81,7 +81,8 @@ void WorkerThread::EnqueueWorkerThreadTerminateRequest(void)
 
 /*************      Expose      **************************/
 
-void WorkerThread::EnqueueWorkerThreadExposeRequest(usImage *pImage, const CaptureParams& captureParams)
+void WorkerThread::EnqueueWorkerThreadExposeRequest(usImage *pImage, const CaptureParams& captureParams, int delayMs,
+                                                    NOISE_REDUCTION_METHOD noiseReduction)
 {
     m_interruptRequested &= ~INT_STOP;
 
@@ -92,6 +93,8 @@ void WorkerThread::EnqueueWorkerThreadExposeRequest(usImage *pImage, const Captu
     message.request = REQUEST_EXPOSE;
     message.args.expose.pImage = pImage;
     message.args.expose.captureParams = captureParams;
+    message.args.expose.delayMs = delayMs;
+    message.args.expose.noiseReduction = noiseReduction;
     message.args.expose.pSemaphore = 0;
 
     EnqueueMessage(message);
@@ -178,7 +181,8 @@ bool WorkerThread::HandleExpose(EXPOSE_REQUEST *req)
 
     try
     {
-        if (WorkerThread::MilliSleep(m_pFrame->GetExposureDelay(), INT_ANY))
+        // #182: decided on the main thread when the exposure was scheduled, from state only it writes
+        if (WorkerThread::MilliSleep(req->delayMs, INT_ANY))
         {
             throw ERROR_INFO("Time lapse interrupted");
         }
@@ -223,7 +227,8 @@ bool WorkerThread::HandleExpose(EXPOSE_REQUEST *req)
         {
             CameraROITest(req->pImage);
 
-            switch (m_pFrame->GetNoiseReductionMethod())
+            // #210: read on the main thread when the exposure was scheduled, where set_noise_reduction writes it
+            switch (req->noiseReduction)
             {
             case NR_NONE:
                 break;

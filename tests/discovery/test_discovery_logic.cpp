@@ -12,8 +12,8 @@
 // These tests model the dedupe/parse semantics with std::string/std::set
 // rather than calling the wxString-flavoured helpers directly. If anyone
 // changes the dedupe key format (e.g. lowercases the host) without
-// updating both producers and consumers (config_alpaca, gear_dialog), the
-// model here surfaces it as a deliberate change rather than a silent
+// updating both the producer (alpaca_discovery) and the consumer
+// (event_server's discover_alpaca_servers), the model here surfaces it as a deliberate change rather than a silent
 // behaviour drift.
 
 #include <gtest/gtest.h>
