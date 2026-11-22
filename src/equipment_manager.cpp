@@ -245,6 +245,18 @@ void EquipmentManager::ReloadProfileGear()
     LoadFromProfile();
 }
 
+bool EquipmentManager::ProfileSwitchRefused(wxString *error) const
+{
+    // these error messages are internal to the event server and are not translated; the same refusal as the
+    // session's SetProfile
+    if ((m_camera && m_camera->Connected) || (m_mount && m_mount->IsConnected()) || (m_rotator && m_rotator->IsConnected()))
+    {
+        *error = "cannot set profile when equipment is connected";
+        return true;
+    }
+    return false;
+}
+
 bool EquipmentManager::SetProfile(int profileId, wxString *error)
 {
     // Run by the session only once the profile is not the current one and nothing is connected, so its profile reads

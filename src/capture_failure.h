@@ -48,9 +48,6 @@ std::string Text(const Failure& failure);
 // reason is empty. The alert is the translated prefix; the reason is the server's text, untranslated.
 std::string AlertWithReason(const std::string& alert, const std::string& reason);
 
-// curl's text for CURLE_OPERATION_TIMEDOUT (curl_easy_strerror), the message of a timed-out call
-extern const char kCurlTimeoutText[];
-
 // Failed frames in a row that are exposed again, as a calibration step's frame (#116) or a dropped
 // guiding frame (#136), before the calibration fails or guiding stops. The first frame plus these
 // retries is exactly kAcquisitionFailuresBeforeReconnect 1280s, so a 3rd 1280 in a row still
@@ -74,7 +71,12 @@ enum class FramePhase
 FramePhase PhaseFor(GUIDER_STATE state);
 
 // True for a failure that a new exposure can clear: Alpaca 1280 (the driver's image
-// acquisition failed) and a call that timed out with no response. False for anything else:
+// acquisition failed), a call that timed out with no response (Transport with curlCode
+// kCurlOperationTimedOut; the code, not curl's text, which curl rewords between versions, #227),
+// and a call the server died during, with no response or a cut one (kCurlGotNothing, kCurlRecvError,
+// kCurlPartialFile, #237): if the server is really gone, the retried frame's call is refused and
+// reconnects the camera (#190).
+// False for anything else:
 // 1031 and other Alpaca errors, an HTTP status, an invalid response, another transport failure,
 // a driver alert alone (the capture watchdog's timeout reconnects instead), and an empty
 // failure (an aborted or interrupted exposure records none).

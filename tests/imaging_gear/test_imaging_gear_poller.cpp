@@ -28,6 +28,7 @@ struct FakeServer
     std::map<std::string, std::vector<int>> intLists;
     std::atomic<int> delayMs { 0 };
     std::atomic<int> calls { 0 };
+    std::function<void()> onDiscover; // run in ConfiguredDevices, before it answers
 };
 
 class FakeReader : public Reader
@@ -53,6 +54,8 @@ public:
     {
         ++m_s.calls;
         std::this_thread::sleep_for(std::chrono::milliseconds(m_s.delayMs.load()));
+        if (m_s.onDiscover)
+            m_s.onDiscover();
         std::lock_guard<std::mutex> lock(m_s.mutex);
         *d = m_s.devices;
         return m_s.reachable;
@@ -494,4 +497,52 @@ TEST(ImagingGearPoller, AnUnreportedNameStaysEmpty)
     p.PollOnce();
     ASSERT_TRUE(p.Latest().focuser);
     EXPECT_EQ(p.Latest().focuser->name, "");
+}
+
+// #236: once the Alpaca server changes, nothing reports the old server's gear; until the new one has been read the
+// snapshot is unavailable, as before the first read
+TEST(ImagingGearPoller, AServerChangeForgetsTheOldServersGear)
+{
+    FakeServer s;
+    Rig(s);
+    Poller p(FactoryFor(s), Instant(), false);
+    Context ctx = AlpacaContext();
+    p.SetContext(ctx);
+    p.PollOnce();
+    ASSERT_EQ(p.Latest().source, Source::Alpaca);
+
+    ctx.port = 11112;
+    p.SetContext(ctx);
+    EXPECT_EQ(p.Latest().source, Source::Unavailable);
+    EXPECT_EQ(p.Latest().server, "");
+    EXPECT_FALSE(p.Latest().camera.has_value());
+
+    p.PollOnce();
+    EXPECT_EQ(p.Latest().source, Source::Alpaca);
+    EXPECT_EQ(p.Latest().server, "AlpacaBridge 192.168.1.20:11112");
+
+    // a change that keeps the server keeps its gear until the next poll
+    ctx.overrides.camera = 1;
+    p.SetContext(ctx);
+    EXPECT_EQ(p.Latest().server, "AlpacaBridge 192.168.1.20:11112");
+}
+
+// #236: a poll of the old server that was under way when the server changed is not published
+TEST(ImagingGearPoller, APollOfTheOldServerIsNotPublishedAfterAChange)
+{
+    FakeServer s;
+    Rig(s);
+    Poller p(FactoryFor(s), Instant(), false);
+    Context ctx = AlpacaContext();
+    p.SetContext(ctx);
+    Context other = ctx;
+    other.host = "192.168.1.21";
+    s.onDiscover = [&p, &other]() { p.SetContext(other); };
+    p.PollOnce(); // reads 192.168.1.20, the server changing while it does
+    s.onDiscover = nullptr;
+    EXPECT_EQ(p.Latest().source, Source::Unavailable);
+    EXPECT_EQ(p.Latest().server, "");
+
+    p.PollOnce();
+    EXPECT_EQ(p.Latest().server, "AlpacaBridge 192.168.1.21:11111");
 }
