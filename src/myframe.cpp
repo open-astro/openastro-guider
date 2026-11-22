@@ -1528,13 +1528,15 @@ void MyFrame::ScheduleExposure()
 
     // #182: decided here, after the previous frame updated the guide and controller state, not on the worker
     int delayMs = GetExposureDelay();
+    // #210: likewise the noise reduction, which set_noise_reduction writes on this thread
+    NOISE_REDUCTION_METHOD noiseReduction = GetNoiseReductionMethod();
 
     usImage *img = new usImage();
 
     wxCriticalSectionLocker lock(m_CSpWorkerThread);
 
     if (m_pPrimaryWorkerThread) // can be null when app is shutting down (unlikely but possible)
-        m_pPrimaryWorkerThread->EnqueueWorkerThreadExposeRequest(img, captureParams, delayMs);
+        m_pPrimaryWorkerThread->EnqueueWorkerThreadExposeRequest(img, captureParams, delayMs, noiseReduction);
 }
 
 void MyFrame::SchedulePrimaryMove(Mount *mount, const GuiderOffset& ofs, unsigned int moveOptions)

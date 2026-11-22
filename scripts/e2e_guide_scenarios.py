@@ -8,6 +8,8 @@ instance, port and display, so the others should cost little wall time beside th
 the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir):
 
   smoke          scripts/phd2_rpc_smoke.py with --fake-alpaca-url
+  nr-at-schedule once connected, capture_single_frame with no noise reduction and set_noise_reduction
+                 "3x3 Median" during the exposure: the saved frame is unfiltered, and the next one filtered (#210)
   calibrate      connect the Alpaca camera and mount, loop, find_star, guide with recalibrate true: a full
                  calibration, StartGuiding, a settle that ends in exactly one SettleDone with Status 0, then
                  guiding; the event order Ara consumes is checked on the way (design/API_CONTRACT.md)
@@ -482,6 +484,90 @@ def scenario_frame_drops(cli, fake, args):
     return "; ".join(results)
 
 
+# #210: a single frame long enough to change the noise reduction while it is exposed (the camera sleeps all but the
+# last 100 ms of it before polling imageready), and when to change it
+NR_EXPOSURE_MS = 4000
+NR_CHANGE_AFTER_S = 1.5
+# the fake's background is Gaussian, sigma 15 ADU; a 3x3 median leaves about 6 of it. A frame is filtered when its
+# robust background sigma is under this
+NR_FILTERED_SIGMA = 11.0
+
+
+def read_fits_u16(path):
+    """The pixels of a 2-D 16-bit FITS file as written by usImage::Save (BITPIX 16, BZERO 32768), as a numpy
+    array [y][x]."""
+    import numpy as np
+
+    with open(path, "rb") as f:
+        data = f.read()
+    cards, off = {}, 0
+    while True:
+        block = data[off:off + 2880]
+        expect(len(block) == 2880, f"{path}: the FITS header has no END card")
+        off += 2880
+        done = False
+        for i in range(0, 2880, 80):
+            card = block[i:i + 80].decode("ascii", errors="replace")
+            key = card[:8].strip()
+            if key == "END":
+                done = True
+                break
+            if card[8:10] == "= ":
+                cards[key] = card[10:].split("/")[0].strip()
+        if done:
+            break
+    expect(cards.get("BITPIX") == "16" and cards.get("NAXIS") == "2", f"{path}: not a 2-D 16-bit FITS ({cards})")
+    w, h = int(cards["NAXIS1"]), int(cards["NAXIS2"])
+    raw = np.frombuffer(data, dtype=">i2", count=w * h, offset=off).astype(np.float64)
+    return (raw * float(cards.get("BSCALE", "1")) + float(cards.get("BZERO", "0"))).reshape(h, w)
+
+
+def background_sigma(pixels):
+    """A robust sigma of the frame: 1.4826 x the median absolute deviation, which the few star pixels don't move."""
+    import numpy as np
+
+    med = np.median(pixels)
+    return 1.4826 * float(np.median(np.abs(pixels - med)))
+
+
+def single_frame_sigma(cli, during=None):
+    """capture_single_frame {save: true}, `during` (if given) called NR_CHANGE_AFTER_S into the exposure; returns
+    the saved frame's background sigma."""
+    expect(cli.call("get_app_state") == "Stopped", "capture is not stopped before the single frame")
+    start = cli.mark()
+    cli.call("capture_single_frame", {"exposure": NR_EXPOSURE_MS, "save": True})
+    if during is not None:
+        time.sleep(NR_CHANGE_AFTER_S)
+        during()
+    done = cli.wait_events(start, "SingleFrameComplete", timeout=60)[0]
+    expect(done.get("Success") is True and done.get("Path"), f"the single frame failed: {strip(done)}")
+    return background_sigma(read_fits_u16(done["Path"]))
+
+
+def scenario_noise_reduction_at_schedule(cli):
+    """#210: the worker thread applies the noise reduction that was in effect when the frame was scheduled, carried
+    with the exposure request. set_noise_reduction during the exposure takes effect from the next frame; the
+    worker used to read the method from MyFrame after the capture, unsynchronized, and filter the frame in flight
+    with the new one."""
+    cli.call("set_noise_reduction", {"method": "None"})
+    try:
+        sigma_changed = single_frame_sigma(
+            cli, lambda: cli.call("set_noise_reduction", {"method": "3x3 Median"}))
+        expect(cli.call("get_noise_reduction") == "3x3 Median", "set_noise_reduction did not take")
+        # the next frame is scheduled with the median, and comes back filtered: the measure tells them apart
+        sigma_median = single_frame_sigma(cli)
+    finally:
+        cli.call("set_noise_reduction", {"method": "None"})
+    expect(sigma_median < NR_FILTERED_SIGMA,
+           f"a frame scheduled with the 3x3 median came back unfiltered: background sigma {sigma_median:.1f} ADU")
+    expect(sigma_changed >= NR_FILTERED_SIGMA,
+           f"a frame scheduled with no noise reduction came back filtered by the 3x3 median set "
+           f"{NR_CHANGE_AFTER_S:g} s into its {NR_EXPOSURE_MS} ms exposure: background sigma {sigma_changed:.1f} ADU "
+           f"(the next frame, scheduled with the median: {sigma_median:.1f})")
+    return (f"none at schedule, median set during the exposure: sigma {sigma_changed:.1f} ADU (unfiltered); "
+            f"next frame with the median: {sigma_median:.1f}")
+
+
 def angle_diff(a, b):
     """a - b in degrees, in (-180, 180]."""
     d = (a - b) % 360.0
@@ -699,10 +785,12 @@ def lane_steps(lane, step, cli, fake, args, ctx):
     if lane == "main":
         if not args.skip_smoke:
             step("smoke (phd2_rpc_smoke.py)", lambda: run_smoke(args, fake, ctx["work"]))
-        if step("connect the fake camera and mount", connect) and step(
-                "calibrate and guide (event order)", lambda: scenario_calibrate_and_guide(cli, args)):
-            if step("recalibrate on a new target", lambda: scenario_new_target(cli, fake, args)):
-                step("frame drops while guiding (#136)", lambda: scenario_frame_drops(cli, fake, args))
+        if step("connect the fake camera and mount", connect):
+            step("noise reduction is the one in effect when the frame was scheduled (#210)",
+                 lambda: scenario_noise_reduction_at_schedule(cli))
+            if step("calibrate and guide (event order)", lambda: scenario_calibrate_and_guide(cli, args)):
+                if step("recalibrate on a new target", lambda: scenario_new_target(cli, fake, args)):
+                    step("frame drops while guiding (#136)", lambda: scenario_frame_drops(cli, fake, args))
         return
     # physics: one calibration, then the guiding scenarios on it
     if step("connect the fake camera and mount", connect) and step(
