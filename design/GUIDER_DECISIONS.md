@@ -166,3 +166,46 @@ entries; add new ones at the bottom.**
 - **Verified:** full `phd2` target builds; all 9 new methods present in the dispatch table /
   binary. (Runtime RPC round-trip couldn't be exercised in the sandbox — wxGTK needs Xvfb,
   which the harness kills — but the handlers mirror the existing proven ones.)
+
+## 2026-11-21 — #115 step 3: equipment out of GearDialog
+
+- **What:** The equipment moved out of the Connect Equipment dialog inherited from PHD2
+  (`GearDialog`) in ten slices (S0-S9), each a draft PR stacked on step 2 (#134). The equipment
+  lanes came first (S0, `scripts/e2e_equipment_scenarios.py`, the gear and faults lanes of the
+  daemon e2e job), so the behaviour was pinned before anything moved. The dialog was unhooked
+  (S1), its choice resolution went into wx-free `src/gear_selection.{h,cpp}` (S2) and the request
+  sequencing into wx-free `src/gear_session.{h,cpp}` behind a `GearPort` interface (S3), both with
+  GTest coverage. `EquipmentManager` (`src/equipment_manager.{h,cpp}`) then took the devices and
+  their selection (S4), connect, disconnect and the end of a request (S5), and the #104 retry,
+  `guide`'s connect-first and the #105 reconnect glue (S6). `GearDialog` (S7) and `AlpacaConfig`
+  with the drivers' setup dialogs (S8) were deleted.
+- **Why:** #115 makes the guider a pure daemon with Ara as its only UI. The gear logic lived in a
+  `wxDialog` that the daemon built and never showed, so every gear RPC went through hidden widgets
+  (a synthetic `wxEVT_CHOICE` on a hidden `wxChoice`, `EndModal` on a dialog that was never
+  modal). Moving it into a non-visual class with a wx-free core makes it testable without a
+  display and lets step 8 remove `--gui`.
+- **The JSON-RPC API does not change:** no method, parameter, result, error code, error string,
+  event or event order. The changes no client sees are recorded in `design/API_CONTRACT.md`
+  (2026-11-21 entries): the three "dialog is open" errors are gone, a full connect ends its request
+  once instead of twice, the devices are built after `MyFrame`, and one debug line changes text.
+- **Decisions (Joey):**
+  - Every slice stays a draft PR until an RC51 rig night; nothing merges before it.
+  - `.phd` profile import and export goes with the dialog's profile manager. No RPC replaces it;
+    if Ara needs it, that is a new RPC in its own issue.
+  - `RetryEnabled() == IsHeadless()` stays: the #104 retry still runs only headless. Step 8 removes
+    `--gui`.
+  - The inherited quirks move as they are, pinned by tests: the camera-change baseline is the raw
+    saved choice and moves only with a dark library or bad-pixel map (the camera id is read under
+    it); a stale camera falls back to the Alpaca camera while a stale mount or rotator resolves to
+    none. A later issue can fix them.
+  - Each global (`pCamera`, `pMount`, `pRotator`, ...) is set to `nullptr` before its device is
+    deleted, in the same camera, mount, rotator order.
+  - The SIGTERM/SIGINT path stopping the #104 retry only at `OnClose` is not part of step 3.
+  - Calibration policy does not change: the guider recalibrates on every new target. No
+    skip-recalibration logic.
+- **Left for later steps:** `AdvancedDialog` and its hooks (step 4); `StatusMsg`,
+  `UpdateStatusBarStateLabels`, `SetDarkMenuState` and `UpdateTitle`, still called through
+  `pFrame` (step 6; `SetDarkMenuState` holds the darks and defect-map menu state the dark loading
+  reads back, so it keeps running until then); the `--gui` switch (step 8).
+- **Verified:** per slice, ctest, the four daemon e2e lanes (main, physics, gear, faults) and
+  `scripts/e2e_persistence.py` under ASan/UBSan. RC51 checks follow the design's rig checklist.
