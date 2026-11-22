@@ -259,8 +259,16 @@ Output FindStar(const StarImage& img, int base_x, int base_y, int searchRegion, 
             }
         }
 
-        if (nbg < 10) // only possible after the first iteration
+        if (nbg < 10)
+        {
+            // On the first pass this is a frame or subframe too small for the annulus (under
+            // about 12 px across): mean_bg and sigma_bg are still 0, so the threshold would be 0
+            // and the sky would count as star. There is no background estimate, as when the
+            // annulus is empty (#142). On a later pass the previous pass's estimate stands.
+            if (iter == 0)
+                nbg = 0;
             break;
+        }
 
         prev_mean_bg = mean_bg;
         mean_bg = sum / (double) nbg;
@@ -276,6 +284,7 @@ Output FindStar(const StarImage& img, int base_x, int base_y, int searchRegion, 
     // SNR formula evaluates to NaN — which fails BOTH SNR guards and would let
     // a "found" star through with NaN SNR. Treat it as undetectable. (The
     // original Star::Find shared this latent NaN; it only logged a debug line.)
+    // The same goes for an annulus of 1-9 pixels on the first pass (set to 0 above).
     if (nbg == 0)
     {
         out.hfd = 0.;
