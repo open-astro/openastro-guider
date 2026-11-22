@@ -28,6 +28,9 @@ the gear lane, on a fake that answers ImageBytes (no calibration except the one 
   auto-connect, late      restarted with --auto-connect and no fake: not connected; the #104 retry 15 s and then
   fake (#104)             30 s after each failure, logged, with no event and no Alert; the fake started after the
                           second failure: EquipmentReconnected camera and mount at the third attempt, connected
+  server change (#236)    set_alpaca_server to a second fake, nothing connected: the imaging-gear reader reads the
+                          new server at once, with no other call to wake it, and get_imaging_gear never reports the
+                          server it left (unavailable until the new one is read)
 
 the faults lane, on a fake that answers ImageBytes, with one calibration (a long calibration step, so it is quick):
 
@@ -1267,9 +1270,85 @@ def scenario_ga_exit_restore(lane):
 # ---------------------------------------------------------------------------------------------------------------
 
 
+CONFIGURED_DEVICES_GET = "GET /management/v1/configureddevices"
+
+
+def free_port():
+    """A TCP port nothing listens on, from the kernel: the second fake of a scenario, off the lanes' own ports."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def fake_log_from(fake, offset):
+    with open(fake.log.name, "rb") as f:
+        f.seek(offset)
+        return f.read().decode("utf-8", errors="replace")
+
+
+def scenario_imaging_gear_server_change(lane):
+    """#236: set_alpaca_server moves the imaging-gear reader to the new server at once, and get_imaging_gear never
+    reports the server it left."""
+    cli, a = lane.cli, lane.fake
+    b = e2e.Fake(free_port(), lane.work, FAKE_ARGS, log_name="fake_alpaca-236.log")
+    base = cli.call("get_profile")
+    name = f"e2e {lane.name} 236 {int(time.time())}"
+    cli.call("create_profile", {"name": name, "select": True})
+    out = []
+
+    def server_of(fake):
+        return f"{fake.host}:{fake.port}"
+
+    def gear_server():
+        gear = cli.call("get_imaging_gear")
+        return gear["source"], gear["server"]
+
+    def wait_gear(fake, timeout=15):
+        deadline = time.time() + timeout
+        while True:
+            source, server = gear_server()
+            if source == "alpaca" and server.endswith(" " + server_of(fake)):
+                return server
+            expect(time.time() < deadline, f"get_imaging_gear {source} {server!r} within {timeout} s, expected the "
+                                           f"server {server_of(fake)}")
+            time.sleep(0.25)
+
+    try:
+        cli.call("set_alpaca_server", {"host": a.host, "port": a.port, "camera_device": 0, "telescope_device": 0})
+        out.append(f"on {wait_gear(a)!r}")
+
+        # nothing but the server change wakes the reader: no get_imaging_gear until the new server has been read
+        at = os.path.getsize(b.log.name)
+        cli.call("set_alpaca_server", {"port": b.port})
+        t = time.time()
+        while CONFIGURED_DEVICES_GET not in fake_log_from(b, at):
+            expect(time.time() - t < 5, f"the imaging-gear reader did not read the new server {server_of(b)} within "
+                                        "5 s of set_alpaca_server")
+            time.sleep(0.1)
+        out.append(f"set_alpaca_server {server_of(b)}: its configureddevices read after {time.time() - t:.1f} s")
+        out.append(f"then {wait_gear(b)!r}")
+
+        # straight after a change, the server left is never reported
+        for fake, left in ((a, b), (b, a)):
+            cli.call("set_alpaca_server", {"port": fake.port})
+            source, server = gear_server()
+            expect(source == "unavailable" or (source == "alpaca" and server.endswith(" " + server_of(fake))),
+                   f"get_imaging_gear straight after set_alpaca_server {server_of(fake)}: {source} {server!r} "
+                   f"(left {server_of(left)})")
+            out.append(f"straight after the change to {server_of(fake)}: {source}")
+            wait_gear(fake)
+    finally:
+        cli.call("set_profile", {"id": base["id"]})
+        cli.call("delete_profile", {"name": name})
+        b.stop()
+    return "; ".join(out)
+
+
 def run_gear(lane, args):
     lane.start_fake()
     lane.start_daemon()
+    lane.step("set_alpaca_server moves the imaging-gear reader (#236)",
+              lambda: scenario_imaging_gear_server_change(lane))
     if lane.step("connect side effects (set_connected, get_connected, #139 latch, refusals)",
                  lambda: scenario_connect_side_effects(lane)):
         lane.step("camera change with the mount off (#139)", lambda: scenario_camera_change_mount_off(lane, args))
