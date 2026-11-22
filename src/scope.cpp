@@ -844,8 +844,13 @@ void Scope::CheckCalibrationDuration(int currDuration)
     auto focalLength = pFrame->GetFocalLength();
     auto pixelSize = pCamera->GetCameraPixelSize();
     int rslt;
-    CalstepDialog::GetCalibrationStepSize(focalLength, pixelSize, binning, currSpdX, CalstepDialog::DEFAULT_STEPS, 0.0,
-                                          GetCalibrationDistance(), 0, &rslt);
+    if (!CalstepDialog::GetCalibrationStepSize(focalLength, pixelSize, binning, currSpdX, CalstepDialog::DEFAULT_STEPS, 0.0,
+                                               GetCalibrationDistance(), 0, &rslt))
+    {
+        Debug.Write(wxString::Format("CalDuration not adjusted: no step size for fl= %d, px= %.3fu, bin= %d, speed= %.3fx\n",
+                                     focalLength, pixelSize, binning, currSpdX));
+        return;
+    }
 
     wxString why = binningChange ? " binning " : " mount guide speed ";
     Debug.Write(wxString::Format("CalDuration adjusted at start of calibration from %d to %d because of %s change\n",
