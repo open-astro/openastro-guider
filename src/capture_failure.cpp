@@ -53,8 +53,6 @@ std::string AlertWithReason(const std::string& alert, const std::string& reason)
     return prefix + ": " + reason;
 }
 
-const char kCurlTimeoutText[] = "Timeout was reached";
-
 bool IsTransient(const Failure& failure)
 {
     switch (failure.call.kind)
@@ -62,7 +60,9 @@ bool IsTransient(const Failure& failure)
     case AlpacaErrors::CallError::Kind::Alpaca:
         return failure.call.alpacaError == AlpacaErrors::kUnspecifiedError;
     case AlpacaErrors::CallError::Kind::Transport:
-        return failure.call.message == kCurlTimeoutText;
+        return failure.call.curlCode == AlpacaErrors::kCurlOperationTimedOut ||
+            failure.call.curlCode == AlpacaErrors::kCurlGotNothing || failure.call.curlCode == AlpacaErrors::kCurlRecvError ||
+            failure.call.curlCode == AlpacaErrors::kCurlPartialFile;
     default:
         return false;
     }
