@@ -43,9 +43,11 @@
 #include <thread>
 #include <vector>
 
-class wxGridBagSizer;
 struct AlpacaProbeTarget;
 
+// Owns the camera, mount and rotator and runs every gear request (set_connected, set_profile, the startup
+// auto-connect, the #104 retry and the #105 reconnect). It is never shown: the daemon is driven over JSON-RPC, and
+// the choice controls below are kept only as the store of the current selections until #115 step 3 moves them out.
 class GearDialog : public wxDialog
 {
     GuideCamera *m_pCamera;
@@ -55,35 +57,14 @@ class GearDialog : public wxDialog
     bool m_cameraUpdated;
     bool m_mountUpdated;
     bool m_rotatorUpdated;
-    bool m_showDarksDialog;
-    bool m_ascomScopeSelected;
     wxString m_lastCamera;
-    CameraChangeLatch m_camLatch; // what this dialog run, or this headless gear request, saw of the camera (#139)
-    wxArrayString m_cameraIds;
+    CameraChangeLatch m_camLatch; // what this gear request saw of the camera (#139)
 
-    wxGridBagSizer *m_gearSizer;
-
+    // the current selections (set_profile, set_selected_*, set_alpaca_server); never shown
     wxChoice *m_profiles;
-    wxButton *m_btnProfileManage;
-    wxMenu *m_menuProfileManage;
-
     wxChoice *m_pCameras;
-    wxButton *m_selectCameraButton;
-    wxButton *m_pSetupCameraButton;
-    wxToggleButton *m_pConnectCameraButton;
-
     wxChoice *m_pScopes;
-    wxButton *m_pSetupScopeButton;
-    wxToggleButton *m_pConnectScopeButton;
-
     wxChoice *m_pRotators;
-    wxButton *m_pSetupRotatorButton;
-    wxToggleButton *m_pConnectRotatorButton;
-
-    wxButton *m_pConnectAllButton;
-    wxButton *m_pDisconnectAllButton;
-
-    bool m_flushConfig;
 
     // #104: recovery of a selected device that failed to connect (headless only). Main thread only, except the
     // probe thread, which reads only its own copy of the target and m_probeCancel and hands its result back through
@@ -92,7 +73,7 @@ class GearDialog : public wxDialog
     wxTimer m_connectRetryTimer;
     int m_connectDepth; // connect / disconnect calls on the stack
     bool m_connectRetryStopped; // shutting down: no more attempts
-    std::vector<GearDevice> m_reconnectedPending; // EquipmentReconnected to send at the end of EndModal
+    std::vector<GearDevice> m_reconnectedPending; // EquipmentReconnected to send at the end of EndGearRequest
     wxString m_lastConnectError[3]; // the reason of each device's last failed connect, for the RPC error texts
     std::string m_retryDeferral[3]; // the gate a due attempt last waited on, logged once per stretch
     std::thread m_probeThread;
@@ -107,12 +88,8 @@ public:
     GearDialog(wxWindow *pParent);
     ~GearDialog();
 
-    void Initialize();
-    int ShowGearDialog(bool autoConnect);
-    void EndModal(int retCode) override;
-
     bool SetProfile(int profileId, wxString *error);
-    // SetProfile's refusals, the Connect Equipment dialog open or the camera, mount or rotator connected:
+    // SetProfile's refusal, the camera, mount or rotator connected:
     // true with the error text it would give (#185)
     bool ProfileSwitchRefused(wxString *error) const;
     // The current profile changed without a profile choice (delete_profile of the current profile): rebuild the
@@ -144,47 +121,31 @@ public:
     static wxString CameraSelectionKey(const wxString& camName);
 
 private:
+    void Initialize();
     void LoadGearChoices();
     void UpdateGearPointers();
 
-    void UpdateCameraButtonState();
-    void UpdateScopeButtonState();
-    void UpdateRotatorButtonState();
-    void UpdateConnectAllButtonState();
-    void UpdateDisconnectAllButtonState();
     void UpdateButtonState();
     void UpdateAdvancedDialog(bool preLoad);
+    // #139: the end of a gear request (connect, disconnect, profile): frame controls, the calibration auto-load or
+    // clear, the AdvancedDialog pages, the image-scale change and EquipmentReconnected
+    void EndGearRequest();
 
     void OnProfileChoice(wxCommandEvent& event);
-    void OnButtonProfileManage(wxCommandEvent& event);
-    void OnProfileNew(wxCommandEvent& event);
-    void OnProfileDelete(wxCommandEvent& event);
-    void OnProfileRename(wxCommandEvent& event);
-    void OnProfileLoad(wxCommandEvent& event);
-    void OnProfileSave(wxCommandEvent& event);
-    void OnAdvanced(wxCommandEvent& event);
 
     void OnButtonConnectAll(wxCommandEvent& event);
     void OnButtonDisconnectAll(wxCommandEvent& event);
-    void OnChar(wxKeyEvent& event);
 
     void OnChoiceCamera(wxCommandEvent& event);
-    void OnButtonSelectCamera(wxCommandEvent& event);
-    void OnMenuSelectCamera(wxCommandEvent& evt);
-
-    void OnButtonSetupCamera(wxCommandEvent& event);
-    bool DoConnectCamera(bool autoReconnecting);
-    void BeginGearRequest(); // #139: the headless daemon's ShowGearDialog
-    void OnButtonConnectCamera(wxCommandEvent& event);
+    void DoConnectCamera(bool autoReconnecting);
+    void BeginGearRequest(); // #139: a gear request begins a session of the latch
     void OnButtonDisconnectCamera(wxCommandEvent& event);
 
     void OnChoiceScope(wxCommandEvent& event);
-    void OnButtonSetupScope(wxCommandEvent& event);
     void OnButtonConnectScope(wxCommandEvent& event);
     void OnButtonDisconnectScope(wxCommandEvent& event);
 
     void OnChoiceRotator(wxCommandEvent& event);
-    void OnButtonSetupRotator(wxCommandEvent& event);
     void OnButtonConnectRotator(wxCommandEvent& event);
     void OnButtonDisconnectRotator(wxCommandEvent& event);
 

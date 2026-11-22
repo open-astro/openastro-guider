@@ -276,7 +276,7 @@ std::string RetryBlocker(GearDevice d, const Gates& g)
         return "Guiding Assistant is running";
     if (g.connectInProgress)
         return "connect in progress";
-    return ConnectRefusal(d, true, g.captureActive, g.calibratingOrGuiding, g.dialogOpen);
+    return ConnectRefusal(d, true, g.captureActive, g.calibratingOrGuiding);
 }
 
 GuideStep PlanGuideConnect(bool selected, bool connected, Intent intent, bool refused, ProbeKind kind, bool probeInFlight)

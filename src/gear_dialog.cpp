@@ -37,78 +37,23 @@
 #include "imaging_gear_alpaca.h"
 #include "connect_probe.h"
 
-#include <wx/gbsizer.h>
 #include <chrono>
 #include <functional>
 
+// event_server's set_selected_* and set_alpaca_server select a device by sending the choice control a wxEVT_CHOICE
+// (apply_selection_to_control)
 // clang-format off
 wxBEGIN_EVENT_TABLE(GearDialog, wxDialog)
-    EVT_CHOICE(GEAR_PROFILES, GearDialog::OnProfileChoice)
-    EVT_BUTTON(GEAR_PROFILE_MANAGE, GearDialog::OnButtonProfileManage)
-    EVT_MENU(GEAR_PROFILE_NEW, GearDialog::OnProfileNew)
-    EVT_MENU(GEAR_PROFILE_DELETE, GearDialog::OnProfileDelete)
-    EVT_MENU(GEAR_PROFILE_RENAME, GearDialog::OnProfileRename)
-    EVT_MENU(GEAR_PROFILE_LOAD, GearDialog::OnProfileLoad)
-    EVT_MENU(GEAR_PROFILE_SAVE, GearDialog::OnProfileSave)
-    EVT_MENU(BUTTON_ADVANCED, GearDialog::OnAdvanced)
-
-    EVT_BUTTON(GEAR_BUTTON_CONNECT_ALL, GearDialog::OnButtonConnectAll)
-    EVT_BUTTON(GEAR_BUTTON_DISCONNECT_ALL, GearDialog::OnButtonDisconnectAll)
-
     EVT_CHOICE(GEAR_CHOICE_CAMERA, GearDialog::OnChoiceCamera)
-    EVT_BUTTON(GEAR_BUTTON_SELECT_CAMERA, GearDialog::OnButtonSelectCamera)
-    EVT_MENU_RANGE(MENU_SELECT_CAMERA_BEGIN, MENU_SELECT_CAMERA_END, GearDialog::OnMenuSelectCamera)
-    EVT_BUTTON(GEAR_BUTTON_SETUP_CAMERA, GearDialog::OnButtonSetupCamera)
-    EVT_TOGGLEBUTTON(GEAR_BUTTON_CONNECT_CAMERA, GearDialog::OnButtonConnectCamera)
-    EVT_TOGGLEBUTTON(GEAR_BUTTON_DISCONNECT_CAMERA, GearDialog::OnButtonDisconnectCamera)
-
     EVT_CHOICE(GEAR_CHOICE_SCOPE, GearDialog::OnChoiceScope)
-    EVT_BUTTON(GEAR_BUTTON_SETUP_SCOPE, GearDialog::OnButtonSetupScope)
-    EVT_TOGGLEBUTTON(GEAR_BUTTON_CONNECT_SCOPE, GearDialog::OnButtonConnectScope)
-    EVT_TOGGLEBUTTON(GEAR_BUTTON_DISCONNECT_SCOPE, GearDialog::OnButtonDisconnectScope)
-
     EVT_CHOICE(GEAR_CHOICE_ROTATOR, GearDialog::OnChoiceRotator)
-    EVT_BUTTON(GEAR_BUTTON_SETUP_ROTATOR, GearDialog::OnButtonSetupRotator)
-    EVT_TOGGLEBUTTON(GEAR_BUTTON_CONNECT_ROTATOR, GearDialog::OnButtonConnectRotator)
-    EVT_TOGGLEBUTTON(GEAR_BUTTON_DISCONNECT_ROTATOR, GearDialog::OnButtonDisconnectRotator)
-
-    EVT_CHAR_HOOK(GearDialog::OnChar)
 wxEND_EVENT_TABLE();
 // clang-format on
 
-/*
- * The Gear Dialog allows the user to select and connect to their hardware.
- *
- * The dialog looks something like this:
- *
- * +--------------------------------------------------------------------------+
- * |                                                                          |
- * |                               Help text                                  |
- * |                                                                          |
- * +--------------------------------------------------------------------------+
- * |                                   |    +------------------------+        |
- * |  Camera Selection                 |    |Camera Connection Button|        |
- * |                                   |    +------------------------+        |
- * +--------------------------------------------------------------------------+
- * |                                   |    +-----------------------+         |
- * |  Mount Selection                  |    |Mount Connection Button|         |
- * |                                   |    +-----------------------+         |
- * +--------------------------------------------------------------------------+
- * +--------------------------------------------------------------------------+
- * |                                   |    +-------------------------+       |
- * |  Rotator Selection                |    |Rotator Connection Button|       |
- * |                                   |    +-------------------------+       |
- * +--------------------------------------------------------------------------+
- * |             +-------------------+   +-------------------+                |
- * |             |    Connect All    |   |  Disconnect All   |                |
- * |             +-------------------+   +-------------------+                |
- * +--------------------------------------------------------------------------+
- */
 GearDialog::GearDialog(wxWindow *pParent)
     : wxDialog(pParent, wxID_ANY, _("Connect Equipment"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX),
-      m_cameraUpdated(false), m_mountUpdated(false), m_rotatorUpdated(false), m_showDarksDialog(false), m_flushConfig(false),
-      m_connectDepth(0), m_connectRetryStopped(false), m_probeCancel(false), m_probeRunning(false),
-      m_probeDevice(GearDevice::Camera), m_probeToken(0)
+      m_cameraUpdated(false), m_mountUpdated(false), m_rotatorUpdated(false), m_connectDepth(0), m_connectRetryStopped(false),
+      m_probeCancel(false), m_probeRunning(false), m_probeDevice(GearDevice::Camera), m_probeToken(0)
 {
     m_connectRetryTimer.SetOwner(this);
     Bind(wxEVT_TIMER, &GearDialog::OnConnectRetryTimer, this, m_connectRetryTimer.GetId());
@@ -121,20 +66,9 @@ GearDialog::GearDialog(wxWindow *pParent)
     m_pScopes = nullptr;
     m_pRotators = nullptr;
 
-    m_pConnectCameraButton = nullptr;
-    m_pConnectScopeButton = nullptr;
-    m_pConnectRotatorButton = nullptr;
-
-    m_pConnectAllButton = nullptr;
-    m_pDisconnectAllButton = nullptr;
-
     m_profiles = nullptr;
-    m_btnProfileManage = nullptr;
-    m_menuProfileManage = nullptr;
 
     Initialize();
-
-    CentreOnParent();
 }
 
 GearDialog::~GearDialog()
@@ -154,157 +88,22 @@ GearDialog::~GearDialog()
     pPointingSource = nullptr;
     delete m_pRotator;
     pRotator = nullptr;
-
-    delete m_menuProfileManage;
-}
-
-static wxToggleButton *MakeConnectBtn(wxWindow *parent, wxWindowID id)
-{
-#include "icons/connected.png.h"
-    wxBitmap connected_bmp(wxBITMAP_PNG_FROM_DATA(connected));
-#include "icons/disconnected.png.h"
-    wxBitmap disconnected_bmp(wxBITMAP_PNG_FROM_DATA(disconnected));
-
-    wxToggleButton *btn = new wxToggleButton(parent, id, _("Disconnect"), wxDefaultPosition, wxDefaultSize, wxBORDER_NONE);
-
-    btn->SetBitmap(disconnected_bmp);
-    btn->SetBitmapPressed(connected_bmp);
-
-    // Layout the button now with the wider Disconnected label
-    btn->Layout();
-    wxSize sz(btn->GetSize());
-#ifdef __WXGTK__
-    // WXGTK bug? button layout excludes bitmap size?!
-    sz.SetWidth(sz.GetWidth() + connected_bmp.GetWidth());
-#endif
-    btn->SetMinSize(sz);
-
-    return btn;
 }
 
 void GearDialog::Initialize()
 {
-    wxSizerFlags sizerFlags = wxSizerFlags().Align(wxALIGN_CENTER).Border(wxALL, 2).Expand();
-    wxSizerFlags sizerTextFlags = wxSizerFlags().Align(wxALIGN_CENTER).Border(wxALL, 2).Expand();
-    wxSizerFlags sizerLabelFlags = wxSizerFlags().Align(wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL).Border(wxALL, 2);
-    wxSizerFlags sizerButtonFlags = wxSizerFlags().Align(wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL).Border(wxALL, 2).Expand();
-
-    wxBoxSizer *pTopLevelSizer = new wxBoxSizer(wxVERTICAL);
-
-    wxBoxSizer *profilesSizer = new wxBoxSizer(wxHORIZONTAL);
-    profilesSizer->Add(new wxStaticText(this, wxID_ANY, _("Equipment profile")), sizerLabelFlags);
+    // the selection store; the controls are never shown
     m_profiles = new wxChoice(this, GEAR_PROFILES, wxDefaultPosition, wxDefaultSize, pConfig->ProfileNames());
-    m_profiles->SetToolTip(_("Select the Equipment Profile you would like to use. PHD stores all of your settings and "
-                             "equipment selections in an Equipment Profile. "
-                             "You can create multiple profiles and switch back and forth between them."));
     m_profiles->SetStringSelection(pConfig->GetCurrentProfile());
-    profilesSizer->Add(m_profiles, sizerButtonFlags);
-
-    m_menuProfileManage = new wxMenu();
-    m_menuProfileManage->Append(GEAR_PROFILE_NEW, _("New"), _("Create a new profile, optionally copying from another profile"));
-    m_menuProfileManage->Append(GEAR_PROFILE_DELETE, _("Delete"), _("Delete the selected profile"));
-    m_menuProfileManage->Append(GEAR_PROFILE_RENAME, _("Rename"), _("Rename the selected profile"));
-    m_menuProfileManage->Append(GEAR_PROFILE_LOAD, _("Import..."), _("Load a profile from a file"));
-    m_menuProfileManage->Append(GEAR_PROFILE_SAVE, _("Export..."), _("Save the selected profile to a file"));
-    m_menuProfileManage->Append(BUTTON_ADVANCED, _("Settings..."), _("Open the advanced settings dialog"));
-
-    m_btnProfileManage = new wxButton(this, GEAR_PROFILE_MANAGE, _("Manage Profiles"));
-    m_btnProfileManage->SetToolTip(_("Create a new Equipment Profile, or delete or rename the selected Equipment Profile"));
-    profilesSizer->Add(m_btnProfileManage, sizerButtonFlags);
-
-    pTopLevelSizer->Add(profilesSizer, wxSizerFlags().Align(wxALIGN_CENTER).Border(wxALL, 2));
-    pTopLevelSizer->AddSpacer(10);
-
-    // text at the top.  I tried (really really hard) to get it to resize/Wrap()
-    // with the rest of the sizer, but it just didn't want to work, and I needed
-    // to get the rest of the dialog working.
-    wxStaticText *pText = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
-                                           wxALIGN_CENTER | wxALIGN_CENTER_VERTICAL);
-    int width, height;
-    pText->SetLabel(
-        _("Select your equipment below and click Connect All to connect, or click Disconnect All to disconnect. You can also "
-          "connect or disconnect individual equipment items by clicking the button next to the item."));
-    pText->GetTextExtent(_T("MMMMMMMMMM"), &width, &height);
-    pText->Wrap(4 * width);
-    pTopLevelSizer->Add(pText, sizerTextFlags.Align(wxALIGN_CENTER));
-
-    // The Gear grid in the middle of the screen
-    m_gearSizer = new wxGridBagSizer();
-    pTopLevelSizer->Add(m_gearSizer, wxSizerFlags().Align(wxALIGN_CENTER).Border(wxALL, 2));
-
-    // Camera
-    m_gearSizer->Add(new wxStaticText(this, wxID_ANY, _("Camera"), wxDefaultPosition, wxDefaultSize), wxGBPosition(0, 0),
-                     wxGBSpan(1, 1), wxALL | wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL, 5);
     m_pCameras = new wxChoice(this, GEAR_CHOICE_CAMERA, wxDefaultPosition, wxDefaultSize, 0, nullptr, 0, wxDefaultValidator,
                               _("Camera"));
-    m_gearSizer->Add(m_pCameras, wxGBPosition(0, 1), wxGBSpan(1, 1), wxALL | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-
-#include "icons/select.png.h"
-    wxBitmap select_bmp(wxBITMAP_PNG_FROM_DATA(select));
-#include "icons/setup.png.h"
-    wxBitmap setup_bmp(wxBITMAP_PNG_FROM_DATA(setup));
-
-    m_selectCameraButton = new wxBitmapButton(this, GEAR_BUTTON_SELECT_CAMERA, select_bmp);
-    m_selectCameraButton->SetToolTip(_("Select which camera to connect to when there are multiple cameras of the same type."));
-    m_selectCameraButton->Enable(false);
-    m_gearSizer->Add(m_selectCameraButton, wxGBPosition(0, 2), wxGBSpan(1, 1), wxALL | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-    m_pSetupCameraButton = new wxBitmapButton(this, GEAR_BUTTON_SETUP_CAMERA, setup_bmp);
-    m_pSetupCameraButton->SetToolTip(_("Camera Setup"));
-    m_gearSizer->Add(m_pSetupCameraButton, wxGBPosition(0, 3), wxGBSpan(1, 1), wxALL | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-    m_pConnectCameraButton = MakeConnectBtn(this, GEAR_BUTTON_CONNECT_CAMERA);
-    m_gearSizer->Add(m_pConnectCameraButton, wxGBPosition(0, 4), wxGBSpan(1, 1),
-                     wxBOTTOM | wxTOP | wxRIGHT | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-
-    // mount
-    m_gearSizer->Add(new wxStaticText(this, wxID_ANY, _("Mount"), wxDefaultPosition, wxDefaultSize), wxGBPosition(1, 0),
-                     wxGBSpan(1, 1), wxALL | wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL, 5);
     m_pScopes =
         new wxChoice(this, GEAR_CHOICE_SCOPE, wxDefaultPosition, wxDefaultSize, 0, nullptr, 0, wxDefaultValidator, _("Mount"));
-    m_pScopes->SetToolTip(
-        _("Specify how guide commands will be sent to the mount - via an ASCOM or INDI driver, directly from the camera, "
-          "or via one of the GPxxx devices. An ASCOM connection is recommended."));
-    m_gearSizer->Add(m_pScopes, wxGBPosition(1, 1), wxGBSpan(1, 1), wxALL | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-    m_pSetupScopeButton = new wxBitmapButton(this, GEAR_BUTTON_SETUP_SCOPE, setup_bmp);
-    m_pSetupScopeButton->SetToolTip(_("Mount Setup"));
-    m_gearSizer->Add(m_pSetupScopeButton, wxGBPosition(1, 3), wxGBSpan(1, 1), wxALL | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-    m_pConnectScopeButton = MakeConnectBtn(this, GEAR_BUTTON_CONNECT_SCOPE);
-    m_gearSizer->Add(m_pConnectScopeButton, wxGBPosition(1, 4), wxGBSpan(1, 1),
-                     wxBOTTOM | wxTOP | wxRIGHT | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-
-    // rotator
-    m_gearSizer->Add(new wxStaticText(this, wxID_ANY, _("Rotator"), wxDefaultPosition, wxDefaultSize), wxGBPosition(2, 0),
-                     wxGBSpan(1, 1), wxALL | wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL, 5);
     m_pRotators = new wxChoice(this, GEAR_CHOICE_ROTATOR, wxDefaultPosition, wxDefaultSize, 0, nullptr, 0, wxDefaultValidator,
                                _("Rotator"));
-    m_gearSizer->Add(m_pRotators, wxGBPosition(2, 1), wxGBSpan(1, 1), wxALL | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-    m_pSetupRotatorButton = new wxBitmapButton(this, GEAR_BUTTON_SETUP_ROTATOR, setup_bmp);
-    m_pSetupRotatorButton->SetToolTip(_("Rotator Setup"));
-    m_gearSizer->Add(m_pSetupRotatorButton, wxGBPosition(2, 3), wxGBSpan(1, 1), wxALL | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-    m_pConnectRotatorButton = MakeConnectBtn(this, GEAR_BUTTON_CONNECT_ROTATOR);
-    m_gearSizer->Add(m_pConnectRotatorButton, wxGBPosition(2, 4), wxGBSpan(1, 1),
-                     wxBOTTOM | wxTOP | wxRIGHT | wxEXPAND | wxALIGN_CENTER_VERTICAL, 5);
-
-    // Setup the bottom row of buttons
-
-    wxBoxSizer *pButtonSizer = new wxBoxSizer(wxHORIZONTAL);
-    m_pConnectAllButton = new wxButton(this, GEAR_BUTTON_CONNECT_ALL, _("Connect All"));
-    m_pConnectAllButton->SetToolTip(_("Connect all equipment and close the equipment selection window"));
-    pButtonSizer->Add(m_pConnectAllButton, sizerFlags);
-
-    m_pDisconnectAllButton = new wxButton(this, GEAR_BUTTON_DISCONNECT_ALL, _("Disconnect All"));
-    m_pDisconnectAllButton->SetToolTip(_("Disconnect all equipment"));
-    pButtonSizer->Add(m_pDisconnectAllButton, sizerFlags);
-
-    wxButton *closeBtn = new wxButton(this, wxID_CANCEL, _("Close"));
-    pButtonSizer->Add(closeBtn, sizerFlags);
-
-    pTopLevelSizer->Add(pButtonSizer, wxSizerFlags().Align(wxALIGN_TOP | wxALIGN_CENTER_HORIZONTAL).Border(wxALL, 2));
 
     // preselect the choices
     LoadGearChoices();
-
-    // fit everything with the sizers
-    SetSizerAndFit(pTopLevelSizer);
 
     UpdateAdvancedDialog(false);
 }
@@ -381,60 +180,7 @@ void GearDialog::LoadGearChoices()
     OnChoiceRotator(dummyEvent);
 }
 
-int GearDialog::ShowGearDialog(bool autoConnect)
-{
-    int ret = wxID_OK;
-    int callSuper = true;
-
-    assert(pCamera == nullptr || pCamera == m_pCamera);
-
-    m_camLatch.Begin();
-
-    assert(pMount == nullptr || pMount == m_pScope);
-    assert(pSecondaryMount == nullptr);
-
-    if (autoConnect)
-    {
-        Debug.Write("gear_dialog: connect all (auto) calls OnButtonConnectAll\n");
-
-        wxCommandEvent dummyEvent;
-        OnButtonConnectAll(dummyEvent);
-
-        if (m_pCamera && m_pCamera->Connected && (!m_pScope || m_pScope->IsConnected()) &&
-            (!m_pRotator || m_pRotator->IsConnected()))
-        {
-            callSuper = false;
-        }
-    }
-
-    if (callSuper)
-    {
-        m_camLatch.scaleRatio = 1.0;
-        UpdateButtonState();
-
-        GetSizer()->Fit(this);
-        CenterOnParent();
-
-        wxWindow *top = wxGetApp().GetTopWindow();
-        wxGetApp().SetTopWindow(this);
-        ret = wxDialog::ShowModal();
-        wxGetApp().SetTopWindow(top);
-    }
-    else
-    {
-        EndModal(ret);
-    }
-
-    if (m_flushConfig)
-    {
-        pConfig->Flush();
-        m_flushConfig = false;
-    }
-
-    return ret;
-}
-
-void GearDialog::EndModal(int retCode)
+void GearDialog::EndGearRequest()
 {
     assert(pCamera == m_pCamera);
     assert(pMount == m_pScope);
@@ -442,8 +188,9 @@ void GearDialog::EndModal(int retCode)
 
     pFrame->UpdateButtonsStatus();
 
-    // a camera change is acted on by the first EndModal with the mount connected, which may be a later request's
-    // (#139); until the end of the session the saved calibration, made with the old camera, is not auto-loaded
+    // a camera change is acted on by the first EndGearRequest with the mount connected, which may be a later
+    // request's (#139); until the end of the session the saved calibration, made with the old camera, is not
+    // auto-loaded
     switch (m_camLatch.TakeCalibrationAction(pFrame->GetAutoLoadCalibration() &&
                                                  (!pSecondaryMount || pSecondaryMount->IsConnected()),
                                              pMount && pMount->IsConnected()))
@@ -461,26 +208,14 @@ void GearDialog::EndModal(int retCode)
         break;
     }
 
-    wxDialog::EndModal(retCode);
-
     UpdateAdvancedDialog(true);
 
-    // taken, so the second EndModal of a connect all, or a later request, does not redo it over what the client has
-    // set since (#139)
+    // taken, so the second EndGearRequest of a connect all, or a later request, does not redo it over what the client
+    // has set since (#139). The log line keeps its old text, which debug-log searches use.
     if (m_camLatch.TakeScaleChange())
     {
         Debug.Write("GearDialog::EndModal: imageScaleRatio changed\n");
         pFrame->HandleImageScaleChange();
-    }
-
-    if (m_showDarksDialog)
-    {
-        m_showDarksDialog = false;
-        if (pCamera && pCamera->Connected)
-        {
-            wxCommandEvent dummy;
-            pFrame->OnDark(dummy);
-        }
     }
 
     // #104: the one place EquipmentReconnected goes out for a device that had failed to connect, after the
@@ -488,166 +223,9 @@ void GearDialog::EndModal(int retCode)
     SendPendingReconnected();
 }
 
-void GearDialog::UpdateCameraButtonState()
-{
-    // Now set up the buttons to match our current state
-    if (!m_pCamera)
-    {
-        m_selectCameraButton->Enable(false);
-        m_pSetupCameraButton->Enable(false);
-        m_pConnectCameraButton->Enable(false);
-        m_pConnectCameraButton->SetLabel(_("Connect"));
-        m_pConnectCameraButton->SetValue(false);
-        m_pConnectCameraButton->SetToolTip(_("Connect to camera"));
-        m_pConnectCameraButton->SetId(GEAR_BUTTON_CONNECT_CAMERA);
-        m_pCameras->Enable(true);
-    }
-    else
-    {
-        bool enablePropDlg = ((m_pCamera->PropertyDialogType & PROPDLG_WHEN_CONNECTED) != 0 && m_pCamera->Connected) ||
-            ((m_pCamera->PropertyDialogType & PROPDLG_WHEN_DISCONNECTED) != 0 && !m_pCamera->Connected);
-        m_pSetupCameraButton->Enable(enablePropDlg);
-
-        m_pConnectCameraButton->Enable(true);
-
-        if (m_pCamera->Connected)
-        {
-            m_selectCameraButton->Enable(false);
-            m_pConnectCameraButton->SetLabel(_("Disconnect"));
-            m_pConnectCameraButton->SetValue(true);
-            m_pConnectCameraButton->SetToolTip(_("Disconnect from camera"));
-            m_pConnectCameraButton->SetId(GEAR_BUTTON_DISCONNECT_CAMERA);
-            m_pCameras->Enable(false);
-        }
-        else
-        {
-            m_selectCameraButton->Enable(m_pCamera->CanSelectCamera());
-            m_pConnectCameraButton->SetLabel(_("Connect"));
-            m_pConnectCameraButton->SetValue(false);
-            m_pConnectCameraButton->SetToolTip(_("Connect to camera"));
-            m_pConnectCameraButton->SetId(GEAR_BUTTON_CONNECT_CAMERA);
-            m_pCameras->Enable(true);
-        }
-    }
-}
-
-void GearDialog::UpdateScopeButtonState()
-{
-    // Now set up the buttons to match our current state
-    if (!m_pScope)
-    {
-        m_pSetupScopeButton->Enable(false);
-        m_pConnectScopeButton->Enable(false);
-        m_pConnectScopeButton->SetLabel(_("Connect"));
-        m_pConnectScopeButton->SetValue(false);
-        m_pConnectScopeButton->SetToolTip(_("Connect to mount"));
-        m_pConnectScopeButton->SetId(GEAR_BUTTON_CONNECT_SCOPE);
-        m_pScopes->Enable(true);
-    }
-    else
-    {
-        m_pSetupScopeButton->Enable(m_pScope->HasSetupDialog());
-        m_pConnectScopeButton->Enable(true);
-
-        if (m_pScope->IsConnected())
-        {
-            m_pConnectScopeButton->SetLabel(_("Disconnect"));
-            m_pConnectScopeButton->SetValue(true);
-            m_pConnectScopeButton->SetToolTip(_("Disconnect from mount"));
-            m_pConnectScopeButton->SetId(GEAR_BUTTON_DISCONNECT_SCOPE);
-            m_pScopes->Enable(false);
-        }
-        else
-        {
-            m_pConnectScopeButton->SetLabel(_("Connect"));
-            m_pConnectScopeButton->SetValue(false);
-            m_pConnectScopeButton->SetToolTip(_("Connect to mount"));
-            m_pConnectScopeButton->SetId(GEAR_BUTTON_CONNECT_SCOPE);
-            m_pScopes->Enable(true);
-
-            m_pConnectScopeButton->Enable(true);
-        }
-    }
-}
-
-void GearDialog::UpdateRotatorButtonState()
-{
-    // Now set up the buttons to match our current state
-    if (!m_pRotator)
-    {
-        m_pSetupRotatorButton->Enable(false);
-        m_pConnectRotatorButton->Enable(false);
-        m_pConnectRotatorButton->SetLabel(_("Connect"));
-        m_pConnectRotatorButton->SetValue(false);
-        m_pConnectRotatorButton->SetToolTip(_("Connect to Rotator"));
-        m_pConnectRotatorButton->SetId(GEAR_BUTTON_CONNECT_ROTATOR);
-        m_pRotators->Enable(true);
-    }
-    else
-    {
-        m_pConnectRotatorButton->Enable(true);
-
-        if (m_pRotator->IsConnected())
-        {
-            m_pConnectRotatorButton->SetLabel(_("Disconnect"));
-            m_pConnectRotatorButton->SetValue(true);
-            m_pConnectRotatorButton->SetToolTip(_("Disconnect from Rotator"));
-            m_pConnectRotatorButton->SetId(GEAR_BUTTON_DISCONNECT_ROTATOR);
-            m_pRotators->Enable(false);
-            m_pSetupRotatorButton->Enable(false);
-        }
-        else
-        {
-            m_pConnectRotatorButton->SetLabel(_("Connect"));
-            m_pConnectRotatorButton->SetValue(false);
-            m_pConnectRotatorButton->SetToolTip(_("Connect to Rotator"));
-            m_pConnectRotatorButton->SetId(GEAR_BUTTON_CONNECT_ROTATOR);
-            m_pRotators->Enable(true);
-            m_pSetupRotatorButton->Enable(true);
-        }
-    }
-}
-
-void GearDialog::UpdateConnectAllButtonState()
-{
-    if ((m_pCamera && !m_pCamera->Connected) || (m_pScope && !m_pScope->IsConnected()) ||
-        (m_pRotator && !m_pRotator->IsConnected()))
-    {
-        m_pConnectAllButton->Enable(true);
-    }
-    else
-    {
-        m_pConnectAllButton->Enable(false);
-    }
-}
-
-void GearDialog::UpdateDisconnectAllButtonState()
-{
-    if ((m_pCamera && m_pCamera->Connected) || (m_pScope && m_pScope->IsConnected()) ||
-        (m_pRotator && m_pRotator->IsConnected()))
-    {
-        m_pDisconnectAllButton->Enable(true);
-        m_profiles->Enable(false);
-        m_btnProfileManage->Enable(false);
-    }
-    else
-    {
-        m_pDisconnectAllButton->Enable(false);
-        // allow profiles to be selected / modified only when everything is disconnected.
-        m_profiles->Enable(true);
-        m_btnProfileManage->Enable(true);
-    }
-}
-
 void GearDialog::UpdateButtonState()
 {
     UpdateGearPointers();
-
-    UpdateCameraButtonState();
-    UpdateScopeButtonState();
-    UpdateRotatorButtonState();
-    UpdateConnectAllButtonState();
-    UpdateDisconnectAllButtonState();
 
     // equipment may have connected or disconnected
     ImagingGearLog::EquipmentChanged();
@@ -657,9 +235,7 @@ void GearDialog::OnButtonConnectAll(wxCommandEvent& event)
 {
     Debug.Write("gear_dialog: OnButtonConnectAll\n");
 
-    bool canceled = DoConnectCamera(false);
-    if (canceled)
-        return;
+    DoConnectCamera(false);
     OnButtonConnectScope(event);
     OnButtonConnectRotator(event);
 
@@ -671,8 +247,9 @@ void GearDialog::OnButtonConnectAll(wxCommandEvent& event)
     if (m_pRotator && !m_pRotator->IsConnected())
         done = false;
 
+    // ConnectAll runs the end of request again after this one (#115 step 3 makes it run once)
     if (done)
-        EndModal(0);
+        EndGearRequest();
 }
 
 void GearDialog::OnButtonDisconnectAll(wxCommandEvent& event)
@@ -682,19 +259,6 @@ void GearDialog::OnButtonDisconnectAll(wxCommandEvent& event)
     OnButtonDisconnectScope(event);
     OnButtonDisconnectCamera(event);
     OnButtonDisconnectRotator(event);
-}
-
-// Handle 'Esc' char as close trigger
-void GearDialog::OnChar(wxKeyEvent& evt)
-{
-    if (evt.GetKeyCode() == WXK_ESCAPE && !evt.HasModifiers())
-    {
-        EndModal(0);
-    }
-    else
-    {
-        evt.Skip();
-    }
 }
 
 void GearDialog::OnChoiceCamera(wxCommandEvent& event)
@@ -729,10 +293,7 @@ void GearDialog::OnChoiceCamera(wxCommandEvent& event)
         if (pConfig->Profile.GetString("/camera/LastMenuChoice", wxEmptyString) != choice)
         {
             pConfig->Profile.SetString("/camera/LastMenuChoice", choice);
-            m_flushConfig = true;
         }
-
-        m_selectCameraButton->Enable(m_pCamera && m_pCamera->CanSelectCamera());
 
         if (!m_pCamera)
         {
@@ -785,85 +346,8 @@ wxString GearDialog::SelectedCameraId() const
     return ::SelectedCameraId(m_lastCamera);
 }
 
-void GearDialog::OnButtonSelectCamera(wxCommandEvent& event)
+void GearDialog::DoConnectCamera(bool autoReconnecting)
 {
-    if (!m_pCamera || !m_pCamera->CanSelectCamera())
-        return;
-
-    if (m_pCamera->HandleSelectCameraButtonClick(event))
-        return;
-
-    wxArrayString names;
-    m_cameraIds.clear(); // otherwise camera selection only works randomly as EnumCameras tends to append to the camera Ids
-    bool error = m_pCamera->EnumCameras(names, m_cameraIds);
-    if (error || names.size() == 0)
-    {
-        names.clear();
-        names.Add(_("No cameras found"));
-        m_cameraIds.clear();
-    }
-
-    wxString selectedId = ::SelectedCameraId(m_lastCamera);
-
-    wxMenu *menu = new wxMenu();
-    int id = MENU_SELECT_CAMERA_BEGIN;
-    for (unsigned int idx = 0; idx < names.size(); idx++)
-    {
-        wxMenuItem *item = menu->AppendRadioItem(id, names.Item(idx));
-        if (idx < m_cameraIds.size())
-        {
-            const wxString& camId = m_cameraIds[idx];
-            if (camId == selectedId || (idx == 0 && selectedId == GuideCamera::DEFAULT_CAMERA_ID))
-                item->Check(true);
-        }
-        if (++id > MENU_SELECT_CAMERA_END)
-        {
-            Debug.AddLine("Truncating camera list!");
-            break;
-        }
-    }
-
-    PopupMenu(menu, m_selectCameraButton->GetPosition().x,
-              m_selectCameraButton->GetPosition().y + m_selectCameraButton->GetSize().GetHeight());
-
-    delete menu;
-}
-
-void GearDialog::OnMenuSelectCamera(wxCommandEvent& event)
-{
-    unsigned int idx = event.GetId() - MENU_SELECT_CAMERA_BEGIN;
-    if (idx < m_cameraIds.size())
-    {
-        wxString key = CameraSelectionKey(m_lastCamera);
-        const wxString& id = m_cameraIds[idx];
-        if (pConfig->Profile.GetString(key, wxEmptyString) != id)
-        {
-            pConfig->Profile.SetString(key, id);
-            m_flushConfig = true;
-        }
-    }
-}
-
-void GearDialog::OnButtonSetupCamera(wxCommandEvent& event)
-{
-    if (DarkBuildActive())
-    {
-        // The property dialog reconfigures the camera a dark capture is using on its own thread (#100).
-        pFrame->Alert(_("Dark-frame capture in progress; try again when the build has finished."));
-        return;
-    }
-    m_pCamera->ShowPropertyDialog();
-
-    // camera setup may have changed camera name so re-load the camera list
-    wxString selection = m_pCameras->GetStringSelection();
-    LoadCameras(m_pCameras);
-    SetMatchingSelection(m_pCameras, selection);
-}
-
-bool GearDialog::DoConnectCamera(bool autoReconnecting)
-{
-    bool canceled = false;
-
     try
     {
         if (!m_pCamera)
@@ -925,35 +409,12 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
                 {
                     Debug.Write("DoConnectCamera: displaying camera-change warning\n");
 
-                    wxString msg = _("By changing cameras in this profile, you won't be able to use the existing dark library "
-                                     "or bad-pixel maps. You should consider"
-                                     " creating a new profile for this set-up.  Do you want to connect to this camera anyway?");
-                    if (wxGetApp().IsHeadless())
-                    {
-                        // headless: the connect arrived over JSON-RPC and a modal
-                        // would hang the daemon — proceed (the API client made the
-                        // selection deliberately) but surface the warning as a
-                        // non-modal alert
-                        pFrame->Alert(_("Camera changed in this profile - the existing dark library / bad-pixel map "
-                                        "may no longer match. Consider a separate profile per camera."));
-                        m_camLatch.warningIssued = true;
-                        m_lastCamera = newCam;
-                    }
-                    else if (wxMessageBox(msg, _("Camera Change Warning"), wxYES_NO, this) == wxYES)
-                    {
-                        m_camLatch.warningIssued = true;
-                        m_lastCamera = newCam; // make consistent with what's in the UI
-                    }
-                    else
-                    {
-                        m_pCamera->Disconnect();
-                        SetMatchingSelection(m_pCameras, m_lastCamera);
-                        wxCommandEvent dummy;
-                        OnChoiceCamera(dummy);
-                        canceled = true;
-                        m_camLatch.CancelCameraChange();
-                        throw THROW_INFO("DoConnectCamera: user cancelled after camera-change warning");
-                    }
+                    // the connect arrived over JSON-RPC and nobody is there to answer a modal: proceed (the API
+                    // client made the selection deliberately) but surface the warning as a non-modal alert
+                    pFrame->Alert(_("Camera changed in this profile - the existing dark library / bad-pixel map "
+                                    "may no longer match. Consider a separate profile per camera."));
+                    m_camLatch.warningIssued = true;
+                    m_lastCamera = newCam;
                 }
 
                 Debug.Write("DoConnectCamera: camera changed\n");
@@ -1030,21 +491,8 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
 
     // #104: record the result from the final state. The auto-reconnect (#105) sends its own EquipmentReconnected,
     // and its failure is recorded by NoteCameraReconnectFailed once DoTryReconnect has sent EquipmentReconnectFailed.
-    if (m_pCamera && !canceled)
+    if (m_pCamera)
         NoteConnectResult(GearDevice::Camera, m_pCamera->Connected, autoReconnecting);
-
-    return canceled;
-}
-
-void GearDialog::OnButtonConnectCamera(wxCommandEvent& event)
-{
-    Debug.Write("gear_dialog: OnButtonConnectCamera\n");
-    if (DarkBuildActive())
-    {
-        pFrame->Alert(_("Dark-frame capture in progress; try again when the build has finished."));
-        return;
-    }
-    DoConnectCamera(false);
 }
 
 bool GearDialog::ReconnectCamera()
@@ -1118,15 +566,12 @@ void GearDialog::OnChoiceScope(wxCommandEvent& event)
         if (pConfig->Profile.GetString("/scope/LastMenuChoice", wxEmptyString) != choice)
         {
             pConfig->Profile.SetString("/scope/LastMenuChoice", choice);
-            m_flushConfig = true;
         }
 
         if (!m_pScope)
         {
             throw THROW_INFO("OnChoiceScope: m_pScope == NULL");
         }
-
-        m_ascomScopeSelected = choice.Contains("ASCOM");
     }
     catch (const wxString& Msg)
     {
@@ -1136,16 +581,6 @@ void GearDialog::OnChoiceScope(wxCommandEvent& event)
     UpdateButtonState();
 
     m_mountUpdated = true;
-}
-
-void GearDialog::OnButtonSetupScope(wxCommandEvent& event)
-{
-    m_pScope->SetupDialog();
-
-    // scope setup may have changed the scope name so re-load the scope list
-    wxString selection = m_pScopes->GetStringSelection();
-    LoadMounts(m_pScopes);
-    SetMatchingSelection(m_pScopes, selection);
 }
 
 void GearDialog::OnButtonConnectScope(wxCommandEvent& event)
@@ -1171,13 +606,6 @@ void GearDialog::OnButtonConnectScope(wxCommandEvent& event)
             if (m_pScope->Connect())
             {
                 throw THROW_INFO("OnButtonConnectScope: connect failed");
-            }
-
-            if (m_pScope && m_ascomScopeSelected && !m_pScope->CanPulseGuide())
-            {
-                m_pScope->Disconnect();
-                wxMessageBox(wxString::Format(_("Mount does not support the required PulseGuide interface"), _("Error")));
-                throw THROW_INFO("OnButtonConnectScope: PulseGuide commands not supported");
             }
 
             pFrame->StatusMsg(_("Mount Connected"));
@@ -1252,7 +680,6 @@ void GearDialog::OnChoiceRotator(wxCommandEvent& event)
         if (pConfig->Profile.GetString("/rotator/LastMenuChoice", wxEmptyString) != choice)
         {
             pConfig->Profile.SetString("/rotator/LastMenuChoice", choice);
-            m_flushConfig = true;
         }
 
         if (!m_pRotator)
@@ -1268,16 +695,6 @@ void GearDialog::OnChoiceRotator(wxCommandEvent& event)
     UpdateButtonState();
 
     m_rotatorUpdated = true;
-}
-
-void GearDialog::OnButtonSetupRotator(wxCommandEvent& event)
-{
-    m_pRotator->ShowPropertyDialog();
-
-    // setup dialog may have changed device name so re-load the list
-    wxString selection = m_pRotators->GetStringSelection();
-    LoadRotators(m_pRotators);
-    SetMatchingSelection(m_pRotators, selection);
 }
 
 void GearDialog::OnButtonConnectRotator(wxCommandEvent& event)
@@ -1362,18 +779,9 @@ void GearDialog::OnButtonDisconnectRotator(wxCommandEvent& event)
     UpdateButtonState();
 }
 
-void GearDialog::OnButtonProfileManage(wxCommandEvent& event)
-{
-    PopupMenu(m_menuProfileManage, m_btnProfileManage->GetPosition().x,
-              m_btnProfileManage->GetPosition().y + m_btnProfileManage->GetSize().GetHeight());
-}
-
 void GearDialog::OnProfileChoice(wxCommandEvent& event)
 {
-    wxString prev = pConfig->GetCurrentProfile();
     wxString selection = m_profiles->GetStringSelection();
-    if (selection != prev)
-        m_flushConfig = true;
     pConfig->SetCurrentProfile(selection);
     ReloadProfileGear();
     pFrame->LoadProfileSettings();
@@ -1392,13 +800,7 @@ void GearDialog::ReloadProfileGear()
 
 bool GearDialog::ProfileSwitchRefused(wxString *error) const
 {
-    if (IsModal())
-    {
-        // these error messages are internal to the event server and are not translated
-        *error = "cannot set profile when Connect Equipment dialog is open";
-        return true;
-    }
-
+    // these error messages are internal to the event server and are not translated
     if ((m_pCamera && m_pCamera->Connected) || (m_pScope && m_pScope->IsConnected()) ||
         (m_pRotator && m_pRotator->IsConnected()))
     {
@@ -1425,8 +827,8 @@ bool GearDialog::SetProfile(int profileId, wxString *error)
 
     wxString profile = pConfig->GetProfileName(profileId);
 
-    // the choice list only refreshes when the dialog runs, so a profile created
-    // over the API since then won't be in it yet — refresh before selecting
+    // the choice list is filled once, at startup, so a profile created over the
+    // API since then won't be in it yet — refresh before selecting
     if (!m_profiles->SetStringSelection(profile))
     {
         m_profiles->Set(pConfig->ProfileNames());
@@ -1443,8 +845,7 @@ bool GearDialog::SetProfile(int profileId, wxString *error)
     wxCommandEvent dummy;
     OnProfileChoice(dummy);
 
-    // need the side-effects of closing the dialog
-    EndModal(0);
+    EndGearRequest();
 
     return false;
 }
@@ -1477,17 +878,16 @@ int DeviceIndex(GearDevice dev)
 const GearDevice kRetryDevices[] = { GearDevice::Camera, GearDevice::Mount, GearDevice::Rotator };
 } // namespace
 
-// #139: what EndModal acts on (the image-scale change, the camera change, the camera-change warning) belongs to one
-// session. ShowGearDialog begins one for each run of the dialog; the headless daemon never runs it, so each gear
-// request (set_connected, set_profile, and the #104 retry and guide connects through SetDeviceConnected) begins its
-// own. Without that, one connect that saw the driver's pixel size differ from the profile's left the latch set for
-// the rest of the process: every later EndModal reset the calibration step and both MinMoves and raised the Alert
-// again. A camera change carries over to later requests until the mount's calibration is cleared for it (see
-// CameraChangeLatch). A request nested in another (from a nested event loop) is part of the outer one, and a request
-// that arrives while the dialog is open (GUI) leaves the dialog's session alone: the dialog refuses it anyway.
+// #139: what EndGearRequest acts on (the image-scale change, the camera change, the camera-change warning) belongs to
+// one session, and each gear request (set_connected, set_profile, and the #104 retry and guide connects through
+// SetDeviceConnected) begins its own. Without that, one connect that saw the driver's pixel size differ from the
+// profile's left the latch set for the rest of the process: every later end of request reset the calibration step and
+// both MinMoves and raised the Alert again. A camera change carries over to later requests until the mount's
+// calibration is cleared for it (see CameraChangeLatch). A request nested in another (from a nested event loop) is
+// part of the outer one.
 void GearDialog::BeginGearRequest()
 {
-    if (BeginsGearRequest(m_connectDepth, IsModal()))
+    if (BeginsGearRequest(m_connectDepth))
         m_camLatch.BeginRequest();
 }
 
@@ -1510,12 +910,6 @@ bool GearDialog::ConnectAll(wxString *error)
         return true;
     }
 
-    if (IsModal())
-    {
-        *error = "cannot connect equipment when Connect Equipment dialog is open";
-        return true;
-    }
-
     Debug.Write("gear_dialog: ConnectAll calls OnButtonConnectAll\n");
 
     m_connectRetry.OnConnectRequested(GearDevice::All);
@@ -1523,8 +917,7 @@ bool GearDialog::ConnectAll(wxString *error)
     wxCommandEvent dummyEvent;
     OnButtonConnectAll(dummyEvent);
 
-    // need the side-effects of closing the dialog
-    EndModal(0);
+    EndGearRequest();
 
     // each failed device with the reason its driver gave, when there is one (#104)
     auto failed = [this](const char *label, GearDevice dev)
@@ -1573,12 +966,6 @@ bool GearDialog::DisconnectAll(wxString *error)
         return true;
     }
 
-    if (IsModal())
-    {
-        *error = "cannot disconnect equipment when Connect Equipment dialog is open";
-        return true;
-    }
-
     Debug.Write("gear_dialog: DisconnectAll calls OnButtonDisconnectAll\n");
 
     wxCommandEvent dummy;
@@ -1586,7 +973,7 @@ bool GearDialog::DisconnectAll(wxString *error)
     // the devices that were not connected (a failed mount) included, now that the disconnect was accepted (#104)
     NoteUserDisconnect(GearDevice::All);
 
-    EndModal(0); // need the side effects
+    EndGearRequest();
 
     return false;
 }
@@ -1633,8 +1020,8 @@ bool GearDialog::SetDeviceConnected(GearDevice device, bool connect, wxString *e
         return false;
     }
 
-    std::string refusal = ConnectRefusal(device, connect, pFrame->CaptureActive,
-                                         pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding(), IsModal());
+    std::string refusal =
+        ConnectRefusal(device, connect, pFrame->CaptureActive, pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding());
     if (!refusal.empty())
     {
         *error = refusal;
@@ -1669,7 +1056,7 @@ bool GearDialog::SetDeviceConnected(GearDevice device, bool connect, wxString *e
         break;
     }
 
-    EndModal(0); // need the side effects (calibration auto-load, controls)
+    EndGearRequest(); // the side effects (calibration auto-load, controls)
 
     bool now = device == GearDevice::Camera ? m_pCamera && m_pCamera->Connected
         : device == GearDevice::Mount       ? m_pScope && m_pScope->IsConnected()
@@ -1813,7 +1200,6 @@ ConnectRetry::Gates GearDialog::CurrentRetryGates() const
     gates.connectInProgress = m_connectDepth > 0;
     gates.captureActive = pFrame->CaptureActive;
     gates.calibratingOrGuiding = pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding();
-    gates.dialogOpen = IsModal();
     return gates;
 }
 
@@ -2098,7 +1484,7 @@ void GearDialog::OnProbeDone(GearDevice dev, uint64_t token)
 }
 
 // One background connect on the main thread through SetDeviceConnected, so it has the side effects of a manual
-// set_connected (EndModal: controls, calibration auto-load, EquipmentReconnected). Quiet: a driver that fails after
+// set_connected (EndGearRequest: controls, calibration auto-load, EquipmentReconnected). Quiet: a driver that fails after
 // the server reported the device connected logs its Alert instead of raising one at every attempt.
 void GearDialog::RetryConnect(GearDevice dev)
 {
@@ -2134,8 +1520,8 @@ bool GearDialog::ConnectForGuide(wxString *error)
         const char *name = GearDeviceName(dev);
         int idx = DeviceIndex(dev);
 
-        std::string refusal = ConnectRefusal(dev, true, pFrame->CaptureActive,
-                                             pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding(), IsModal());
+        std::string refusal =
+            ConnectRefusal(dev, true, pFrame->CaptureActive, pFrame->pGuider && pFrame->pGuider->IsCalibratingOrGuiding());
         AlpacaProbeTarget target;
         ConnectRetry::ProbeKind kind = ProbeTargetFor(dev, &target);
         // the background probe for this device, still current (not cancelled, nothing changed the device since)
@@ -2307,207 +1693,6 @@ void GearDialog::StopConnectRetry(bool join)
         m_probeThread.join();
 }
 
-struct NewProfileDialog : public wxDialog
-{
-    wxTextCtrl *m_name;
-    wxChoice *m_copyFrom;
-
-    NewProfileDialog(wxWindow *parent);
-};
-
-NewProfileDialog::NewProfileDialog(wxWindow *parent) : wxDialog(parent, wxID_ANY, _("New Equipment Profile"))
-{
-    wxSizerFlags sizerLabelFlags = wxSizerFlags().Align(wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL).Border(wxALL, 2).Expand();
-    wxSizerFlags sizerTextFlags = wxSizerFlags().Align(wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL).Border(wxALL, 2).Expand();
-    wxSizerFlags sizerButtonFlags = wxSizerFlags().Align(wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL).Border(wxALL, 2).Expand();
-
-    wxSizer *sizer1 = new wxBoxSizer(wxHORIZONTAL);
-    sizer1->Add(
-        new wxStaticText(this, wxID_ANY, _("Name"), wxDefaultPosition, wxDefaultSize, wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL),
-        sizerLabelFlags);
-    wxSize size = GetTextExtent("MMMMMMMMMMMMMMMMMMMMMMMMMMMM");
-    size.SetHeight(-1);
-    m_name = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, size);
-    m_name->SetToolTip(_("Enter the name of the new equipment profile"));
-    sizer1->Add(m_name, sizerTextFlags);
-
-    wxArrayString choices = pConfig->ProfileNames();
-    choices.Insert(_("PHD Defaults"), 0);
-
-    wxSizer *sizer2 = new wxBoxSizer(wxHORIZONTAL);
-    sizer2->Add(new wxStaticText(this, wxID_ANY, _("Profile initial settings"), wxDefaultPosition, wxDefaultSize,
-                                 wxALIGN_RIGHT | wxALIGN_CENTER_VERTICAL),
-                sizerLabelFlags);
-    m_copyFrom = new wxChoice(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, choices);
-    m_copyFrom->SetSelection(0);
-    m_copyFrom->SetToolTip(_("Select PHD Defaults to create a profile with default PHD settings, or select an existing "
-                             "Equipment Profile to copy its settings into your new profile."));
-    sizer2->Add(m_copyFrom, sizerTextFlags);
-
-    wxSizer *sizer3 = new wxBoxSizer(wxVERTICAL);
-    sizer3->Add(sizer1);
-    sizer3->Add(sizer2);
-    sizer3->Add(CreateButtonSizer(wxOK | wxCANCEL), sizerButtonFlags);
-
-    sizer3->SetSizeHints(this);
-    SetSizerAndFit(sizer3);
-    CentreOnParent();
-}
-
-void GearDialog::OnProfileNew(wxCommandEvent& event)
-{
-    NewProfileDialog dlg(this);
-    if (dlg.ShowModal() != wxID_OK)
-        return;
-
-    wxString newname = dlg.m_name->GetValue();
-    if (newname.IsEmpty())
-        return;
-
-    if (pConfig->GetProfileId(newname) > 0)
-    {
-        wxMessageBox(wxString::Format(_("Cannot create profile %s, there is already a profile with that name"), newname),
-                     _("Error"));
-        return;
-    }
-
-    if (dlg.m_copyFrom->GetSelection() != 0)
-    {
-        wxString copyFrom = dlg.m_copyFrom->GetStringSelection();
-        if (pConfig->CloneProfile(newname, copyFrom))
-        {
-            wxMessageBox(wxString::Format(_("Could not create profile %s from profile %s"), newname, copyFrom), _("Error"));
-            return;
-        }
-    }
-
-    if (pConfig->SetCurrentProfile(newname))
-    {
-        wxMessageBox(wxString::Format(_("Could not create profile %s"), newname), _("Error"));
-        return;
-    }
-
-    wxArrayString profiles = pConfig->ProfileNames();
-    m_profiles->Set(profiles);
-    m_profiles->SetStringSelection(pConfig->GetCurrentProfile());
-    Layout();
-
-    wxCommandEvent dummy;
-    OnProfileChoice(dummy);
-}
-
-void GearDialog::OnProfileDelete(wxCommandEvent& event)
-{
-    wxString current = m_profiles->GetStringSelection();
-    int result = wxMessageBox(wxString::Format(_("Delete profile %s?"), current), _("Delete Equipment Profile"),
-                              wxOK | wxCANCEL | wxCENTRE);
-    if (result != wxOK)
-        return;
-    int id = pConfig->GetProfileId(current);
-    if (id > 0)
-        pFrame->DeleteDarkLibraryFiles(id);
-    pConfig->DeleteProfile(current);
-    wxArrayString profiles = pConfig->ProfileNames();
-    m_profiles->Set(profiles);
-    m_profiles->SetStringSelection(pConfig->GetCurrentProfile());
-    Layout();
-
-    wxCommandEvent dummy;
-    OnProfileChoice(dummy);
-}
-
-void GearDialog::OnProfileRename(wxCommandEvent& event)
-{
-    wxString current = m_profiles->GetStringSelection();
-    wxTextEntryDialog dlg(this, wxString::Format(_("Rename %s"), current), _("Rename Equipment Profile"), current);
-    if (dlg.ShowModal() != wxID_OK)
-        return;
-
-    wxString newname = dlg.GetValue();
-    if (newname.IsEmpty())
-        return;
-
-    // profile names match without case, so a case-only rename (rc51 to RC51) finds the profile itself: only
-    // another profile with that name is a collision (#232)
-    int existing = pConfig->GetProfileId(newname);
-    if (existing > 0 && existing != pConfig->GetProfileId(current))
-    {
-        wxMessageBox(wxString::Format(_("Cannot rename profile to %s, there is already a profile with that name"), newname),
-                     _("Error"));
-        return;
-    }
-
-    if (pConfig->RenameProfile(current, newname))
-    {
-        wxMessageBox(_("Could not rename profile"), _("Error"));
-        return;
-    }
-
-    int sel = m_profiles->GetSelection();
-    m_profiles->SetString(sel, newname);
-    pFrame->UpdateTitle();
-    Layout();
-}
-
-void GearDialog::OnProfileLoad(wxCommandEvent& event)
-{
-    wxString default_path = pConfig->Global.GetString("/profileFilePath", wxEmptyString);
-
-    wxFileDialog dlg(this, _("Import PHD Equipment Profiles"), default_path, wxEmptyString,
-                     wxT("PHD profile files (*.phd)|*.phd"), wxFD_OPEN | wxFD_FILE_MUST_EXIST | wxFD_MULTIPLE);
-
-    if (dlg.ShowModal() == wxID_CANCEL)
-    {
-        return;
-    }
-
-    wxArrayString paths;
-    dlg.GetPaths(paths);
-
-    for (size_t i = 0; i < paths.GetCount(); i++)
-    {
-        wxString path = paths[i];
-
-        if (i == 0)
-            pConfig->Global.SetString("/profileFilePath", wxFileName(path).GetPath());
-
-        pConfig->ReadProfile(path);
-    }
-
-    wxArrayString profiles = pConfig->ProfileNames();
-    m_profiles->Set(profiles);
-    m_profiles->SetStringSelection(pConfig->GetCurrentProfile());
-    Layout();
-
-    wxCommandEvent dummy;
-    OnProfileChoice(dummy);
-}
-
-void GearDialog::OnProfileSave(wxCommandEvent& event)
-{
-    wxString default_path = pConfig->Global.GetString("/profileFilePath", wxEmptyString);
-    wxString fname =
-        wxFileSelector(_("Export PHD Equipment Profile"), default_path, pConfig->GetCurrentProfile() + wxT(".phd"), wxT("phd"),
-                       wxT("PHD profile files (*.phd)|*.phd"), wxFD_SAVE | wxFD_OVERWRITE_PROMPT, this);
-
-    if (fname.IsEmpty())
-    {
-        // dialog canceled
-        return;
-    }
-
-    pConfig->Global.SetString("/profileFilePath", wxFileName(fname).GetPath());
-    if (!fname.EndsWith(_T(".phd")))
-    {
-        fname.Append(_T(".phd"));
-    }
-
-    if (pConfig->WriteProfile(fname))
-    {
-        wxLogError("Cannot write file '%s'.", fname);
-    }
-}
-
 void GearDialog::UpdateAdvancedDialog(bool preLoad)
 {
     MyFrame *frame = static_cast<MyFrame *>(GetParent()); // global pFrame may not have initialized yet
@@ -2534,10 +1719,4 @@ void GearDialog::UpdateAdvancedDialog(bool preLoad)
     {
         frame->pAdvancedDialog->Preload();
     }
-}
-
-void GearDialog::OnAdvanced(wxCommandEvent& event)
-{
-    UpdateAdvancedDialog(false);
-    pFrame->OnAdvanced(event);
 }

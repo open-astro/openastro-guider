@@ -856,6 +856,26 @@ had one 30 s throttle for both axes, restarted by calls that raised nothing.
 
 ARA: no code change.
 
+## 2026-11-21 — Connect Equipment dialog removed (#115 step 3, slice 1)
+
+No method, parameter, result, event or event order changes. The Connect Equipment dialog, which
+only `--gui` mode could open (from its toolbar button or Guide > Connect Equipment), is gone, with
+the profile manager under it, including `.phd` profile import and export, which no RPC offers.
+
+- Three errors that could only be returned while that dialog was open are removed:
+  `set_profile` "cannot set profile when Connect Equipment dialog is open", and `set_connected`
+  "cannot connect equipment when Connect Equipment dialog is open" and "cannot disconnect
+  equipment when Connect Equipment dialog is open". The headless daemon never returned them.
+- The #104 connect retry no longer waits on the open dialog, for the same reason, and still runs
+  only headless. The #139 rule that a request refused while the dialog was open leaves the
+  dialog's latch alone (2026-11-20, above) no longer applies: every outermost gear request begins
+  its own session of the latch.
+- In `--gui` mode equipment connects only over JSON-RPC, as in the daemon, and a camera change in
+  a profile with a dark library or bad-pixel map raises the `Alert` and connects, as the daemon
+  already did, instead of asking.
+
+ARA: no code change.
+
 ## 2026-11-20 — fast recenter counts what the mount moved (#165)
 
 No API change. After a `dither` with fast recenter on (`/guider/FastRecenter`, the default) the

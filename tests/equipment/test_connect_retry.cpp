@@ -374,9 +374,6 @@ TEST(ConnectRetry, RetryBlockerGates)
         g = Gates();
         g.connectInProgress = true;
         EXPECT_EQ(RetryBlocker(d, g), "connect in progress");
-        g = Gates();
-        g.dialogOpen = true;
-        EXPECT_EQ(RetryBlocker(d, g), "cannot connect equipment when Connect Equipment dialog is open");
     }
 
     Gates looping;

@@ -98,8 +98,6 @@ EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
 EVT_MENU(MENU_RESTORE_WINDOWS, MyFrame::OnRestoreWindows)
 EVT_MENU(MENU_AUTOSTAR, MyFrame::OnAutoStar)
-EVT_TOOL(BUTTON_GEAR, MyFrame::OnSelectGear)
-EVT_MENU(MENU_CONNECT, MyFrame::OnSelectGear)
 EVT_TOOL(BUTTON_LOOP, MyFrame::OnButtonLoop)
 EVT_MENU(MENU_LOOP, MyFrame::OnButtonLoop)
 EVT_TOOL(BUTTON_STOP, MyFrame::OnButtonStop)
@@ -379,7 +377,6 @@ void MyFrame::SetupMenuBar()
     file_menu->Append(wxID_EXIT, _("E&xit\tAlt-X"), _("Quit this program"));
 
     wxMenu *guide_menu = new wxMenu();
-    m_connectMenuItem = guide_menu->Append(MENU_CONNECT, _("&Connect Equipment\tCtrl-C"), _("Connect or disconnect equipment"));
     m_loopMenuItem = guide_menu->Append(MENU_LOOP, _("&Loop Exposures\tCtrl-L"), _("Begin looping exposures"));
     m_loopMenuItem->Enable(false);
     m_guideMenuItem = guide_menu->Append(MENU_GUIDE, _("&Guide\tCtrl-G"), _("Begin guiding"));
@@ -783,12 +780,6 @@ void MyFrame::SetupToolBar()
 #include "icons/auto_select_disabled.png.h"
     wxBitmap auto_select_disabled_bmp(wxBITMAP_PNG_FROM_DATA(auto_select_disabled));
 
-#include "icons/connect.png.h"
-    wxBitmap connect_bmp(wxBITMAP_PNG_FROM_DATA(connect));
-
-#include "icons/connect_disabled.png.h"
-    wxBitmap connect_bmp_disabled(wxBITMAP_PNG_FROM_DATA(connect_disabled));
-
 #include "icons/brain.png.h"
     wxBitmap brain_bmp(wxBITMAP_PNG_FROM_DATA(brain));
 
@@ -822,8 +813,6 @@ void MyFrame::SetupToolBar()
     Gamma_Slider->SetBackgroundColour(wxColor(60, 60, 60)); // Slightly darker than toolbar background
     Gamma_Slider->SetToolTip(_("Screen gamma (brightness)"));
 
-    MainToolbar->AddTool(BUTTON_GEAR, connect_bmp, connect_bmp_disabled, false, 0,
-                         _("Connect to equipment. Shift-click to reconnect the same equipment last connected."));
     MainToolbar->AddTool(BUTTON_LOOP, loop_bmp, loop_bmp_disabled, false, 0, _("Begin looping exposures for frame and focus"));
     MainToolbar->AddTool(BUTTON_AUTOSTAR, auto_select_bmp, auto_select_disabled_bmp, false, 0,
                          _("Auto-select Star. Shift-click to de-select star."));
@@ -848,8 +837,6 @@ void MyFrame::SetupKeyboardShortcuts()
 {
     wxAcceleratorEntry entries[] = {
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'A', MENU_BRAIN),
-        wxAcceleratorEntry(wxACCEL_CTRL, (int) 'C', MENU_CONNECT),
-        wxAcceleratorEntry(wxACCEL_CTRL | wxACCEL_SHIFT, (int) 'C', MENU_CONNECT),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'G', MENU_GUIDE),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', MENU_LOOP),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'S', MENU_STOP),
@@ -880,9 +867,6 @@ void MyFrame::UpdateButtonsStatus()
     bool const loop_enabled = (!CaptureActive || pGuider->IsCalibratingOrGuiding()) && pCamera && pCamera->Connected;
 
     if (cond_update_tool(MainToolbar, BUTTON_LOOP, m_loopMenuItem, loop_enabled))
-        need_update = true;
-
-    if (cond_update_tool(MainToolbar, BUTTON_GEAR, m_connectMenuItem, !CaptureActive))
         need_update = true;
 
     if (cond_update_tool(MainToolbar, BUTTON_STOP, m_stopMenuItem, CaptureActive))

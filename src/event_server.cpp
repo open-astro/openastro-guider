@@ -2206,7 +2206,7 @@ static void set_profile_by_name(JObj& response, const json_value *params)
 static bool refuse_profile_switch(JObj& response)
 {
     // GearDialog::SetProfile's own refusals, made before anything is created (#185), so the two cannot
-    // drift apart: the Connect Equipment dialog open (--gui only), or the camera, mount or rotator connected
+    // drift apart: the camera, mount or rotator connected
     wxString error;
     if (!pFrame->pGearDialog->ProfileSwitchRefused(&error))
         return false;
