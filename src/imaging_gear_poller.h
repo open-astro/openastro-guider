@@ -87,7 +87,8 @@ public:
 
 private:
     void Run();
-    void Publish(const Snapshot& snap, std::vector<std::string> lines);
+    // drops what was read from a server the context no longer names
+    void Publish(const Context& polled, const Snapshot& snap, std::vector<std::string> lines);
 
     ReaderFactory m_factory;
     Timing m_timing;

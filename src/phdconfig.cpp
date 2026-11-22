@@ -715,15 +715,17 @@ void PhdConfig::DeleteProfile(const wxString& name)
 
 bool PhdConfig::RenameProfile(const wxString& oldname, const wxString& newname)
 {
-    if (GetProfileId(newname) > 0)
-    {
-        Debug.Write(wxString::Format("error renaming profile %s to %s: new name already exists\n", oldname, newname));
-        return true;
-    }
     int id = GetProfileId(oldname);
     if (id <= 0)
     {
         Debug.Write(wxString::Format("error renaming profile %s to %s: profile does not exist\n", oldname, newname));
+        return true;
+    }
+    // names match without case, so a case-only rename finds the profile itself (#232)
+    int existingId = GetProfileId(newname);
+    if (existingId > 0 && existingId != id)
+    {
+        Debug.Write(wxString::Format("error renaming profile %s to %s: new name already exists\n", oldname, newname));
         return true;
     }
 

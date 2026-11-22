@@ -811,6 +811,19 @@ void GearDialog::ReloadProfileGear()
     LoadGearChoices();
 }
 
+bool GearDialog::ProfileSwitchRefused(wxString *error) const
+{
+    // these error messages are internal to the event server and are not translated
+    if ((m_pCamera && m_pCamera->Connected) || (m_pScope && m_pScope->IsConnected()) ||
+        (m_pRotator && m_pRotator->IsConnected()))
+    {
+        *error = "cannot set profile when equipment is connected";
+        return true;
+    }
+
+    return false;
+}
+
 bool GearDialog::SetProfile(int profileId, wxString *error)
 {
     // run by the session only once the profile is not the current one and nothing is connected, so its profile reads
