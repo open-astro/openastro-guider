@@ -40,6 +40,7 @@
 #include "gear_simulator.h"
 #include "alpaca_errors.h"
 #include "connect_retry.h"
+#include "gear_selection.h"
 
 #include <wx/stdpaths.h>
 
@@ -56,6 +57,12 @@ wxSize UNDEFINED_FRAME_SIZE = wxSize(0, 0);
 #endif
 
 const wxString GuideCamera::DEFAULT_CAMERA_ID = wxEmptyString;
+
+wxString CameraSelectionKey(const wxString& camName)
+{
+    std::string name(camName.c_str());
+    return wxString(GearSelection::CameraSelectionKeyFor(name));
+}
 
 double GuideCamera::GetProfilePixelSize()
 {
