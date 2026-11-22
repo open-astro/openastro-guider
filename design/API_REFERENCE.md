@@ -278,7 +278,7 @@ off). Neither method ever waits on the network.
 
 | Method | Params | Description |
 |--------|--------|-------------|
-| `get_imaging_gear` | — | The reader's cached snapshot (below). Right after the guider starts, before the first read completes, `source` is `unavailable`. |
+| `get_imaging_gear` | — | The reader's cached snapshot (below). Right after the guider starts, before the first read completes, `source` is `unavailable`; so it is after `set_alpaca_server` changes the host or port, until the new server has been read (the reader reads it at once, #236). |
 | `set_imaging_gear_devices` | `camera`?, `filterwheel`?, `focuser`?, `rotator`?, `telescope`?, `observingconditions`? (Alpaca device numbers; positional in that order) | Name the devices the reader uses, so it doesn't have to guess. An override wins over the selection rules (including the telescope/rotator the guider is connected to); with a `camera` override the camera is never ambiguous. A key that is omitted keeps its override; `-1` or `null` clears it; a call with no params (or `{}` / `[]`) clears them all. All or nothing: any bad param leaves every override unchanged. Errors (`-32602`): an unknown key (`unknown device type: <key>`), a value that isn't an integer ≥ −1 or null, more than six positional params, and `camera` equal to the guide camera's device number (`camera <n> is the guide camera, not the imaging camera`). Takes effect on the reader's next poll, which rediscovers the devices. An override naming a device the server doesn't list in `configureddevices` reads nothing for that type (`null` in `get_imaging_gear`). Kept in memory until changed or the guider exits — **not saved in the profile**; set them each session (after choosing the Alpaca server). Returns the overrides now in effect, `{camera, filterwheel, focuser, rotator, telescope, observingconditions}` (number or `null`). |
 
 `get_imaging_gear` result — every key always present; `null` wherever the guide log writes `unknown`
@@ -305,7 +305,7 @@ off). Neither method ever waits on the network.
 }
 ```
 
-- `source`: `alpaca` · `unavailable` (the server couldn't be read, the first read hasn't completed, or
+- `source`: `alpaca` · `unavailable` (the server couldn't be read, the first read (of a new server) hasn't completed, or
   the guide log is disabled) · `not_alpaca` (openastro-phd2 only). Unless
   `alpaca`, `server` and every device are `null` and `ambiguous_cameras` is 0.
 - A device is `null` when there is none of that type, it can't be chosen, or its override names a device

@@ -1480,6 +1480,8 @@ static void set_alpaca_server(JObj& response, const json_value *params)
     apply_alpaca_choice_if_selected();
     pConfig->Flush();
     pFrame->pGearDialog->AlpacaServerChanged();
+    // the imaging-gear reader reads the new server now, not at the next connect (#236)
+    ImagingGearLog::EquipmentChanged();
     response << jrpc_result(0);
 }
 

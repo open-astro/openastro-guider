@@ -1127,3 +1127,21 @@ profile's name only in case (`rc51` to `RC51`) answered `0` and renamed nothing.
 
 ARA: no code change. A case-only rename that used to be silently ignored is now applied, so the
 profile list should be refreshed from the result or `get_profiles` as after any rename.
+
+## 2026-11-21 — `get_imaging_gear` after `set_alpaca_server` (#236)
+
+No new method, field or event. After `set_alpaca_server` changed the host or port, the imaging-gear reader went on
+reading the server it left until a connect, a guide log header or a `get_imaging_gear` refreshed it, and the
+`get_imaging_gear` that refreshed it still answered with the old server's gear (`source` `alpaca`, `server` naming
+the old host and port).
+
+- `set_alpaca_server` now points the reader at the new server, which it reads at once (within a second on a local
+  server), with nothing connected.
+- From the change until that first read, `get_imaging_gear` reads `source` `unavailable` (`server` and every device
+  `null`), as it does right after the guider starts; a read of the old server that ends after the change is
+  dropped. A guide log header written in that time reads the same.
+- Not changed: a `set_alpaca_server` that changes only device numbers keeps the gear read until the next poll, and
+  the `set_imaging_gear_devices` overrides are kept across the server change.
+
+ARA: no code change needed. A `get_imaging_gear` right after choosing a server may now read `unavailable` for a
+moment instead of the old server's gear; poll it again (as at startup) to get the new server's.
