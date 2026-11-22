@@ -709,6 +709,20 @@ class Handler(BaseHTTPRequestHandler):
                                    "message": params.get("message", "injected error"),
                                    "format": params.get("format", "json"),
                                    "http": int(params.get("http", "200"))}
+            elif method == "PUT" and name == "/fake/clear_faults":
+                # every injected fault off (#233): errors, unplugs, stalls, held exposures, clouds and decoys.
+                # The star's shift stays, so a guider that is guiding keeps its star where it is.
+                injections.clear()
+                scope_injections.clear()
+                unplugged["on"] = False
+                scope_unplugged["on"] = False
+                for device in stall_ms:
+                    stall_ms[device] = 0
+                    stall_call[device] = ""
+                hold["frames"] = 0
+                hold["held"] = False
+                clouds.update(frames=0)
+                decoys.clear()
             elif method == "PUT" and name == "/fake/clouds":
                 clouds.update(frames=max(0, int(params.get("frames", "0"))),
                               dim=max(1.0, float(params.get("dim", "1e6"))))

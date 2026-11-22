@@ -69,6 +69,10 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
   GA exit restore         shutdown during a run: the multi-star and variable-delay settings the run turned off read
                           as before it after a restart
 
+Once a faults lane step has failed, each scenario after the calibration first gets back to where it starts on a
+passing lane (the fake up, the equipment connected, guiding on the kept calibration, or stopped; #233), and is
+skipped with the reason if that fails, or if the calibration did, so one failure is reported once.
+
 A lane fails on a failed check, a daemon exit before its shutdown or with a non-zero status, and any sanitizer
 report. Everything it collects (each daemon's output and debug log, each fake's log, every event) is left in its
 --work-dir.
@@ -310,7 +314,7 @@ class Lane:
         self.fakes = 0
         self.daemons = 0
         self.profile = None  # (base profile, the lane's profile name), to restore at the end
-        self.results, self.failures = [], []
+        self.results, self.failures, self.skipped = [], [], []
 
     # --- processes
 
@@ -410,6 +414,62 @@ class Lane:
         evs, done = e2e.guide_with_recalibration(self.cli, 3, timeout)
         e2e.check_guide_request_order(evs)
         return evs, done
+
+    def known_start(self, guiding):
+        """After a step that failed part-way (#233): the fake up, the camera and mount connected, no Guiding
+        Assistant run, and guiding on the kept calibration (guiding true) or stopped, so the next scenario runs from
+        where it would have on a passing lane. Returns what it did."""
+        cli, did = self.cli, []
+        if self.fake.proc.poll() is not None:
+            self.start_fake()
+            did.append("fake restarted")
+        else:
+            # a scenario that failed part-way can leave a fault injected or a setting changed
+            self.fake.request("PUT", "/fake/clear_faults")
+            did.append("fake faults cleared")
+        cli.call("set_variable_delay_settings", {"Enabled": False, "ShortDelaySeconds": 1, "LongDelaySeconds": 2})
+        for device in ("camera", "mount"):
+            if cli.call("get_connected", {"device": device}) is not True:
+                cli.call("set_connected", {"device": device, "connected": True}, timeout=60)
+                expect(cli.call("get_connected", {"device": device}) is True, f"the {device} did not connect")
+                did.append(f"{device} connected")
+        if cli.call("guiding_assistant_get_status").get("state") in ("measuring", "measuring_backlash"):
+            cli.call("guiding_assistant_stop")
+            did.append("Guiding Assistant stopped")
+        cli.call("set_guide_output_enabled", {"enabled": True})
+        state = cli.call("get_app_state")
+        if state == ("Guiding" if guiding else "Stopped"):
+            return did
+        cli.call("stop_capture")
+        cli.wait_state("Stopped", 30)
+        did.append(f"{state} stopped")
+        if guiding:
+            e2e.loop_and_find_star(cli)
+            start = cli.mark()
+            expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": False}) == 0, "guide did not return 0")
+            done = cli.wait_events(start, "SettleDone", timeout=e2e.SETTLE["timeout"] + 60, abort_on=GUIDE_FAILURES)
+            expect(done[0].get("Status") == 0, f"SettleDone {strip(done[0])}")
+            did.append("guiding on the kept calibration")
+        return did
+
+    def step_from_known_start(self, name, fn, guiding=True):
+        """step(name, fn), after known_start once a step has failed (#233). One that cannot be reached skips the
+        scenario with the reason, so a failure is reported once, not again by every scenario after it."""
+        if self.failures:
+            try:
+                did = self.known_start(guiding)
+            except e2e.RunTimeout:
+                raise
+            except Exception as e:
+                return self.skip(name, f"no known start after {self.failures[-1][0]!r} failed: {e}")
+            if did:
+                print(f"e2e: known start for {name}: {', '.join(did)}", flush=True)
+        return self.step(name, fn)
+
+    def skip(self, name, reason):
+        self.skipped.append((name, reason))
+        print(f"SKIP {name}: {reason}", flush=True)
+        return False
 
     def wait_reconnect_window(self):
         """Wait until no camera reconnect is left in the 60 s throttle window (MyFrame::DoTryReconnect)."""
@@ -835,8 +895,10 @@ def scenario_pulseguide_errors(lane):
     lane.debug.mark()
     fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "error": 1280, "count": 100000,
                                          "message": "e2e pulseguide failed"})
-    steps = cli.wait_events(mark, "GuideStep", count=6, timeout=90, abort_on=GUIDE_FAILURES)
-    fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "count": 0})
+    try:
+        steps = cli.wait_events(mark, "GuideStep", count=6, timeout=90, abort_on=GUIDE_FAILURES)
+    finally:
+        fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "count": 0})
     evs = settle_events(cli, mark)
     failed = fake_log_since(lane, log0).count("injected error 1280 on /api/v1/telescope/0/pulseguide")
     failed_moves = len(re.findall(FAILED_MOVE_LINE, lane.debug.text()))
@@ -1383,19 +1445,25 @@ def run_faults(lane, args):
     if not lane.step("connect the fake camera and mount", connect):
         return
     lane.step("camera drop while looping (1280, 1031)", lambda: scenario_camera_drop_loop(lane))
-    if lane.step("mount declination/sideofpier errors during calibration",
-                 lambda: scenario_mount_read_errors_calibration(lane, args)):
-        lane.step("pulseguide errors while guiding", lambda: scenario_pulseguide_errors(lane))
-        lane.step("guide output off while guiding (#213)", lambda: scenario_guide_output_off(lane))
-        lane.step("3rd camera drop in a row while guiding (#103 reconnect)", lambda: scenario_third_drop(lane))
-        lane.step("capture timeout while guiding", lambda: scenario_capture_timeout(lane))
-        if (lane.step("Alpaca server gone between calls and back while guiding (#105, #190)",
-                      fake_killed(scenario_fake_killed)) and
-                lane.step("Alpaca server killed during a startexposure and back while guiding (#211, #237)",
-                          fake_killed(scenario_fake_killed_mid_request))):
-            lane.step("Guiding Assistant start/stop/apply and restore", lambda: scenario_guiding_assistant(lane))
-        lane.step("camera reconnect throttle, then the #104 retry", lambda: scenario_reconnect_throttle(lane))
-        lane.step("Guiding Assistant settings restored on exit", lambda: scenario_ga_exit_restore(lane))
+    calibrated = lane.step("mount declination/sideofpier errors during calibration",
+                           lambda: scenario_mount_read_errors_calibration(lane, args))
+    # each from a known start once a step has failed (#233): guiding on the kept calibration, or stopped
+    for name, fn, guiding in (
+            ("pulseguide errors while guiding", lambda: scenario_pulseguide_errors(lane), True),
+            ("guide output off while guiding (#213)", lambda: scenario_guide_output_off(lane), True),
+            ("3rd camera drop in a row while guiding (#103 reconnect)", lambda: scenario_third_drop(lane), True),
+            ("capture timeout while guiding", lambda: scenario_capture_timeout(lane), True),
+            ("Alpaca server gone between calls and back while guiding (#105, #190)",
+             fake_killed(scenario_fake_killed), True),
+            ("Alpaca server killed during a startexposure and back while guiding (#211, #237)",
+             fake_killed(scenario_fake_killed_mid_request), True),
+            ("Guiding Assistant start/stop/apply and restore", lambda: scenario_guiding_assistant(lane), True),
+            ("camera reconnect throttle, then the #104 retry", lambda: scenario_reconnect_throttle(lane), False),
+            ("Guiding Assistant settings restored on exit", lambda: scenario_ga_exit_restore(lane), False)):
+        if calibrated:
+            lane.step_from_known_start(name, fn, guiding)
+        else:
+            lane.skip(name, "no calibration: the calibration step failed")
 
 
 def main():
@@ -1458,10 +1526,12 @@ def main():
             lane.failures.append(("run", "terminated"))
 
     print("")
-    print(f"e2e {args.lane}: {len(lane.results)} passed, {len(lane.failures)} failed, {time.time() - t0:.0f} s; "
-          f"logs in {work}")
+    print(f"e2e {args.lane}: {len(lane.results)} passed, {len(lane.failures)} failed, {len(lane.skipped)} skipped, "
+          f"{time.time() - t0:.0f} s; logs in {work}")
     for name, err in lane.failures:
         print(f"- {name}: {err}")
+    for name, why in lane.skipped:
+        print(f"- skipped {name}: {why}")
     return 1 if lane.failures else 0
 
 
