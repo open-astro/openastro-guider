@@ -512,6 +512,24 @@ set_property(TARGET test_edge_allowance PROPERTY FOLDER "Unit tests")
 add_test(NAME test_edge_allowance COMMAND test_edge_allowance)
 
 ############################################################################
+# test_monotonic_timers  --  monotonic_timers.cpp: how long ago Guider last
+# found the star (the 100 px large distance after 20 s) and MyFrame's camera
+# reconnect throttle (3 attempts in 60 s), on an injected clock, and the
+# clock their callers read (#226); the set_pa_session lease on an injected
+# clock, and that ClockMs is the same steady clock in milliseconds (#231);
+# RunTimer, the GA sampling's and the backlash measurement's timer, on an
+# injected clock and on the clock it reads itself (#235).
+# std-only.
+############################################################################
+add_executable(test_monotonic_timers
+  ${PHD_TESTS_DIR}/guiding/test_monotonic_timers.cpp
+  ${phd_src_dir}/monotonic_timers.cpp
+)
+target_link_libraries(test_monotonic_timers PRIVATE phd_test_common)
+set_property(TARGET test_monotonic_timers PROPERTY FOLDER "Unit tests")
+add_test(NAME test_monotonic_timers COMMAND test_monotonic_timers)
+
+############################################################################
 # test_closed_loop_calibration  --  closed-loop tests of the mount
 # calibration state machine (#142): a SimMount (camera angle, Dec mirror,
 # cos(Dec) RA rate, Dec backlash, non-orthogonal axes, seeded noise) drives
