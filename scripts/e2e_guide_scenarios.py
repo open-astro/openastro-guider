@@ -588,25 +588,15 @@ def scenario_noise_reduction_at_schedule(cli):
             f"next frame with the median: {sigma_median:.1f}")
 
 
-# A suspected bug, worked around here, not fixed (N2): the daemon's HTTP server reads freed memory when a client
-# sends its request at once, as every HTTP client does. A new connection gets a wxSOCKET_OUTPUT event (the socket is
-# writable) and a wxSOCKET_INPUT one; when the INPUT is handled first, EventServer::OnHttpServerClientEvent answers
-# and destroys the one-shot client (its HttpClientData freed), and the OUTPUT event still queued for it then reads
-# that HttpClientData in flush_http_pending: an ASan heap-use-after-free that aborts the daemon on the first request
-# (in a release build, a read of freed memory per request). Sending the request after the OUTPUT event was handled
-# does not hit it, so each request here waits this long after the connect.
-HTTP_SEND_DELAY_S = 0.5
-
-
 def http_request(port, path, headers=None, method="GET", timeout=30):
     """One raw HTTP/1.1 request on the daemon's data port (8080 + instance - 1), the path sent byte for byte (no
-    client-side ../ or %-escape normalising, so the traversal guard sees what a hostile client sends), sent
-    HTTP_SEND_DELAY_S after the connect. Returns (status, {lower-case header name: value}, body)."""
+    client-side ../ or %-escape normalising, so the traversal guard sees what a hostile client sends), sent at
+    once after the connect, as every HTTP client does (#258). Returns (status, {lower-case header name: value},
+    body)."""
     lines = [f"{method} {path} HTTP/1.1", "Host: 127.0.0.1", "Connection: close"]
     lines += [f"{k}: {v}" for k, v in (headers or {}).items()]
     raw = b""
     with socket.create_connection(("127.0.0.1", port), timeout=timeout) as s:
-        time.sleep(HTTP_SEND_DELAY_S)
         s.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1"))
         status, hdrs, body_at = None, {}, None
         while True:
