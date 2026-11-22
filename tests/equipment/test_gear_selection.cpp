@@ -104,15 +104,14 @@ TEST(GearSelection, SavedChoiceFallbackChain)
     profile["/camera/LastMenuChoice"] = L"Alpaca Camera";
     profile["/camera/LastMenuchoice"] = L"Old Camera";
     EXPECT_EQ(SavedChoice(read, NONE), L"Alpaca Camera");
-    ASSERT_EQ(reads.size(), 1u);
-    EXPECT_EQ(reads[0], std::make_pair(std::string("/camera/LastMenuChoice"), std::wstring()));
+    using Reads = std::vector<std::pair<std::string, std::wstring>>;
+    EXPECT_EQ(reads, (Reads { { "/camera/LastMenuChoice", std::wstring() } }));
 
     // empty: the old spelling, read with "None" as its default
     reads.clear();
     profile["/camera/LastMenuChoice"] = L"";
     EXPECT_EQ(SavedChoice(read, NONE), L"Old Camera");
-    ASSERT_EQ(reads.size(), 2u);
-    EXPECT_EQ(reads[1], std::make_pair(std::string("/camera/LastMenuchoice"), NONE));
+    EXPECT_EQ(reads, (Reads { { "/camera/LastMenuChoice", std::wstring() }, { "/camera/LastMenuchoice", NONE } }));
 
     // missing: the same
     profile.erase("/camera/LastMenuChoice");
