@@ -1934,7 +1934,7 @@ struct HeadlessGA
 static HeadlessGA s_ga;
 // Bumped by every run start (and app close): event-loop callbacks queued by an older run are ignored
 static unsigned int s_gaRunGeneration;
-// Camera / mount connections since startup (GearDialog reports them), for the apply session check
+// Camera / mount connections since startup (EquipmentManager reports them), for the apply session check
 static unsigned int s_gaGearConnects;
 
 static ga_math::SessionStamp CurrentGASession()

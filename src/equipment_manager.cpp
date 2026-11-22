@@ -2,10 +2,12 @@
  *  equipment_manager.cpp
  *  PHD Guiding
  *
- *  See equipment_manager.h. The device selection below is GearDialog's choice handlers and LoadGearChoices, moved
- *  (#115 step 3, S4); the connect and disconnect leaves, the end-of-request hooks and Shutdown are GearDialog's, moved
- *  in S5; the #104 retry, the guide RPC's connect-first and the #105 reconnect glue are GearDialog's, moved in S6. The
- *  debug-log lines keep their text, the GearDialog handler names in them included, which debug-log searches use.
+ *  See equipment_manager.h. All of it comes from the Connect Equipment dialog inherited from PHD2 (gear_dialog.cpp),
+ *  moved in #115 step 3: the device selection (its choice handlers and LoadGearChoices) in S4; the connect and
+ *  disconnect leaves, the end-of-request hooks and Shutdown in S5; the #104 retry, the guide RPC's connect-first and
+ *  the #105 reconnect glue in S6. S7 deleted the dialog. The debug-log lines keep their text, the dialog's handler
+ *  names in them included, which debug-log searches use; the one exception is the image-scale line, which named the
+ *  dialog's class (HandleImageScaleChange).
  */
 
 #include "phd.h"
@@ -87,7 +89,7 @@ void EquipmentManager::PublishGear()
 
 void EquipmentManager::LoadFromProfile()
 {
-    // the three lists first, then the saved choices, as GearDialog loaded its choice controls (the lists read the
+    // the three lists first, then the saved choices, as the dialog loaded its choice controls (the lists read the
     // profile's Alpaca settings, and the debug log keeps those reads in this order)
     std::vector<std::wstring> cameras = ListItems(GuideCamera::GuideCameraList());
     std::vector<std::wstring> mounts = ListItems(Scope::MountList());
@@ -135,7 +137,7 @@ wxString EquipmentManager::SelectedChoice(GearDevice dev) const
 
 void EquipmentManager::SelectCamera(const wxString& choice)
 {
-    // the choice is recorded even when the dark build below refuses it, as GearDialog's choice control kept showing
+    // the choice is recorded even when the dark build below refuses it, as the dialog's choice control kept showing
     // it (every caller has already written it to LastMenuChoice, which the control was put back to)
     m_choice[DeviceIndex(GearDevice::Camera)] = choice;
 
@@ -271,7 +273,7 @@ bool EquipmentManager::ProfileSwitchRefused(wxString *error) const
 bool EquipmentManager::SetProfile(int profileId, wxString *error)
 {
     // Run by the session only once the profile is not the current one and nothing is connected, so its profile reads
-    // (and their debug-log lines) come where they always did. GearDialog selected the name in a wxChoice of the
+    // (and their debug-log lines) come where they always did. The dialog selected the name in a wxChoice of the
     // profile names first, without case, and switched to the item selected; PhdConfig::SetCurrentProfile matches the
     // name without case itself, so switching to the name is the same switch.
     wxString name;
@@ -429,8 +431,9 @@ void EquipmentManager::ClearCalibration()
 
 void EquipmentManager::HandleImageScaleChange()
 {
-    // the log line keeps its old text, which debug-log searches use
-    Debug.Write("GearDialog::EndModal: imageScaleRatio changed\n");
+    // the log line keeps its old text but for the deleted dialog's class name, in the gear_dialog: form the other
+    // moved lines have
+    Debug.Write("gear_dialog: EndModal: imageScaleRatio changed\n");
     pFrame->HandleImageScaleChange();
 }
 

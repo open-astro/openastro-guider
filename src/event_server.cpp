@@ -2182,7 +2182,7 @@ static void set_profile_by_name(JObj& response, const json_value *params)
         response << jrpc_result(0);
 }
 
-// The refusal GearDialog::SetProfile gives while equipment is connected, checked by create_profile and
+// The refusal EquipmentManager::SetProfile gives while equipment is connected, checked by create_profile and
 // clone_profile before they create a profile they are asked to select, so a refusal leaves nothing behind (#185).
 static bool refuse_profile_switch(JObj& response)
 {
@@ -7894,7 +7894,7 @@ void EventServer::NotifyCalibrationBuildFailed(const wxString& artifact, const w
 //                                            auto-reconnect).
 // On the headless daemon a device that failed to connect (at startup, on a
 // connect request, or after EquipmentReconnectFailed) is retried slowly in the
-// background (#104, GearDialog), and EquipmentReconnected{camera|mount|rotator}
+// background (#104, EquipmentManager), and EquipmentReconnected{camera|mount|rotator}
 // is sent once when it connects by any path, with or without an earlier
 // EquipmentDisconnected.
 

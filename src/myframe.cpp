@@ -293,7 +293,6 @@ MyFrame::MyFrame()
 
     // no devices yet: PhdApp::OnInit loads them from the profile once pFrame is set (their constructors call through it)
     pEquipment = new EquipmentManager();
-    pGearDialog = new GearDialog(this);
 
     pGuidingAssistant = nullptr;
     m_starFindMode = Star::FIND_CENTROID;
@@ -349,8 +348,6 @@ MyFrame::~MyFrame()
 {
     // the manager stops the #104 retry (it joins a probe thread) before it deletes the devices, while the AdvancedDialog
     // and the status bar a disconnecting device updates are still there
-    delete pGearDialog;
-    pGearDialog = nullptr;
     delete pEquipment;
     pEquipment = nullptr;
 

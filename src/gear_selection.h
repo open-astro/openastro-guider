@@ -23,10 +23,10 @@
 namespace GearSelection
 {
 
-// The index of the item a saved choice selects, or -1. As GearDialog's wxChoice::SetStringSelection did: the first
-// item equal to it without case (wxChoice::FindString's default), then the INDI rule: a saved name containing "INDI"
-// selects the first item containing "INDI" ("INDI Camera" or "INDI Camera [driver]" match either way). The item is
-// the list's, so its casing is the one written back to LastMenuChoice.
+// The index of the item a saved choice selects, or -1. As the Connect Equipment dialog's wxChoice::SetStringSelection
+// did: the first item equal to it without case (wxChoice::FindString's default), then the INDI rule: a saved name
+// containing "INDI" selects the first item containing "INDI" ("INDI Camera" or "INDI Camera [driver]" match either
+// way). The item is the list's, so its casing is the one written back to LastMenuChoice.
 int FindChoice(const std::vector<std::wstring>& items, const std::wstring& saved);
 
 // FindChoice with the device's fallback when nothing matches (a stale choice): the camera takes the first item of its
