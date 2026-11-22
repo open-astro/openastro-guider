@@ -2182,7 +2182,7 @@ static void set_profile_by_name(JObj& response, const json_value *params)
         response << jrpc_result(0);
 }
 
-// The refusal GearDialog::SetProfile gives while equipment is connected, checked by create_profile and
+// The refusal EquipmentManager::SetProfile gives while equipment is connected, checked by create_profile and
 // clone_profile before they create a profile they are asked to select, so a refusal leaves nothing behind (#185).
 static bool refuse_profile_switch(JObj& response)
 {
