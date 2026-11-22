@@ -462,6 +462,36 @@ set_property(TARGET test_settle_frame PROPERTY FOLDER "Unit tests")
 add_test(NAME test_settle_frame COMMAND test_settle_frame)
 
 ############################################################################
+# test_settle_tracker  --  settle_tracker.cpp: PhdController's settle timers
+# (the timeout from the settle's start, the in-range run from its first
+# frame) and frame counts, on an injected clock, with steps of the system
+# time of +-1 h, and the clock PhdController gives it (#142). std-only.
+############################################################################
+add_executable(test_settle_tracker
+  ${PHD_TESTS_DIR}/guiding/test_settle_tracker.cpp
+  ${phd_src_dir}/settle_tracker.cpp
+  ${phd_src_dir}/settle_frame.cpp
+)
+target_link_libraries(test_settle_tracker PRIVATE phd_test_common)
+set_property(TARGET test_settle_tracker PROPERTY FOLDER "Unit tests")
+add_test(NAME test_settle_tracker COMMAND test_settle_tracker)
+
+############################################################################
+# test_guide_distance_tracker  --  guide_distance_tracker.cpp: the guider's
+# averaged distance behind CurrentError and CurrentErrorSmoothed (the short
+# and long averages, the dither bump, the re-seed, the 100 px after 20 s with
+# no star, RA only), on an injected clock (#142). std-only.
+############################################################################
+add_executable(test_guide_distance_tracker
+  ${PHD_TESTS_DIR}/guiding/test_guide_distance_tracker.cpp
+  ${phd_src_dir}/guide_distance_tracker.cpp
+  ${phd_src_dir}/monotonic_timers.cpp
+)
+target_link_libraries(test_guide_distance_tracker PRIVATE phd_test_common)
+set_property(TARGET test_guide_distance_tracker PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guide_distance_tracker COMMAND test_guide_distance_tracker)
+
+############################################################################
 # test_dither_random  --  dither_random.cpp: the offsets of a random dither,
 # from a generator of its own seeded at startup so a daemon start does not
 # repeat the last start's dithers, with the old distribution and range
