@@ -518,17 +518,30 @@ def scenario_connect_side_effects(lane):
     code, msg = call_error(cli, "set_connected", {"connected": True, "device": "focuser"})
     expect(code == -32602, f"set_connected device focuser: {code} {msg}")
 
-    # create_profile selects the new profile unless select is false: while connected it creates the profile, then
-    # fails with set_profile's refusal, and the profile is left there
+    # create_profile and clone_profile select the new profile unless select is false: while connected they refuse
+    # with set_profile's refusal before creating anything (#185), so a retry with select false creates it
     other_name = f"e2e gear other {int(time.time())}"
+    current_name = cli.call("get_profile")["name"]
+
+    def named(name):
+        return [p for p in cli.call("get_profiles") if p.get("name") == name]
+
     expect_error(cli, "create_profile", {"name": other_name}, 1, "cannot set profile when equipment is connected")
-    made = [p for p in cli.call("get_profiles") if p.get("name") == other_name]
-    expect(len(made) == 1 and not made[0].get("selected"), f"the profile create_profile refused: {made}")
-    other_id = made[0]["id"]
-    expect(cli.call("get_profile")["name"] != other_name, "create_profile switched the profile while connected")
-    expect_error(cli, "create_profile", {"name": other_name, "select": False}, -32602, "profile name already exists")
-    out.append("create_profile while connected: created, then refused (\"cannot set profile when equipment is "
-               "connected\"), the profile left in place")
+    expect(named(other_name) == [], f"create_profile refused while connected but created {named(other_name)} (#185)")
+    expect_error(cli, "clone_profile", {"source_name": current_name, "dest_name": other_name}, 1,
+                 "cannot set profile when equipment is connected")
+    expect(named(other_name) == [], f"clone_profile refused while connected but created {named(other_name)} (#185)")
+    code, msg = call_error(cli, "create_profile", {"name": other_name, "select": "yes"})
+    expect(code == -32602 and named(other_name) == [],
+           f"create_profile with a bad select: {code} {msg}, created {named(other_name)} (#185)")
+    made = cli.call("create_profile", {"name": other_name, "select": False})
+    expect(made.get("name") == other_name and made.get("selected") is False,
+           f"create_profile select false while connected: {made}")
+    other_id = made["id"]
+    expect([p["id"] for p in named(other_name)] == [other_id], f"the profile create_profile made: {named(other_name)}")
+    expect(cli.call("get_profile")["name"] == current_name, "create_profile switched the profile while connected")
+    out.append("create_profile and clone_profile while connected: refused (\"cannot set profile when equipment is "
+               "connected\") with nothing created; with select false created, not selected")
 
     # refused while equipment is connected; a profile switch among them
     refusals = (

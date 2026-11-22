@@ -1091,3 +1091,23 @@ the new method.
 
 ARA: no code change. To have a single frame filtered with a method, set it before
 `capture_single_frame`, as it already should.
+
+## 2026-11-21 — `create_profile` and `clone_profile` refuse before creating (#185)
+
+No new method, parameter or error. With `select` true (the default), `create_profile` and `clone_profile` created
+the profile and then tried to select it; while equipment was connected the selection was refused with error 1
+"cannot set profile when equipment is connected", but the profile stayed in `get_profiles`, not selected, and a
+retry got `-32602` "profile name already exists" ("destination profile name already exists" for `clone_profile`).
+A non-boolean `select` was also checked only after the profile was made.
+
+- Both now check `select` and, when it is true, whether any equipment is connected before they create anything.
+  They also check, first, the Connect Equipment dialog refusal `SetProfile` makes ("cannot set profile when
+  Connect Equipment dialog is open", error 1), which can only happen in `--gui` mode with that dialog open.
+  The errors are the same (error 1 with the text above, `-32602` "expected boolean select param"); after either,
+  no profile was created.
+- Not changed: with `select` false either call creates the profile while connected, unselected (`selected` false
+  in the result); with nothing connected both create and select as before; the other parameter errors and their
+  order.
+
+ARA: no code change needed. An error from `create_profile` or `clone_profile` now means nothing was created, so a
+retry with the same name works; to make a profile while connected, send `select: false`.
