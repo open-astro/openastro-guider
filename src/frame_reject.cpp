@@ -208,13 +208,11 @@ bool DistanceChecker::CheckDistance(double distance, double tolerance, const Gui
     case ST_RECOVERING:
         if (small_offset)
         {
-            // Known bug, kept as is here (#142, pinned by test_frame_reject's
-            // RecoveringToGuidingKeepsTheForcedTolerance): unlike the ST_WAITING path above, this
-            // does not clear m_forceTolerance, so the 2.0 Activate set stays in force back in
-            // ST_GUIDING, over the caller's tolerance (9e99 with tolerate-jumps off), until a
-            // large offset goes through ST_WAITING again. Upstream PHD2 has the same code.
             Log("DistanceChecker: deactivated\n");
             m_state = ST_GUIDING;
+            // Back to the caller's tolerance, as from ST_WAITING (#261): the 2.0 Activate forced
+            // used to stay in force here, over the caller's (9e99 with tolerate-jumps off)
+            m_forceTolerance = 0.;
         }
         return true;
     }

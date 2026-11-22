@@ -3,8 +3,8 @@
 // (the distance from the lock position against the smoothed guide error, with its 5 s wait and
 // recovery), on an injected clock. Both moved unchanged from guider_multistar.cpp into
 // src/frame_reject.cpp; test_multistar_parity.cpp compares them with the frozen copy of the old
-// code. These pin what they do, including one known bug as it is (see
-// RecoveringToGuidingKeepsTheForcedTolerance).
+// code. These pin what they do, and that a recovery no longer keeps the forced tolerance (#261,
+// RecoveringToGuidingClearsTheForcedTolerance).
 
 #include <gtest/gtest.h>
 
@@ -332,22 +332,39 @@ TEST(DistanceChecker, ActivateOnlyFromGuiding)
     EXPECT_EQ(dc.GetState(), DistanceChecker::ST_RECOVERING);
 }
 
-TEST(DistanceChecker, RecoveringToGuidingKeepsTheForcedTolerance)
+TEST(DistanceChecker, RecoveringToGuidingClearsTheForcedTolerance)
 {
-    // Known bug, pinned as it is (#142): Activate (a lost star) forces the tolerance to 2.0;
-    // ST_WAITING -> ST_GUIDING clears it, but ST_WAITING -> ST_RECOVERING -> ST_GUIDING does not.
-    // Back to guiding with tolerate-jumps off (9e99), the next frame over 2x the smoothed error is
-    // still rejected as a jump ("Recovering", a StarLost to the client and a dead-reckoned frame),
-    // and so are the frames after it for up to 5 s. Upstream PHD2 has the same code.
+    // #261: Activate (a lost star) forces the tolerance to 2.0, and ST_WAITING -> ST_RECOVERING
+    // -> ST_GUIDING now clears it as ST_WAITING -> ST_GUIDING does. It used to stay, so back to
+    // guiding with tolerate-jumps off (9e99) the next frame over 2x the smoothed error was still
+    // rejected as a jump ("Recovering", a StarLost to the client and an unguided frame), and so
+    // were the frames after it for up to 5 s. Upstream PHD2 has the bug.
     DistanceChecker dc;
     GuiderStatus g = Guiding(1.0);
     dc.Activate(kT0);
     EXPECT_FALSE(dc.CheckDistance(3, kNoJumpTolerance, g, kT0 + 2000));
     EXPECT_TRUE(dc.CheckDistance(3, kNoJumpTolerance, g, kT0 + DistanceChecker::WAIT_INTERVAL_MS));
     EXPECT_EQ(dc.GetState(), DistanceChecker::ST_RECOVERING);
+    // still small at the forced 2.0 while recovering
+    EXPECT_TRUE(dc.CheckDistance(2.5, kNoJumpTolerance, g, kT0 + 6000));
+    EXPECT_EQ(dc.GetState(), DistanceChecker::ST_RECOVERING);
     EXPECT_TRUE(dc.CheckDistance(1, kNoJumpTolerance, g, kT0 + 7000));
     EXPECT_EQ(dc.GetState(), DistanceChecker::ST_GUIDING);
-    EXPECT_DOUBLE_EQ(dc.ForceTolerance(), 2.0);
-    EXPECT_FALSE(dc.CheckDistance(2.5, kNoJumpTolerance, g, kT0 + 9000));
+    EXPECT_DOUBLE_EQ(dc.ForceTolerance(), 0.);
+    EXPECT_TRUE(dc.CheckDistance(2.5, kNoJumpTolerance, g, kT0 + 9000));
+    EXPECT_TRUE(dc.CheckDistance(1e6, kNoJumpTolerance, g, kT0 + 11000));
+    EXPECT_EQ(dc.GetState(), DistanceChecker::ST_GUIDING);
+}
+
+TEST(DistanceChecker, AfterARecoveryTheCallersToleranceApplies)
+{
+    // #261: with tolerate-jumps on at 4, a recovery leaves 4 in force, not 2
+    DistanceChecker dc;
+    GuiderStatus g = Guiding(1.0);
+    dc.Activate(kT0);
+    EXPECT_TRUE(dc.CheckDistance(3, 4, g, kT0 + DistanceChecker::WAIT_INTERVAL_MS));
+    EXPECT_TRUE(dc.CheckDistance(1, 4, g, kT0 + 7000));
+    EXPECT_TRUE(dc.CheckDistance(3.9, 4, g, kT0 + 9000));
+    EXPECT_FALSE(dc.CheckDistance(4.1, 4, g, kT0 + 11000));
     EXPECT_EQ(dc.GetState(), DistanceChecker::ST_WAITING);
 }
