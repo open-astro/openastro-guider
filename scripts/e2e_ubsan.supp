@@ -11,7 +11,7 @@
 # SetMaxDecDuration and SetDecGuideMode, were suppressed here until MyFrame's constructor set
 # pFrame before building anything that uses it.
 #
-# The CI build still leaves out -fsanitize=vptr. Its first report is a different, pre-existing
-# finding: EventServer::OnEventServerEvent (event_server.cpp) static_casts the wxSocketBase that
-# wxSocketServer::Accept returns to wxSocketClient, which it is not, on every client connect.
-# The check comes back with the fix for that.
+# The CI build checks vptr too (-fsanitize=vptr, part of -fsanitize=undefined, #209). It was left
+# out while those null calls were suppressed, since GCC's vptr check reads the vptr right after a
+# null report it continues past and so crashed inside the check, and then for the event server's
+# cast of every accepted wxSocketBase to wxSocketClient, which it is not (fixed in #209).

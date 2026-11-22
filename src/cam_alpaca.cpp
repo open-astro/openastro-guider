@@ -718,13 +718,18 @@ bool CameraAlpaca::AbortExposure()
     return !result;
 }
 
-// The EquipmentDisconnected reason for a capture error that reconnects the camera (#103). The server's
+// The EquipmentDisconnected reason for a capture error that reconnects the camera (#103, #190). The server's
 // message says why (for example "camera removed from USB"), so clients can show it; the clause is left out
-// when the server sent none.
-static wxString CaptureReconnectReason(long alpacaError, const wxString& serverMessage)
+// when the server sent none. A refused connection (the Alpaca server is gone) names the server.
+wxString CameraAlpaca::CaptureReconnectReason(const AlpacaErrors::CallError& error) const
 {
-    wxString message(serverMessage);
+    if (error.kind != AlpacaErrors::CallError::Kind::Alpaca)
+        return wxString::Format(_("Cannot connect to the Alpaca server at %s:%ld (refused or unreachable)"), m_host, m_port);
+    // the same clean-up as every other reason: valid UTF-8, one line, capped (a raw wxConvUTF8 conversion gives
+    // an empty message for invalid UTF-8 and stops at an embedded NUL)
+    wxString message(wxString::FromUTF8(AlpacaErrors::OneLine(error.message).c_str()));
     message.Trim(true).Trim(false);
+    long alpacaError = error.alpacaError;
     if (alpacaError == AlpacaErrors::kNotConnected)
     {
         if (message.empty())
@@ -739,24 +744,21 @@ static wxString CaptureReconnectReason(long alpacaError, const wxString& serverM
 }
 
 // Fails the frame of a capture call that returned an error. The failed call is recorded as the frame's
-// failure reason (#97). 1031, or the kAcquisitionFailuresBeforeReconnect-th 1280 in a row (counted across
-// capture attempts), disconnects the camera with RECONNECT: EquipmentDisconnected{reconnecting:true}, then
-// the auto-reconnect. Any other error, and a 1280 below the threshold, keeps the alert, "<alert>: <reason>".
-// HTTP, transport and parse failures carry no Alpaca number, so they count as 0. Returns true, Capture's
-// error result.
+// failure reason (#97). 1031, a refused connection (the Alpaca server is gone, #190), or the
+// kAcquisitionFailuresBeforeReconnect-th 1280 in a row (counted across capture attempts), disconnects the
+// camera with RECONNECT: EquipmentDisconnected{reconnecting:true}, then the auto-reconnect. Any other error,
+// and a 1280 below the threshold, keeps the alert, "<alert>: <reason>". Other HTTP, transport and parse
+// failures carry no Alpaca number, so they count as 0. Returns true, Capture's error result.
 bool CameraAlpaca::CaptureFailed(const AlpacaErrors::CallError& error, const wxString& alert)
 {
     RecordCaptureFailure(error);
-    long alpacaError = error.kind == AlpacaErrors::CallError::Kind::Alpaca ? error.alpacaError : 0;
-    if (m_captureFailures.OnFailure(alpacaError) == AlpacaErrors::CaptureFailureAction::Reconnect)
+    if (m_captureFailures.OnFailure(error) == AlpacaErrors::CaptureFailureAction::Reconnect)
     {
-        // the same clean-up as every other reason: valid UTF-8, one line, capped (a raw wxConvUTF8 conversion gives
-        // an empty message for invalid UTF-8 and stops at an embedded NUL)
-        DisconnectWithAlert(
-            CaptureReconnectReason(alpacaError, wxString::FromUTF8(AlpacaErrors::OneLine(error.message).c_str())), RECONNECT);
+        DisconnectWithAlert(CaptureReconnectReason(error), RECONNECT);
     }
     else
     {
+        long alpacaError = error.kind == AlpacaErrors::CallError::Kind::Alpaca ? error.alpacaError : 0;
         Debug.Write(wxString::Format("Alpaca Camera: capture error %ld (kind %d, HTTP %ld), %d consecutive acquisition "
                                      "failure(s) of %d\n",
                                      alpacaError, static_cast<int>(error.kind), error.httpStatus,

@@ -42,7 +42,7 @@
 class EventServer : public wxEvtHandler
 {
 public:
-    typedef std::set<wxSocketClient *> CliSockSet;
+    typedef std::set<wxSocketBase *> CliSockSet;
 
 private:
     wxSocketServer *m_serverSocket;
