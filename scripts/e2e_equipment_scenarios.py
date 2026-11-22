@@ -1310,6 +1310,49 @@ def scenario_reconnect_throttle(lane):
             f"disconnected; the #104 retry reconnected it {t_rec - t_failed:.0f} s later, capture not restarted")
 
 
+def scenario_camera_stale_connected(lane):
+    """A camera the server reads as connected while every capture fails 1031 is not reported back: the reconnect
+    waits for a frame, the failed one sends EquipmentReconnectFailed, and the #104 retry reconnects it once it is
+    back (RC51 2026-11-22: AlpacaBridge read an ASI120 unbound from USB as connected)."""
+    cli, fake = lane.cli, lane.fake
+    lane.wait_reconnect_window()
+    start = cli.mark()
+    cli.call("loop")
+    cli.wait_events(start, "LoopingExposures", count=2, timeout=60, abort_on=("LoopingExposuresStopped",))
+    mark = cli.mark()
+    fake.request("PUT", "/fake/unplug", {"unplugged": "true", "stale_connected": "true"})
+    try:
+        failed = cli.wait_events(mark, "EquipmentReconnectFailed", timeout=60, abort_on=("EquipmentReconnected",))[0]
+        t_failed = time.time()
+        cli.wait_events(mark, "LoopingExposuresStopped", timeout=30)
+        evs = settle_events(cli, mark)
+        seq = [n for n in names_of(evs) if n.startswith("Equipment") or n == "LoopingExposuresStopped"]
+        want_seq = ["EquipmentDisconnected", "EquipmentDisconnected", "EquipmentReconnectFailed",
+                    "LoopingExposuresStopped"]
+        expect(seq == want_seq, f"events of a camera read as connected while removed: {seq}, expected {want_seq}")
+        disc = [e for e in evs if e["Event"] == "EquipmentDisconnected"]
+        expect(all(e.get("device_type") == "camera" and e.get("reconnecting") is True for e in disc),
+               f"EquipmentDisconnected {[strip(e) for e in disc]}")
+        want = "the camera failed its first frame after reconnecting"
+        expect(failed.get("device_type") == "camera" and failed.get("reason") == want,
+               f"EquipmentReconnectFailed {strip(failed)}")
+        expect(cli.call("get_app_state") == "Stopped", f"app state {cli.call('get_app_state')}")
+        expect(cli.call("get_connected", {"device": "camera"}) is False, "the camera reads connected while removed")
+        time.sleep(3)
+        late = [n for n in names_of(cli.events_since(mark)) if n == "EquipmentReconnected"]
+        expect(not late, "EquipmentReconnected while the camera was still removed")
+    finally:
+        fake.request("PUT", "/fake/unplug", {"unplugged": "false"})
+    # the #104 retry takes over
+    rec = cli.wait_events(mark, "EquipmentReconnected", timeout=RETRY_FIRST_S + 45)[0]
+    t_rec = time.time()
+    expect(rec.get("device_type") == "camera", f"EquipmentReconnected {strip(rec)}")
+    expect(cli.call("get_connected") is True, "not connected after the retry")
+    expect(cli.call("get_app_state") == "Stopped", "the retry restarted capture")
+    return (f"{seq}, {strip(failed)}; Stopped, camera disconnected; the #104 retry reconnected it "
+            f"{t_rec - t_failed:.0f} s later")
+
+
 def scenario_ga_exit_restore(lane):
     """shutdown while a GA run is measuring: the settings it turned off are on again after a restart."""
     cli = lane.cli
@@ -1459,6 +1502,8 @@ def run_faults(lane, args):
              fake_killed(scenario_fake_killed_mid_request), True),
             ("Guiding Assistant start/stop/apply and restore", lambda: scenario_guiding_assistant(lane), True),
             ("camera reconnect throttle, then the #104 retry", lambda: scenario_reconnect_throttle(lane), False),
+            ("camera read as connected while removed: no EquipmentReconnected without a frame",
+             lambda: scenario_camera_stale_connected(lane), False),
             ("Guiding Assistant settings restored on exit", lambda: scenario_ga_exit_restore(lane), False)):
         if calibrated:
             lane.step_from_known_start(name, fn, guiding)
