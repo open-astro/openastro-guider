@@ -19,13 +19,14 @@ using CaptureFailures::FramePhase;
 
 namespace
 {
-CallError Err(CallError::Kind kind, long http, long alpaca, const std::string& message)
+CallError Err(CallError::Kind kind, long http, long alpaca, const std::string& message, long curlCode = 0)
 {
     CallError e;
     e.kind = kind;
     e.httpStatus = http;
     e.alpacaError = alpaca;
     e.message = message;
+    e.curlCode = curlCode;
     return e;
 }
 
@@ -196,6 +197,14 @@ TEST(CalibrationFrameRetry, TimeoutIsTransient)
 {
     EXPECT_STREQ(CaptureFailures::kCurlTimeoutText, "Timeout was reached");
     EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached"))));
+}
+
+TEST(CalibrationFrameRetry, TimeoutIsTransientByCurlCode)
+{
+    // #227: a timed-out call is known by its CURLcode (CURLE_OPERATION_TIMEDOUT, 28), not by curl's
+    // text, which curl has reworded before (#190: "Couldn't connect" became "Could not connect")
+    EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Operation timed out", 28))));
+    EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "", 28))));
 }
 
 TEST(CalibrationFrameRetry, OtherFailuresAreNotTransient)
