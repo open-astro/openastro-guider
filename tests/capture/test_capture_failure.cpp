@@ -19,13 +19,14 @@ using CaptureFailures::FramePhase;
 
 namespace
 {
-CallError Err(CallError::Kind kind, long http, long alpaca, const std::string& message)
+CallError Err(CallError::Kind kind, long http, long alpaca, const std::string& message, long curlCode = 0)
 {
     CallError e;
     e.kind = kind;
     e.httpStatus = http;
     e.alpacaError = alpaca;
     e.message = message;
+    e.curlCode = curlCode;
     return e;
 }
 
@@ -194,8 +195,21 @@ TEST(CalibrationFrameRetry, Alpaca1280IsTransient)
 
 TEST(CalibrationFrameRetry, TimeoutIsTransient)
 {
-    EXPECT_STREQ(CaptureFailures::kCurlTimeoutText, "Timeout was reached");
-    EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached"))));
+    EXPECT_EQ(AlpacaErrors::kCurlOperationTimedOut, 28); // CURLE_OPERATION_TIMEDOUT
+    EXPECT_TRUE(CaptureFailures::IsTransient(
+        FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached", AlpacaErrors::kCurlOperationTimedOut))));
+}
+
+TEST(CalibrationFrameRetry, TimeoutIsTransientByCurlCode)
+{
+    // #227: a timed-out call is known by its CURLcode (CURLE_OPERATION_TIMEDOUT, 28), not by curl's
+    // text, which curl has reworded before (#190: "Couldn't connect" became "Could not connect")
+    EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Operation timed out", 28))));
+    EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "", 28))));
+    // the text alone is not the timeout: every curl failure carries its code, and a transport failure
+    // without one ("curl not initialized") is not a timeout
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached"))));
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "curl not initialized"))));
 }
 
 TEST(CalibrationFrameRetry, OtherFailuresAreNotTransient)
@@ -207,7 +221,8 @@ TEST(CalibrationFrameRetry, OtherFailuresAreNotTransient)
     EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Http, 400, 0, "Bad request"))));
     EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Http, 500, 0, "Internal error"))));
     EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Parse, 200, 0, "unexpected token"))));
-    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Couldn't connect to server"))));
+    EXPECT_FALSE(
+        CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Couldn't connect to server", 7))));
     // a 1280 number carried by an HTTP status is not an Alpaca error
     EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Http, 1280, 0, ""))));
     // a driver alert alone: the capture watchdog's timeout, which reconnects the camera itself
@@ -226,7 +241,8 @@ TEST(CalibrationFrameRetry, RetriesUpToTheBudget)
     EXPECT_FALSE(CaptureFailures::ShouldRetryFrame(f, 2, FramePhase::Calibrating, true, true));
     EXPECT_FALSE(CaptureFailures::ShouldRetryFrame(f, 3, FramePhase::Calibrating, true, true));
 
-    Failure timeout = FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached"));
+    Failure timeout =
+        FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached", AlpacaErrors::kCurlOperationTimedOut));
     EXPECT_TRUE(CaptureFailures::ShouldRetryFrame(timeout, 0, FramePhase::Calibrating, true, true));
 }
 
@@ -384,12 +400,12 @@ TEST(FrameRetry, DecisionTable)
     const Case failures[] = {
         { "1280", FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "ZWO image acquisition failed")), true },
         { "1280 no message", FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "")), true },
-        { "curl timeout", FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached")), true },
+        { "curl timeout", FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached", 28)), true },
         { "1031", FromCall(Err(CallError::Kind::Alpaca, 200, 1031, "Camera not connected")), false },
         { "1024", FromCall(Err(CallError::Kind::Alpaca, 200, 1024, "Not implemented")), false },
         { "1025", FromCall(Err(CallError::Kind::Alpaca, 200, 1025, "Duration out of range")), false },
         { "HTTP 500", FromCall(Err(CallError::Kind::Http, 500, 0, "Internal error")), false },
-        { "transport", FromCall(Err(CallError::Kind::Transport, 0, 0, "Couldn't connect to server")), false },
+        { "transport", FromCall(Err(CallError::Kind::Transport, 0, 0, "Couldn't connect to server", 7)), false },
         { "driver alert", FromAlert("After 17.0 sec the camera has not completed a 2.0 sec exposure"), false },
         { "empty", Failure(), false },
     };

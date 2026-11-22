@@ -36,6 +36,10 @@ bool CaptureNeedsReconnect(long errorNumber);
 // CURLE_COULDNT_CONNECT, a CallError's curlCode when the server refused the connection:
 // nothing is listening on the Alpaca port (#190). alpaca_client.cpp checks it against curl.h.
 const long kCurlCouldntConnect = 7;
+// CURLE_OPERATION_TIMEDOUT, a CallError's curlCode when the call timed out with no response: a capture
+// call that a new exposure can clear (CaptureFailures::IsTransient, #227). alpaca_client.cpp checks it
+// against curl.h.
+const long kCurlOperationTimedOut = 28;
 
 enum class CaptureFailureAction
 {
