@@ -75,4 +75,41 @@ PaSessionLease::Status PaSessionLease::StatusAt(int64_t nowMs) const
     return s;
 }
 
+// ClockMs, not the wall clock: a step of the system time ended a Guiding Assistant run early or
+// made it run long, and scaled the backlash measurement's drift correction by the step (#235)
+static int64_t RunClockMs()
+{
+    return ClockMs();
+}
+
+void RunTimer::Start()
+{
+    Start(RunClockMs());
+}
+
+void RunTimer::Start(int64_t nowMs)
+{
+    m_startMs = nowMs;
+}
+
+int64_t RunTimer::ElapsedMs() const
+{
+    return ElapsedMs(RunClockMs());
+}
+
+int64_t RunTimer::ElapsedMs(int64_t nowMs) const
+{
+    return nowMs - m_startMs;
+}
+
+double RunTimer::ElapsedS() const
+{
+    return ElapsedS(RunClockMs());
+}
+
+double RunTimer::ElapsedS(int64_t nowMs) const
+{
+    return static_cast<double>(ElapsedMs(nowMs)) / 1000.0;
+}
+
 } // namespace monotonic_timers

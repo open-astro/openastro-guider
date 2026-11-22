@@ -13,6 +13,12 @@
 // window are given the time from (#231). They read wxGetUTCTimeMillis(), the wall clock: a step
 // back held the lease for the size of the step beyond its timeout, and a step forward ended it in
 // the middle of Ara's polar alignment.
+//
+// RunTimer (#235), which times the headless Guiding Assistant's sampling and the backlash
+// measurement's north moves, on an injected clock, and the clock it reads itself. Both read
+// wxGetUTCTimeMillis(), the wall clock: a step forward ended a GA run early and a step back made
+// it run long, with the elapsed_s the API reports skewed alike, and a step during the backlash
+// measurement scaled its drift correction by the step, so it reported a wrong backlash amount.
 
 #include <gtest/gtest.h>
 
@@ -24,6 +30,7 @@ using monotonic_timers::ClockMs;
 using monotonic_timers::ClockS;
 using monotonic_timers::PaSessionLease;
 using monotonic_timers::ReconnectThrottle;
+using monotonic_timers::RunTimer;
 using monotonic_timers::StarFoundTimer;
 
 namespace
@@ -237,4 +244,68 @@ TEST(PaSessionLease, MaxTimeoutDoesNotOverflow)
     lease.Start(now, 3600);
     EXPECT_EQ(lease.StatusAt(now).expiresInS, 3600);
     EXPECT_FALSE(lease.Active(now + 3'600'000));
+}
+
+// --- RunTimer: the Guiding Assistant's sampling and the backlash measurement ---
+
+TEST(RunTimer, ElapsedFromStart)
+{
+    RunTimer timer;
+    timer.Start(kT0);
+    EXPECT_EQ(timer.ElapsedMs(kT0), 0);
+    EXPECT_EQ(timer.ElapsedMs(kT0 + 8'250), 8'250);
+    EXPECT_DOUBLE_EQ(timer.ElapsedS(kT0 + 8'250), 8.25);
+}
+
+TEST(RunTimer, StartedAtClockZero)
+{
+    // a steady clock may read 0
+    RunTimer timer;
+    timer.Start(0);
+    EXPECT_EQ(timer.ElapsedMs(1'500), 1'500);
+}
+
+TEST(RunTimer, RestartTimesFromTheNewStart)
+{
+    // the next GA run, or the next backlash measurement, does not count the last one's time
+    RunTimer timer;
+    timer.Start(kT0);
+    timer.Start(kT0 + 100'000);
+    EXPECT_EQ(timer.ElapsedMs(kT0 + 100'500), 500);
+}
+
+TEST(RunTimer, SamplingReachesItsDurationAfterThatLongFromTheFirstSample)
+{
+    // HeadlessGAGuideStep ends the sampling once ElapsedS reaches the requested duration
+    const double durationS = 120.;
+    RunTimer timer;
+    timer.Start(kT0); // the first sample
+    EXPECT_LT(timer.ElapsedS(kT0 + 119'999), durationS);
+    EXPECT_GE(timer.ElapsedS(kT0 + 120'000), durationS);
+}
+
+TEST(RunTimer, StartReadsTheSteadyClock)
+{
+    // A run started from the wall clock and timed on the steady clock (or the other way round)
+    // is off by the gap between the two; a step of the wall clock mid-run moved it by the step
+    int64_t before = SteadyMs();
+    RunTimer timer;
+    timer.Start();
+    int64_t after = SteadyMs();
+    EXPECT_GE(timer.ElapsedMs(after), 0);
+    EXPECT_LE(timer.ElapsedMs(after), after - before);
+}
+
+TEST(RunTimer, ElapsedReadsTheSteadyClock)
+{
+    RunTimer timer;
+    int64_t start = SteadyMs();
+    timer.Start(start);
+    int64_t elapsedMs = timer.ElapsedMs();
+    double elapsedS = timer.ElapsedS();
+    int64_t after = SteadyMs();
+    EXPECT_GE(elapsedMs, 0);
+    EXPECT_LE(elapsedMs, after - start);
+    EXPECT_GE(elapsedS, 0.);
+    EXPECT_LE(elapsedS, (after - start) / 1000.0);
 }
