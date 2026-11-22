@@ -6,10 +6,12 @@
  *  length of each axis's pulse from Mount::MoveOffset (PlanOffset), and the
  *  guiding-disabled refusal, Dec guide mode filter, max-duration clamp and
  *  limit-reached counting from Scope::MoveAxis (PlanAxis), the limit-reached
- *  alert's throttle from Scope::AlertLimitReached (LimitAlertThrottle), the
- *  PulseGuide-failed alert's throttle from ScopeAlpaca::Guide (PulseFailedAlertThrottle),
- *  what a dither's fast-recenter step moved (MovedPx, AfterRecenterStep), and the result
- *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult).
+ *  alert's throttle and its clock from Scope::AlertLimitReached
+ *  (LimitAlertThrottle, AlertClockS), the PulseGuide-failed alert's throttle
+ *  from ScopeAlpaca::Guide (PulseFailedAlertThrottle), what a dither's
+ *  fast-recenter step moved (MovedPx, AfterRecenterStep), the result
+ *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult), and
+ *  when MyFrame::OnMoveComplete stops guiding on failed moves (AfterGuideMove).
  *  Kept free of wx so it can be unit tested (tests/guiding/test_guide_move_plan.cpp).
  */
 
@@ -151,6 +153,12 @@ private:
     int64_t m_lastRaisedS = 0;
 };
 
+// The clock, in whole seconds, Scope::AlertLimitReached's throttle and its grace period (#212) and
+// ScopeAlpaca::Guide's PulseFailedAlertThrottle (#188) run on: the monotonic one, which a
+// wall-clock step (a Pi syncing a stale time at boot) does not move. Its zero is arbitrary, so it
+// only measures time between two of its own readings.
+int64_t AlertClockS();
+
 // The px one axis of a Mount::MoveOffset moved of distancePx (#165). MoveOffset asked MoveAxis for
 // requestedMs (the axis's PulseMs, plus any Dec backlash compensation) and MoveAxis sent sentMs
 // (MoveResultInfo::amountMoved), which is less when PlanAxis caps the pulse at MAX_PULSE_MS or an
@@ -194,6 +202,21 @@ bool SendDecAfter(MoveResult ra);
 // said not to send it) (#181): dec when it failed, else ra, so an RA pulse error is not hidden
 // by a Dec pulse that went through
 MoveResult OffsetResult(MoveResult ra, MoveResult dec);
+
+// The failed guide moves in a row of one mount after which guiding stops (#213)
+constexpr int MAX_FAILED_GUIDE_MOVES = 10;
+
+struct FailedGuideMoves
+{
+    int inARow = 0; // the mount's failed moves in a row, this one included
+    bool stopGuiding = false; // the mount's pulses keep failing: stop guiding
+};
+
+// MyFrame::OnMoveComplete's count of one mount's failed Mount::MoveOffset results while guiding
+// (#213), after a move that returned result, when failedInARow moves in a row failed before it.
+// A failed move adds one and a good one starts the count again, so guiding stops on the
+// MAX_FAILED_GUIDE_MOVES-th failure in a row and a mount that fails now and then guides on.
+FailedGuideMoves AfterGuideMove(MoveResult result, int failedInARow);
 
 } // namespace guide_move_plan
 

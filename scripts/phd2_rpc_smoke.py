@@ -639,6 +639,31 @@ def main():
             created = run_check("create_profile", lambda: cli.call("create_profile", {"name": test_name, "select": True})) or {}
             run_check("set_profile_by_name", lambda: cli.call("set_profile_by_name", {"name": test_name}))
             run_check("rename_profile", lambda: cli.call("rename_profile", {"name": test_name, "new_name": test_name2}))
+
+            # a rename that changes only the case (rc51 -> RC51) applies the new spelling (#232); it used to answer
+            # 0 and leave the name as it was
+            def case_only_rename_check(old, new):
+                time.sleep(0.1)  # ConfigurationChange is sent at most once per pass of the main loop
+                msg = cli.request("rename_profile", {"name": old, "new_name": new})
+                if msg.get("error"):
+                    raise RuntimeError(f"rename_profile error: {msg['error']}")
+                rslt = msg.get("result")
+                if not isinstance(rslt, dict) or rslt.get("name") != new or rslt.get("selected") is not True:
+                    raise RuntimeError(f"rename_profile {old!r} -> {new!r} answered {rslt!r}")
+                if "ConfigurationChange" not in cli.last_events:
+                    raise RuntimeError(f"no ConfigurationChange event (events {cli.last_events})")
+                names = [p.get("name") for p in cli.call("get_profiles") or []]
+                if new not in names or old in names:
+                    raise RuntimeError(f"get_profiles names {names}")
+                current = cli.call("get_profile")
+                if current.get("name") != new:
+                    raise RuntimeError(f"get_profile reads {current!r}")
+                return rslt
+
+            test_name2_upper = test_name2.upper()
+            if run_check("#232 rename_profile applies a case-only rename",
+                         lambda: case_only_rename_check(test_name2, test_name2_upper)):
+                test_name2 = test_name2_upper
             run_check("clone_profile", lambda: cli.call("clone_profile", {"source_name": test_name2, "dest_name": test_name3, "select": False}))
 
             run_check(

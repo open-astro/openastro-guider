@@ -932,6 +932,25 @@ No new method or field. The success result's `applied` array listed the applied 
 ARA: no code change needed if it already expected strings; until now any call that applied something failed to
 parse.
 
+## 2026-11-21 — `get_calibration_data`: unknown Dec as null, and `pierSide` (#189)
+
+A calibration made while the mount could not report its declination (an Alpaca `declination` read failing, a
+mount with no coordinates, every AO calibration) reported `declination` `57123.9`: the guider's
+unknown-declination marker, 997 rad, through the degrees conversion. Nothing told a client whether the
+calibration had a side of pier until the "did not have side-of-pier information" `Alert` at the next guide.
+
+- `declination` is `null` when the calibration's Dec is unknown; a known one is in degrees, as before.
+- New field `pierSide`, after `declination`, when `calibrated` is `true`: `"East"` or `"West"`, the side of pier
+  the calibration was made on (after `flip_calibration`, the flipped side; for a restored calibration, the saved
+  one), or `null` when the mount did not report it. An AO calibration (`which: AO`) always has `null`: it does not
+  depend on the side of pier, and the guider does not adjust it for one.
+- Not changed: `calibrated`, the angle, rate and parity fields, the errors, and the result when `calibrated` is
+  `false` (`{"calibrated":false}` only).
+
+ARA: treat `declination` `null` as unknown instead of showing a number; for `which: Mount` it can read
+`pierSide` `null` to warn that guiding on this calibration will not adjust for a meridian flip. For `which: AO`
+`pierSide` is always `null` and needs no warning.
+
 ## 2026-11-20 — get_exposure while the camera is disconnected (#176)
 
 `get_exposure` returned `0` whenever the camera was not connected, even right after a
@@ -1048,3 +1067,204 @@ Changes no client can see:
 Not changed: calibration policy. The guider still recalibrates on every new target.
 
 ARA: no code change.
+
+## 2026-11-21 — multi-star turned back on while guiding keeps the star (#187)
+
+No new method, field or event. Turning multi-star back on while calibrating or guiding stopped guiding, auto-selected
+a star and started guiding again: `GuidingStopped`, then `StartGuiding` with no `StarSelected`, `LockPositionSet`,
+`SettleBegin` or `SettleDone`, and a lock position moved to wherever the star was, or onto another star. Over the API
+that happened at the end of every Guiding Assistant run started while guiding with multi-star on (the run turns
+multi-star off and puts it back), and on `set_lock_shift_enabled` `false` while guiding with multi-star on (lock shift
+turns it off the same way).
+
+- Guiding (or calibration) now goes on with the same star and lock position. The secondary stars found when the star
+  was selected are found again around the primary once it is back on the lock, as after a lock position change; if
+  the selection had none, guiding goes on with the one star until the next star selection.
+- A GA run's stop or end while guiding now sends only its `GuideParamChange` events (`MountGuidingEnabled` `true`,
+  `MultiStar` `true`) and `GuidingAssistantDone`; `get_lock_position` reads what it did before the run.
+- Not changed: turning multi-star on while looping with a star selected still auto-selects a star to find the
+  secondary stars (a GA run started from looping ends this way), and the setting is restored as before.
+
+ARA: no code change needed. It no longer sees guiding stop and start again without a settle at the end of a GA run;
+a handler that re-armed its guiding state on that `StartGuiding` will simply not run.
+
+## 2026-11-21 — an Alpaca server outage reconnects the camera (#190)
+
+No new method, field or event. When the Alpaca server went away mid-guide (refused or unreachable),
+guiding stopped at the first failed frame with an `Alert`, but the camera was never disconnected:
+`get_connected` kept reading `true` for the camera while the server was down, no `Equipment*`
+event went out, and nothing reconnected the camera when the server came back. A client could not
+tell an outage from a stop.
+
+- A capture call the server refuses (curl's `CURLE_COULDNT_CONNECT`: nothing is listening on the
+  Alpaca port, or its host cannot be reached, such as the Pi's Wi-Fi dropping) now disconnects the camera with reconnect at once, like a 1031:
+  `EquipmentDisconnected{device_type:"camera", reconnecting:true}` with the reason
+  `"Cannot connect to the Alpaca server at <host>:<port> (refused or unreachable)"`, the same text in
+  an `Alert`, then the auto-reconnect. With the server still down that fails:
+  `EquipmentReconnectFailed{device_type:"camera", reason:"the camera did not reconnect"}` (or the
+  throttle's reason when it is the 4th camera reconnect in 60 s), after the reconnect's own
+  connect-failure `Alert`. Guiding stops as before (`GuidingStopped`, `LoopingExposuresStopped`,
+  `LockPositionLost`).
+- While the server is down, `get_connected` reads `false` for `camera` and for `all` (no params).
+- When the server is back, the #104 background retry (15 s, 30 s, then every 60 s after the failed
+  reconnect) reconnects the camera and sends `EquipmentReconnected{device_type:"camera"}`. It does
+  not restart capture: the client calls `guide` (the calibration is kept, no recalibration is
+  forced) or `loop` as after any `EquipmentReconnectFailed`.
+- Not changed: the mount. Its calls fail as before while the server is down and it still reads
+  connected; no `Equipment*` event goes out for it. A timed-out call (a stalled server), an
+  unresolved host name, HTTP and parse failures keep the `Alert` without a reconnect, as before.
+
+ARA: no code change needed. An outage now reaches the `EquipmentDisconnected` handler
+(`PHD2Guider.cs`, the `on_guider_lost` policy) and then `EquipmentReconnectFailed`, as a camera
+that stays unplugged does; Ara can show "Alpaca server unreachable" from the reason and wait for
+`EquipmentReconnected` before resuming with `guide`, instead of reading a plain `GuidingStopped`.
+
+## 2026-11-22 — guiding stops when a mount's guide moves keep failing (#213)
+
+No new method, field or event. A mount that rejected every guide pulse (an Alpaca `PulseGuide`
+error on every call) kept guiding for as long as the client let it, with only the PulseGuide-failed
+`Alert` to show for it: the guider counted the failed moves but read the count only during an AO
+calibration.
+
+- While guiding, the 10th failed guide move in a row of one mount (with an AO, the AO and the mount
+  are counted apart) stops guiding. A guide move is one guide step's pulses, RA and Dec; it fails
+  when either pulse fails (#181). A single move that goes through starts the count again, and every
+  guide start begins it at 0, so a mount that fails now and then guides on.
+- The stop is an `Alert` whose `Msg` reads "Guiding stopped: the last 10 guide moves to <mount
+  name> failed. Its guide pulses keep failing; check the mount and its connection." (the name as
+  `get_current_equipment` reports it), then `GuidingStopped`, with no `GuideStep` after it. The
+  capture keeps looping on the selected star (`get_app_state` reads `Selected`) and the mount
+  stays connected; no `Equipment*` event. With a `guide` or
+  `dither` request settling, it ends as on any other guiding stop.
+- Not changed: the PulseGuide-failed `Alert` of each failed pulse; calibration, whose failed moves
+  are handled by the calibration; a slew (which already stopped guiding) and an AO travel limit
+  (which recenters the AO and starts guiding again); guiding with the guide output off
+  (`set_guide_output_enabled` false, and the Guiding Assistant, which turns it off for its run),
+  whose moves are refused without a pulse and are not counted, so it guides on for as long as
+  before. A guide afterwards (`recalibrate: false`) guides on the same calibration.
+
+ARA: no code change. Its handling of `GuidingStopped` covers the stop; it can show the `Alert`'s
+text so the user knows why guiding ended, and should not restart guiding on its own while the
+mount's pulses keep failing.
+
+## 2026-11-21 — noise reduction fixed when the frame is scheduled (#210)
+
+No new method or field. The worker thread read the noise-reduction method after each capture,
+unsynchronized with the main thread where `set_noise_reduction` writes it, so a
+`set_noise_reduction` that arrived while a frame was being exposed also filtered that frame with
+the new method.
+
+- The method is now read when the exposure is queued and travels with it: a frame is filtered with
+  the method in effect when it was scheduled, and a `set_noise_reduction` during the exposure
+  takes effect from the next frame (a `capture_single_frame`, a loop or a guide frame alike).
+- Not changed: `get_noise_reduction` and the profile's setting read the new method as soon as
+  `set_noise_reduction` returns; the method names, the result and the errors.
+
+ARA: no code change. To have a single frame filtered with a method, set it before
+`capture_single_frame`, as it already should.
+
+## 2026-11-21 — `create_profile` and `clone_profile` refuse before creating (#185)
+
+No new method, parameter or error. With `select` true (the default), `create_profile` and `clone_profile` created
+the profile and then tried to select it; while equipment was connected the selection was refused with error 1
+"cannot set profile when equipment is connected", but the profile stayed in `get_profiles`, not selected, and a
+retry got `-32602` "profile name already exists" ("destination profile name already exists" for `clone_profile`).
+A non-boolean `select` was also checked only after the profile was made.
+
+- Both now check `select` and, when it is true, whether any equipment is connected before they create anything.
+  They also check, first, the Connect Equipment dialog refusal `SetProfile` makes ("cannot set profile when
+  Connect Equipment dialog is open", error 1), which can only happen in `--gui` mode with that dialog open.
+  The errors are the same (error 1 with the text above, `-32602` "expected boolean select param"); after either,
+  no profile was created.
+- Not changed: with `select` false either call creates the profile while connected, unselected (`selected` false
+  in the result); with nothing connected both create and select as before; the other parameter errors and their
+  order.
+
+ARA: no code change needed. An error from `create_profile` or `clone_profile` now means nothing was created, so a
+retry with the same name works; to make a profile while connected, send `select: false`.
+
+## 2026-11-22 — `rename_profile` applies a case-only rename (#232)
+
+No new method, param, field or event. `rename_profile` with a `new_name` that differs from the
+profile's name only in case (`rc51` to `RC51`) answered `0` and renamed nothing.
+
+- It now renames the profile and answers as any other rename does:
+  `{"id": <id>, "name": <new_name>, "selected": <bool>}`, after one `ConfigurationChange` event.
+  `get_profiles`, and `get_profile` when it is the selected profile, read the new spelling.
+- Not changed: a `new_name` that is exactly the current name still answers `0` and sends no
+  event; a `new_name` that another profile has, in any case, is still refused with
+  `-32602` "new profile name already exists"; renaming while equipment is connected is still
+  refused. The selected profile is kept by id, so a rename never changes which one is selected.
+
+ARA: no code change. A case-only rename that used to be silently ignored is now applied, so the
+profile list should be refreshed from the result or `get_profiles` as after any rename.
+
+## 2026-11-21 — `get_imaging_gear` after `set_alpaca_server` (#236)
+
+No new method, field or event. After `set_alpaca_server` changed the host or port, the imaging-gear reader went on
+reading the server it left until a connect or disconnect, `set_imaging_gear_devices`, a guide log header or a
+`get_imaging_gear` refreshed it, and the
+`get_imaging_gear` that refreshed it still answered with the old server's gear (`source` `alpaca`, `server` naming
+the old host and port).
+
+- `set_alpaca_server` now points the reader at the new server, which it reads at once (within a second on a local
+  server), with nothing connected.
+- From the change until that first read, `get_imaging_gear` reads `source` `unavailable` (`server` and every device
+  `null`), as it does right after the guider starts; a read of the old server that ends after the change is
+  dropped. A guide log header written in that time reads the same.
+- Not changed: a `set_alpaca_server` that changes only device numbers keeps the gear read until the next poll, and
+  the `set_imaging_gear_devices` overrides are kept across the server change.
+
+ARA: no code change needed. A `get_imaging_gear` right after choosing a server may now read `unavailable` for a
+moment instead of the old server's gear; poll it again (as at startup) to get the new server's.
+
+## 2026-11-22 — the camera auto-reconnect waits for a frame (#243)
+
+No new method, field or event. During a capture (looping, calibrating or guiding), the camera auto-reconnect (#103,
+#190, the capture timeout) sent `EquipmentReconnected{camera}` as soon as the Alpaca server read the camera as
+connected. On RC51, AlpacaBridge accepted the reconnect for an ASI120 unbound from USB 1.7 s after answering 1031 for
+it, so Ara read the camera as back 8 s before it was plugged in again.
+
+- During a capture, `EquipmentReconnected{camera}` now follows the first good frame after the reconnect, just before
+  that frame's own events. Capture resumes after the reconnect as before.
+- If that frame fails, the reconnect has failed: `EquipmentReconnectFailed{camera}` with the reason "the camera
+  failed its first frame after reconnecting" (with ": <the #97 failure text>" for a failure that does not itself
+  disconnect the camera). Capture stops as for any failed reconnect (`GuidingStopped`, one `LoopingExposuresStopped`),
+  the camera is disconnected (`get_connected` false), and the #104 background retry reconnects it once it is back,
+  without restarting capture. When that frame fails with a 1031 again, its own
+  `EquipmentDisconnected{reconnecting:true}` goes out first, so the sequence is `EquipmentDisconnected`,
+  `EquipmentDisconnected`, `EquipmentReconnectFailed`. No second fast reconnect is tried.
+- A frame dropped by the #116 / #136 retry neither confirms nor fails the reconnect; the next frame decides. A frame
+  cut short by `stop_capture` confirms it (`EquipmentReconnected`), as the server reads the camera as connected.
+- Not changed: a reconnect with no capture going on (a dark build's deferred reconnect) and the #104 retry still send
+  `EquipmentReconnected` as soon as the camera connects; a failed or throttled reconnect is as before.
+
+ARA: no code change needed. `EquipmentReconnected{camera}` may now come one exposure later than before, and a camera
+the server only claims is back now ends in `EquipmentReconnectFailed`, then the slow retry's `EquipmentReconnected`.
+
+## 2026-11-22 — an Alpaca server that dies mid-request reconnects the camera (#237)
+
+No new method, field or event. #190 sent a capture call the Alpaca server refused through the
+camera reconnect path, but a call the server died during (it was killed, or the Pi lost power, while
+the guider waited on it) fails with "no response from the Alpaca server" (curl's
+`CURLE_GOT_NOTHING`, `CURLE_RECV_ERROR` or `CURLE_PARTIAL_FILE`), not a refused connection. That
+only raised an `Alert` and stopped guiding: the camera was never disconnected, `get_connected` kept
+reading it as connected, and the #104 retry never reconnected it.
+
+- Such a call is now transient, like a timed-out call (#227): while calibrating its frame is exposed
+  again (#116), while guiding it is dropped (#136), `StarLost` with `Status`
+  `"camera error: no response from the Alpaca server (<curl text>)"`, within the same budget of 2
+  failed frames in a row. The camera's `Alert` for it goes out as before. It is told by curl's code,
+  not its text.
+- When the server is really gone, the next frame's call is refused and takes the #190 path:
+  `EquipmentDisconnected{device_type:"camera", reconnecting:true}` ("Cannot connect to the Alpaca
+  server at <host>:<port> (refused or unreachable)"), `EquipmentReconnectFailed`, guiding stops,
+  `get_connected` reads `false` for the camera, and the #104 retry sends `EquipmentReconnected`
+  once the server is back, without restarting capture. A server that comes back before the next
+  call costs one dropped frame and guiding goes on.
+- Not changed: a refused connection reconnects at once (#190); an unresolved host name, HTTP and
+  parse failures keep the `Alert` and stop as before; the mount.
+
+ARA: no code change needed. A server killed mid-guide now reaches the `EquipmentDisconnected`
+handler and then `EquipmentReconnectFailed`, as a server gone between two calls does (#190), after
+one `StarLost` for the cut frame.

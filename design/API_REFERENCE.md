@@ -81,7 +81,9 @@ recommendation code (`src/guiding_assistant_math.cpp`), the same backlash test. 
 disabled while the star drifts unguided for `duration_s`, then (optionally) the Dec backlash test
 runs, then the recommendations are computed; every setting the run changed (guide output,
 multi-star, variable delay, subframes) is restored when it ends — done, stopped or failed, and also
-when the guider is closed mid-run (window close, `shutdown`, SIGTERM). Start it
+when the guider is closed mid-run (window close, `shutdown`, SIGTERM). A run started while guiding
+keeps guiding through its end, on the same star and lock position: turning multi-star back on brings
+no `GuidingStopped`, `StartGuiding` or new star (#187). Start it
 **while guiding**, or **while looping with a selected star and a calibrated mount**: in that case the
 run starts guiding itself (output already disabled, so nothing is corrected) and returns to looping
 at the end. Results are also written to the guide log and the profile's GA history, exactly as the
@@ -130,7 +132,7 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 | Method | Params | Description |
 |--------|--------|-------------|
 | `get_calibrated` | — | `true` if the mount is calibrated. |
-| `get_calibration_data` | `which` (`Mount`/`AO`) | Calibration angles/rates/parity. |
+| `get_calibration_data` | `which` (`Mount`/`AO`) | Calibration angles/rates/parity, the `declination` it was made at (degrees) and its `pierSide` (`East`/`West`); each `null` when the mount could not report it. |
 | `clear_calibration` | `which` (`Mount`/`AO`/`Both`) | Clear calibration so the next guide recalibrates. |
 | `flip_calibration` | — | Flip calibration for a meridian flip. |
 | `restore_calibration` | — | Put back the last calibration saved in the profile (after a failed `recalibrate`); ends a `guide` request still waiting on the failed calibration (`SettleDone` with `Error` "calibration failed; saved calibration restored") so the next `guide` is accepted. `true`: restored, every mount calibrated; `false`: some mount has no saved calibration (nothing changed) or the restored one is not usable with the current Dec guide mode. Error 1 while calibrating/guiding, mount/AO not connected, or another guide/dither request in progress. |
@@ -200,7 +202,7 @@ without `recommendations`; `GuidingAssistantDone` — once at the end (`state` `
 | `get_auto_exposure` | — | **(Batch C)** `{Enabled, MinExposure, MaxExposure (ms), TargetSNR}`. |
 | `set_auto_exposure` | `MinExposure`?, `MaxExposure`? (ms), `TargetSNR`? | **(Batch C)** Set auto-exposure min/max/target SNR (all optional; `Min` ≤ `Max`). Enable auto-exposure via `set_exposure` "Auto", not here. |
 | `get_noise_reduction` | — | **(Batch C)** Image noise-reduction method (`None` / `2x2 Mean` / `3x3 Median`). |
-| `set_noise_reduction` | `method` | **(Batch C)** Set the noise-reduction method. |
+| `set_noise_reduction` | `method` | **(Batch C)** Set the noise-reduction method. It applies from the next frame scheduled; a frame being exposed keeps the method it was scheduled with (#210). |
 
 ## Camera & cooler
 
@@ -276,7 +278,7 @@ off). Neither method ever waits on the network.
 
 | Method | Params | Description |
 |--------|--------|-------------|
-| `get_imaging_gear` | — | The reader's cached snapshot (below). Right after the guider starts, before the first read completes, `source` is `unavailable`. |
+| `get_imaging_gear` | — | The reader's cached snapshot (below). Right after the guider starts, before the first read completes, `source` is `unavailable`; so it is after `set_alpaca_server` changes the host or port, until the new server has been read (the reader reads it at once, #236). |
 | `set_imaging_gear_devices` | `camera`?, `filterwheel`?, `focuser`?, `rotator`?, `telescope`?, `observingconditions`? (Alpaca device numbers; positional in that order) | Name the devices the reader uses, so it doesn't have to guess. An override wins over the selection rules (including the telescope/rotator the guider is connected to); with a `camera` override the camera is never ambiguous. A key that is omitted keeps its override; `-1` or `null` clears it; a call with no params (or `{}` / `[]`) clears them all. All or nothing: any bad param leaves every override unchanged. Errors (`-32602`): an unknown key (`unknown device type: <key>`), a value that isn't an integer ≥ −1 or null, more than six positional params, and `camera` equal to the guide camera's device number (`camera <n> is the guide camera, not the imaging camera`). Takes effect on the reader's next poll, which rediscovers the devices. An override naming a device the server doesn't list in `configureddevices` reads nothing for that type (`null` in `get_imaging_gear`). Kept in memory until changed or the guider exits — **not saved in the profile**; set them each session (after choosing the Alpaca server). Returns the overrides now in effect, `{camera, filterwheel, focuser, rotator, telescope, observingconditions}` (number or `null`). |
 
 `get_imaging_gear` result — every key always present; `null` wherever the guide log writes `unknown`
@@ -303,7 +305,7 @@ off). Neither method ever waits on the network.
 }
 ```
 
-- `source`: `alpaca` · `unavailable` (the server couldn't be read, the first read hasn't completed, or
+- `source`: `alpaca` · `unavailable` (the server couldn't be read, the first read (of a new server) hasn't completed, or
   the guide log is disabled) · `not_alpaca` (openastro-phd2 only). Unless
   `alpaca`, `server` and every device are `null` and `ambiguous_cameras` is 0.
 - A device is `null` when there is none of that type, it can't be chosen, or its override names a device
