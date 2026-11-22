@@ -1131,7 +1131,8 @@ profile list should be refreshed from the result or `get_profiles` as after any 
 ## 2026-11-21 — `get_imaging_gear` after `set_alpaca_server` (#236)
 
 No new method, field or event. After `set_alpaca_server` changed the host or port, the imaging-gear reader went on
-reading the server it left until a connect, a guide log header or a `get_imaging_gear` refreshed it, and the
+reading the server it left until a connect or disconnect, `set_imaging_gear_devices`, a guide log header or a
+`get_imaging_gear` refreshed it, and the
 `get_imaging_gear` that refreshed it still answered with the old server's gear (`source` `alpaca`, `server` naming
 the old host and port).
 
