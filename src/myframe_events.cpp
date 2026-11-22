@@ -571,7 +571,7 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             {
                 Debug.Write("OnExposeComplete: disconnecting the camera whose reconnect was not confirmed\n");
                 pCamera->Disconnect();
-                pGearDialog->NoteCameraReconnectFailed(failure);
+                pEquipment->NoteCameraReconnectFailed(failure);
             }
 
             throw ERROR_INFO("Error reported capturing image");

@@ -9,35 +9,46 @@
  *
  *  It also runs the gear requests (set_connected, set_profile and friends, the startup auto-connect, the #104 retry's
  *  connect): their sequencing is GearSession's (gear_session.h), for which this is the GearPort, and the connect and
- *  disconnect leaves, the end-of-request hooks and Shutdown are here.
+ *  disconnect leaves, the end-of-request hooks and Shutdown are here. So are the #104 retry of a selected device that
+ *  failed to connect, the guide RPC's connect-first and the #105 camera reconnect glue.
  *
- *  Main thread only. MyFrame creates it with no devices; PhdApp::OnInit calls LoadFromProfile once pFrame is set,
- *  because the device constructors call through pFrame.
+ *  Main thread only: RPC dispatch, the retry timer's tick, the probe's CallAfter, the startup auto-connect and
+ *  MyFrame::OnClose. The one exception is the #104 probe thread, which reads only its own copy of the target and
+ *  m_probeCancel, hands its result back through m_probeHandoff, and ends with a CallAfter to this handler; that is why
+ *  this is a wxEvtHandler. The destructor joins the probe thread before any member goes.
  *
- *  Until S6 of step 3, GearDialog still runs the #104 retry, the guide RPC's connect-first and the #105 reconnect
- *  glue. The members marked "GearDialog" below are the temporary forwarders it uses; this class calls GearDialog's
- *  NoteChosen, ForgetDevice, NoteConnectResult, LastConnectError, OnConnectRequested, NoteUserDisconnect and
- *  StopConnectRetry in return.
+ *  MyFrame creates it with no devices; PhdApp::OnInit calls LoadFromProfile once pFrame is set, because the device
+ *  constructors call through pFrame.
  */
 
 #ifndef EQUIPMENT_MANAGER_H_INCLUDED
 #define EQUIPMENT_MANAGER_H_INCLUDED
 
 #include "connect_request.h"
+#include "connect_retry.h"
 #include "gear_session.h"
 
+#include <wx/event.h>
 #include <wx/string.h>
+#include <wx/timer.h>
+
+#include <atomic>
+#include <cstdint>
+#include <string>
+#include <thread>
 
 class GuideCamera;
 class Scope;
 class Rotator;
+struct AlpacaProbeTarget;
 
-class EquipmentManager : private GearPort
+class EquipmentManager : public wxEvtHandler, private GearPort
 {
 public:
     // no devices yet: LoadFromProfile creates them
     EquipmentManager();
-    // releases the devices camera, mount, rotator (#171), each global cleared before its device is deleted
+    // stops the #104 retry and joins its probe thread, then releases the devices camera, mount, rotator (#171), each
+    // global cleared before its device is deleted
     ~EquipmentManager();
     EquipmentManager(const EquipmentManager&) = delete;
     EquipmentManager& operator=(const EquipmentManager&) = delete;
@@ -85,12 +96,25 @@ public:
     // (the end of a gear request; startup rebuilds without the preload).
     void UpdateAdvancedDialog(bool preLoad);
 
-    // GearDialog: the camera connect leaf, also the #105 auto-reconnect's (autoReconnecting, which runs outside any
-    // gear request). The camera id is keyed from the camera baseline, not the current choice, as it always was.
-    void ConnectCamera(bool autoReconnecting);
-    // GearDialog: the sequencer, for the #104 retry's "connect in progress" (Depth) and its queued
-    // EquipmentReconnected
-    GearSession& Session() { return m_session; }
+    // The #105 camera auto-reconnect (MyFrame::DoTryReconnect): the camera connect leaf outside any gear request, so
+    // no end of request runs. Returns true when the camera is still not connected.
+    bool ReconnectCamera();
+
+    // #104 (headless only; each returns at once in the GUI)
+    // The guide RPC: connect the selected camera and mount if they are not connected, probing an Alpaca server
+    // first. Returns true with *error set when one is still not connected (a device the user disconnected is left
+    // alone); false when there was nothing to do or everything connected.
+    bool ConnectForGuide(wxString *error);
+    // The camera auto-reconnect (#105) ended in EquipmentReconnectFailed: the camera joins the slow retry. An empty
+    // reason uses the camera's last connect failure.
+    void NoteCameraReconnectFailed(const wxString& reason);
+    // set_alpaca_server: Changing just before it re-selects the Alpaca devices for the new settings, Changed after.
+    // A device the guider was still asked to connect (retrying, or parked as not configured) stays asked across the
+    // re-selection and is retried at once.
+    void AlpacaServerChanging();
+    void AlpacaServerChanged();
+    // Shutdown: stop retrying and ask a probe in flight to stop; join also waits for it (a request timeout at most).
+    void StopConnectRetry(bool join);
 
 private:
     // GearPort, for m_session
@@ -115,7 +139,9 @@ private:
     void SendReconnected(GearDevice dev) override;
 
     // the connect and disconnect leaves; StatusMsg, the status-bar labels and SetDarkMenuState still go through
-    // pFrame (step 6)
+    // pFrame (step 6). The camera's is also the #105 auto-reconnect's (autoReconnecting, which runs outside any gear
+    // request). The camera id is keyed from the camera baseline, not the current choice, as it always was.
+    void ConnectCamera(bool autoReconnecting);
     void DisconnectCamera();
     void ConnectMount();
     void DisconnectMount();
@@ -128,6 +154,39 @@ private:
     void SelectMount(const wxString& choice);
     void SelectRotator(const wxString& choice);
     void ReleaseDevices();
+
+    // #104
+    bool RetryEnabled() const;
+    // a device was chosen (SelectDevice, also for the same choice again): only another device forgets its #104 state
+    void NoteChosen(GearDevice dev, const wxString& choice);
+    // another profile: the device's #104 state starts over
+    void ForgetDevice(GearDevice dev);
+    // the end of a connect leaf, with the device's final state
+    void NoteConnectResult(GearDevice dev, bool connected, bool autoReconnecting = false);
+    ConnectRetry::ProbeKind ProbeTargetFor(GearDevice dev, AlpacaProbeTarget *target) const;
+    ConnectRetry::Gates CurrentRetryGates() const;
+    void CancelProbeFor(GearDevice dev);
+    void StartConnectRetryTimer();
+    void LogNextRetry(GearDevice dev);
+    void OnConnectRetryTimer(wxTimerEvent& event);
+    void OnProbeDone(GearDevice dev, uint64_t token);
+    void RetryConnect(GearDevice dev);
+
+    // #104: recovery of a selected device that failed to connect (headless only). Main thread only, except the
+    // probe thread, which reads only its own copy of the target and m_probeCancel and hands its result back through
+    // m_probeHandoff and a CallAfter.
+    ConnectRetry::Tracker m_connectRetry;
+    wxTimer m_connectRetryTimer;
+    bool m_connectRetryStopped; // shutting down: no more attempts
+    wxString m_lastConnectError[3]; // the reason of each device's last failed connect, for the RPC error texts
+    std::string m_retryDeferral[3]; // the gate a due attempt last waited on, logged once per stretch
+    std::thread m_probeThread;
+    std::atomic<bool> m_probeCancel;
+    bool m_probeRunning;
+    GearDevice m_probeDevice; // the device the running probe is for
+    uint64_t m_probeToken; // its attempt (Tracker::BeginAttempt)
+    ConnectRetry::ProbeHandoff m_probeHandoff;
+    ConnectRetry::Tracker::ServerChangeCarry m_serverChangeCarry; // AlpacaServerChanging to AlpacaServerChanged
 
     GuideCamera *m_camera;
     Scope *m_mount;

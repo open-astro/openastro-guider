@@ -1457,10 +1457,10 @@ static void set_alpaca_server(JObj& response, const json_value *params)
 
     // the re-selection forgets each Alpaca device; a device that was still to be connected (retrying, or parked as
     // "not configured") stays asked for and is retried at once (#104)
-    pFrame->pGearDialog->AlpacaServerChanging();
+    pFrame->pEquipment->AlpacaServerChanging();
     apply_alpaca_choice_if_selected();
     pConfig->Flush();
-    pFrame->pGearDialog->AlpacaServerChanged();
+    pFrame->pEquipment->AlpacaServerChanged();
     // the imaging-gear reader reads the new server now, not at the next connect (#236)
     ImagingGearLog::EquipmentChanged();
     response << jrpc_result(0);
@@ -4783,7 +4783,7 @@ static void guide(JObj& response, const json_value *params)
     // #104: a selected camera or mount that is not connected (a mount that was off when the guider started) is
     // connected first, not refused; the refusal names the device and the server's reason
     wxString connErr;
-    if (pFrame->pGearDialog->ConnectForGuide(&connErr))
+    if (pFrame->pEquipment->ConnectForGuide(&connErr))
     {
         response << jrpc_error(1, connErr);
         return;
@@ -4872,7 +4872,7 @@ static void shutdown(JObj& response, const json_value *params)
     // that pump would tear the camera down under it. The build ends within one exposure; ask again then.
     VERIFY_NO_DARK_BUILD(response);
     // no background connect attempt may start while the app winds down (#104)
-    pFrame->pGearDialog->StopConnectRetry(false);
+    pFrame->pEquipment->StopConnectRetry(false);
     wxGetApp().TerminateApp();
 
     response << jrpc_result(0);
