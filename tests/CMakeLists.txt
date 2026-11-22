@@ -560,6 +560,30 @@ set_property(TARGET test_monotonic_timers PROPERTY FOLDER "Unit tests")
 add_test(NAME test_monotonic_timers COMMAND test_monotonic_timers)
 
 ############################################################################
+# test_frame_reject  --  frame_reject.cpp (MassChecker and DistanceChecker,
+# the frame rejection GuiderMultiStar::UpdateCurrentPosition runs) and
+# multistar_refine.h (the multi-star refine step GuiderMultiStar::RefineOffset
+# delegates to), on an injected clock and a scripted star finder (#142),
+# against the REAL guiding_stats.cpp. test_multistar_parity.cpp compares them
+# with a frozen copy of the guider_multistar.cpp code they came from (the
+# legacy twin, compiled against mechanical wx stand-ins; legacy/check_twin.sh
+# diffs it against the source) over seeded call sequences.
+############################################################################
+add_executable(test_frame_reject
+  ${PHD_TESTS_DIR}/guiding/test_frame_reject.cpp
+  ${PHD_TESTS_DIR}/guiding/test_multistar_refine.cpp
+  ${PHD_TESTS_DIR}/guiding/test_multistar_parity.cpp
+  ${PHD_TESTS_DIR}/guiding/legacy/multistar_legacy.cpp
+  ${phd_src_dir}/frame_reject.cpp
+  ${phd_src_dir}/multistar_refine.cpp
+  ${phd_src_dir}/guiding_stats.cpp
+)
+target_include_directories(test_frame_reject PRIVATE ${PHD_TESTS_DIR}/guiding)
+target_link_libraries(test_frame_reject PRIVATE phd_test_common)
+set_property(TARGET test_frame_reject PROPERTY FOLDER "Unit tests")
+add_test(NAME test_frame_reject COMMAND test_frame_reject)
+
+############################################################################
 # test_closed_loop_calibration  --  closed-loop tests of the mount
 # calibration state machine (#142): a SimMount (camera angle, Dec mirror,
 # cos(Dec) RA rate, Dec backlash, non-orthogonal axes, seeded noise) drives
