@@ -63,6 +63,9 @@ using CallKind = AlpacaErrors::CallError::Kind;
 
 // alpaca_errors.h is curl-free, so it spells out the code a refused connection gives (#190)
 static_assert(AlpacaErrors::kCurlCouldntConnect == CURLE_COULDNT_CONNECT, "kCurlCouldntConnect is not CURLE_COULDNT_CONNECT");
+// and the code a timed-out call gives (#227)
+static_assert(AlpacaErrors::kCurlOperationTimedOut == CURLE_OPERATION_TIMEDOUT,
+              "kCurlOperationTimedOut is not CURLE_OPERATION_TIMEDOUT");
 } // namespace
 
 size_t AlpacaClient::WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
