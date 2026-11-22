@@ -71,6 +71,9 @@ public:
     // *error set when refused ("cannot set profile when equipment is connected", "invalid profile id"); a switch to
     // the current profile does nothing.
     bool SetProfile(int profileId, wxString *error);
+    // SetProfile's refusal, made before create_profile and clone_profile create anything (#185): true with
+    // "cannot set profile when equipment is connected" when the camera, mount or rotator is connected
+    bool ProfileSwitchRefused(wxString *error) const;
     // The current profile changed without a switch (delete_profile of the current profile, #117): rebuild the camera,
     // mount and rotator from it. Gear only: the caller reloads the profile's other settings.
     void ReloadProfileGear();
