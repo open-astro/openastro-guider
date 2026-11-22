@@ -260,6 +260,9 @@ public:
     wxWindow *pGuidingAssistant = nullptr;
     bool CaptureActive = false; // Is camera looping captures?
     bool m_exposurePending = false; // exposure scheduled and not completed
+    // The camera auto-reconnect succeeded during a capture, and its EquipmentReconnected waits for the first frame
+    // after it: a good frame sends it, a failed one EquipmentReconnectFailed (DoTryReconnect, OnExposeComplete).
+    bool m_cameraReconnectUnconfirmed = false;
     double Stretch_gamma;
     unsigned int m_frameCounter;
     wxDateTime m_guidingStarted;

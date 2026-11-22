@@ -1146,3 +1146,27 @@ the old host and port).
 
 ARA: no code change needed. A `get_imaging_gear` right after choosing a server may now read `unavailable` for a
 moment instead of the old server's gear; poll it again (as at startup) to get the new server's.
+
+## 2026-11-22 — the camera auto-reconnect waits for a frame (#243)
+
+No new method, field or event. During a capture (looping, calibrating or guiding), the camera auto-reconnect (#103,
+#190, the capture timeout) sent `EquipmentReconnected{camera}` as soon as the Alpaca server read the camera as
+connected. On RC51, AlpacaBridge accepted the reconnect for an ASI120 unbound from USB 1.7 s after answering 1031 for
+it, so Ara read the camera as back 8 s before it was plugged in again.
+
+- During a capture, `EquipmentReconnected{camera}` now follows the first good frame after the reconnect, just before
+  that frame's own events. Capture resumes after the reconnect as before.
+- If that frame fails, the reconnect has failed: `EquipmentReconnectFailed{camera}` with the reason "the camera
+  failed its first frame after reconnecting" (with ": <the #97 failure text>" for a failure that does not itself
+  disconnect the camera). Capture stops as for any failed reconnect (`GuidingStopped`, one `LoopingExposuresStopped`),
+  the camera is disconnected (`get_connected` false), and the #104 background retry reconnects it once it is back,
+  without restarting capture. When that frame fails with a 1031 again, its own
+  `EquipmentDisconnected{reconnecting:true}` goes out first, so the sequence is `EquipmentDisconnected`,
+  `EquipmentDisconnected`, `EquipmentReconnectFailed`. No second fast reconnect is tried.
+- A frame dropped by the #116 / #136 retry neither confirms nor fails the reconnect; the next frame decides. A frame
+  cut short by `stop_capture` confirms it (`EquipmentReconnected`), as the server reads the camera as connected.
+- Not changed: a reconnect with no capture going on (a dark build's deferred reconnect) and the #104 retry still send
+  `EquipmentReconnected` as soon as the camera connects; a failed or throttled reconnect is as before.
+
+ARA: no code change needed. `EquipmentReconnected{camera}` may now come one exposure later than before, and a camera
+the server only claims is back now ends in `EquipmentReconnectFailed`, then the slow retry's `EquipmentReconnected`.

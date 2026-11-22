@@ -1160,6 +1160,21 @@ void MyFrame::DoTryReconnect()
     // no exposure pending: it only sends the events, and must not start or stop the capture loop.
     bool exposurePending = m_exposurePending;
 
+    // The camera the last reconnect brought back failed again before it delivered a frame: the server read it
+    // as connected while it was not (AlpacaBridge does, for an ASI camera unbound from USB). That reconnect
+    // failed, and reconnecting again at once would fail the same way, so the #104 retry takes over.
+    if (m_cameraReconnectUnconfirmed)
+    {
+        m_cameraReconnectUnconfirmed = false;
+        const wxString reason(_("the camera failed its first frame after reconnecting"));
+        Debug.Write("Camera Re-connect not confirmed: " + reason + "\n");
+        EvtServer.NotifyEquipmentReconnectFailed("camera", m_cameraReconnectThrottle.Attempts(), reason);
+        if (exposurePending)
+            OnExposeComplete(0, true);
+        pGearDialog->NoteCameraReconnectFailed(reason);
+        return;
+    }
+
     // do not reconnect more than 3 times in 1 minute (monotonic_timers.cpp, #226)
     enum
     {
@@ -1204,8 +1219,16 @@ void MyFrame::DoTryReconnect()
         Debug.Write(exposurePending ? "Camera Re-connect succeeded, resume exposures\n"
                                     : "Camera Re-connect succeeded, no exposure pending\n");
         // ARA integration (PHD2-GAP gap 2): the recovered twin of
-        // EquipmentDisconnected, so clients can clear their fault state.
-        EvtServer.NotifyEquipmentReconnected("camera");
+        // EquipmentDisconnected, so clients can clear their fault state. During a capture the server's word that
+        // the camera is connected is not enough: the next frame sends it once it arrives (OnExposeComplete).
+        // With no capture going on there is no frame to wait for.
+        if (exposurePending)
+        {
+            Debug.Write("Camera Re-connect: EquipmentReconnected waits for the next frame\n");
+            m_cameraReconnectUnconfirmed = true;
+        }
+        else
+            EvtServer.NotifyEquipmentReconnected("camera");
         UpdateStatusBarStateLabels();
         if (exposurePending)
         {

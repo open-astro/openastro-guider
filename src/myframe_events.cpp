@@ -554,6 +554,23 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             Debug.Write(wxString::Format("OnExposeComplete: %s\n", failure));
 
             bool stopping = !m_continueCapturing;
+            // The camera the auto-reconnect brought back failed its first frame: that reconnect failed, and the
+            // camera is disconnected below for the #104 retry. A frame cut short by a stop request proves nothing
+            // either way, and the server reads the camera as connected, so that one confirms the reconnect.
+            bool reconnectFailed = false;
+            if (m_cameraReconnectUnconfirmed)
+            {
+                m_cameraReconnectUnconfirmed = false;
+                if (stopping)
+                    EvtServer.NotifyEquipmentReconnected("camera");
+                else
+                {
+                    reconnectFailed = true;
+                    EvtServer.NotifyEquipmentReconnectFailed(
+                        "camera", m_cameraReconnectThrottle.Attempts(),
+                        wxString::Format(_("the camera failed its first frame after reconnecting: %s"), failure));
+                }
+            }
             // the guide / dither request this ends fails with the reason, and so does an interrupted calibration
             // (NotifyGuidingStopped, FinishStop and Guider::StopGuiding read it, so the event order is unchanged)
             if (!stopping)
@@ -577,6 +594,13 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             PhdController::AbortController(stopping ? wxString("Image capture stopped") : failure);
             StatusMsg(_("Stopped."));
 
+            if (reconnectFailed && pCamera->Connected)
+            {
+                Debug.Write("OnExposeComplete: disconnecting the camera whose reconnect was not confirmed\n");
+                pCamera->Disconnect();
+                pGearDialog->NoteCameraReconnectFailed(failure);
+            }
+
             // some camera drivers disconnect the camera on error
             if (!pCamera->Connected)
                 m_statusbar->UpdateStates();
@@ -586,6 +610,14 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
 
         pNewFrame->FrameNum = ++m_frameCounter;
         m_frameRetries.OnGoodFrame(); // #116, #136: the retry budget is for consecutive failures
+
+        // the first frame after a camera auto-reconnect: the camera is back
+        if (m_cameraReconnectUnconfirmed)
+        {
+            m_cameraReconnectUnconfirmed = false;
+            Debug.Write("OnExposeComplete: frame received, camera reconnect confirmed\n");
+            EvtServer.NotifyEquipmentReconnected("camera");
+        }
 
         if (m_rawImageMode && !m_rawImageModeWarningDone)
         {

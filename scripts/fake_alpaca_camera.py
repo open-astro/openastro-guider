@@ -72,10 +72,16 @@ small control endpoint and is off until used, so the default behaviour is unchan
         connected on the server (#104: a driver failure the probe can't see).
     PUT /fake/unplug   unplugged=<true|false>[&device=<camera|telescope>][&message=<ErrorMessage>]
                        [&error=<ErrorNumber>][&delay_ms=<N>][&connect_delay_ms=<N>]
+                       [&stale_connected=<true|false>]
         device=camera (the default): while unplugged, the camera reads as not
         connected, a Connected=true PUT is refused with 1031, and binx/biny/gain/
         startexposure/imageready/imagearray answer 1031 (an injection for the call
-        still wins).
+        still wins). stale_connected=true (camera only, default false): a
+        Connected=true PUT succeeds and the camera then reads as connected, its
+        connect-time reads (cameraxsize, binx, ...) answer, while startexposure,
+        imageready and imagearray still answer 1031, as AlpacaBridge did for an ASI120
+        unbound from USB (RC51, 2026-11-22: the guider's reconnect PUT succeeded
+        1.7 s after the 1031, 8 s before the camera was plugged back).
         device=telescope (#104): while unplugged, the telescope reads as not
         connected and a Connected=true PUT is refused with error (default 1280) and
         message (default a Sky-Watcher "did not reply" text) after delay_ms (default
@@ -270,10 +276,13 @@ injections = {}
 SCOPE_INJECTABLE_CALLS = ("pulseguide", "declination", "rightascension", "siderealtime", "sideofpier", "slewing",
                           "ispulseguiding", "guideratedeclination", "guideraterightascension")
 scope_injections = {}
-unplugged = {"on": False, "message": "camera removed from USB", "error": 1031, "delay_ms": 0}
+unplugged = {"on": False, "message": "camera removed from USB", "error": 1031, "delay_ms": 0,
+             "stale_connected": False}
 scope_unplugged = {"on": False, "error": 1280, "delay_ms": 0, "connect_delay_ms": 0,
                    "message": "The Sky-Watcher mount on /dev/ttyUSB0 did not reply (Timeout waiting for motor "
                               "controller reply to ':a1'). Check the Serial Port setting and that the mount is on."}
+# a camera unplugged with stale_connected: the connect and its property reads go through, the exposure fails
+STALE_FAILING_CALLS = ("startexposure", "imageready", "imagearray")
 stall_ms = {"camera": 0, "telescope": 0}
 stall_call = {"camera": "", "telescope": ""}  # "": every endpoint of the device
 
@@ -286,7 +295,7 @@ def take_injected_error(call):
         if inj["count"] == 0:
             del injections[call]
         return inj["error"], inj["message"], inj["format"], inj["http"]
-    if unplugged["on"] and call in INJECTABLE_CALLS:
+    if unplugged["on"] and call in (STALE_FAILING_CALLS if unplugged["stale_connected"] else INJECTABLE_CALLS):
         return unplugged["error"], unplugged["message"], "json", 200
     return None
 
@@ -715,6 +724,7 @@ class Handler(BaseHTTPRequestHandler):
                 injections.clear()
                 scope_injections.clear()
                 unplugged["on"] = False
+                unplugged["stale_connected"] = False
                 scope_unplugged["on"] = False
                 for device in stall_ms:
                     stall_ms[device] = 0
@@ -751,6 +761,8 @@ class Handler(BaseHTTPRequestHandler):
                     plug["delay_ms"] = int(params["delay_ms"])
                 if "connect_delay_ms" in params and device == "telescope":
                     plug["connect_delay_ms"] = max(0, int(params["connect_delay_ms"]))
+                if device == "camera":
+                    plug["stale_connected"] = params.get("stale_connected", "false").lower() == "true"
                 if plug["on"]:
                     if device == "camera":
                         state["connected"] = False
@@ -931,7 +943,7 @@ class Handler(BaseHTTPRequestHandler):
         if prop == "connected":
             with state_lock:
                 want = "true" in body.lower()
-                refused = want and unplugged["on"]
+                refused = want and unplugged["on"] and not unplugged["stale_connected"]
                 if not refused:
                     state["connected"] = want
                 error, message, delay = unplugged["error"], unplugged["message"], unplugged["delay_ms"]
