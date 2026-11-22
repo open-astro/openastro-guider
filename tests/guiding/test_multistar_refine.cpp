@@ -1,8 +1,8 @@
 // The multi-star refine step (#142): multistar_refine::Refine, which GuiderMultiStar::RefineOffset
 // delegates to, on plain star records and a scripted star finder. It moved unchanged from
 // guider_multistar.cpp into src/multistar_refine.h; test_multistar_parity.cpp compares it with
-// the frozen copy of the old code. These pin what it does, including one known bug as it is (see
-// ZeroCountDropCountsTheNextStarTwice).
+// the frozen copy of the old code. These pin what it does, and that the star after a zero-count
+// drop is counted once (#262, ZeroCountDropCountsTheNextStarOnce).
 
 #include <gtest/gtest.h>
 
@@ -234,13 +234,12 @@ TEST(MultistarRefine, ZeroMovementOnBothAxesDropsTheStar)
     EXPECT_EQ(f.log[0], "MultiStar: [#1 0.00,0.00,0.00,DZ] [#1 1.00,0.00,1.00,U] \n");
 }
 
-TEST(MultistarRefine, ZeroCountDropCountsTheNextStarTwice)
+TEST(MultistarRefine, ZeroCountDropCountsTheNextStarOnce)
 {
-    // Known bug, pinned as it is (#142): a star whose movement is exactly zero on one axis five
-    // frames running is dropped with a continue that skips the loop tail, so the erasures flag
-    // is still set when the next star's pass ends and pGS is not advanced: the next star is found
-    // and averaged a second time. Its weight doubles and starsUsed counts it twice. Upstream PHD2
-    // has the same code.
+    // #262: a star whose movement is exactly zero on one axis five frames running is dropped, and
+    // the next star is found and averaged once. The drop's continue used to leave the erasures
+    // flag set, so the next star's pass did not advance past it and it was found and averaged a
+    // second time: twice its weight, and starsUsed counted it twice. Upstream PHD2 has the bug.
     Fixture f;
     TestStar& a = f.AddStar(1, 100, 100);
     a.zeroCount = 4;
@@ -251,19 +250,18 @@ TEST(MultistarRefine, ZeroCountDropCountsTheNextStarTwice)
     f.Move(3, 1.0, 0.);
     multistar_refine::Result r = f.Run(1.4, 0.);
     EXPECT_EQ(f.Find(1), nullptr);
-    EXPECT_EQ(f.sky.CallsFor(2), 2);
+    EXPECT_EQ(f.sky.CallsFor(2), 1);
     EXPECT_EQ(f.sky.CallsFor(3), 1);
-    EXPECT_EQ(r.starsUsed, 5u); // 1 + star 1 + star 2 twice + star 3
-    EXPECT_DOUBLE_EQ(r.offsetX, (1.4 + 3 * 1.0) / 4);
-    EXPECT_EQ(f.log[0],
-              "MultiStar: [#1 0.00,0.00,0.00,DZ] [#1 1.00,0.00,1.00,U] [#1 1.00,0.00,1.00,U] "
-              "[#2 1.00,0.00,1.00,U] \n");
+    EXPECT_EQ(r.starsUsed, 4u); // 1 + the dropped star 1 + star 2 + star 3
+    EXPECT_DOUBLE_EQ(r.offsetX, (1.4 + 2 * 1.0) / 3);
+    EXPECT_EQ(f.log[0], "MultiStar: [#1 0.00,0.00,0.00,DZ] [#1 1.00,0.00,1.00,U] [#2 1.00,0.00,1.00,U] \n");
+    EXPECT_EQ(f.log[1], "refined, 2 included, MultiStar: {1.13, 0.00}, one-star: {1.40, 0.00}\n");
 }
 
-TEST(MultistarRefine, ZeroCountDropBeforeAMissPassesTheFlagOn)
+TEST(MultistarRefine, ZeroCountDropBeforeAMissCountsEveryStarOnce)
 {
-    // The same bug: when the star after the drop is a miss, its ++pGS; continue skips the tail
-    // too, so the star after it is the one counted twice
+    // #262: when the star after the drop is a miss, the star after it used to be the one counted
+    // twice, the miss's own continue passing the flag on
     Fixture f;
     TestStar& a = f.AddStar(1, 100, 100);
     a.zeroCount = 4;
@@ -274,8 +272,24 @@ TEST(MultistarRefine, ZeroCountDropBeforeAMissPassesTheFlagOn)
     f.Move(3, 1.0, 0.);
     multistar_refine::Result r = f.Run(1.4, 0.);
     EXPECT_EQ(f.sky.CallsFor(2), 1);
-    EXPECT_EQ(f.sky.CallsFor(3), 2);
-    EXPECT_EQ(r.starsUsed, 5u);
+    EXPECT_EQ(f.sky.CallsFor(3), 1);
+    EXPECT_EQ(r.starsUsed, 4u);
+    EXPECT_DOUBLE_EQ(r.offsetX, (1.4 + 1.0) / 2);
+}
+
+TEST(MultistarRefine, ZeroCountDropOfTheLastStar)
+{
+    Fixture f;
+    f.AddStar(1, 100, 100);
+    TestStar& b = f.AddStar(2, 200, 100);
+    b.zeroCount = 4;
+    f.Move(1, 1.0, 0.5);
+    f.Move(2, 0.5, 0.);
+    multistar_refine::Result r = f.Run(1.4, 0.5);
+    EXPECT_EQ(f.stars.size(), 2u);
+    EXPECT_EQ(f.Find(2), nullptr);
+    EXPECT_EQ(r.starsUsed, 3u);
+    EXPECT_DOUBLE_EQ(r.offsetX, (1.4 + 1.0) / 2);
 }
 
 TEST(MultistarRefine, OneAxisZeroCountsUpAndDecaysOnMovement)

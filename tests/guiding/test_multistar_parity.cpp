@@ -5,7 +5,8 @@
 // (frame_reject.cpp, and multistar_refine::Refine called the way GuiderMultiStar::RefineOffset now
 // calls it) with the same seeded calls and requires the same results, the same state, the same
 // star finder calls and the same Debug lines after every call, doubles bit for bit. Coverage
-// counters check every path is reached.
+// counters check every path is reached. The intended difference is #262 (the star after a
+// zero-count drop counted once): each multi-star scenario must match up to the frame it happens on.
 
 #include <gtest/gtest.h>
 
@@ -13,6 +14,8 @@
 #include "legacy/multistar_legacy.h"
 #include "multistar_refine.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <map>
 #include <random>
@@ -232,7 +235,7 @@ size_t Count(const std::vector<std::string>& lines, const std::string& token)
 TEST(MultistarParity, RefineOffset)
 {
     std::map<std::string, size_t> seen;
-    size_t doubleFinds = 0, refinedFrames = 0;
+    size_t diverged = 0, refinedFrames = 0;
     const char *tokens[] = { "entering stabilization",
                              "exiting stabilization",
                              "updating star positions",
@@ -336,6 +339,7 @@ TEST(MultistarParity, RefineOffset)
             };
             legacy::GuiderOffset twinOfs;
             twinOfs.cameraOfs = legacy::PHD_Point(ox, oy);
+            size_t twinCallsBefore = twinCalls.size();
             bool twinRefined = twin.RefineOffset(nullptr, &twinOfs);
 
             // production, as GuiderMultiStar::RefineOffset calls Refine
@@ -374,6 +378,40 @@ TEST(MultistarParity, RefineOffset)
                 }
             }
 
+            // A star found twice in the frame's loop: the twin's zero-count double count (#262)
+            auto loopCalls = [](const std::vector<FindCall>& calls, size_t from, bool *twice)
+            {
+                std::vector<FindCall> once;
+                std::map<int, int> perStar;
+                *twice = false;
+                for (size_t i = from; i < calls.size(); i++)
+                {
+                    if (!calls[i].verbose && ++perStar[calls[i].id] == 2)
+                        *twice = true;
+                    else
+                        once.push_back(calls[i]);
+                }
+                return once;
+            };
+            bool prodTwice, twinTwice;
+            loopCalls(prodCalls, prodCallsBefore, &prodTwice);
+            ASSERT_FALSE(prodTwice) << where;
+            std::vector<FindCall> twinOnce = loopCalls(twinCalls, twinCallsBefore, &twinTwice);
+            if (twinTwice)
+            {
+                // The intended difference (#262): the twin found a star a second time after a
+                // zero-count drop. They match up to this frame; on it production makes the twin's
+                // Find calls without the repeat, and goes on to more stars when the twin's double
+                // count reached maxStars first.
+                std::vector<FindCall> prodFrame(prodCalls.begin() + static_cast<std::ptrdiff_t>(prodCallsBefore),
+                                                prodCalls.end());
+                ASSERT_LE(twinOnce.size(), prodFrame.size()) << where;
+                ASSERT_TRUE(std::equal(twinOnce.begin(), twinOnce.end(), prodFrame.begin())) << where;
+                ASSERT_LE(prodStarsUsed, twin.m_starsUsed) << where;
+                ++diverged;
+                break;
+            }
+
             ASSERT_EQ(twinRefined, prodRefined) << where;
             ASSERT_TRUE(Same(twinOfs.cameraOfs.X, prodOfs.cameraOfs.X) && Same(twinOfs.cameraOfs.Y, prodOfs.cameraOfs.Y))
                 << where;
@@ -387,11 +425,6 @@ TEST(MultistarParity, RefineOffset)
             ASSERT_EQ(twinCalls, prodCalls) << where;
             ASSERT_EQ(legacy::Debug.lines, prodLog) << where;
 
-            // the double count: a star found twice in the frame's loop
-            std::map<int, int> perStar;
-            for (size_t i = prodCallsBefore; i < prodCalls.size(); i++)
-                if (!prodCalls[i].verbose && ++perStar[prodCalls[i].id] == 2)
-                    ++doubleFinds;
             refinedFrames += prodRefined;
         }
         for (const char *t : tokens)
@@ -399,7 +432,7 @@ TEST(MultistarParity, RefineOffset)
     }
     for (const char *t : tokens)
         EXPECT_GT(seen[t], 0u) << t;
-    EXPECT_GT(doubleFinds, 0u); // the zeroCount bug's path is reached
+    EXPECT_GT(diverged, 0u); // the #262 path is reached
     EXPECT_GT(refinedFrames, 0u);
 }
 

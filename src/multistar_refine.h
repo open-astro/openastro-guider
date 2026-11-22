@@ -174,16 +174,12 @@ Result Refine(std::vector<Star>& stars, const Frame& frame, State& state, Descri
 
                     if (pGS->zeroCount == 5)
                     {
-                        // Known bug, kept as is here (#142, pinned by test_multistar_refine's
-                        // ZeroCountDropCountsTheNextStarTwice): the continue skips the loop tail
-                        // below, so erasures is still true at the end of the next star's pass,
-                        // which then does not advance pGS. The next star is found and averaged a
-                        // second time (twice its weight, starsUsed counted twice); if that star is
-                        // a miss, its ++pGS; continue passes the flag on to the star after it.
-                        // Upstream PHD2 has the same code.
+                        // erase already points pGS at the next star. No erasures flag: the
+                        // continue skips the loop tail that resets it, so it used to stay set
+                        // through the next star's pass, which then was not advanced past and was
+                        // found and averaged twice (#262)
                         secondaryInfo += StarUse(index(pGS), 0, 0, 0, "DZ");
                         pGS = stars.erase(pGS);
-                        erasures = true;
                         continue;
                     }
 
