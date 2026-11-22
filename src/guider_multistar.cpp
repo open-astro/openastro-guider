@@ -41,6 +41,7 @@
  */
 
 #include "phd.h"
+#include "monotonic_timers.h"
 
 #include <wx/dir.h>
 #include <algorithm>
@@ -107,7 +108,7 @@ public:
 
     void AppendData(double mass)
     {
-        wxLongLong_t now = ::wxGetUTCTimeMillis().GetValue();
+        wxLongLong_t now = monotonic_timers::ClockMs();
         wxLongLong_t oldest = now - m_timeWindow;
 
         while (m_data.size() > 0 && m_data.front().time < oldest)
@@ -220,18 +221,28 @@ void GuiderMultiStar::SetMultiStarMode(bool val)
     if (val && !oldVal)
     {
         m_primaryDistStats->ClearAll();
-        if (GetState() >=
-            STATE_SELECTED) // If we have a single star, need to force an auto-find to be sure we have the right secondary stars
+        if (IsCalibratingOrGuiding())
         {
-            bool guiding_active = IsCalibratingOrGuiding();
+            // Keep calibrating or guiding on the current star and lock position (#187): stopping, auto-selecting
+            // and starting again moved the lock to wherever the star was, with no StarSelected, LockPositionSet or
+            // settle for the client. Secondary stars from the selection are found again at their offsets from the
+            // primary once it has stabilized, as after a lock position change; without any, guiding goes on with
+            // the single star until the next selection. Their references are taken again once the primary has
+            // stabilized, the same refresh PHD2 makes after a dither. The lock did not move here, so any offset
+            // left when stabilization ends is carried into them; keeping the selection's references would avoid it.
+            if (m_guideStars.size() > 1)
+            {
+                m_lockPositionMoved = true;
+                m_stabilizing = true;
+            }
+        }
+        else if (GetState() >= STATE_SELECTED) // If we have a single star, need to force an auto-find to be sure we
+                                               // have the right secondary stars
+        {
             StopGuiding();
             InvalidateCurrentPosition(true);
             if (!AutoSelect(wxRect(0, 0, 0, 0), false))
-            {
-                if (guiding_active)
-                    StartGuiding();
                 autoFindForced = true;
-            }
         }
     }
     if (!val)
@@ -616,7 +627,7 @@ struct DistanceChecker
         {
             Debug.Write("DistanceChecker: activated\n");
             m_state = ST_WAITING;
-            m_expires = ::wxGetUTCTimeMillis().GetValue() + WAIT_INTERVAL_MS;
+            m_expires = monotonic_timers::ClockMs() + WAIT_INTERVAL_MS;
             m_forceTolerance = 2.0;
         }
     }
@@ -660,7 +671,7 @@ struct DistanceChecker
 
             Debug.Write("DistanceChecker: activated\n");
             m_state = ST_WAITING;
-            m_expires = ::wxGetUTCTimeMillis().GetValue() + WAIT_INTERVAL_MS;
+            m_expires = monotonic_timers::ClockMs() + WAIT_INTERVAL_MS;
             return false;
 
         case ST_WAITING:
@@ -673,7 +684,7 @@ struct DistanceChecker
                 return true;
             }
             // large distance
-            wxLongLong_t now = ::wxGetUTCTimeMillis().GetValue();
+            wxLongLong_t now = monotonic_timers::ClockMs();
             if (now < m_expires)
             {
                 // reject frame

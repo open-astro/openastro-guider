@@ -33,11 +33,29 @@ const int kAcquisitionFailuresBeforeReconnect = 3;
 // connected: the camera must be disconnected and reconnected (issue #103).
 bool CaptureNeedsReconnect(long errorNumber);
 
+// CURLE_COULDNT_CONNECT, a CallError's curlCode when the server refused the connection:
+// nothing is listening on the Alpaca port (#190). alpaca_client.cpp checks it against curl.h.
+const long kCurlCouldntConnect = 7;
+// CURLE_OPERATION_TIMEDOUT, a CallError's curlCode when the call timed out with no response: a capture
+// call that a new exposure can clear (CaptureFailures::IsTransient, #227). alpaca_client.cpp checks it
+// against curl.h.
+const long kCurlOperationTimedOut = 28;
+// The curl errors (CURLcode) of a call the server died during, with no response or a cut one (#237):
+// CURLE_GOT_NOTHING (the connection closed before any response), CURLE_RECV_ERROR (reset while reading it) and
+// CURLE_PARTIAL_FILE (closed part-way through the body). Transient like a timeout (CaptureFailures::IsTransient):
+// the frame is retried, and once the server is really gone the next call is refused and reconnects (#190).
+// alpaca_client.cpp checks them against curl.h.
+const long kCurlGotNothing = 52;
+const long kCurlRecvError = 56;
+const long kCurlPartialFile = 18;
+
 enum class CaptureFailureAction
 {
     Alert, // keep the alert and fail the frame
     Reconnect, // disconnect with RECONNECT: EquipmentDisconnected{reconnecting:true}, then the auto-reconnect
 };
+
+struct CallError;
 
 // Counts consecutive 1280 capture failures across capture attempts. 1031 reconnects at
 // once; the kAcquisitionFailuresBeforeReconnect-th 1280 in a row reconnects. Either one
@@ -49,6 +67,11 @@ class CaptureFailureTracker
 {
 public:
     CaptureFailureAction OnFailure(long errorNumber);
+    // The failed capture call's CallError: an Alpaca error goes by its number. A refused connection
+    // (Transport with curlCode kCurlCouldntConnect: the Alpaca server is gone) reconnects at once and
+    // starts a new run, like 1031 (#190); any other HTTP, transport or parse failure carries no number
+    // and counts as 0.
+    CaptureFailureAction OnFailure(const CallError& error);
     void OnSuccess() { m_consecutive.store(0); }
     void Reset() { m_consecutive.store(0); }
     int Consecutive() const { return m_consecutive.load(); }
@@ -79,6 +102,7 @@ struct CallError
     long httpStatus = 0; // 0 when no response came
     long alpacaError = 0; // the Alpaca ErrorNumber; 0 unless kind is Alpaca
     std::string message; // raw bytes from the server or curl, not necessarily valid UTF-8
+    long curlCode = 0; // the curl error (CURLcode) of a Transport failure; 0 otherwise
 };
 
 // The cap, in bytes, on a reason built by CallErrorReason or OneLine.
@@ -112,7 +136,7 @@ public:
     CallErrorScope(const CallErrorScope&) = delete;
     CallErrorScope& operator=(const CallErrorScope&) = delete;
 
-    void Set(CallError::Kind kind, long httpStatus, long alpacaError, const std::string& message);
+    void Set(CallError::Kind kind, long httpStatus, long alpacaError, const std::string& message, long curlCode = 0);
     void Succeeded() { m_succeeded = true; }
     CallError *Target() { return &m_error; }
 

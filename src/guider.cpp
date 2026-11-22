@@ -170,7 +170,6 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_ditherRecenterStepsPending = 0;
     m_ditherRecenterStalledSteps = 0;
     m_recenteringForWorker = false;
-    m_starFoundTimestamp = 0;
     m_avgDistanceNeedReset = false;
     m_avgDistanceCnt = 0;
     m_lockPosShift.shiftEnabled = false;
@@ -1053,6 +1052,11 @@ void Guider::SetState(GUIDER_STATE newState)
             m_ditherRecenterStalledSteps = 0;
             m_recenteringForWorker = false;
 
+            // count the failed guide moves of this guiding run only (#213)
+            pMount->SetFailedGuideMovesInARow(0);
+            if (pSecondaryMount)
+                pSecondaryMount->SetFailedGuideMovesInARow(0);
+
             pMount->AdjustCalibrationForScopePointing();
             if (pSecondaryMount)
             {
@@ -1096,7 +1100,7 @@ void Guider::SetState(GUIDER_STATE newState)
 
 void Guider::UpdateCurrentDistance(double distance, double distanceRA)
 {
-    m_starFoundTimestamp = wxDateTime::GetTimeNow();
+    m_starFound.Found(monotonic_timers::ClockS());
 
     if (IsGuiding())
     {
@@ -1139,35 +1143,15 @@ void Guider::UpdateCurrentDistance(double distance, double distanceRA)
     }
 }
 
-inline static double CurrentError(time_t starFoundTimestamp, double avgDist)
-{
-    enum
-    {
-        THRESHOLD_SECONDS = 20
-    };
-    static double const LARGE_DISTANCE = 100.0;
-
-    if (!starFoundTimestamp)
-    {
-        return LARGE_DISTANCE;
-    }
-
-    if (wxDateTime::GetTimeNow() - starFoundTimestamp > THRESHOLD_SECONDS)
-    {
-        return LARGE_DISTANCE;
-    }
-
-    return avgDist;
-}
-
+// The averaged distance, or 100 px when no star was found in the last 20 s (monotonic_timers.cpp, #226)
 double Guider::CurrentError(bool raOnly)
 {
-    return ::CurrentError(m_starFoundTimestamp, raOnly ? m_avgDistanceRA : m_avgDistance);
+    return m_starFound.CurrentError(monotonic_timers::ClockS(), raOnly ? m_avgDistanceRA : m_avgDistance);
 }
 
 double Guider::CurrentErrorSmoothed(bool raOnly)
 {
-    return ::CurrentError(m_starFoundTimestamp, raOnly ? m_avgDistanceLongRA : m_avgDistanceLong);
+    return m_starFound.CurrentError(monotonic_timers::ClockS(), raOnly ? m_avgDistanceLongRA : m_avgDistanceLong);
 }
 
 void Guider::StartGuiding()

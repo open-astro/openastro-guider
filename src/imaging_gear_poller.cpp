@@ -16,6 +16,11 @@ namespace
     const size_t MAX_QUEUED_LINES = 200;
     const int MAX_FAILED_DISCOVERIES = 3;
 
+    bool SameServer(const Context& a, const Context& b)
+    {
+        return a.alpaca == b.alpaca && a.host == b.host && a.port == b.port;
+    }
+
     // Fails every read once stopping, so shutdown waits for the read in
     // flight only, not the rest of the poll cycle.
     class StoppableReader : public Reader
@@ -275,6 +280,9 @@ void Poller::SetContext(const Context& ctx)
         std::lock_guard<std::mutex> lock(m_mutex);
         if (ctx == m_context)
             return;
+        // another server's gear is not this one's: unavailable until it has been read (#236)
+        if (!SameServer(ctx, m_context))
+            m_latest = Snapshot();
         m_context = ctx;
         m_contextChanged = true;
     }
@@ -295,9 +303,11 @@ std::vector<std::string> Poller::TakeInfoLines()
     return lines;
 }
 
-void Poller::Publish(const Snapshot& snap, std::vector<std::string> lines)
+void Poller::Publish(const Context& polled, const Snapshot& snap, std::vector<std::string> lines)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+    if (!SameServer(polled, m_context))
+        return; // the server changed while it was read (#236); the next poll reads the new one
     m_latest = snap;
     for (std::string& line : lines)
         m_lines.push_back(std::move(line));
@@ -322,7 +332,7 @@ std::chrono::milliseconds Poller::PollOnce()
         m_work.source = Source::NotAlpaca;
         m_exposing = false;
         m_needFull = true;
-        Publish(m_work, {});
+        Publish(ctx, m_work, {});
         return m_timing.fast;
     }
 
@@ -355,7 +365,7 @@ std::chrono::milliseconds Poller::PollOnce()
             m_work.source = Source::Unavailable;
             m_exposing = false;
             m_needFull = true;
-            Publish(m_work, {});
+            Publish(ctx, m_work, {});
             return m_timing.retry;
         }
 
@@ -429,7 +439,7 @@ std::chrono::milliseconds Poller::PollOnce()
         m_lastConditions = now;
     }
 
-    Publish(m_work, std::move(lines));
+    Publish(ctx, m_work, std::move(lines));
     return m_timing.fast;
 }
 

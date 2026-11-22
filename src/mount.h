@@ -169,6 +169,7 @@ class Mount : public wxMessageBoxProxy
     bool m_connected;
     int m_requestCount;
     int m_errorCount;
+    int m_failedGuideMovesInARow = 0; // while guiding, reset at each guide start (#213)
 
     bool m_calibrated;
     Calibration m_cal;
@@ -312,6 +313,10 @@ public:
     void IncrementErrorCount();
     void ResetErrorCount();
 
+    // the failed guide moves in a row while guiding (guide_move_plan::AfterGuideMove, #213)
+    int FailedGuideMovesInARow() const;
+    void SetFailedGuideMovesInARow(int count);
+
     // pure virtual functions -- these MUST be overridden by a subclass
 public:
     // move the requested direction, return the actual amount of the move
@@ -421,6 +426,16 @@ inline void Mount::IncrementErrorCount()
 inline void Mount::ResetErrorCount()
 {
     m_errorCount = 0;
+}
+
+inline int Mount::FailedGuideMovesInARow() const
+{
+    return m_failedGuideMovesInARow;
+}
+
+inline void Mount::SetFailedGuideMovesInARow(int count)
+{
+    m_failedGuideMovesInARow = count;
 }
 
 inline GuideAlgorithm *Mount::GetXGuideAlgorithm() const

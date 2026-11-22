@@ -63,11 +63,12 @@ private:
 
     AlpacaGain::Range m_gainRange;
     int m_lastRawGain; // last gain sent to the driver, -1 when unknown
-    AlpacaErrors::CaptureFailureTracker m_captureFailures; // 1031 / repeated 1280 -> reconnect (#103)
+    AlpacaErrors::CaptureFailureTracker m_captureFailures; // 1031 / repeated 1280 / refused -> reconnect (#103, #190)
 
     void ClearStatus();
     bool AbortExposure();
     bool CaptureFailed(const AlpacaErrors::CallError& error, const wxString& alert);
+    wxString CaptureReconnectReason(const AlpacaErrors::CallError& error) const;
 
 public:
     bool Color;
