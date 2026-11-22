@@ -512,6 +512,9 @@ namespace
 const long kCurleCouldntConnect = 7; // CURLE_COULDNT_CONNECT
 const long kCurleOperationTimedOut = 28; // CURLE_OPERATION_TIMEDOUT
 const long kCurleCouldntResolveHost = 6; // CURLE_COULDNT_RESOLVE_HOST
+const long kCurleGotNothing = 52; // CURLE_GOT_NOTHING
+const long kCurleRecvError = 56; // CURLE_RECV_ERROR
+const long kCurlePartialFile = 18; // CURLE_PARTIAL_FILE
 
 AlpacaErrors::CallError MakeCallError(AlpacaErrors::CallError::Kind kind, long httpStatus, long alpacaError,
                                       const std::string& message, long curlCode = 0)
@@ -546,6 +549,13 @@ TEST(CaptureFailureTracker, OtherCallFailuresKeepTheAlert)
     EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "Timeout was reached", kCurleOperationTimedOut)),
               CaptureFailureAction::Alert);
     EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "Couldn't resolve host name", kCurleCouldntResolveHost)),
+              CaptureFailureAction::Alert);
+    // #237: a call the server died during (no response) keeps the alert; its frame is retried, and the next
+    // call, refused once the server is gone, reconnects
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "Server returned nothing", kCurleGotNothing)),
+              CaptureFailureAction::Alert);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "Recv failure", kCurleRecvError)), CaptureFailureAction::Alert);
+    EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "transfer closed", kCurlePartialFile)),
               CaptureFailureAction::Alert);
     // "curl not initialized": no curl call was made
     EXPECT_EQ(t.OnFailure(MakeCallError(Kind::Transport, 0, 0, "curl not initialized")), CaptureFailureAction::Alert);
