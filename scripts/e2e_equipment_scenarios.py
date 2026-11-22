@@ -423,6 +423,11 @@ class Lane:
         if self.fake.proc.poll() is not None:
             self.start_fake()
             did.append("fake restarted")
+        else:
+            # a scenario that failed part-way can leave a fault injected or a setting changed
+            self.fake.request("PUT", "/fake/clear_faults")
+            did.append("fake faults cleared")
+        cli.call("set_variable_delay_settings", {"Enabled": False, "ShortDelaySeconds": 1, "LongDelaySeconds": 2})
         for device in ("camera", "mount"):
             if cli.call("get_connected", {"device": device}) is not True:
                 cli.call("set_connected", {"device": device, "connected": True}, timeout=60)
@@ -890,8 +895,10 @@ def scenario_pulseguide_errors(lane):
     lane.debug.mark()
     fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "error": 1280, "count": 100000,
                                          "message": "e2e pulseguide failed"})
-    steps = cli.wait_events(mark, "GuideStep", count=6, timeout=90, abort_on=GUIDE_FAILURES)
-    fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "count": 0})
+    try:
+        steps = cli.wait_events(mark, "GuideStep", count=6, timeout=90, abort_on=GUIDE_FAILURES)
+    finally:
+        fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "pulseguide", "count": 0})
     evs = settle_events(cli, mark)
     failed = fake_log_since(lane, log0).count("injected error 1280 on /api/v1/telescope/0/pulseguide")
     failed_moves = len(re.findall(FAILED_MOVE_LINE, lane.debug.text()))
