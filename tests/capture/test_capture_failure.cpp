@@ -212,6 +212,30 @@ TEST(CalibrationFrameRetry, TimeoutIsTransientByCurlCode)
     EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "curl not initialized"))));
 }
 
+TEST(CalibrationFrameRetry, NoResponseIsTransientByCurlCode)
+{
+    // #237: a call the Alpaca server died during, with no (or a cut) response, is retried like a timeout (#227).
+    // Once the server is really gone the next call is refused and reconnects the camera (#190). Known by the
+    // CURLcode: CURLE_GOT_NOTHING (52), CURLE_RECV_ERROR (56), CURLE_PARTIAL_FILE (18), whatever curl's text
+    EXPECT_TRUE(CaptureFailures::IsTransient(
+        FromCall(Err(CallError::Kind::Transport, 0, 0, "Server returned nothing (no headers, no data)", 52))));
+    EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "", 52))));
+    EXPECT_TRUE(CaptureFailures::IsTransient(
+        FromCall(Err(CallError::Kind::Transport, 0, 0, "Recv failure: Connection reset by peer", 56))));
+    EXPECT_TRUE(CaptureFailures::IsTransient(
+        FromCall(Err(CallError::Kind::Transport, 0, 0, "transfer closed with 1000 bytes remaining to read", 18))));
+    // the text alone is not one
+    EXPECT_FALSE(CaptureFailures::IsTransient(
+        FromCall(Err(CallError::Kind::Transport, 0, 0, "Server returned nothing (no headers, no data)"))));
+    EXPECT_FALSE(CaptureFailures::IsTransient(
+        FromCall(Err(CallError::Kind::Transport, 0, 0, "Recv failure: Connection reset by peer"))));
+    // the code on a failure that is not a transport one is not one either
+    EXPECT_FALSE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Http, 500, 0, "Internal error", 52))));
+    // a host name that does not resolve is still not transient
+    EXPECT_FALSE(
+        CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "Couldn't resolve host name", 6))));
+}
+
 TEST(CalibrationFrameRetry, OtherFailuresAreNotTransient)
 {
     // a disconnect reconnects the camera (#103) instead
@@ -401,6 +425,9 @@ TEST(FrameRetry, DecisionTable)
         { "1280", FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "ZWO image acquisition failed")), true },
         { "1280 no message", FromCall(Err(CallError::Kind::Alpaca, 200, 1280, "")), true },
         { "curl timeout", FromCall(Err(CallError::Kind::Transport, 0, 0, "Timeout was reached", 28)), true },
+        { "curl got nothing", FromCall(Err(CallError::Kind::Transport, 0, 0, "Server returned nothing", 52)), true },
+        { "curl recv error", FromCall(Err(CallError::Kind::Transport, 0, 0, "Recv failure", 56)), true },
+        { "curl partial", FromCall(Err(CallError::Kind::Transport, 0, 0, "transfer closed", 18)), true },
         { "1031", FromCall(Err(CallError::Kind::Alpaca, 200, 1031, "Camera not connected")), false },
         { "1024", FromCall(Err(CallError::Kind::Alpaca, 200, 1024, "Not implemented")), false },
         { "1025", FromCall(Err(CallError::Kind::Alpaca, 200, 1025, "Duration out of range")), false },
