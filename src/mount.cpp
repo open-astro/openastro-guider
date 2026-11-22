@@ -1457,13 +1457,6 @@ bool Mount::SynchronousOnly()
     return false;
 }
 
-bool Mount::HasSetupDialog() const
-{
-    return false;
-}
-
-void Mount::SetupDialog() { }
-
 const wxString& Mount::Name() const
 {
     return m_Name;

@@ -921,16 +921,6 @@ void MyFrame::OnAutoStar(wxCommandEvent& WXUNUSED(evt))
     AutoSelectStar();
 }
 
-void MyFrame::OnSetupCamera(wxCommandEvent& WXUNUSED(event))
-{
-    if (pCamera &&
-        (((pCamera->PropertyDialogType & PROPDLG_WHEN_CONNECTED) != 0 && pCamera->Connected) ||
-         ((pCamera->PropertyDialogType & PROPDLG_WHEN_DISCONNECTED) != 0 && !pCamera->Connected)))
-    {
-        pCamera->ShowPropertyDialog();
-    }
-}
-
 void MyFrame::OnAdvanced(wxCommandEvent& WXUNUSED(event))
 {
     pAdvancedDialog->LoadValues();

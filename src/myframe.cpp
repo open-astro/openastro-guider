@@ -108,8 +108,6 @@ EVT_MENU(MENU_BRAIN, MyFrame::OnAdvanced)
 EVT_TOOL(BUTTON_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(MENU_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(BUTTON_ALERT_CLOSE, MyFrame::OnAlertButton) // Bit of a hack -- not actually on the menu but need an event to accelerate
-EVT_TOOL(BUTTON_CAM_PROPERTIES, MyFrame::OnSetupCamera)
-EVT_MENU(MENU_CAM_SETTINGS, MyFrame::OnSetupCamera)
 EVT_COMMAND_SCROLL(CTRL_GAMMA, MyFrame::OnGammaSlider)
 EVT_COMBOBOX(BUTTON_DURATION, MyFrame::OnExposureDurationSelected)
 EVT_SOCKET(SOCK_SERVER_ID, MyFrame::OnSockServerEvent)
@@ -387,8 +385,6 @@ void MyFrame::SetupMenuBar()
     m_stopMenuItem = guide_menu->Append(MENU_STOP, _("&Stop\tCtrl-S"), _("Stop looping and guiding"));
     m_stopMenuItem->Enable(false);
     m_brainMenuItem = guide_menu->Append(MENU_BRAIN, _("&Advanced Settings\tCtrl-A"), _("Advanced Settings"));
-    m_cameraMenuItem = guide_menu->Append(MENU_CAM_SETTINGS, _("&Camera Settings"), _("Camera settings"));
-    m_cameraMenuItem->Enable(false);
 
     tools_menu = new wxMenu;
     m_autoSelectStarMenuItem = tools_menu->Append(MENU_AUTOSTAR, _("&Auto-select Star\tAlt-S"), _("Automatically select star"));
@@ -786,12 +782,6 @@ void MyFrame::SetupToolBar()
 #include "icons/brain.png.h"
     wxBitmap brain_bmp(wxBITMAP_PNG_FROM_DATA(brain));
 
-#include "icons/cam_setup.png.h"
-    wxBitmap cam_setup_bmp(wxBITMAP_PNG_FROM_DATA(cam_setup));
-
-#include "icons/cam_setup_disabled.png.h"
-    wxBitmap cam_setup_bmp_disabled(wxBITMAP_PNG_FROM_DATA(cam_setup_disabled));
-
     int dur_values[] = {
         10,    20,   50,   100,  200,  500,  1000, 1500, 2000,  2500,  3000,
         3500,  4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000, 15000,
@@ -827,8 +817,6 @@ void MyFrame::SetupToolBar()
     MainToolbar->AddControl(Gamma_Slider, _("Gamma"));
     MainToolbar->AddSeparator();
     MainToolbar->AddTool(BUTTON_ADVANCED, _("Advanced Settings"), brain_bmp, _("Advanced Settings"));
-    MainToolbar->AddTool(BUTTON_CAM_PROPERTIES, cam_setup_bmp, cam_setup_bmp_disabled, false, 0, _("Camera settings"));
-    MainToolbar->EnableTool(BUTTON_CAM_PROPERTIES, false);
     MainToolbar->EnableTool(BUTTON_LOOP, false);
     MainToolbar->EnableTool(BUTTON_AUTOSTAR, false);
     MainToolbar->EnableTool(BUTTON_GUIDE, false);
@@ -897,11 +885,6 @@ void MyFrame::UpdateButtonsStatus()
     bool bGuideable = pGuider->GetState() == STATE_SELECTED && pMount && pMount->IsConnected();
 
     if (cond_update_tool(MainToolbar, BUTTON_GUIDE, m_guideMenuItem, bGuideable))
-        need_update = true;
-
-    bool cam_props = pCamera && (pCamera->PropertyDialogType & PROPDLG_WHEN_CONNECTED) != 0 && pCamera->Connected;
-
-    if (cond_update_tool(MainToolbar, BUTTON_CAM_PROPERTIES, m_cameraMenuItem, cam_props))
         need_update = true;
 
     // also drives a headless (JSON-RPC) Guiding Assistant run, which has no window

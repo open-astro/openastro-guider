@@ -66,7 +66,6 @@ private:
     AlpacaErrors::CaptureFailureTracker m_captureFailures; // 1031 / repeated 1280 / refused -> reconnect (#103, #190)
 
     void ClearStatus();
-    void CameraSetup();
     bool AbortExposure();
     bool CaptureFailed(const AlpacaErrors::CallError& error, const wxString& alert);
     wxString CaptureReconnectReason(const AlpacaErrors::CallError& error) const;
@@ -82,7 +81,6 @@ public:
     bool HasNonGuiCapture() override;
     wxByte BitsPerPixel() override;
     bool GetDevicePixelSize(double *pixSize) override;
-    void ShowPropertyDialog() override;
 
     bool Capture(usImage& img, const CaptureParams& captureParams) override;
     bool SetCoolerOn(bool on) override;

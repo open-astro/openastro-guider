@@ -37,7 +37,6 @@
 
 # include "scope_alpaca.h"
 # include "scope.h"
-# include "config_alpaca.h"
 # include "connect_retry.h"
 # include "alpaca_client.h"
 # include "pulse_wait.h"
@@ -293,43 +292,6 @@ bool ScopeAlpaca::Disconnect()
     Scope::Disconnect();
 
     return bError;
-}
-
-bool ScopeAlpaca::HasSetupDialog() const
-{
-    return true;
-}
-
-void ScopeAlpaca::SetupDialog()
-{
-    // show the server and device configuration
-    AlpacaConfig alpacaDlg(wxGetApp().GetTopWindow(), _("Alpaca Telescope Selection"), ALPACA_TYPE_TELESCOPE);
-    alpacaDlg.m_host = m_host;
-    alpacaDlg.m_port = m_port;
-    alpacaDlg.m_deviceNumber = m_deviceNumber;
-
-    // initialize with actual values
-    alpacaDlg.SetSettings();
-
-    if (alpacaDlg.ShowModal() == wxID_OK)
-    {
-        // if OK save the values to the current profile
-        alpacaDlg.SaveSettings();
-        m_host = alpacaDlg.m_host;
-        m_port = alpacaDlg.m_port;
-        m_deviceNumber = alpacaDlg.m_deviceNumber;
-        pConfig->Profile.SetString("/alpaca/host", m_host);
-        pConfig->Profile.SetLong("/alpaca/port", m_port);
-        pConfig->Profile.SetLong("/alpaca/telescope_device", m_deviceNumber);
-        m_Name = wxString::Format("Alpaca Mount [%s:%ld/%ld]", m_host, m_port, m_deviceNumber);
-
-        // Recreate client with new settings
-        if (m_client)
-        {
-            delete m_client;
-            m_client = nullptr;
-        }
-    }
 }
 
 static wxString PulseGuideFailedAlertEnabledKey()

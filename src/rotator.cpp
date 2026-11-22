@@ -143,8 +143,6 @@ bool Rotator::IsConnected() const
     return m_connected;
 }
 
-void Rotator::ShowPropertyDialog() { }
-
 void Rotator::SetReversed(bool val)
 {
     m_isReversed = val;
