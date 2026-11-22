@@ -1114,17 +1114,30 @@ void MyFrame::DoTryReconnect()
     // no exposure pending: it only sends the events, and must not start or stop the capture loop.
     bool exposurePending = m_exposurePending;
 
-    // do not reconnect more than 3 times in 1 minute
+    // The camera the last reconnect brought back failed again before it delivered a frame: the server read it
+    // as connected while it was not (AlpacaBridge does, for an ASI camera unbound from USB). That reconnect
+    // failed, and reconnecting again at once would fail the same way, so the #104 retry takes over.
+    if (m_cameraReconnectUnconfirmed)
+    {
+        m_cameraReconnectUnconfirmed = false;
+        const wxString reason(_("the camera failed its first frame after reconnecting"));
+        Debug.Write("Camera Re-connect not confirmed: " + reason + "\n");
+        EvtServer.NotifyEquipmentReconnectFailed("camera", m_cameraReconnectThrottle.Attempts(), reason);
+        if (exposurePending)
+            OnExposeComplete(0, true);
+        pGearDialog->NoteCameraReconnectFailed(reason);
+        return;
+    }
+
+    // do not reconnect more than 3 times in 1 minute (monotonic_timers.cpp, #226)
     enum
     {
-        TIME_WINDOW = 60,
-        MAX_ATTEMPTS = 3
+        TIME_WINDOW = monotonic_timers::ReconnectThrottle::TIME_WINDOW_S,
+        MAX_ATTEMPTS = monotonic_timers::ReconnectThrottle::MAX_ATTEMPTS
     };
-    time_t now = wxDateTime::GetTimeNow();
-    Debug.Write(wxString::Format("Try camera reconnect, now = %lu\n", (unsigned long) now));
-    while (m_cameraReconnectAttempts.size() > 0 && now - m_cameraReconnectAttempts[0] > TIME_WINDOW)
-        m_cameraReconnectAttempts.erase(m_cameraReconnectAttempts.begin());
-    if (m_cameraReconnectAttempts.size() + 1 > MAX_ATTEMPTS)
+    int64_t now = monotonic_timers::ClockS();
+    Debug.Write(wxString::Format("Try camera reconnect, now = %lld\n", (long long) now));
+    if (!m_cameraReconnectThrottle.TryAttempt(now))
     {
         Debug.Write(wxString::Format("More than %d camera reconnect attempts in less than %d seconds, "
                                      "return without reconnect.\n",
@@ -1132,7 +1145,7 @@ void MyFrame::DoTryReconnect()
         // Terminal signal so clients waiting on EquipmentDisconnected{reconnecting:true}
         // don't hang forever on a permanent unplug (they get no EquipmentReconnected).
         EvtServer.NotifyEquipmentReconnectFailed(
-            "camera", (int) m_cameraReconnectAttempts.size(),
+            "camera", m_cameraReconnectThrottle.Attempts(),
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         if (exposurePending)
             OnExposeComplete(0, true);
@@ -1141,15 +1154,13 @@ void MyFrame::DoTryReconnect()
             wxString::Format("auto-reconnect throttle exhausted (%d attempts in %d s)", MAX_ATTEMPTS, TIME_WINDOW));
         return;
     }
-    m_cameraReconnectAttempts.push_back(now);
-
     bool err = pGearDialog->ReconnectCamera();
     if (err)
     {
         Debug.Write("Camera Re-connect failed\n");
         // Terminal too: EquipmentDisconnected{reconnecting:true} is always followed by
         // EquipmentReconnected or EquipmentReconnectFailed.
-        EvtServer.NotifyEquipmentReconnectFailed("camera", (int) m_cameraReconnectAttempts.size(),
+        EvtServer.NotifyEquipmentReconnectFailed("camera", m_cameraReconnectThrottle.Attempts(),
                                                  "the camera did not reconnect");
         // complete the pending exposure notification
         if (exposurePending)
@@ -1162,8 +1173,16 @@ void MyFrame::DoTryReconnect()
         Debug.Write(exposurePending ? "Camera Re-connect succeeded, resume exposures\n"
                                     : "Camera Re-connect succeeded, no exposure pending\n");
         // ARA integration (PHD2-GAP gap 2): the recovered twin of
-        // EquipmentDisconnected, so clients can clear their fault state.
-        EvtServer.NotifyEquipmentReconnected("camera");
+        // EquipmentDisconnected, so clients can clear their fault state. During a capture the server's word that
+        // the camera is connected is not enough: the next frame sends it once it arrives (OnExposeComplete).
+        // With no capture going on there is no frame to wait for.
+        if (exposurePending)
+        {
+            Debug.Write("Camera Re-connect: EquipmentReconnected waits for the next frame\n");
+            m_cameraReconnectUnconfirmed = true;
+        }
+        else
+            EvtServer.NotifyEquipmentReconnected("camera");
         UpdateStatusBarStateLabels();
         if (exposurePending)
         {
@@ -1425,13 +1444,15 @@ void MyFrame::ScheduleExposure()
 
     // #182: decided here, after the previous frame updated the guide and controller state, not on the worker
     int delayMs = GetExposureDelay();
+    // #210: likewise the noise reduction, which set_noise_reduction writes on this thread
+    NOISE_REDUCTION_METHOD noiseReduction = GetNoiseReductionMethod();
 
     usImage *img = new usImage();
 
     wxCriticalSectionLocker lock(m_CSpWorkerThread);
 
     if (m_pPrimaryWorkerThread) // can be null when app is shutting down (unlikely but possible)
-        m_pPrimaryWorkerThread->EnqueueWorkerThreadExposeRequest(img, captureParams, delayMs);
+        m_pPrimaryWorkerThread->EnqueueWorkerThreadExposeRequest(img, captureParams, delayMs, noiseReduction);
 }
 
 void MyFrame::SchedulePrimaryMove(Mount *mount, const GuiderOffset& ofs, unsigned int moveOptions)

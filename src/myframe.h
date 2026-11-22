@@ -38,6 +38,7 @@
 #define MYFRAME_H_INCLUDED
 
 #include "dither_random.h" // class DitherRandom
+#include "monotonic_timers.h"
 
 class WorkerThread;
 class MyFrame;
@@ -252,6 +253,9 @@ public:
     wxWindow *pGuidingAssistant = nullptr;
     bool CaptureActive = false; // Is camera looping captures?
     bool m_exposurePending = false; // exposure scheduled and not completed
+    // The camera auto-reconnect succeeded during a capture, and its EquipmentReconnected waits for the first frame
+    // after it: a good frame sends it, a failed one EquipmentReconnectFailed (DoTryReconnect, OnExposeComplete).
+    bool m_cameraReconnectUnconfirmed = false;
     double Stretch_gamma;
     unsigned int m_frameCounter;
     wxDateTime m_guidingStarted;
@@ -452,7 +456,8 @@ private:
     alert_fn *m_alertSpecialFn;
     intptr_t m_alertFnArg;
 
-    std::vector<time_t> m_cameraReconnectAttempts; // for rate-limiting camera reconnect attempts
+    // for rate-limiting camera reconnect attempts, on monotonic_timers::ClockS (#226)
+    monotonic_timers::ReconnectThrottle m_cameraReconnectThrottle;
 
     bool StartWorkerThread(WorkerThread *& pWorkerThread);
     bool StopWorkerThread(WorkerThread *& pWorkerThread);

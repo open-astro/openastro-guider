@@ -1390,11 +1390,8 @@ void GearDialog::ReloadProfileGear()
     LoadGearChoices();
 }
 
-bool GearDialog::SetProfile(int profileId, wxString *error)
+bool GearDialog::ProfileSwitchRefused(wxString *error) const
 {
-    if (profileId == pConfig->GetCurrentProfileId())
-        return false;
-
     if (IsModal())
     {
         // these error messages are internal to the event server and are not translated
@@ -1408,6 +1405,17 @@ bool GearDialog::SetProfile(int profileId, wxString *error)
         *error = "cannot set profile when equipment is connected";
         return true;
     }
+
+    return false;
+}
+
+bool GearDialog::SetProfile(int profileId, wxString *error)
+{
+    if (profileId == pConfig->GetCurrentProfileId())
+        return false;
+
+    if (ProfileSwitchRefused(error))
+        return true;
 
     if (!pConfig->ProfileExists(profileId))
     {
@@ -2419,7 +2427,10 @@ void GearDialog::OnProfileRename(wxCommandEvent& event)
     if (newname.IsEmpty())
         return;
 
-    if (pConfig->GetProfileId(newname) > 0)
+    // profile names match without case, so a case-only rename (rc51 to RC51) finds the profile itself: only
+    // another profile with that name is a collision (#232)
+    int existing = pConfig->GetProfileId(newname);
+    if (existing > 0 && existing != pConfig->GetProfileId(current))
     {
         wxMessageBox(wxString::Format(_("Cannot rename profile to %s, there is already a profile with that name"), newname),
                      _("Error"));

@@ -37,6 +37,7 @@
 #include "darks_dialog.h"
 #include "image_math.h"
 #include "capture_cleanup.h"
+#include "guide_move_plan.h"
 
 #include <algorithm>
 #include <memory>
@@ -526,6 +527,23 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             Debug.Write(wxString::Format("OnExposeComplete: %s\n", failure));
 
             bool stopping = !m_continueCapturing;
+            // The camera the auto-reconnect brought back failed its first frame: that reconnect failed, and the
+            // camera is disconnected below for the #104 retry. A frame cut short by a stop request proves nothing
+            // either way, and the server reads the camera as connected, so that one confirms the reconnect.
+            bool reconnectFailed = false;
+            if (m_cameraReconnectUnconfirmed)
+            {
+                m_cameraReconnectUnconfirmed = false;
+                if (stopping)
+                    EvtServer.NotifyEquipmentReconnected("camera");
+                else
+                {
+                    reconnectFailed = true;
+                    EvtServer.NotifyEquipmentReconnectFailed(
+                        "camera", m_cameraReconnectThrottle.Attempts(),
+                        wxString::Format(_("the camera failed its first frame after reconnecting: %s"), failure));
+                }
+            }
             // the guide / dither request this ends fails with the reason, and so does an interrupted calibration
             // (NotifyGuidingStopped, FinishStop and Guider::StopGuiding read it, so the event order is unchanged)
             if (!stopping)
@@ -549,11 +567,26 @@ void MyFrame::OnExposeComplete(usImage *pNewFrame, bool err)
             PhdController::AbortController(stopping ? wxString("Image capture stopped") : failure);
             StatusMsg(_("Stopped."));
 
+            if (reconnectFailed && pCamera->Connected)
+            {
+                Debug.Write("OnExposeComplete: disconnecting the camera whose reconnect was not confirmed\n");
+                pCamera->Disconnect();
+                pGearDialog->NoteCameraReconnectFailed(failure);
+            }
+
             throw ERROR_INFO("Error reported capturing image");
         }
 
         pNewFrame->FrameNum = ++m_frameCounter;
         m_frameRetries.OnGoodFrame(); // #116, #136: the retry budget is for consecutive failures
+
+        // the first frame after a camera auto-reconnect: the camera is back
+        if (m_cameraReconnectUnconfirmed)
+        {
+            m_cameraReconnectUnconfirmed = false;
+            Debug.Write("OnExposeComplete: frame received, camera reconnect confirmed\n");
+            EvtServer.NotifyEquipmentReconnected("camera");
+        }
 
         if (m_rawImageMode && !m_rawImageModeWarningDone)
         {
@@ -633,6 +666,19 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
             pFrame->NotifyGuidingStopped();
         }
 
+        // While guiding, a mount whose moves keep failing stops guiding (#213); a slew or the AO's
+        // travel limit is handled below. With the mount's guide output off (set_guide_output_enabled,
+        // the Guiding Assistant) MoveAxis refused the move, "Guiding disabled", and sent no pulse: a
+        // refusal is not a failed move and leaves the count as it was
+        bool stopForFailedMoves = false;
+        if (pGuider->IsGuiding() && mount->GetGuidingEnabled())
+        {
+            guide_move_plan::FailedGuideMoves failed = guide_move_plan::AfterGuideMove(
+                static_cast<guide_move_plan::MoveResult>(moveResult), mount->FailedGuideMovesInARow());
+            mount->SetFailedGuideMovesInARow(failed.inARow);
+            stopForFailedMoves = failed.stopGuiding && moveResult == Mount::MOVE_ERROR;
+        }
+
         if (moveResult != Mount::MOVE_OK)
         {
             mount->IncrementErrorCount();
@@ -671,6 +717,15 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
                     pGuider->StartGuiding();
                     pGuider->SetLockPosIsSticky(saveSticky);
                 }
+            }
+            else if (stopForFailedMoves)
+            {
+                Debug.Write(
+                    wxString::Format("%d guide moves in a row failed, stopping guiding\n", mount->FailedGuideMovesInARow()));
+                pFrame->Alert(wxString::Format(_("Guiding stopped: the last %d guide moves to %s failed. Its guide "
+                                                 "pulses keep failing; check the mount and its connection."),
+                                               mount->FailedGuideMovesInARow(), mount->Name()));
+                pGuider->StopGuiding();
             }
 
             throw ERROR_INFO("Error reported moving");
