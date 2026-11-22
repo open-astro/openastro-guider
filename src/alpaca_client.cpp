@@ -66,6 +66,10 @@ static_assert(AlpacaErrors::kCurlCouldntConnect == CURLE_COULDNT_CONNECT, "kCurl
 // and the code a timed-out call gives (#227)
 static_assert(AlpacaErrors::kCurlOperationTimedOut == CURLE_OPERATION_TIMEDOUT,
               "kCurlOperationTimedOut is not CURLE_OPERATION_TIMEDOUT");
+// and the codes of a call the server died during (#237)
+static_assert(AlpacaErrors::kCurlGotNothing == CURLE_GOT_NOTHING, "kCurlGotNothing is not CURLE_GOT_NOTHING");
+static_assert(AlpacaErrors::kCurlRecvError == CURLE_RECV_ERROR, "kCurlRecvError is not CURLE_RECV_ERROR");
+static_assert(AlpacaErrors::kCurlPartialFile == CURLE_PARTIAL_FILE, "kCurlPartialFile is not CURLE_PARTIAL_FILE");
 } // namespace
 
 size_t AlpacaClient::WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)

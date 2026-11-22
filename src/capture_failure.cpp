@@ -60,7 +60,9 @@ bool IsTransient(const Failure& failure)
     case AlpacaErrors::CallError::Kind::Alpaca:
         return failure.call.alpacaError == AlpacaErrors::kUnspecifiedError;
     case AlpacaErrors::CallError::Kind::Transport:
-        return failure.call.curlCode == AlpacaErrors::kCurlOperationTimedOut;
+        return failure.call.curlCode == AlpacaErrors::kCurlOperationTimedOut ||
+            failure.call.curlCode == AlpacaErrors::kCurlGotNothing || failure.call.curlCode == AlpacaErrors::kCurlRecvError ||
+            failure.call.curlCode == AlpacaErrors::kCurlPartialFile;
     default:
         return false;
     }

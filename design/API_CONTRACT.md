@@ -1170,3 +1170,30 @@ it, so Ara read the camera as back 8 s before it was plugged in again.
 
 ARA: no code change needed. `EquipmentReconnected{camera}` may now come one exposure later than before, and a camera
 the server only claims is back now ends in `EquipmentReconnectFailed`, then the slow retry's `EquipmentReconnected`.
+
+## 2026-11-22 — an Alpaca server that dies mid-request reconnects the camera (#237)
+
+No new method, field or event. #190 sent a capture call the Alpaca server refused through the
+camera reconnect path, but a call the server died during (it was killed, or the Pi lost power, while
+the guider waited on it) fails with "no response from the Alpaca server" (curl's
+`CURLE_GOT_NOTHING`, `CURLE_RECV_ERROR` or `CURLE_PARTIAL_FILE`), not a refused connection. That
+only raised an `Alert` and stopped guiding: the camera was never disconnected, `get_connected` kept
+reading it as connected, and the #104 retry never reconnected it.
+
+- Such a call is now transient, like a timed-out call (#227): while calibrating its frame is exposed
+  again (#116), while guiding it is dropped (#136), `StarLost` with `Status`
+  `"camera error: no response from the Alpaca server (<curl text>)"`, within the same budget of 2
+  failed frames in a row. The camera's `Alert` for it goes out as before. It is told by curl's code,
+  not its text.
+- When the server is really gone, the next frame's call is refused and takes the #190 path:
+  `EquipmentDisconnected{device_type:"camera", reconnecting:true}` ("Cannot connect to the Alpaca
+  server at <host>:<port> (refused or unreachable)"), `EquipmentReconnectFailed`, guiding stops,
+  `get_connected` reads `false` for the camera, and the #104 retry sends `EquipmentReconnected`
+  once the server is back, without restarting capture. A server that comes back before the next
+  call costs one dropped frame and guiding goes on.
+- Not changed: a refused connection reconnects at once (#190); an unresolved host name, HTTP and
+  parse failures keep the `Alert` and stop as before; the mount.
+
+ARA: no code change needed. A server killed mid-guide now reaches the `EquipmentDisconnected`
+handler and then `EquipmentReconnectFailed`, as a server gone between two calls does (#190), after
+one `StarLost` for the cut frame.

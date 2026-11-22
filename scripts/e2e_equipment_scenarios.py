@@ -1126,6 +1126,9 @@ def scenario_fake_killed_mid_request(lane):
     """The Alpaca server killed while the guider waits on a startexposure, then back on the same port (#211, #237)."""
     cli = lane.cli
     expect(cli.call("get_app_state") == "Guiding", "not guiding")
+    # the reconnect is the 4th within 60 s after the scenarios before it, which the throttle would refuse instead
+    lane.wait_reconnect_window()
+    expect(cli.call("get_app_state") == "Guiding", "not guiding after the wait")
     truth = lane.fake.truth()["field_offset_px"]
     server = f"{lane.fake.host}:{lane.fake.port}"
     mark = cli.mark()

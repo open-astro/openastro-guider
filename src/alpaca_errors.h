@@ -40,6 +40,14 @@ const long kCurlCouldntConnect = 7;
 // call that a new exposure can clear (CaptureFailures::IsTransient, #227). alpaca_client.cpp checks it
 // against curl.h.
 const long kCurlOperationTimedOut = 28;
+// The curl errors (CURLcode) of a call the server died during, with no response or a cut one (#237):
+// CURLE_GOT_NOTHING (the connection closed before any response), CURLE_RECV_ERROR (reset while reading it) and
+// CURLE_PARTIAL_FILE (closed part-way through the body). Transient like a timeout (CaptureFailures::IsTransient):
+// the frame is retried, and once the server is really gone the next call is refused and reconnects (#190).
+// alpaca_client.cpp checks them against curl.h.
+const long kCurlGotNothing = 52;
+const long kCurlRecvError = 56;
+const long kCurlPartialFile = 18;
 
 enum class CaptureFailureAction
 {

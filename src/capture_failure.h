@@ -71,8 +71,11 @@ enum class FramePhase
 FramePhase PhaseFor(GUIDER_STATE state);
 
 // True for a failure that a new exposure can clear: Alpaca 1280 (the driver's image
-// acquisition failed) and a call that timed out with no response (Transport with curlCode
-// kCurlOperationTimedOut; the code, not curl's text, which curl rewords between versions, #227).
+// acquisition failed), a call that timed out with no response (Transport with curlCode
+// kCurlOperationTimedOut; the code, not curl's text, which curl rewords between versions, #227),
+// and a call the server died during, with no response or a cut one (kCurlGotNothing, kCurlRecvError,
+// kCurlPartialFile, #237): if the server is really gone, the retried frame's call is refused and
+// reconnects the camera (#190).
 // False for anything else:
 // 1031 and other Alpaca errors, an HTTP status, an invalid response, another transport failure,
 // a driver alert alone (the capture watchdog's timeout reconnects instead), and an empty

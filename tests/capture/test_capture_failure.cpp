@@ -217,6 +217,9 @@ TEST(CalibrationFrameRetry, NoResponseIsTransientByCurlCode)
     // #237: a call the Alpaca server died during, with no (or a cut) response, is retried like a timeout (#227).
     // Once the server is really gone the next call is refused and reconnects the camera (#190). Known by the
     // CURLcode: CURLE_GOT_NOTHING (52), CURLE_RECV_ERROR (56), CURLE_PARTIAL_FILE (18), whatever curl's text
+    EXPECT_EQ(AlpacaErrors::kCurlGotNothing, 52);
+    EXPECT_EQ(AlpacaErrors::kCurlRecvError, 56);
+    EXPECT_EQ(AlpacaErrors::kCurlPartialFile, 18);
     EXPECT_TRUE(CaptureFailures::IsTransient(
         FromCall(Err(CallError::Kind::Transport, 0, 0, "Server returned nothing (no headers, no data)", 52))));
     EXPECT_TRUE(CaptureFailures::IsTransient(FromCall(Err(CallError::Kind::Transport, 0, 0, "", 52))));
