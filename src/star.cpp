@@ -36,6 +36,7 @@
  */
 
 #include "phd.h"
+#include "edge_allowance.h"
 #include "star_find_core.h"
 #include <algorithm>
 
@@ -609,8 +610,8 @@ bool GuideStar::AutoFind(const usImage& image, int extraEdgeAllowance, int searc
         {
             std::set<Peak>::iterator next = it;
             ++next;
-            if (it->x <= edgeDist || it->x >= image.Size.GetWidth() - edgeDist || it->y <= edgeDist ||
-                it->y >= image.Size.GetHeight() - edgeDist)
+            // the rule is edge_allowance.cpp's, which IsValidLockPosition agrees with (#142)
+            if (!ClearOfEdge(it->x, it->y, image.Size.GetWidth(), image.Size.GetHeight(), edgeDist))
             {
                 Debug.Write(wxString::Format("AutoFind: too close to edge [%d, %d] %.1f\n", it->x, it->y, it->val));
                 stars.erase(it);

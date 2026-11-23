@@ -35,6 +35,7 @@
 
 #include "phd.h"
 #include "backlash_comp.h"
+#include "guide_move_plan.h"
 
 #include <algorithm>
 
@@ -548,17 +549,21 @@ void BacklashComp::TrackBLCResults(unsigned int moveOptions, double yRawOffset)
 
 void BacklashComp::ApplyBacklashComp(unsigned int moveOptions, double yGuideDistance, int *yAmount)
 {
-    if (!(moveOptions & MOVEOPT_USE_BLC))
-        return;
-    if (!m_compActive || m_pulseWidth <= 0 || yGuideDistance == 0.0)
+    // Which moves are compensated, and by how much (guide_move_plan.cpp): none in a North- or
+    // South-only Dec guide mode (#142)
+    guide_move_plan::Dir lastDirection = static_cast<guide_move_plan::Dir>(m_lastDirection);
+    guide_move_plan::BacklashPlan plan = guide_move_plan::PlanBacklashComp(
+        moveOptions, m_compActive, m_pulseWidth, static_cast<guide_move_plan::DecMode>(m_pScope->GetDecGuideMode()),
+        yGuideDistance, lastDirection);
+    if (plan.skipped)
         return;
 
-    GUIDE_DIRECTION dir = yGuideDistance > 0.0 ? DOWN : UP;
+    GUIDE_DIRECTION dir = static_cast<GUIDE_DIRECTION>(lastDirection);
     bool isAlgoResultMove = (moveOptions & MOVEOPT_ALGO_RESULT) != 0;
 
-    if (m_lastDirection != NONE && dir != m_lastDirection)
+    if (plan.reversal)
     {
-        *yAmount += m_pulseWidth;
+        *yAmount += plan.addMs;
 
         if (isAlgoResultMove)
         {

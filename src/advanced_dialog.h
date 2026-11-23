@@ -103,7 +103,6 @@ public:
 
     bool Validate() override;
     void ShowInvalid(wxWindow *ctrl, const wxString& message);
-    double PercentChange(double oldVal, double newVal);
     void FlagImageScaleChange()
     {
         m_imageScaleChanged = true;
@@ -114,7 +113,6 @@ public:
     void SetPixelSize(double val);
     int GetBinning();
     void SetBinning(int binning);
-    void MakeImageScaleAdjustments();
     Mount::MountConfigDialogPane *GetCurrentMountPane() { return m_pMountPane; }
 
     wxWindow *GetTabLocation(BRAIN_CTRL_IDS id);
@@ -129,7 +127,6 @@ private:
     void BuildCtrlSets();
     void CleanupCtrlSets();
     void ConfirmLayouts();
-    double DetermineGuideSpeed();
 };
 
 #endif // ADVANCED_DIALOG_H_INCLUDED
