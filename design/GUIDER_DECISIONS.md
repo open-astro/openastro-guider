@@ -112,6 +112,8 @@ entries; add new ones at the bottom.**
   and uses `--auto-connect`.
 - **Why:** `openastro-guider` is a guiding *daemon*, not an app (playbook §2). It should "just
   start headless" under systemd with no flag; the GUI is only a local-diagnosis affordance.
+- **Superseded 2026-11-23** by "#115 steps 4-8: a console daemon, no Xvfb" below; the original
+  text is kept as written.
 - **Display strategy — Xvfb (documented, not Xvfb-free):** the daemon runs the wxGTK core under
   `xvfb-run` (a virtual X server) with the window hidden. wxGTK genuinely needs a display to
   initialize even when nothing is shown, so a truly Xvfb-free build would mean decoupling the
@@ -209,3 +211,52 @@ entries; add new ones at the bottom.**
   reads back, so it keeps running until then); the `--gui` switch (step 8).
 - **Verified:** per slice, ctest, the four daemon e2e lanes (main, physics, gear, faults) and
   `scripts/e2e_persistence.py` under ASan/UBSan. RC51 checks follow the design's rig checklist.
+
+## 2026-11-23 — #115 steps 4-8: a console daemon, no Xvfb
+
+- **What:** The 2026-06-06 "Display strategy — Xvfb" decision is reversed. The guider is now a
+  console program that needs no X display, and the package runs it straight from systemd. Steps
+  4-8 of #115 got there in one slice per PR:
+  - Step 4 (#272-#284): every setting lives in its class and the profile, with JSON-RPC as the only
+    editor; `AdvancedDialog`, its panes, `configdialog`, `DarksDialog`, `GPExpertDialog` and the
+    Guiding Assistant window are deleted.
+  - Step 5 (#290-#293): bookmarks, overlays and painting are gone, and `Guider` is a plain class.
+  - Step 6 (#299-#308): the dark state, exposure, gamma and alerts no longer go through widgets;
+    the menus, toolbar, AUI layout, `ConfirmDialog`, the camera simulator and the main-thread
+    fallbacks are deleted; shutdown no longer needs a window close; `MyFrame` is a `wxEvtHandler`.
+  - Step 7 (#309-#311): `GET /api/frame.jpg` is encoded with libjpeg (`image_stretch`,
+    `jpeg_encode`) and `usImage` has no `wxImage` code.
+  - Step 8 (#312-#316): `phd.h` includes only wxBase headers; `PhdApp` is a `wxAppConsole` on
+    wxBase's event loop; `phd2.bin` links only `libwx_baseu` and `libwx_baseu_net`, built with
+    `wxUSE_GUI=0`; the e2e lanes and CI run it without `xvfb-run`; the unit's `ExecStart` is
+    `/usr/bin/openastro-guider --auto-connect` and the package no longer depends on `xvfb`.
+- **Why:** Ara is the only user interface (#113, #114), so the hidden window, the GTK main loop and
+  Xvfb were weight with failure modes of their own: modal message boxes on a display nobody could
+  see, `XInitThreads`, GTK's event loop and an extra runtime dependency. The June decision avoided
+  the refactor to keep scope down; steps 0-3 had already moved the API off the GUI, which made the
+  rest a sequence of deletions behind e2e pins.
+- **Decisions:**
+  - **Build-Depends keeps `libwxgtk3.2-dev`.** Debian has no wxBase-only development package, so
+    the build still installs the GTK wx headers and libraries. The daemon builds with
+    `wxUSE_GUI=0` and links wxBase and wxNet only, so the runtime Depends that `dh_shlibdeps`
+    computes is `libwxbase3.2` with no GTK, GDK or X11 package. `debian/control` says so in a
+    comment. CI's `No GUI libraries` step (`scripts/check_no_gui_libs.sh`) fails if a GUI library
+    comes back on `phd2.bin`'s NEEDED list.
+  - **`--gui` is a no-op.** It is still accepted, so existing scripts and units start, and writes
+    `warning: --gui is ignored: there is no window any more` to stderr and the Debug log; the daemon
+    runs as without it. `--headless` stays an accepted no-op. GTK's own options (`--display` and
+    the like) were consumed by wxGTK before. The console app declares `--display` and ignores it
+    with the same kind of warning (S9.2), so an old unit or script that passed it still starts;
+    the other GTK options were never used here.
+  - **No new Alerts.** Message boxes and prompts that only `--gui` could show became Debug lines
+    (or nothing), not new `Alert` events.
+  - **`pFrame` and `MyFrame` keep their names**, though `MyFrame` is no longer a frame.
+  - **Pane-only side effects stay out of the RPC setters.** What a pane did on OK beyond saving
+    the value was not moved into the JSON-RPC setters.
+  - **`ConfirmDialog` went in step 6 (S6.5)**, with its last caller, not in step 4.
+- **The JSON-RPC API does not change**, except for removals the epic lists: `guiding_assistant_start`
+  loses its "the Guiding Assistant dialog is open" error, which the daemon never returned.
+  `/api/frame.jpg` gives the same bytes. Profile keys no longer read or written and the changed
+  Debug lines are recorded in `design/API_CONTRACT.md` (2026-11-23).
+- **Verified:** per slice, ctest, the four daemon e2e lanes and `scripts/e2e_persistence.py` under
+  ASan/UBSan, with no X display since S8.4. RC51 passes follow the design's rig checklist.

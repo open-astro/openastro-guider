@@ -16,9 +16,10 @@ as the GUI/INDI reference and is configured as the `upstream` git remote.
 1. **No scope creep.** This is a *strip + headless-enable*, not a rewrite. Keep the guiding
    engine, calibration math, guide algorithms, dark/defect-map logic, and the event-server
    protocol intact. Remove platforms and backends; do not "improve" working guiding logic.
-2. **Keep wxWidgets.** wxBase (threads, config, strings, sockets) and the existing GUI code
-   stay. We add a **headless run mode** (no window shown / daemonized); we do **not** rip out
-   wx. Full wx removal is explicitly out of scope.
+2. **Keep wxWidgets.** wxBase (threads, config, strings, sockets, the event loop) and wxNet
+   stay. The plan first kept the GUI code with no window shown, under Xvfb; #115 (steps 4-8,
+   2026-11-23) removed the GUI code, so the daemon is a `wxAppConsole` that needs no X display
+   (see `GUIDER_DECISIONS.md`). Full wx removal is explicitly out of scope.
 3. **No half-finished states.** Each commit leaves the tree buildable for the headless target.
    Work on a per-PR feature branch cut from `main`; merge back to `main` via PR (same
    GitHub Flow + merge-gate as the ARA port — see §6).
@@ -69,11 +70,13 @@ arm64, the same target as AlpacaBridge) and is controlled remotely:
 - **INDI backend** — `*_indi.cpp` (camera/mount/rotator/focuser/config), `indi_gui.cpp`,
   `indi_discovery.cpp`, libindi build dep, the `USE_SYSTEM_LIBINDI` / thirdparty-INDI
   ExternalProject. (Equipment comes via Alpaca instead.)
+- **The GUI** — every window, dialog, menu and toolbar (#115) and the web UI (#114). The daemon
+  links wxBase and wxNet only and runs with no X display or Xvfb.
 - **Locale GUI bundling** that blocks a headless build (the `messages.mo` copy step that
   broke the first CI run) — pruned or made non-fatal under the headless build.
 
 **Kept**
-- wxWidgets (wxBase + GUI code, just not shown), the capture/guide loop, calibration,
+- wxWidgets (wxBase and wxNet only since #115), the capture/guide loop, calibration,
   **all guide algorithms**, dark-frame + bad-pixel-map logic, the **event server (:4400)**,
   the Alpaca client equipment path, the GTest suite under `tests/`.
 
@@ -87,7 +90,7 @@ arm64, the same target as AlpacaBridge) and is controlled remotely:
 | **1** | **Drop Windows** — delete win build scripts, WinLibs/, `.iss`, `phd.rc`, win32 backends; strip `#ifdef __WINDOWS__` paths; remove win bits from CMake. | builds Linux |
 | **2** | **Drop macOS** — delete dmg/mac scripts, Info.plist, mac frameworks/backends; strip `#ifdef __APPLE__` paths. | builds Linux |
 | **3** | **Drop INDI** — delete `*_indi.cpp`, indi_gui/discovery, libindi dep + thirdparty INDI; remove INDI from camera/mount factories; Alpaca becomes the only equipment backend. | builds + tests |
-| **4** | **Headless run mode** — a `--headless`/daemon entry that runs the guide engine + event server without showing a window (Xvfb-free where feasible; document the display strategy). systemd unit + `debian/` updated for the daemon. | daemon starts, event server reachable |
+| **4** | **Headless run mode** — a `--headless`/daemon entry that runs the guide engine + event server without showing a window (first under Xvfb; Xvfb-free since #115 step 8 removed the GUI). systemd unit + `debian/` updated for the daemon. | daemon starts, event server reachable |
 | **5** | **API gap-fill** — expose GUI-only features over the event server so ARA can drive them. Known gaps: **dark-frame / bad-pixel-map library management** (create/select/delete), guide-algorithm selection + param get/set, calibration management, exposure/ROI. Each new method logged in `design/API_CONTRACT.md`. | new RPC methods covered by tests |
 | **6** | **ARA integration validation** — ARA client ↔ headless guider end-to-end: connect, calibrate, guide, dither/settle, dark library, algorithm change, star-lost recovery — against Alpaca simulators. | integration smoke green |
 
@@ -104,16 +107,17 @@ and the event stream (`GuideStep`, `SettleDone`, `StarLost`, `CalibrationComplet
 fills the gaps. Treat `API_CONTRACT.md` as append-only: one entry per method ARA depends on or
 that we add, with request/response shape + the ARA call site.
 
-The biggest known gap is **dark/defect-map library management**, which today lives in GUI
-dialogs with no RPC equivalent — it must become API-driven for a headless daemon.
+The biggest known gap was **dark/defect-map library management**, which lived in GUI dialogs
+with no RPC equivalent. It is API-driven now (`build_dark_library`, `build_defect_map_darks`,
+`get_dark_build_progress`), and the dialogs are gone (#115).
 
 ---
 
 ## 5. CI / test gate
 
 - **Runner:** `ubuntu-24.04` (x86_64 is fine for the logic; the *deployment* target is arm64,
-  validated separately once the build is slimmed). Add an `ubuntu-24.04-arm` job once INDI/GUI
-  weight is gone and the build is fast.
+  validated separately once the build is slimmed). The build, GTest and daemon e2e jobs now run
+  on `ubuntu-24.04-arm`.
 - **Build:** CMake configure + build of the headless target with `OPENSOURCE_ONLY=1`
   (no proprietary SDKs) and `USE_SYSTEM_GTEST=1`.
 - **Tests:** the existing **GTest/CTest suite** is the gate — `alpaca`, `discovery`, `json`,

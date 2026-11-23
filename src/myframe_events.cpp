@@ -42,9 +42,7 @@
 #include <algorithm>
 #include <memory>
 
-#include <wx/spinctrl.h>
 #include <wx/stdpaths.h>
-#include <wx/textdlg.h>
 #include <wx/textfile.h>
 #include <wx/txtstrm.h>
 #include <wx/utils.h>

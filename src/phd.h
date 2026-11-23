@@ -35,30 +35,29 @@
 #ifndef PHD_H_INCLUDED
 #define PHD_H_INCLUDED
 
-#include <wx/wx.h>
-#include <wx/aui/aui.h>
-#include <wx/bitmap.h>
-#include <wx/bmpbuttn.h>
+// wxBase headers only (#115 S8.1): the daemon uses no wx GUI library. wx/gdicmn.h is for the wxRect, wxPoint and
+// wxSize value types, whose inline members need no wx core symbol (rect_math.h has the out-of-line ones it uses).
+#include <wx/app.h>
+#include <wx/arrstr.h>
 #include <wx/config.h>
-#include <wx/dcbuffer.h>
-#include <wx/display.h>
+#include <wx/datetime.h>
+#include <wx/dynarray.h>
+#include <wx/event.h>
 #include <wx/ffile.h>
+#include <wx/file.h>
 #include <wx/fileconf.h>
-#include <wx/graphics.h>
-#include <wx/grid.h>
-#include <wx/image.h>
+#include <wx/filename.h>
+#include <wx/gdicmn.h>
 #include <wx/intl.h>
-#include <wx/minifram.h>
+#include <wx/log.h>
 #include <wx/msgqueue.h>
 #include <wx/socket.h>
-#include <wx/spinctrl.h>
-#include <wx/splash.h>
-#include <wx/statline.h>
 #include <wx/stdpaths.h>
+#include <wx/stopwatch.h>
 #include <wx/string.h>
 #include <wx/textfile.h>
-#include <wx/tglbtn.h>
 #include <wx/thread.h>
+#include <wx/timer.h>
 #include <wx/utils.h>
 
 #include <functional>
@@ -152,12 +151,11 @@ inline static StepGuider *TheAO()
     return static_cast<StepGuider *>(pMount && pMount->IsStepGuider() ? pMount : 0);
 }
 
-class PhdApp : public wxApp
+class PhdApp : public wxAppConsole
 {
     wxSingleInstanceChecker *m_instanceChecker = nullptr;
     long m_instanceNumber;
     bool m_resetConfig;
-    bool m_headless;
     bool m_headlessAutoConnect;
     wxString m_resourcesDir;
     wxDateTime m_logFileTime;
@@ -179,7 +177,6 @@ public:
     virtual bool Yield(bool onlyIfNeeded = false);
     static void ExecInMainThread(std::function<void()> func);
     int GetInstanceNumber() const { return m_instanceNumber; }
-    bool IsHeadless() const { return m_headless; }
     const wxString& GetPHDResourcesDir() const { return m_resourcesDir; }
     wxString GetLocalesDir() const;
     const wxLocale& GetLocale() const { return m_locale; }

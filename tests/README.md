@@ -64,7 +64,7 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 | `test_connect_request` | `src/connect_request.cpp` — per-device `set_connected` / `get_connected` (#84): device names, and when a request is refused (camera and `all` need capture stopped; mount and rotator may join while looping but not while calibrating or guiding), and the camera-change latch of a gear request (#139) | Direct (extract-for-testability): wx-free rules linked unmodified |
 | `test_connect_retry` | `src/connect_retry.cpp` — recovery of a selected device that failed to connect (#104): the retry schedule (15 s, 30 s, then every 60 s, unbounded), the per-device state (a failure schedules, a recovery reports `EquipmentReconnected` exactly once, a user disconnect stops retries but keeps the failure, re-selection forgets, "not configured" parks until the Alpaca server changes, devices independent, stale probe results dropped by token), the gates that make an attempt wait (shutdown, dark build, PA session, Guiding Assistant, a connect on the stack, and the `set_connected` refusal rules), the probe sequence against a scripted server (already connected, unreachable, refused with the server's reason, waits for connected, gives up after its bounded wait, cancel), the `guide` refusal text and the driver reason slot | Direct (extract-for-testability): wx-free rules linked unmodified with `connect_request.cpp` and `alpaca_errors.cpp` |
 | `test_gear_selection` | `src/gear_selection.cpp` — which camera, mount and rotator a profile's saved choices select (#115 step 3): the list match without case that returns the list's casing (as `wxChoice::SetStringSelection` did), the INDI rule, the stale-choice fallbacks (the camera's first sorted item; no mount or rotator), an empty list, the camera's `LastMenuChoice` / `LastMenuchoice` / `None` chain, the case-sensitive camera-change test with `None` on either side, and golden camera-id profile keys (`/cam_hash/<std::hash>/whichCamera`, 64-bit libstdc++), so stored profiles keep resolving | Direct (extract-for-testability): wx-free rules linked unmodified |
-| `test_gear_session` | `src/gear_session.cpp` — the sequencing of a gear request (#115 step 3) over a recording fake `GearPort`: connect all runs the camera, mount and rotator leaves in that order whatever each one's state, disconnect all the mount, camera and rotator; every error text byte-for-byte (`equipment failed to connect: camera (reason) mount Rotator`, ` camera` for no camera, `no <dev> is selected in the profile`, `<dev> failed to connect (reason)`, the capture and calibrating refusals, `cannot set profile when equipment is connected`, `invalid profile id`); no-ops and refusals call no leaf and no end of request, a disconnect of a device already disconnected still records the user's word (#104) but one of an unselected device does not; the latch session begins before the checks, except in `set_profile`, which begins it after its checks and takes no depth; a nested request begins none; the end of request runs once per accepted request in its fixed order (frame controls, calibration auto-load or #139 clear, AdvancedDialog, image-scale change, `EquipmentReconnected`), so a full connect all loads the calibration once | Direct (extract-for-testability): wx-free sequencer linked unmodified, the port faked |
+| `test_gear_session` | `src/gear_session.cpp` — the sequencing of a gear request (#115 step 3) over a recording fake `GearPort`: connect all runs the camera, mount and rotator leaves in that order whatever each one's state, disconnect all the mount, camera and rotator; every error text byte-for-byte (`equipment failed to connect: camera (reason) mount Rotator`, ` camera` for no camera, `no <dev> is selected in the profile`, `<dev> failed to connect (reason)`, the capture and calibrating refusals, `cannot set profile when equipment is connected`, `invalid profile id`); no-ops and refusals call no leaf and no end of request, a disconnect of a device already disconnected still records the user's word (#104) but one of an unselected device does not; the latch session begins before the checks, except in `set_profile`, which begins it after its checks and takes no depth; a nested request begins none; the end of request runs once per accepted request in its fixed order (frame controls, calibration auto-load or #139 clear, image-scale change, `EquipmentReconnected`), so a full connect all loads the calibration once | Direct (extract-for-testability): wx-free sequencer linked unmodified, the port faked |
 | `test_atomic_file_write` | `src/atomic_file_write.cpp` — how `PhdConfig::Flush` writes the config file (#142): through `<file>.tmp` in the same directory, fsynced, renamed over the file and the directory fsynced. A new file gets 0666 less the umask, a replaced one keeps its mode; empty and 3 MB contents; a temporary file a killed write left is overwritten; a write that cannot create its temporary file or cannot rename it leaves the old file and no temporary file, with the step and path in the error; a missing directory fails; a relative path is written in the current directory; and a reader thread never finds the file missing or partly written over 200 rewrites, which the delete-then-rename of wxWidgets before 3.2.8 could show. A power cut cannot be made here; `scripts/e2e_persistence.py` checks the real daemon's syscalls under strace | Direct (extract-for-testability): POSIX, wx-free, linked unmodified |
 | `test_restore_calibration` | `src/restore_calibration.cpp` — when `restore_calibration` (#102) is refused (calibrating or guiding; the mount, AO or AO-rig scope not connected; a guide or dither request in flight that is not waiting on a calibration), returns `false` with nothing changed (some mount has no saved calibration, so no partial AO restore), or ends the guide request a failed calibration left waiting before it restores; when `clear_calibration` is refused (calibrating, #137) | Direct (extract-for-testability): wx-free rules linked unmodified |
 | `test_calstep_math` | `src/calstep_math.cpp` — the recommended calibration distance and step (#142) that `CalstepDialog::GetCalibrationDistance` / `GetCalibrationStepSize` delegate to, set by `Scope::CheckCalibrationDuration` on a binning or guide-speed change and by `MyFrame::MakeImageScaleAdjustments` on an image-scale change: golden values (FL 400 mm at 3.75 µm gives 1.934"/px, a 25 px distance and a 550 ms step at 0.5x on the equator, 1100 ms at Dec 60 where the six-step cap applies; FL 2000 mm gives 52 px), binning and guide speed scaling, every step a positive multiple of 50; and no step (the duration left as it is) and the 25 px distance for an unknown image scale (focal length 0, the profile default, or pixel size or binning 0), a guide speed of 0, negative or NaN, no steps or distance, or a pulse an int cannot hold, where the old code converted infinity to an int | Direct (extract-for-testability) plus a differential against the frozen twin `calibration/legacy/calstep_legacy.cpp`, a verbatim LF copy of `calstep_dialog.cpp` lines 40-77 at 7755af25 (`legacy/check_twin.sh` diffs it) on mechanical stand-ins for `MyFrame::GetPixelScale`, `wxMin` and `radians`: the same distances and steps, image scales bit for bit, over 310,464 inputs where the copy is defined |
@@ -84,10 +84,10 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 Not a ctest target: the `Daemon e2e (arm64, ASan/UBSan)` CI job builds
 `phd2.bin` with `-fsanitize=address,undefined` in its own build dir and runs
 `scripts/e2e_guide_scenarios.py` (#142). The script starts
-`scripts/fake_alpaca_camera.py` and the daemon (headless under `xvfb-run`,
-scratch `HOME`) and drives it over JSON-RPC, in four lanes at once, each with its
-own fake and daemon: the main lane; the physics lane on instance, fake port and
-display + 1, its logs in `physics/`; and the gear and faults lanes of
+`scripts/fake_alpaca_camera.py` and the daemon (run directly, with no X display
+and a scratch `HOME`; #115 S8.4) and drives it over JSON-RPC, in four lanes at once, each with its
+own fake and daemon: the main lane; the physics lane on instance and fake port
++ 1, its logs in `physics/`; and the gear and faults lanes of
 `scripts/e2e_equipment_scenarios.py` on + 2 and + 3, in `gear/` and `faults/`. The
 other lanes should add little wall time to the main lane's (locally, under ASan on
 8 cores, 289 s for the main and physics lanes against 287 s for the main lane
@@ -127,25 +127,24 @@ the first run's log):
 The job fails on a failed check, on the daemon crashing or exiting non-zero
 after `shutdown`, and on any sanitizer report; the daemon's debug log and
 output, the fake's log and every event received are uploaded when it does.
-LeakSanitizer is off (`detect_leaks=0`; the wxWidgets/GTK and PHD2
+LeakSanitizer is off (`detect_leaks=0`; the wxWidgets and PHD2
 singletons are never freed, by design). The UBSan vptr check is on in every
 file (#209), so a downcast to a type the object is not fails the run.
 Locally, after an ASan build (see the job's Configure step):
 
 ```bash
 python3 scripts/e2e_guide_scenarios.py --phd2 build-asan/phd2.bin \
-    --instance 10 --fake-port 11150 --display 110 --work-dir /tmp/e2e
+    --instance 10 --fake-port 11150 --work-dir /tmp/e2e
 ```
 
-That also takes instances 11-13, fake ports 11151-11153 and displays 111-113 for
+That also takes instances 11-13 and fake ports 11151-11153 for
 the physics, gear and faults lanes; `--lane main` or `--lane physics` runs one
 lane only, `--child-lanes` picks the lanes run beside the main lane, and
 `scripts/e2e_equipment_scenarios.py --lane gear|faults` runs an equipment lane
 alone. The equipment lanes pin today's behaviour, quirks included, for #115 step 3;
-a failed check there is a change of behaviour to look at, not always a bug. With `--display auto`
-each lane takes a free display through `xvfb-run -a`, each lane beside the main one
-searching from 100 × its offset higher (`--auto-display-from`: physics +100, gear +200,
-faults +300), so two lanes starting at once never take the same one. The fake's physics
+a failed check there is a change of behaviour to look at, not always a bug. `--display` and
+`--auto-display-from` are still accepted, and ignored: the daemon is a console program since
+#115 S8.2 and needs no X display. The fake's physics
 options (`--camera-angle`, `--dec-mirror`, `--cos-dec`, `--dec-backlash-ms`,
 `--sim-drift`, `--pe-px`, `--seeing-px`, `--frame-noise`, `--pier-flip`,
 `--seed`), `/fake/clouds`, `/fake/truth` and the telescope faults
@@ -158,7 +157,7 @@ The same job then runs `scripts/e2e_persistence.py` (#142), which needs no
 calibration. RC51 gets its power cut in the field, so a setting changed over
 JSON-RPC has to survive both a clean stop (SIGTERM, what `systemctl stop`
 sends) and a hard kill (SIGKILL, the stand-in for a power cut). Two passes run
-at once, one per signal, each with its own instance, fake port and display:
+at once, one per signal, each with its own instance and fake port:
 
 | Step | Checks |
 |---|---|
@@ -184,26 +183,31 @@ locally (about 6 s under ASan). Locally (it needs `strace`):
 
 ```bash
 python3 scripts/e2e_persistence.py --phd2 build-asan/phd2.bin \
-    --instance 11 --fake-port 11151 --display 111 --work-dir /tmp/e2e-persistence
+    --instance 11 --fake-port 11151 --work-dir /tmp/e2e-persistence
 ```
 
-## wx GUI symbol ratchet (CI)
+## No GUI libraries (CI)
 
-Steps 4-8 of #115 remove `phd2.bin`'s use of the wx GUI libraries until it links only wxBase and
-wxNet. Until then, the `wx GUI symbol ratchet` step of the `Build + GTest (arm64)` job runs
-`scripts/check_wx_gui_symbols.sh` on `build/phd2.bin`. It lists the symbols the binary imports from
-the wx libraries it loads other than wxBase/net/xml (today `libwx_gtk3u_core` and
-`libwx_gtk3u_aui`) and compares them with `scripts/wx_gui_symbols.allowlist`. A symbol not in the
-list fails the step: use a wxBase or wx-free equivalent instead. A listed symbol the binary no longer
-imports is a warning: a slice that removes GUI code shrinks the list in the same PR. Names are
-compared demangled and without ELF symbol versions, so the runner's Ubuntu 24.04 (wx 3.2.4, GCC 13)
-and Debian 13 (wx 3.2.8, GCC 14) give the same list. Locally:
+Since step 8 of #115 `phd2.bin` is a console application (`wxAppConsole`) that links only wxBase
+and wxNet, and the build defines `wxUSE_GUI=0`, so a wx GUI class or call is a compile or link
+error. The `No GUI libraries` step of the `Build + GTest (arm64)` job runs
+`scripts/check_no_gui_libs.sh` on `build/phd2.bin`, which fails if `readelf -d` lists a NEEDED
+entry matching `wx_gtk`, `gtk`, `gdk`, `X11` or `wx_.*core`: a GUI library back on the link line.
+It replaced the P0 symbol ratchet (`check_wx_gui_symbols.sh` and its allowlist), which counted the
+wx GUI symbols the binary imported while steps 4-8 removed them; with no GUI library linked it had
+nothing left to count. Locally:
 
 ```bash
 cmake --build build --target phd2      # `make phd2.bin` builds nothing
-scripts/check_wx_gui_symbols.sh build/phd2.bin
-scripts/check_wx_gui_symbols.sh --update build/phd2.bin   # rewrite the list, then commit it
+scripts/check_no_gui_libs.sh build/phd2.bin
 ```
+
+The `No wx GUI classes in src` step of the `Sanity (design docs)` job (#115 step 9) runs
+`scripts/check_no_gui_classes.sh src`, which needs no build: it fails on a line under `src/` that
+names `wxFrame`, `wxDialog`, `wxWindow`, `wxPanel`, `wxImage` or `wxBitmap`
+(`grep -rnE '\b(wxFrame|wxDialog|wxWindow|wxPanel|wxImage|wxBitmap)\b'`), except in a comment:
+a line starting with `//`, `/*` or `*`, or the part of a line after `//` or inside `/* ... */`.
+Locally: `scripts/check_no_gui_classes.sh src`.
 
 ## How the build infra works (and why)
 
@@ -251,7 +255,8 @@ specific blocker.
 
 - **Lowpass / Lowpass2** — done. The decision math was extracted into the
   wx-free `guide_algorithm_lowpass_math.{h,cpp}` (the algorithm `.cpp` files
-  carry wx GUI `ConfigDialogPane`s, so they can't be linked into a test) and
+  carried wx GUI `ConfigDialogPane`s until #115 step 4, so they couldn't be
+  linked into a test) and
   is covered by `test_guide_algorithm_lowpass` against the real
   `WindowedAxisStats`.
 - **Hysteresis / ResistSwitch** — done. The per-frame math was extracted into
@@ -267,8 +272,8 @@ specific blocker.
 - **Star detection.** The core `Star::Find` pixel math is now covered by
   `test_star_find` (extracted to the wx-free `star_find_core.{h,cpp}`,
   golden-tested against `simimage.fit`). Still deferred: `Star::AutoFind`
-  (whole-frame auto-select), which is wired through `pFrame->pGuider` and
-  the GUI; and the `usImage`/FITS save path.
+  (whole-frame auto-select), which is wired through `pFrame->pGuider`; and
+  the `usImage`/FITS save path.
 - **Calibration math.** The camera↔mount coordinate transforms are now
   covered directly by `test_calibration_transform` (extracted to the wx-free
   `calibration_transform.{h,cpp}`), `test_guide_move_plan` checks the
@@ -282,8 +287,8 @@ specific blocker.
   replay in `Scope::UpdateCalibrationState` (translated texts, alerts,
   `SetCalibration`/profile/sanity check on completion), which is wx-bound
   and checked live against the fake Alpaca server instead, and step-size
-  selection (`calstep_dialog.cpp`), which is wired through
-  `Mount`/`Scope` virtuals and the GUI.
+  selection (`calstep_dialog.cpp`, no longer a dialog), which is wired
+  through `Mount`/`Scope` virtuals.
 - **End-to-end test of `CameraAlpaca::Capture()`'s bounded-retry fix
   (e7a91ddc).** Lives inside the `WorkerThread` polling loop; can't be
   unit-tested without an integration harness against a fake Alpaca

@@ -401,7 +401,7 @@ if(UNIX AND NOT APPLE)
 
   find_package( OpenCV REQUIRED )
 
-  target_link_libraries(phd2 X11 ${OpenCV_LIBS})
+  target_link_libraries(phd2 ${OpenCV_LIBS})
 
   set_target_properties(
     phd2
@@ -418,7 +418,9 @@ if(PHD_EXTERNAL_PROJECT_DEPENDENCIES)
 endif()
 
 # properties of the project common to all platforms
-target_compile_definitions(phd2 PRIVATE "${wxWidgets_DEFINITIONS}" "HAVE_TYPE_TRAITS")
+# wxUSE_GUI=0 (#115 S8.3): phd2 is a wxAppConsole linking wxBase and wxNet only, so the wx headers must not declare
+# the GUI classes (wxCommandEvent, wxWindow, ...); a GUI use is then a compile error, not a link one
+target_compile_definitions(phd2 PRIVATE "${wxWidgets_DEFINITIONS}" "HAVE_TYPE_TRAITS" "wxUSE_GUI=0")
 target_compile_options(phd2 PRIVATE "${wxWidgets_CXX_FLAGS};")
 target_include_directories(phd2 PRIVATE ${wxWidgets_INCLUDE_DIRS})
 

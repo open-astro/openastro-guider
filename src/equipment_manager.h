@@ -96,7 +96,7 @@ public:
     // no end of request runs. Returns true when the camera is still not connected.
     bool ReconnectCamera();
 
-    // #104 (headless only; each returns at once in the GUI)
+    // #104
     // The guide RPC: connect the selected camera and mount if they are not connected, probing an Alpaca server
     // first. Returns true with *error set when one is still not connected (a device the user disconnected is left
     // alone); false when there was nothing to do or everything connected.
@@ -150,7 +150,7 @@ private:
     void SelectRotator(const wxString& choice);
     void ReleaseDevices();
 
-    // #104
+    // #104: always true; the daemon has no GUI mode (#115 S8.2)
     bool RetryEnabled() const;
     // a device was chosen (SelectDevice, also for the same choice again): only another device forgets its #104 state
     void NoteChosen(GearDevice dev, const wxString& choice);
@@ -167,7 +167,7 @@ private:
     void OnProbeDone(GearDevice dev, uint64_t token);
     void RetryConnect(GearDevice dev);
 
-    // #104: recovery of a selected device that failed to connect (headless only). Main thread only, except the
+    // #104: recovery of a selected device that failed to connect. Main thread only, except the
     // probe thread, which reads only its own copy of the target and m_probeCancel and hands its result back through
     // m_probeHandoff and a CallAfter.
     ConnectRetry::Tracker m_connectRetry;

@@ -43,10 +43,9 @@
 #include <cstring>
 #include <memory>
 #include <wx/cmdline.h>
+#include <wx/crt.h>
 #include <wx/evtloop.h>
 #include <wx/snglinst.h>
-
-#include <X11/Xlib.h>
 
 // #define DEVBUILD
 
@@ -65,6 +64,8 @@ GuidingLog GuideLog;
 static const wxCmdLineEntryDesc cmdLineDesc[] = {
     { wxCMD_LINE_SWITCH, "?", "help", "display this help and exit" },
     { wxCMD_LINE_SWITCH, "g", "gui", "deprecated: there is no window any more (accepted for compatibility)" },
+    { wxCMD_LINE_OPTION, nullptr, "display", "deprecated: there is no X display any more (accepted and ignored)",
+      wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
     { wxCMD_LINE_SWITCH, "a", "auto-connect", "auto-connect the selected equipment on startup" },
     { wxCMD_LINE_SWITCH, "H", "headless", "deprecated: headless is now the default (accepted for compatibility)" },
     { wxCMD_LINE_SWITCH, "A", "headless-auto-connect", "deprecated alias for --auto-connect" },
@@ -86,8 +87,10 @@ enum ConfigOp
 static ConfigOp s_configOp = CONFIG_OP_NONE;
 static wxString s_configPath;
 static bool s_guiIgnored = false; // --gui was given (#115 S6.9)
+static bool s_displayIgnored = false; // --display was given (#115 S9.2): the wxGTK build took it, the console app ignores it
 
-wxIMPLEMENT_APP(PhdApp);
+// A console application (#115 S8.2): wxBase's event loop, no GTK and no X display
+wxIMPLEMENT_APP_CONSOLE(PhdApp);
 
 static void DisableOSXAppNap() { }
 
@@ -105,10 +108,8 @@ struct ExecFuncThreadEvent : public wxThreadEvent
 PhdApp::PhdApp()
 {
     m_resetConfig = false;
-    m_headless = true; // headless is the default run mode; --gui opts into the window
     m_headlessAutoConnect = false;
     m_instanceNumber = 1;
-    XInitThreads();
 
     Bind(EXEC_IN_MAIN_THREAD_EVENT, [](ExecFuncThreadEvent& evt) { evt.func(); });
 };
@@ -245,7 +246,7 @@ static void IdleClosing(wxIdleEvent& evt)
     pFrame->DeletePendingEvents();
     delete pFrame;
     pFrame = nullptr;
-    wxTheApp->ExitMainLoop();
+    wxGetApp().ExitMainLoop();
 }
 
 void PhdApp::TerminateApp()
@@ -392,7 +393,7 @@ bool PhdApp::OnInit()
     if (argc > 1 && argv[1] == _T("restart"))
         HandleRestart(); // exits
 
-    if (!wxApp::OnInit())
+    if (!wxAppConsole::OnInit())
     {
         logger.CloseToStderr();
         return false;
@@ -446,6 +447,8 @@ bool PhdApp::OnInit()
 
     if (s_guiIgnored)
         Debug.Write("--gui is ignored: there is no window any more\n");
+    if (s_displayIgnored)
+        Debug.Write("--display is ignored: there is no X display any more\n");
 
     DisableOSXAppNap();
 
@@ -499,11 +502,8 @@ bool PhdApp::OnInit()
 
     pConfig->InitializeProfile();
 
-    if (m_headless)
-    {
-        // Ensure the event/JSON-RPC server is always enabled in headless mode.
-        pConfig->Global.SetBoolean("/ServerMode", true);
-    }
+    // The event/JSON-RPC server is always enabled: it is the daemon's only interface.
+    pConfig->Global.SetBoolean("/ServerMode", true);
 
     PhdController::OnAppInit(ProductionControllerHost());
 
@@ -515,27 +515,24 @@ bool PhdApp::OnInit()
     // constructor's NotifyGuidingParam, #168).
     pFrame->pEquipment->LoadFromProfile();
 
-    if (m_headless)
-    {
-        // Graceful shutdown on `systemctl stop` (SIGTERM) and Ctrl-C (SIGINT).
-        struct sigaction sa;
-        memset(&sa, 0, sizeof(sa));
-        sa.sa_handler = HandleTermSignal;
-        sigemptyset(&sa.sa_mask);
-        sigaction(SIGTERM, &sa, nullptr);
-        sigaction(SIGINT, &sa, nullptr);
-        s_signalWatchTimer = new SignalWatchTimer();
-        s_signalWatchTimer->Start(100);
+    // Graceful shutdown on `systemctl stop` (SIGTERM) and Ctrl-C (SIGINT).
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = HandleTermSignal;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGTERM, &sa, nullptr);
+    sigaction(SIGINT, &sa, nullptr);
+    s_signalWatchTimer = new SignalWatchTimer();
+    s_signalWatchTimer->Start(100);
 
-        if (m_headlessAutoConnect)
-        {
-            wxString errMsg;
-            bool error = pFrame->pEquipment->ConnectAll(&errMsg);
-            if (error)
-                Debug.Write(wxString::Format("headless: auto-connect failed: %s\n", errMsg));
-            else
-                Debug.Write("headless: auto-connect succeeded\n");
-        }
+    if (m_headlessAutoConnect)
+    {
+        wxString errMsg;
+        bool error = pFrame->pEquipment->ConnectAll(&errMsg);
+        if (error)
+            Debug.Write(wxString::Format("headless: auto-connect failed: %s\n", errMsg));
+        else
+            Debug.Write("headless: auto-connect succeeded\n");
     }
 
     return true;
@@ -559,7 +556,7 @@ int PhdApp::OnExit()
     delete m_instanceChecker;
     m_instanceChecker = nullptr;
 
-    return wxApp::OnExit();
+    return wxAppConsole::OnExit();
 }
 
 void PhdApp::OnInitCmdLine(wxCmdLineParser& parser)
@@ -584,11 +581,16 @@ bool PhdApp::OnCmdLineParsed(wxCmdLineParser& parser)
     (void) parser.Found("i", &m_instanceNumber);
     // The guiding daemon is always headless: there is no window to show since
     // #115 S6.9. --gui and --headless are still accepted (no-ops) so existing
-    // scripts/units don't break; --gui gets a warning.
-    m_headless = true;
+    // scripts/units don't break; --gui gets a warning. Since #115 S8.2 it is a
+    // console application: there is no GUI toolkit to start.
     s_guiIgnored = parser.Found("gui");
     if (s_guiIgnored)
         wxMessageOutputStderr().Printf("warning: --gui is ignored: there is no window any more\n");
+    // the wxGTK build took --display=<X display> itself; keep accepting it so an old unit or script still starts
+    wxString display;
+    s_displayIgnored = parser.Found("display", &display);
+    if (s_displayIgnored)
+        wxMessageOutputStderr().Printf("warning: --display is ignored: there is no X display any more\n");
     m_headlessAutoConnect = parser.Found("auto-connect") || parser.Found("headless-auto-connect");
 
     if (parser.Found("l", &s_configPath))
@@ -607,7 +609,21 @@ bool PhdApp::Yield(bool onlyIfNeeded)
 
     if (wxThread::IsMain())
     {
-        bReturn = wxApp::Yield(onlyIfNeeded);
+        // wxConsoleEventLoop's own Yield (wx 3.2) only processes the queued wx events and the idle handlers: unlike
+        // the GTK loop's, it dispatches no socket event and no timer. The dark builds rely on that to answer progress
+        // polls between frames, so dispatch what is ready first, as the GTK loop did (#115 S8.2). Bounded, so steady
+        // traffic cannot keep the caller here.
+        wxEventLoopBase *loop = wxEventLoopBase::GetActive();
+        if (loop && !(onlyIfNeeded && loop->IsYielding()))
+        {
+            enum
+            {
+                MAX_DISPATCHES = 100
+            };
+            for (int i = 0; i < MAX_DISPATCHES && loop->DispatchTimeout(0) > 0; i++)
+                ;
+        }
+        bReturn = wxAppConsole::Yield(onlyIfNeeded);
     }
 
     return bReturn;

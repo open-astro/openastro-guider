@@ -182,7 +182,7 @@ Application/runtime errors:
     `"mount failed to connect (<reason>)"`, `"equipment failed to connect: mount (<reason>)"` (reasons are worded as
     in the capture failure reasons below, e.g. `"The mount did not reply (Alpaca 1280)"`,
     `"no response from the Alpaca server (Couldn't connect to server)"`)
-  - connect recovery (#104, headless daemon only; the desktop GUI keeps PHD2's behaviour): a selected camera, mount
+  - connect recovery (#104): a selected camera, mount
     or rotator the guider was asked to connect (`--auto-connect` at startup, `set_connected` true, `guide`, or the
     camera auto-reconnect ending in `EquipmentReconnectFailed`) that is still not connected is retried in the
     background 15 s, 30 s and 60 s after each failure, then every 60 s, with no limit. An attempt first asks the
@@ -750,7 +750,7 @@ Payload notes for downstream clients:
   until a dark-library or defect-map build has ended starts no exposure. A client that raised a fault on
   `EquipmentDisconnected` clears it here. On the headless daemon (#104) it is also sent, once, when a device that
   had failed to connect (at startup, on a connect request, or after `EquipmentReconnectFailed`) connects by any
-  path: the background retry, `guide`, `set_connected` or the Gear dialog. It then follows the calibration
+  path: the background retry, `guide` or `set_connected`. It then follows the calibration
   auto-load and comes before the response of the RPC that connected it; it can arrive with no
   `EquipmentDisconnected` before it (a mount that was off at startup), or after the terminal
   `EquipmentReconnectFailed`; a recovery by the retry starts no exposure.
@@ -1124,7 +1124,7 @@ When server mode is enabled, the daemon also listens for HTTP on all interfaces 
 The HTTP port carries image data only. Everything else, including setup, discovery and control, goes over JSON-RPC.
 
 - `GET /api/capture/<filename>`: raw FITS bytes of a file saved by `capture_single_frame` (see "Single Frame Capture With Save"). `<filename>` is the `Filename` field of the `SingleFrameComplete` event, URL-encoded. Files are served only from the capture directory; an empty name, `..`, a leading `/` or `\`, or a symlink that resolves outside the capture directory returns `404`. Response: `200` with `Content-Type: application/fits`.
-- `GET /api/frame.jpg`: the current guide frame as a JPEG, display-stretched the same way the guider display stretches it. The response carries an `ETag` that is new for every image the guider holds (from a per-process sequence that never resets, not the frame number, which restarts at each capture and guiding start); a request whose `If-None-Match` matches it gets `304 Not Modified` without re-encoding the frame. When there is no frame yet it returns `404` with the body `no image available`.
+- `GET /api/frame.jpg`: the current guide frame as a JPEG: a gray image, the frame stretched to 8 bits from its black and white levels with the profile's gamma, encoded with libjpeg as a baseline quality-85 JPEG. The response carries an `ETag` that is new for every image the guider holds (from a per-process sequence that never resets, not the frame number, which restarts at each capture and guiding start); a request whose `If-None-Match` matches it gets `304 Not Modified` without re-encoding the frame. When there is no frame yet it returns `404` with the body `no image available`.
 
 Every response sets `Connection: close`. Every response except the `304` also sets `Cache-Control: no-store`.
 

@@ -13,18 +13,17 @@ WorkingDirectory=/var/lib/openastro-guider
 # which sets it to the real lib locations (/usr/lib/openastro-guider:/usr/lib/phd2)
 # at runtime — see phd2.sh.in. Setting it to a single guessed dir here would be
 # both wrong (CMake installs the bundled libs under /usr/lib/phd2) and redundant.
-# Headless is the default run mode; --auto-connect brings up the selected
-# equipment on boot. wxGTK still needs a display to initialize even with the
-# window hidden, so the daemon runs under a headless X server (Xvfb) — see
-# design/GUIDER_DECISIONS.md for the display-strategy rationale.
-ExecStart=/usr/bin/xvfb-run -a /usr/bin/openastro-guider --auto-connect
+# --auto-connect brings up the selected equipment on boot. The daemon is a
+# console program (wxBase only, #115 step 8): it needs no X display, so it
+# runs directly, without xvfb-run/Xvfb.
+ExecStart=/usr/bin/openastro-guider --auto-connect
 Restart=on-failure
 RestartSec=3
 # The single-instance lock (openastro-guider.<instance>, holding the PID) goes
 # in /run/openastro-guider, which systemd passes as $RUNTIME_DIRECTORY (#135).
 # /run is a tmpfs and systemd removes the directory whenever the service
 # stops, so a lock left by a power loss or a crash can't survive to name a PID
-# that another process (Xvfb, on RC51) reuses on the next boot and keep the
+# that another process (it was Xvfb on RC51) reuses on the next boot and keep the
 # guider from starting. Without $RUNTIME_DIRECTORY the lock stays in $HOME, so
 # a guider run by hand as this user (sudo -u drops the variable) does not see
 # the service's lock: stop the service first.
@@ -33,9 +32,7 @@ RuntimeDirectoryMode=0700
 
 # Sandboxing. The daemon only needs network access (Alpaca + its own JSON-RPC
 # servers) and write access to its state dir; equipment is reached over HTTP,
-# not local devices. xvfb-run/Xvfb live in the unit's private /tmp, so
-# PrivateTmp is safe — the X socket and auth cookie are created and consumed
-# inside the same namespace.
+# not local devices. Nothing it uses lives in /tmp, so PrivateTmp is safe.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
