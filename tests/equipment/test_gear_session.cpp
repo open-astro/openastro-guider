@@ -84,14 +84,13 @@ struct FakePort : GearPort
     bool AutoLoadCalibration() const override { return autoLoad; }
     void LoadCalibration() override { calls.push_back("loadCal"); }
     void ClearCalibration() override { calls.push_back("clearCal"); }
-    void RefreshAdvancedDialog() override { calls.push_back("advanced"); }
     void HandleImageScaleChange() override { calls.push_back("scale"); }
     void SendReconnected(GearDevice d) override { Record("reconnected", d); }
 };
 
 using Calls = std::vector<std::string>;
 
-const Calls kEnd = { "frame", "advanced" };
+const Calls kEnd = { "frame" };
 
 Calls Concat(Calls a, const Calls& b)
 {
@@ -118,7 +117,7 @@ TEST_F(GearSessionTest, ConnectAllRunsTheLeavesCameraMountRotatorThenEndsOnce)
     EXPECT_EQ(port.calls,
               (Calls { "trace gear_dialog: ConnectAll calls OnButtonConnectAll\n", "requested all",
                        "trace gear_dialog: OnButtonConnectAll\n", "connect camera", "connect mount", "connect rotator", "frame",
-                       "loadCal", "advanced" }));
+                       "loadCal" }));
 }
 
 // The single intended change of the slice: GearDialog ran the end of request once inside OnButtonConnectAll when
@@ -129,7 +128,6 @@ TEST_F(GearSessionTest, AFullConnectAllEndsOnceAndLoadsTheCalibrationOnce)
     EXPECT_FALSE(session.ConnectAll(&error));
     EXPECT_EQ(port.Count("frame"), 1);
     EXPECT_EQ(port.Count("loadCal"), 1);
-    EXPECT_EQ(port.Count("advanced"), 1);
 }
 
 TEST_F(GearSessionTest, ConnectAllCallsEveryLeafWhateverItsState)
@@ -261,9 +259,9 @@ TEST_F(GearSessionTest, SetDeviceConnectsOneDevice)
     EXPECT_FALSE(session.SetDevice(GearDevice::Mount, true, &error));
     EXPECT_EQ(error, "");
     // the request is noted before the leaf runs
-    EXPECT_EQ(port.calls,
-              (Calls { "trace gear_dialog: SetDeviceConnected mount 1\n", "requested mount", "connect mount", "frame",
-                       "loadCal", "advanced" }));
+    EXPECT_EQ(
+        port.calls,
+        (Calls { "trace gear_dialog: SetDeviceConnected mount 1\n", "requested mount", "connect mount", "frame", "loadCal" }));
 }
 
 TEST_F(GearSessionTest, SetDeviceDisconnectsOneDevice)
@@ -443,7 +441,7 @@ TEST_F(GearSessionTest, EndRunsInItsFixedOrder)
     EXPECT_EQ(port.calls,
               (Calls { "trace gear_dialog: ConnectAll calls OnButtonConnectAll\n", "requested all",
                        "trace gear_dialog: OnButtonConnectAll\n", "connect camera", "connect mount", "connect rotator", "frame",
-                       "clearCal", "advanced", "scale", "reconnected mount" }));
+                       "clearCal", "scale", "reconnected mount" }));
 }
 
 TEST_F(GearSessionTest, TheCalibrationActionComesBeforeEquipmentReconnected)
@@ -453,7 +451,7 @@ TEST_F(GearSessionTest, TheCalibrationActionComesBeforeEquipmentReconnected)
     EXPECT_FALSE(session.SetDevice(GearDevice::Mount, true, &error));
     EXPECT_EQ(port.calls,
               (Calls { "trace gear_dialog: SetDeviceConnected mount 1\n", "requested mount", "connect mount", "frame",
-                       "loadCal", "advanced", "reconnected mount" }));
+                       "loadCal", "reconnected mount" }));
 
     // sent once
     port.calls.clear();

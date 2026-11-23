@@ -921,28 +921,6 @@ void MyFrame::OnAutoStar(wxCommandEvent& WXUNUSED(evt))
     AutoSelectStar();
 }
 
-void MyFrame::OnAdvanced(wxCommandEvent& WXUNUSED(event))
-{
-    pAdvancedDialog->LoadValues();
-    // Re-center each time it's shown — the dialog is long-lived (built once at
-    // startup) so the main frame may have moved to a different display since
-    // construction. Without this, it reappears wherever it last sat.
-    pAdvancedDialog->CentreOnParent();
-
-    if (pAdvancedDialog->ShowModal() == wxID_OK)
-    {
-        Debug.Write("User exited setup dialog with 'ok'\n");
-        pAdvancedDialog->UnloadValues();
-        pConfig->Flush();
-    }
-    else
-    {
-        // Cancel event may require non-trivial undo actions
-        Debug.Write("User exited setup dialog with 'cancel'\n");
-        pAdvancedDialog->Undo();
-    }
-}
-
 static wxString DarksWarningEnabledKey()
 {
     // we want the key to be under "/Confirm" so ConfirmDialog::ResetAllDontAskAgain() resets it, but we also want the setting

@@ -236,7 +236,6 @@ public:
     wxMenuItem *m_loopMenuItem;
     wxMenuItem *m_guideMenuItem;
     wxMenuItem *m_stopMenuItem;
-    wxMenuItem *m_brainMenuItem;
     wxMenuItem *m_autoSelectStarMenuItem;
     wxMenuItem *m_takeDarksMenuItem;
     wxMenuItem *m_useDarksMenuItem;
@@ -281,7 +280,6 @@ public:
     void OnLoadDefectMap(wxCommandEvent& evt);
     void GuideButtonClick(bool interactive, const wxString& context);
     void OnButtonGuide(wxCommandEvent& evt);
-    void OnAdvanced(wxCommandEvent& evt);
     void OnIdle(wxIdleEvent& evt);
     void OnEEGG(wxCommandEvent& evt);
     void OnGuidingAssistant(wxCommandEvent& evt);
@@ -508,7 +506,6 @@ enum
     BUTTON_STOP,
     BUTTON_AUTOSTAR,
     BUTTON_DURATION,
-    BUTTON_ADVANCED,
     BUTTON_ALERT_ACTION,
     BUTTON_ALERT_CLOSE,
     BUTTON_ALERT_HELP,
@@ -526,7 +523,6 @@ enum
     MENU_LOOP,
     MENU_GUIDE,
     MENU_STOP,
-    MENU_BRAIN,
     MENU_XHAIR0,
     MENU_XHAIR1,
     MENU_XHAIR2,

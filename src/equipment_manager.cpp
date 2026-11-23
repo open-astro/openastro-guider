@@ -39,8 +39,7 @@ std::vector<std::wstring> ListItems(const wxArrayString& list)
 
 EquipmentManager::EquipmentManager()
     : m_connectRetryStopped(false), m_probeCancel(false), m_probeRunning(false), m_probeDevice(GearDevice::Camera),
-      m_probeToken(0), m_camera(nullptr), m_mount(nullptr), m_rotator(nullptr), m_updated { false, false, false },
-      m_session(*this)
+      m_probeToken(0), m_camera(nullptr), m_mount(nullptr), m_rotator(nullptr), m_session(*this)
 {
     // the #104 timer and the probe thread's CallAfter both target the manager
     m_connectRetryTimer.SetOwner(this);
@@ -176,8 +175,6 @@ void EquipmentManager::SelectCamera(const wxString& choice)
     }
 
     PublishGear();
-
-    m_updated[DeviceIndex(GearDevice::Camera)] = true;
 }
 
 void EquipmentManager::SelectMount(const wxString& choice)
@@ -212,8 +209,6 @@ void EquipmentManager::SelectMount(const wxString& choice)
     }
 
     PublishGear();
-
-    m_updated[DeviceIndex(GearDevice::Mount)] = true;
 }
 
 void EquipmentManager::SelectRotator(const wxString& choice)
@@ -246,8 +241,6 @@ void EquipmentManager::SelectRotator(const wxString& choice)
     }
 
     PublishGear();
-
-    m_updated[DeviceIndex(GearDevice::Rotator)] = true;
 }
 
 void EquipmentManager::ReloadProfileGear()
@@ -299,32 +292,6 @@ bool EquipmentManager::SetProfile(int profileId, wxString *error)
         return false;
     *error = wxString::FromUTF8(err.c_str());
     return true;
-}
-
-void EquipmentManager::UpdateAdvancedDialog(bool preLoad)
-{
-    if (m_updated[DeviceIndex(GearDevice::Camera)])
-    {
-        pFrame->pAdvancedDialog->UpdateCameraPage();
-        m_updated[DeviceIndex(GearDevice::Camera)] = false;
-    }
-
-    if (m_updated[DeviceIndex(GearDevice::Mount)])
-    {
-        pFrame->pAdvancedDialog->UpdateMountPage();
-        m_updated[DeviceIndex(GearDevice::Mount)] = false;
-    }
-
-    if (m_updated[DeviceIndex(GearDevice::Rotator)])
-    {
-        pFrame->pAdvancedDialog->UpdateRotatorPage();
-        m_updated[DeviceIndex(GearDevice::Rotator)] = false;
-    }
-
-    if (preLoad)
-    {
-        pFrame->pAdvancedDialog->Preload();
-    }
 }
 
 // ---- GearPort: what m_session (gear_session.cpp) sequences each gear request over ----
@@ -441,11 +408,6 @@ void EquipmentManager::SendReconnected(GearDevice dev)
 {
     Debug.Write(wxString::Format("connect retry: EquipmentReconnected %s\n", GearDeviceName(dev)));
     EvtServer.NotifyEquipmentReconnected(GearDeviceName(dev));
-}
-
-void EquipmentManager::RefreshAdvancedDialog()
-{
-    UpdateAdvancedDialog(true);
 }
 
 static void AutoLoadDefectMap()
@@ -575,11 +537,6 @@ void EquipmentManager::ConnectCamera(bool autoReconnecting)
             camera->SetBinning(1, 1);
             Debug.Write(wxString::Format("CamConfigDlg correcting bogus user binning value from %d to 1\n", profileBinning));
         }
-
-        // force re-build of camera tab in case Connect updated any of
-        // the camera properties that influence the camera tab. For
-        // example, binning options.
-        m_updated[DeviceIndex(GearDevice::Camera)] = true;
 
         Debug.AddLine("Connected Camera: " + camera->Name);
         auto frameSize = camera->GetFrameSize();

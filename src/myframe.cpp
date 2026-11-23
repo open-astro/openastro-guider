@@ -105,8 +105,6 @@ EVT_MENU(MENU_LOOP, MyFrame::OnButtonLoop)
 EVT_TOOL(BUTTON_STOP, MyFrame::OnButtonStop)
 EVT_TOOL(BUTTON_AUTOSTAR, MyFrame::OnButtonAutoStar)
 EVT_MENU(MENU_STOP, MyFrame::OnButtonStop)
-EVT_TOOL(BUTTON_ADVANCED, MyFrame::OnAdvanced)
-EVT_MENU(MENU_BRAIN, MyFrame::OnAdvanced)
 EVT_TOOL(BUTTON_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(MENU_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(BUTTON_ALERT_CLOSE, MyFrame::OnAlertButton) // Bit of a hack -- not actually on the menu but need an event to accelerate
@@ -289,7 +287,7 @@ MyFrame::MyFrame()
 
     pGuideHistory = NewGuideHistory();
 
-    pAdvancedDialog = new AdvancedDialog(this);
+    // pAdvancedDialog stays null: the AdvancedDialog is no longer built (#115 step 4, S4.2)
 
     // no devices yet: PhdApp::OnInit loads them from the profile once pFrame is set (their constructors call through it)
     pEquipment = new EquipmentManager();
@@ -346,12 +344,10 @@ MyFrame::MyFrame()
 
 MyFrame::~MyFrame()
 {
-    // the manager stops the #104 retry (it joins a probe thread) before it deletes the devices, while the AdvancedDialog
-    // and the status bar a disconnecting device updates are still there
+    // the manager stops the #104 retry (it joins a probe thread) before it deletes the devices, while the status bar
+    // a disconnecting device updates is still there
     delete pEquipment;
     pEquipment = nullptr;
-
-    pAdvancedDialog->Destroy();
 
     m_mgr.UnInit();
 
@@ -386,7 +382,6 @@ void MyFrame::SetupMenuBar()
     m_guideMenuItem->Enable(false);
     m_stopMenuItem = guide_menu->Append(MENU_STOP, _("&Stop\tCtrl-S"), _("Stop looping and guiding"));
     m_stopMenuItem->Enable(false);
-    m_brainMenuItem = guide_menu->Append(MENU_BRAIN, _("&Advanced Settings\tCtrl-A"), _("Advanced Settings"));
 
     tools_menu = new wxMenu;
     m_autoSelectStarMenuItem = tools_menu->Append(MENU_AUTOSTAR, _("&Auto-select Star\tAlt-S"), _("Automatically select star"));
@@ -781,9 +776,6 @@ void MyFrame::SetupToolBar()
 #include "icons/auto_select_disabled.png.h"
     wxBitmap auto_select_disabled_bmp(wxBITMAP_PNG_FROM_DATA(auto_select_disabled));
 
-#include "icons/brain.png.h"
-    wxBitmap brain_bmp(wxBITMAP_PNG_FROM_DATA(brain));
-
     int dur_values[] = {
         10,    20,   50,   100,  200,  500,  1000, 1500, 2000,  2500,  3000,
         3500,  4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000, 15000,
@@ -817,8 +809,6 @@ void MyFrame::SetupToolBar()
     MainToolbar->AddSeparator();
     MainToolbar->AddControl(Dur_Choice, _("Exposure duration"));
     MainToolbar->AddControl(Gamma_Slider, _("Gamma"));
-    MainToolbar->AddSeparator();
-    MainToolbar->AddTool(BUTTON_ADVANCED, _("Advanced Settings"), brain_bmp, _("Advanced Settings"));
     MainToolbar->EnableTool(BUTTON_LOOP, false);
     MainToolbar->EnableTool(BUTTON_AUTOSTAR, false);
     MainToolbar->EnableTool(BUTTON_GUIDE, false);
@@ -829,7 +819,6 @@ void MyFrame::SetupToolBar()
 void MyFrame::SetupKeyboardShortcuts()
 {
     wxAcceleratorEntry entries[] = {
-        wxAcceleratorEntry(wxACCEL_CTRL, (int) 'A', MENU_BRAIN),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'G', MENU_GUIDE),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', MENU_LOOP),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'S', MENU_STOP),

@@ -92,10 +92,6 @@ public:
     // rotator; nothing is deleted
     void Shutdown(bool forced);
 
-    // Rebuild the AdvancedDialog page of each device changed since the last call, then preload the pages if asked
-    // (the end of a gear request; startup rebuilds without the preload).
-    void UpdateAdvancedDialog(bool preLoad);
-
     // The #105 camera auto-reconnect (MyFrame::DoTryReconnect): the camera connect leaf outside any gear request, so
     // no end of request runs. Returns true when the camera is still not connected.
     bool ReconnectCamera();
@@ -129,12 +125,11 @@ private:
     void NoteUserDisconnect(GearDevice dev) override;
     void Trace(const std::string& line) override;
     // the end of a gear request (connect, disconnect, profile), in GearSession::End's order (#139): frame controls,
-    // the calibration auto-load or clear, the AdvancedDialog pages, the image-scale change and EquipmentReconnected
+    // the calibration auto-load or clear, the image-scale change and EquipmentReconnected
     void RefreshFrameControls() override;
     bool AutoLoadCalibration() const override;
     void LoadCalibration() override;
     void ClearCalibration() override;
-    void RefreshAdvancedDialog() override;
     void HandleImageScaleChange() override;
     void SendReconnected(GearDevice dev) override;
 
@@ -193,7 +188,6 @@ private:
     Rotator *m_rotator;
     wxString m_choice[3]; // camera, mount, rotator
     wxString m_baselineCamera; // the camera-change test of ConnectCamera and the name its camera id is keyed from
-    bool m_updated[3]; // the AdvancedDialog page of camera, mount, rotator needs a rebuild
     // the gear requests: their depth (the #104 retry's "connect in progress"), the camera-change latch (#139), the
     // queued EquipmentReconnected (#104) and the end of request
     GearSession m_session;
