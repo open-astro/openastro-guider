@@ -236,15 +236,11 @@ static void IdleClosing(wxIdleEvent& evt)
     if (!pFrame || pFrame->IsShutDown())
         return;
 
-    // #115 S6.8: what the forced close's MyFrame::OnClose did, then the frame's deletion, which wx made in this idle
-    // pass after OnClose's Destroy(), and the exit from the main loop that the last window's deletion made
+    // #115 S6.8: what the forced close's MyFrame::OnClose did: the exit sequence, then Destroy(). MyFrame is still a
+    // top-level window here, so wx deletes it once its pending events (native ones included) are handled, and the main
+    // loop ends with the last window, as before. (S6.9 makes MyFrame a plain wxEvtHandler, which is deleted directly.)
     pFrame->Shutdown();
-    // nothing posts to the frame once Shutdown() has stopped the servers and the worker threads; drop anything already
-    // queued for it (~wxEvtHandler does too) so no event can reach it after the delete
-    pFrame->DeletePendingEvents();
-    delete pFrame;
-    pFrame = nullptr;
-    wxTheApp->ExitMainLoop();
+    pFrame->Destroy();
 }
 
 void PhdApp::TerminateApp()
