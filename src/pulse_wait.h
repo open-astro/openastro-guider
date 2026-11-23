@@ -15,11 +15,14 @@ namespace PulseWait
 {
 // How long to sleep after PulseGuide returns, before the first IsPulseGuiding
 // check: what is left of the pulse plus a 10 ms margin, or 0 when the request
-// returned at or after the end of the pulse.
+// returned at or after the end of the pulse. A negative elapsed time (the
+// clock stepped back) counts as 0, so the sleep is never longer than the
+// whole pulse plus the margin.
 long SleepBeforeFirstPollMs(long durationMs, long elapsedSinceSendMs);
 
 // Whether a mount that still reports IsPulseGuiding has been waited on long
-// enough: more than 2 s past the end of the pulse.
+// enough: more than 2 s past the end of the pulse, or a negative elapsed time
+// (the clock stepped back, so the wait can no longer be measured).
 bool CompletionTimedOut(long durationMs, long elapsedSinceSendMs);
 } // namespace PulseWait
 
