@@ -36,11 +36,7 @@
 #define ADVANCED_DIALOG_H_INCLUDED
 
 class MyFrame;
-class MyFrameConfigDialogPane;
-class MyFrameConfigDialogCtrlSet;
 class MountConfigDialogCtrlSet;
-class CameraConfigDialogPane;
-class GuiderConfigDialogPane;
 class wxTipWindow;
 
 enum TAB_PAGES
@@ -58,23 +54,13 @@ class AdvancedDialog : public wxDialog
 {
     MyFrame *m_pFrame;
     wxBookCtrlBase *m_pNotebook;
-    MyFrameConfigDialogPane *m_pGlobalPane;
-    Guider::GuiderConfigDialogPane *m_pGuiderPane;
-    CameraConfigDialogPane *m_pCameraPane;
     Mount::MountConfigDialogPane *m_pMountPane;
     AOConfigDialogPane *m_pAOPane;
-    RotatorConfigDialogPane *m_pRotatorPane;
 
     BrainCtrlIdMap m_brainCtrls;
     bool m_rebuildPanels;
-    MyFrameConfigDialogCtrlSet *m_pGlobalCtrlSet;
-    CameraConfigDialogCtrlSet *m_pCameraCtrlSet;
-    GuiderConfigDialogCtrlSet *m_pGuiderCtrlSet;
     MountConfigDialogCtrlSet *m_pScopeCtrlSet;
     AOConfigDialogCtrlSet *m_pAOCtrlSet;
-    RotatorConfigDialogCtrlSet *m_pRotatorCtrlSet;
-    wxPanel *m_pGlobalSettingsPanel;
-    wxPanel *m_pCameraSettingsPanel;
     wxPanel *m_pGuiderSettingsPanel;
     wxPanel *m_pScopeSettingsPanel;
     wxPanel *m_pDevicesSettingsPanel;
@@ -91,10 +77,8 @@ public:
 
     void EndModal(int retCode) override;
 
-    void UpdateCameraPage();
     void UpdateMountPage();
     void UpdateAoPage();
-    void UpdateRotatorPage();
 
     void LoadValues();
     void UnloadValues();
@@ -108,20 +92,15 @@ public:
         m_imageScaleChanged = true;
     } // Allows image scale adjustment to be made only once when AD is closed
     int GetFocalLength();
-    void SetFocalLength(int val);
     double GetPixelSize();
-    void SetPixelSize(double val);
     int GetBinning();
-    void SetBinning(int binning);
     Mount::MountConfigDialogPane *GetCurrentMountPane() { return m_pMountPane; }
 
     wxWindow *GetTabLocation(BRAIN_CTRL_IDS id);
 
 private:
-    void AddCameraPage();
     void AddMountPage();
     void AddAoPage();
-    void AddRotatorPage();
     size_t FindPage(wxWindow *ctrl);
     void RebuildPanels();
     void BuildCtrlSets();

@@ -305,8 +305,6 @@ set(phd2_SRC
   ${phd_src_dir}/configdialog.h
   ${phd_src_dir}/confirm_dialog.cpp
   ${phd_src_dir}/confirm_dialog.h
-  ${phd_src_dir}/darks_dialog.cpp
-  ${phd_src_dir}/darks_dialog.h
   ${phd_src_dir}/debuglog.cpp
   ${phd_src_dir}/debuglog.h
   ${phd_src_dir}/eegg.cpp

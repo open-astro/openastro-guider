@@ -360,7 +360,7 @@ bool GuidingLog::ChangeDirLog(const wxString& newdir)
 
     if (!SetLogDir(newdir))
     {
-        wxMessageBox(wxString::Format("invalid folder name %s, log folder unchanged", newdir));
+        Debug.Write(wxString::Format("invalid folder name %s, log folder unchanged\n", newdir));
         ok = false;
     }
 

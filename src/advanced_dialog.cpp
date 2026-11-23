@@ -45,23 +45,10 @@ static int s_selectedPage = -1;
 
 void AdvancedDialog::BuildCtrlSets()
 {
-    m_pGlobalCtrlSet = m_pFrame->GetConfigDlgCtrlSet(m_pFrame, this, m_brainCtrls);
-    if (pCamera)
-        m_pCameraCtrlSet = pCamera->GetConfigDlgCtrlSet(m_pCameraSettingsPanel, pCamera, this, m_brainCtrls);
-    else
-        m_pCameraCtrlSet = nullptr;
-
-    m_pGuiderCtrlSet = m_pFrame->pGuider->GetConfigDialogCtrlSet(m_pGuiderSettingsPanel, m_pFrame->pGuider, this, m_brainCtrls);
-
     if (TheAO())
         m_pAOCtrlSet = new AOConfigDialogCtrlSet(m_pDevicesSettingsPanel, pMount, this, m_brainCtrls);
     else
         m_pAOCtrlSet = nullptr;
-
-    if (pRotator)
-        m_pRotatorCtrlSet = pRotator->GetConfigDlgCtrlSet(m_pDevicesSettingsPanel, pRotator, this, m_brainCtrls);
-    else
-        m_pRotatorCtrlSet = nullptr;
 
     // Need a scope ctrl set even if pMount is null - it exports generic controls needed by other panes
     m_pScopeCtrlSet = new ScopeConfigDialogCtrlSet(m_pGuiderSettingsPanel, TheScope(), this, m_brainCtrls);
@@ -69,23 +56,11 @@ void AdvancedDialog::BuildCtrlSets()
 
 void AdvancedDialog::CleanupCtrlSets()
 {
-    delete m_pGlobalCtrlSet;
-    m_pGlobalCtrlSet = nullptr;
-
-    delete m_pCameraCtrlSet;
-    m_pCameraCtrlSet = nullptr;
-
-    delete m_pGuiderCtrlSet;
-    m_pGuiderCtrlSet = nullptr;
-
     delete m_pScopeCtrlSet;
     m_pScopeCtrlSet = nullptr;
 
     delete m_pAOCtrlSet;
     m_pAOCtrlSet = nullptr;
-
-    delete m_pRotatorCtrlSet;
-    m_pRotatorCtrlSet = nullptr;
 }
 
 static void EnableValidators(wxWindow *win)
@@ -136,19 +111,8 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     m_pNotebook = new wxNotebook(this, wxID_ANY);
     m_pFrame = pFrame; // We get called before global var is initialized
 
-    wxSizerFlags sizer_flags = wxSizerFlags(0).Align(wxALIGN_TOP | wxALIGN_CENTER_HORIZONTAL).Border(wxALL, 2).Expand();
-
     // Build all the panels first - these are needed to create the various ConfigCtrlSets
     // Each panel gets a vertical sizer attached to it
-    m_pGlobalSettingsPanel = new wxPanel(m_pNotebook);
-    wxBoxSizer *pGlobalTabSizer = new wxBoxSizer(wxVERTICAL);
-    m_pGlobalSettingsPanel->SetSizer(pGlobalTabSizer);
-    m_pNotebook->AddPage(m_pGlobalSettingsPanel, _("Global"), true);
-    // Camera pane
-    m_pCameraSettingsPanel = new wxPanel(m_pNotebook);
-    wxBoxSizer *pCameraTabSizer = new wxBoxSizer(wxVERTICAL);
-    m_pCameraSettingsPanel->SetSizer(pCameraTabSizer);
-    m_pNotebook->AddPage(m_pCameraSettingsPanel, _("Camera"), false);
     // Guiding pane
     m_pGuiderSettingsPanel = new wxPanel(m_pNotebook);
     wxBoxSizer *pGuidingTabSizer = new wxBoxSizer(wxVERTICAL);
@@ -159,7 +123,7 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     wxBoxSizer *pScopeTabSizer = new wxBoxSizer(wxVERTICAL);
     m_pScopeSettingsPanel->SetSizer(pScopeTabSizer);
     m_pNotebook->AddPage(m_pScopeSettingsPanel, _("Algorithms"));
-    // Devices pane - home for AO and rotator - won't be shown if neither device is used
+    // Devices pane - home for AO - won't be shown if no AO is used
     m_pDevicesSettingsPanel = new wxPanel(m_pNotebook);
     wxBoxSizer *pDevicesTabSizer = new wxBoxSizer(wxVERTICAL);
     m_pDevicesSettingsPanel->SetSizer(pDevicesTabSizer);
@@ -168,27 +132,11 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     BuildCtrlSets(); // Populates the m_brainCtrls map with all UI controls
 
     // Pane construction now pulls controls from the map and places them where they make sense to a user
-    // Populate global pane
-    m_pGlobalPane = pFrame->GetConfigDialogPane(m_pGlobalSettingsPanel);
-    m_pGlobalPane->LayoutControls(m_brainCtrls);
-    pGlobalTabSizer->Add(m_pGlobalPane, sizer_flags);
-
-    // Populate the camera pane
-    AddCameraPage();
-
-    // Populate the guiding pane
-    m_pGuiderPane = pFrame->pGuider->GetConfigDialogPane(m_pGuiderSettingsPanel);
-    m_pGuiderPane->LayoutControls(pFrame->pGuider, m_brainCtrls);
-    pGuidingTabSizer->Add(m_pGuiderPane, sizer_flags);
-
     // Build Mount tab
     AddMountPage();
 
     // Build AO tab
     AddAoPage();
-
-    // Add page for rotator
-    AddRotatorPage();
 
     // Ok and cancel buttons for the entire dialog box
     wxBoxSizer *pTopLevelSizer = new wxBoxSizer(wxVERTICAL);
@@ -247,12 +195,6 @@ void AdvancedDialog::RebuildPanels()
 {
     CleanupCtrlSets();
 
-    m_pGlobalPane->Clear(true);
-    m_pCameraPane->Clear(true);
-
-    m_pCameraSettingsPanel->GetSizer()->Clear(true);
-    m_pGuiderPane->Clear(true);
-
     if (m_pMountPane)
     {
         m_pMountPane->Clear(true);
@@ -262,31 +204,18 @@ void AdvancedDialog::RebuildPanels()
     {
         m_pAOPane->Clear(true);
     }
-    if (m_pRotatorPane)
-    {
-        m_pRotatorPane->Clear(true);
-    }
-    if (m_pRotatorPane != nullptr || m_pAOPane != nullptr)
+    if (m_pAOPane != nullptr)
         m_pDevicesSettingsPanel->GetSizer()->Clear(true);
 
     m_brainCtrls.clear();
 
     BuildCtrlSets();
 
-    m_pGlobalPane->LayoutControls(m_brainCtrls);
-    m_pGlobalPane->Layout();
-
-    AddCameraPage();
-
-    m_pGuiderPane->LayoutControls(m_pFrame->pGuider, m_brainCtrls); // Guider pane doesn't have specific device dependencies
-    m_pGuiderPane->Layout();
-
     AddMountPage();
 
     AddAoPage(); // Will handle no AO case
-    AddRotatorPage(); // Will handle no Rotator case
 
-    if (m_pAOPane == nullptr && m_pRotatorPane == nullptr) // Dump the Other Devices tab if not needed
+    if (m_pAOPane == nullptr) // Dump the Other Devices tab if not needed
     {
         int idx = m_pNotebook->FindPage(m_pDevicesSettingsPanel);
         if (idx != wxNOT_FOUND)
@@ -309,11 +238,7 @@ void AdvancedDialog::RebuildPanels()
 // Needed by ConfigDialogCtrlSets to know what parent to use when creating a control
 wxWindow *AdvancedDialog::GetTabLocation(BRAIN_CTRL_IDS id)
 {
-    if (id < AD_GLOBAL_TAB_BOUNDARY)
-        return m_pGlobalSettingsPanel;
-    else if (id < AD_CAMERA_TAB_BOUNDARY)
-        return m_pCameraSettingsPanel;
-    else if (id < AD_GUIDER_TAB_BOUNDARY)
+    if (id < AD_GUIDER_TAB_BOUNDARY)
         return m_pGuiderSettingsPanel;
     else if (id < AD_MOUNT_TAB_BOUNDARY)
         return m_pScopeSettingsPanel;
@@ -324,20 +249,6 @@ wxWindow *AdvancedDialog::GetTabLocation(BRAIN_CTRL_IDS id)
         assert(false); // Fundamental problem
         return nullptr;
     }
-}
-
-void AdvancedDialog::AddCameraPage()
-{
-    // Even if pCamera is null, the pane hosts other controls
-    if (pCamera)
-        m_pCameraPane = pCamera->GetConfigDialogPane(m_pCameraSettingsPanel);
-    else
-        m_pCameraPane = new CameraConfigDialogPane(m_pCameraSettingsPanel, pCamera);
-    m_pCameraPane->LayoutControls(pCamera, m_brainCtrls);
-    m_pCameraPane->Layout();
-
-    m_pCameraSettingsPanel->GetSizer()->Add(m_pCameraPane);
-    m_pScopeSettingsPanel->Layout();
 }
 
 void AdvancedDialog::AddMountPage()
@@ -382,30 +293,7 @@ void AdvancedDialog::AddAoPage()
     }
 }
 
-void AdvancedDialog::AddRotatorPage()
-{
-    if (pRotator)
-    {
-        // We have a rotator selected
-        m_pRotatorPane = new RotatorConfigDialogPane(m_pDevicesSettingsPanel);
-        m_pRotatorPane->LayoutControls(m_pDevicesSettingsPanel, m_brainCtrls);
-        m_pRotatorPane->Layout();
-
-        m_pDevicesSettingsPanel->GetSizer()->Add(m_pRotatorPane, wxSizerFlags(0).Border(wxTOP, 10).Expand());
-        m_pDevicesSettingsPanel->Layout();
-    }
-    else
-    {
-        m_pRotatorPane = nullptr;
-    }
-}
-
 // All update options for devices are handled by simply forcing a RebuildPanels before the Advanced Dialog is displayed
-
-void AdvancedDialog::UpdateCameraPage()
-{
-    m_rebuildPanels = true;
-}
 
 void AdvancedDialog::UpdateMountPage()
 {
@@ -413,11 +301,6 @@ void AdvancedDialog::UpdateMountPage()
 }
 
 void AdvancedDialog::UpdateAoPage()
-{
-    m_rebuildPanels = true;
-}
-
-void AdvancedDialog::UpdateRotatorPage()
 {
     m_rebuildPanels = true;
 }
@@ -430,13 +313,6 @@ void AdvancedDialog::LoadValues()
 
     // Load all the current params
     m_imageScaleChanged = false;
-    m_pGlobalCtrlSet->LoadValues();
-    if (m_pCameraCtrlSet)
-        m_pCameraCtrlSet->LoadValues();
-    if (m_pGuiderCtrlSet)
-        m_pGuiderCtrlSet->LoadValues();
-    if (m_pRotatorCtrlSet)
-        m_pRotatorCtrlSet->LoadValues();
 
     // Mount sub-classes use a hybrid approach involving both CtrlSets and Panes
 
@@ -457,13 +333,6 @@ void AdvancedDialog::LoadValues()
 void AdvancedDialog::UnloadValues()
 {
     // Unload all the current params
-    m_pGlobalCtrlSet->UnloadValues();
-    if (m_pCameraCtrlSet)
-        m_pCameraCtrlSet->UnloadValues();
-    if (m_pGuiderCtrlSet)
-        m_pGuiderCtrlSet->UnloadValues();
-    if (m_pRotatorCtrlSet)
-        m_pRotatorCtrlSet->UnloadValues();
 
     // Mount sub-classes use a hybrid approach involving both CtrlSets and Panes
 
@@ -486,7 +355,7 @@ void AdvancedDialog::UnloadValues()
 // Any un-do ops need to be handled at the ConfigDialogPane level
 void AdvancedDialog::Undo()
 {
-    ConfigDialogPane *const panes[] = { m_pGlobalPane, m_pGuiderPane, m_pCameraPane, m_pMountPane, m_pAOPane, m_pRotatorPane };
+    ConfigDialogPane *const panes[] = { m_pMountPane, m_pAOPane };
 
     for (unsigned int i = 0; i < WXSIZEOF(panes); i++)
     {
@@ -506,40 +375,25 @@ void AdvancedDialog::EndModal(int retCode)
 // Properties and methods needed by step-size calculator dialog
 int AdvancedDialog::GetFocalLength()
 {
-    return m_pGlobalCtrlSet->GetFocalLength();
-}
-
-void AdvancedDialog::SetFocalLength(int val)
-{
-    m_pGlobalCtrlSet->SetFocalLength(val);
+    return m_pFrame->GetFocalLength();
 }
 
 double AdvancedDialog::GetPixelSize()
 {
-    return m_pCameraCtrlSet ? m_pCameraCtrlSet->GetPixelSize() : 0.0;
-}
-
-void AdvancedDialog::SetPixelSize(double val)
-{
-    if (m_pCameraCtrlSet)
-        m_pCameraCtrlSet->SetPixelSize(val);
+    return pCamera ? pCamera->GetCameraPixelSize() : 0.0;
 }
 
 int AdvancedDialog::GetBinning()
 {
-    return m_pCameraCtrlSet ? m_pCameraCtrlSet->GetBinning() : 1;
-}
-
-void AdvancedDialog::SetBinning(int binning)
-{
-    if (m_pCameraCtrlSet)
-        m_pCameraCtrlSet->SetBinning(binning);
+    return pCamera ? pCamera->GetBinning() : 1;
 }
 
 size_t AdvancedDialog::FindPage(wxWindow *ctrl)
 {
     wxWindow *a[] = {
-        m_pGlobalSettingsPanel, m_pCameraSettingsPanel, m_pGuiderSettingsPanel, m_pScopeSettingsPanel, m_pDevicesSettingsPanel,
+        m_pGuiderSettingsPanel,
+        m_pScopeSettingsPanel,
+        m_pDevicesSettingsPanel,
     };
 
     for (wxWindow *p = ctrl; p; p = p->GetParent())

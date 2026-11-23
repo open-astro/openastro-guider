@@ -5044,6 +5044,8 @@ static void get_algo_param(JObj& response, const json_value *params)
     double val;
     if (pMount)
     {
+        // the worker's guide computation can change a value (the GP period) (#142 T2b)
+        AlgorithmSlot::Hold held = pMount->LockAlgorithms();
         GuideAlgorithm *alg = a == GUIDE_X ? pMount->GetXGuideAlgorithm() : pMount->GetYGuideAlgorithm();
         if (strcmp(name->string_value, "algorithmName") == 0)
         {
@@ -5084,6 +5086,7 @@ static void set_algo_param(JObj& response, const json_value *params)
     bool ok = false;
     if (pMount)
     {
+        AlgorithmSlot::Hold held = pMount->LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
         GuideAlgorithm *alg = a == GUIDE_X ? pMount->GetXGuideAlgorithm() : pMount->GetYGuideAlgorithm();
         ok = alg->SetParam(name->string_value, v);
     }

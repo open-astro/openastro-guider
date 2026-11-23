@@ -88,6 +88,12 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
                           guiding going on with the same star and lock position and the secondary stars found again
                           (#187); apply's refusals, and min-move applied with a valid JSON response (#184); a run
                           started from looping guides and ends looping
+  mutation while guiding  #142 T2b: set_algo through every RA and Dec algorithm (Predictive PEC among them),
+                          set_algo_param on each one's parameters (the GP's periodLength included), set_backlash_comp,
+                          and a Guiding Assistant run with the RA algorithm changing during it and then
+                          guiding_assistant_apply of dec_algorithm (Lowpass2) and min_move_dec, all while guiding at
+                          0.5 s exposures: consecutive GuideSteps, no StarLost, guiding on, no sanitizer report (the
+                          worker's Mount::MoveOffset uses the algorithms these change or replace); set back after
   reconnect throttle      a 4th camera reconnect within 60 s: EquipmentReconnectFailed, then the #104 retry
   (#105 -> #104)          reconnects it (EquipmentReconnected) 15 s later, capture not restarted
   GA exit restore         shutdown during a run: the multi-star and variable-delay settings the run turned off read
@@ -1813,6 +1819,148 @@ def scenario_guiding_assistant(lane):
     return "; ".join(out)
 
 
+# the guide algorithms Ara can pick per axis on a mount (Mount::AvailableAlgorithms), cycled by the mutation scenario
+RA_ALGOS = ("Hysteresis", "Lowpass2", "Predictive PEC", "ZFilter", "Resist Switch", "Lowpass")
+DEC_ALGOS = ("Resist Switch", "Lowpass2", "Hysteresis", "ZFilter", "Lowpass")
+# the mutation scenario's first phase: rounds back to back for this long, so that many guide steps run during them
+MUTATION_S = 20
+# the longest gap between two GuideSteps while the mutations run: 0.5 s exposures, under ASan beside three daemons
+MAX_GUIDESTEP_GAP_S = 15
+MUTATION_ENDED = GUIDE_FAILURES + ("StarLost",)
+
+
+def algo_params(cli, axis):
+    """{name: value} of the axis's current algorithm, from get_algo_param_names and get_algo_param."""
+    names = [n for n in cli.call("get_algo_param_names", {"axis": axis}) if n != "algorithmName"]
+    return {n: cli.call("get_algo_param", {"axis": axis, "name": n}) for n in names}
+
+
+def mutate_axis(cli, axis, algo, i, done):
+    """set_algo, then set_algo_param on each of the new algorithm's parameters (minMove and the GP's periodLength to
+    new values, the others to the value they read back, which still runs the setter)."""
+    expect(cli.call("set_algo", {"axis": axis, "name": algo}) == 0, f"set_algo {axis} {algo} failed")
+    for name, value in algo_params(cli, axis).items():
+        if name == "minMove":
+            value = 0.15 + 0.05 * (i % 2)
+        elif name == "periodLength":
+            value = 400.0 + 80.0 * (i % 2)
+        expect(cli.call("set_algo_param", {"axis": axis, "name": name, "value": value}) == 0,
+               f"set_algo_param {axis} {algo} {name} {value} failed")
+        done.add(f"{algo}.{name}")
+
+
+def mutate_blc(cli, i):
+    pulse = 200 + 20 * (i % 3)
+    expect(cli.call("set_backlash_comp", {"Enabled": i % 2 == 0, "PulseWidth": pulse, "Floor": pulse // 2,
+                                          "Ceiling": pulse * 2}) == 0, "set_backlash_comp failed")
+
+
+def check_continuous(cli, mark, label):
+    """The GuideSteps since mark: consecutive frames, no gap over MAX_GUIDESTEP_GAP_S, nothing that ends guiding."""
+    evs = cli.events_since(mark)
+    bad = [e for e in evs if e["Event"] in MUTATION_ENDED]
+    expect(not bad, f"{label}: {[strip(e) for e in bad[:3]]}")
+    steps = [e for e in evs if e["Event"] == "GuideStep"]
+    expect(len(steps) >= 2, f"{label}: {len(steps)} GuideSteps")
+    frames = [e.get("Frame") for e in steps]
+    skips = [(a, b) for a, b in zip(frames, frames[1:]) if b != a + 1]
+    expect(not skips, f"{label}: GuideStep frames not consecutive at {skips[:5]}")
+    gap = max(b["_t"] - a["_t"] for a, b in zip(steps, steps[1:]))
+    expect(gap <= MAX_GUIDESTEP_GAP_S, f"{label}: a {gap:.1f} s gap between two GuideSteps")
+    return len(steps), gap
+
+
+def scenario_mutation_while_guiding(lane):
+    """#142 T2b: what Ara changes while guiding, as fast as it can be sent, against the worker thread's guide
+    computation (Mount::MoveOffset): set_algo (each RA and Dec algorithm in turn, Predictive PEC among them),
+    set_algo_param on every parameter of each (the GP's periodLength included), set_backlash_comp, and a Guiding
+    Assistant run with guiding_assistant_apply of the Dec algorithm (Lowpass2) and its min-move. Guiding goes on
+    with consecutive GuideSteps, no StarLost and no sanitizer report (the lane's ASan/UBSan build: a swap freeing
+    the algorithm a move is using is a heap-use-after-free). Everything is set back after."""
+    cli = lane.cli
+    if cli.call("get_app_state") != "Guiding":
+        lane.known_start(True)  # the Guiding Assistant scenario before it ends stopped
+    expect(cli.call("get_app_state") == "Guiding", "not guiding")
+    before = {axis: (cli.call("get_algo", {"axis": axis}), algo_params(cli, axis)) for axis in ("ra", "dec")}
+    blc_before = cli.call("get_backlash_comp")
+    out, done = [], set()
+    mark = cli.mark()
+    try:
+        # set_algo, set_algo_param and set_backlash_comp while guiding
+        t0, i = time.time(), 0
+        while time.time() - t0 < MUTATION_S or i < len(RA_ALGOS):
+            mutate_axis(cli, "ra", RA_ALGOS[i % len(RA_ALGOS)], i, done)
+            mutate_axis(cli, "dec", DEC_ALGOS[i % len(DEC_ALGOS)], i, done)
+            mutate_blc(cli, i)
+            expect(cli.call("get_app_state") == "Guiding", f"not guiding after mutation round {i + 1}")
+            lane.daemon.check_alive()
+            i += 1
+        rounds = i
+        expect("Predictive PEC.periodLength" in done, f"the GP's periodLength was not set: {sorted(done)}")
+        cli.wait_events(cli.mark(), "GuideStep", count=3, timeout=60, abort_on=MUTATION_ENDED)
+        n, gap = check_continuous(cli, mark, "set_algo/set_algo_param/set_backlash_comp while guiding")
+        out.append(f"{rounds} rounds of set_algo, set_algo_param ({len(done)} algorithm parameters) and "
+                   f"set_backlash_comp in {time.time() - t0:.0f} s: {n} consecutive GuideSteps, longest gap "
+                   f"{gap:.1f} s")
+
+        # a Guiding Assistant run, the RA algorithm and the BLC changing during it; then apply the Dec algorithm.
+        # The Dec algorithm stays Resist Switch for the run: the Lowpass2 recommendation is for a Resist Switch
+        # Dec on a mount with high-res encoders (the lane's profile)
+        expect(cli.call("set_algo", {"axis": "dec", "name": "Resist Switch"}) == 0, "set_algo dec failed")
+        ga_mark = cli.mark()
+        st = cli.call("guiding_assistant_start", {"duration_s": GA_DURATION_S, "measure_backlash": False})
+        expect(st.get("state") == "measuring", f"guiding_assistant_start returned {st}")
+        i, t1 = 0, time.time()
+        while len(cli.events_since(ga_mark, ("GuidingAssistantProgress",))) < 8:
+            mutate_axis(cli, "ra", RA_ALGOS[i % len(RA_ALGOS)], i, done)
+            mutate_blc(cli, i)
+            expect(not cli.events_since(ga_mark, ("GuidingAssistantDone",) + MUTATION_ENDED),
+                   f"the run ended: {names_of(cli.events_since(ga_mark))}")
+            expect(time.time() - t1 < 300, "8 GuidingAssistantProgress events took over 300 s")
+            lane.daemon.check_alive()
+            i += 1
+        st = cli.call("guiding_assistant_stop")
+        expect(st.get("state") == "done", f"guiding_assistant_stop returned {st}")
+        cli.wait_events(ga_mark, "GuidingAssistantDone", timeout=30)
+        got = cli.call("guiding_assistant_apply", {"which": ["dec_algorithm", "min_move_dec"]})
+        expect(got == {"applied": ["dec_algorithm", "min_move_dec"]}, f"guiding_assistant_apply returned {got}")
+        dec = cli.call("get_algo", {"axis": "dec"})
+        expect(dec == "Lowpass2", f"Dec algorithm {dec!r} after applying dec_algorithm")
+        # and set_algo_param on the algorithm the apply created, then RA swaps, guiding on
+        for j in range(4):
+            mutate_axis(cli, "ra", RA_ALGOS[(i + j) % len(RA_ALGOS)], j, done)
+            for name, value in (("aggressiveness", 70.0 + 10 * (j % 2)), ("minMove", 0.15 + 0.05 * (j % 2))):
+                expect(cli.call("set_algo_param", {"axis": "dec", "name": name, "value": value}) == 0,
+                       f"set_algo_param dec Lowpass2 {name} failed")
+        cli.wait_events(cli.mark(), "GuideStep", count=3, timeout=60, abort_on=MUTATION_ENDED)
+        n, gap = check_continuous(cli, mark, "the whole scenario")
+        expect(cli.call("get_app_state") == "Guiding", "not guiding at the end")
+        reports = lane.daemon.sanitizer_reports()
+        expect(not reports, f"sanitizer reports: {reports[:5]}")
+        out.append(f"a GA run with {i} RA set_algo rounds during it, then dec_algorithm and min_move_dec applied "
+                   f"(Dec {dec}); {n} consecutive GuideSteps over the scenario, longest gap {gap:.1f} s, guiding, "
+                   f"no sanitizer report")
+    finally:
+        if cli.call("guiding_assistant_get_status").get("state") in ("measuring", "measuring_backlash"):
+            cli.call("guiding_assistant_stop")
+        for axis, (algo, params) in before.items():
+            cli.call("set_algo", {"axis": axis, "name": algo})
+            for name, value in params.items():
+                cli.call("set_algo_param", {"axis": axis, "name": name, "value": value})
+        # a new profile reads PulseWidth 0, Floor 20, Ceiling 0, which set_backlash_comp refuses (PulseWidth 20..8000):
+        # then only Enabled goes back
+        keys = ("Enabled", "PulseWidth", "Floor", "Ceiling") if blc_before["PulseWidth"] >= 20 else ("Enabled",)
+        cli.call("set_backlash_comp", {k: blc_before[k] for k in keys})
+    for axis, (algo, params) in before.items():
+        now = (cli.call("get_algo", {"axis": axis}), algo_params(cli, axis))
+        expect(now[0] == algo and now[1].keys() == params.keys() and
+               all(abs(now[1][k] - v) <= 1e-6 * max(1.0, abs(v)) for k, v in params.items()),
+               f"{axis} not set back: {now}, was {(algo, params)}")
+    cli.call("stop_capture")
+    cli.wait_state("Stopped", 30)
+    return "; ".join(out) + "; set back, stopped"
+
+
 def scenario_reconnect_throttle(lane):
     """A 4th camera reconnect within 60 s: EquipmentReconnectFailed, then the #104 retry reconnects the camera."""
     cli, fake = lane.cli, lane.fake
@@ -2029,7 +2177,10 @@ def run_faults(lane, args):
     def connect():
         # multi-star on, so the Guiding Assistant has it to turn off (a new profile has it off: the guider loads it
         # with default false, while get_profile_setup's default is true, and writes it back)
-        got = lane.make_profile(FAKE_PIXEL_UM, dict(QUICK_CALIBRATION, multistar_enabled=True))
+        # high-res encoders, so a Guiding Assistant run recommends Lowpass2 for a Resist Switch Dec, for the mutation
+        # scenario's apply (#142 T2b); only the Guiding Assistant reads it
+        got = lane.make_profile(FAKE_PIXEL_UM, dict(QUICK_CALIBRATION, multistar_enabled=True,
+                                                    high_res_encoders=True))
         expect(got["multistar_enabled"] is True and got["auto_restore_calibration"] is False,
                f"the new profile's setup: {got}")
         cli.call("set_connected", {"connected": True}, timeout=60)
@@ -2061,6 +2212,8 @@ def run_faults(lane, args):
             ("Alpaca server killed during a startexposure and back while guiding (#211, #237)",
              fake_killed(scenario_fake_killed_mid_request), True),
             ("Guiding Assistant start/stop/apply and restore", lambda: scenario_guiding_assistant(lane), True),
+            ("algorithm, parameter and BLC changes while guiding (#142 T2b)",
+             lambda: scenario_mutation_while_guiding(lane), True),
             ("camera reconnect throttle, then the #104 retry", lambda: scenario_reconnect_throttle(lane), False),
             ("camera read as connected while removed: no EquipmentReconnected without a frame",
              lambda: scenario_camera_stale_connected(lane), False),

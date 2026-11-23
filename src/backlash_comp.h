@@ -155,6 +155,7 @@ class BacklashComp
     BLCHistory *m_pHistory;
 
     void SetCompValues(int requestSize, int floor, int ceiling);
+    void ResetBLCStateHeld(); // ResetBLCState, the caller holding the mount's AlgorithmSlot (#142 T2b)
 
 public:
     BacklashComp(Scope *scope);
@@ -177,6 +178,7 @@ public:
     // apply a BLC adjustment to the given guide pulse (yAmount) if needed
     void ApplyBacklashComp(unsigned int moveOptions, double yGuideDistance, int *yAmount);
 
+    // takes the mount's AlgorithmSlot, so not for a holder of it (#142 T2b)
     void ResetBLCState();
 };
 
