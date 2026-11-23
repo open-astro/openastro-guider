@@ -273,10 +273,14 @@ set(guiding_SRC
   ${phd_src_dir}/edge_allowance.h
   ${phd_src_dir}/monotonic_timers.cpp
   ${phd_src_dir}/monotonic_timers.h
+  ${phd_src_dir}/frame_reject.cpp
+  ${phd_src_dir}/frame_reject.h
   ${phd_src_dir}/guide_distance_tracker.cpp
   ${phd_src_dir}/guide_distance_tracker.h
   ${phd_src_dir}/guider_multistar.cpp
   ${phd_src_dir}/guider_multistar.h
+  ${phd_src_dir}/multistar_refine.cpp
+  ${phd_src_dir}/multistar_refine.h
   ${phd_src_dir}/guider.cpp
   ${phd_src_dir}/guider.h
   ${phd_src_dir}/guider_state.h

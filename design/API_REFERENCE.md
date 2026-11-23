@@ -17,8 +17,9 @@ bind `0.0.0.0`, instance 1 ports):
 - **HTTP `:8080`** — data only, no control (#114). It serves two routes and answers `404` to
   everything else: `GET /api/capture/<filename>`, the FITS bytes of a frame saved by
   `capture_single_frame`, and `GET /api/frame.jpg`, the current guide frame stretched for
-  display (ARA's live view). The JPEG carries an `ETag` derived from the frame counter; poll
-  with `If-None-Match` to get a cheap `304` until a new frame arrives. Port =
+  display (ARA's live view). The JPEG carries an `ETag` that is new for every image (a
+  per-process sequence, not the frame counter, #259); poll with `If-None-Match` to get a cheap
+  `304` until a new frame arrives. Port =
   `8080 + (instance − 1)`, always the JSON-RPC port + 3680. Details: `doc/jsonrpc_api.md`,
   "HTTP Data Endpoints".
 
