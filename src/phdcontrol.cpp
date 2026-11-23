@@ -479,6 +479,13 @@ void PhdController::UpdateControllerState(bool frameDropped)
                     wxString::Format("waiting for star selected, attempts remaining = %d\n", ctrl.waitSelectedRemaining));
                 if (--ctrl.waitSelectedRemaining == 0)
                 {
+                    // #289: the star auto-selected was never selected, a failed attempt like a failed auto-select;
+                    // going back without spending one selected again every 4 frames with no end and no SettleDone
+                    if (--ctrl.autoFindAttemptsRemaining == 0)
+                    {
+                        do_fail(_T("failed to find a suitable guide star"));
+                        break;
+                    }
                     SETSTATE(STATE_ATTEMPT_START);
                 }
                 done = true;

@@ -732,26 +732,30 @@ TEST_F(PhdControllerTest, AGuideAfterADitherDoesNotRestoreItsDecGuideMode)
 
 // --- STATE_WAIT_SELECTED: a star auto-selected that never becomes selected
 
-TEST_F(PhdControllerTest, AStarThatIsNeverSelectedIsSelectedAgainEveryFourFramesWithNoEnd)
+TEST_F(PhdControllerTest, AStarThatIsNeverSelectedEndsTheRequestAfterThreeAttempts)
 {
     // AutoSelectStar finds a star (SELECTING), but the guider never finds it again on the next frames, so it
-    // never reads SELECTED. STATE_WAIT_SELECTED waits 3 frames and goes back to STATE_ATTEMPT_START without
-    // spending one of the 3 auto-select attempts: the request selects again every 4 frames, forever, and
-    // never sends its SettleDone. Pinned as it is.
+    // never reads SELECTED. STATE_WAIT_SELECTED waits 3 frames, and a wait that runs out is a failed attempt
+    // like a failed auto-select (#289): after 3 the request ends with the SettleDone of 3 failed auto-selects.
+    // It used to go back without spending an attempt and select again every 4 frames with no end.
     host.starFoundAfterSelect = false;
     ASSERT_TRUE(Guide(GUIDEOPT_FORCE_RECAL));
-    for (int i = 0; i < 40; i++)
-    {
-        g_nowMs += 1000;
-        host.Frame();
-    }
-    EXPECT_EQ(host.Count("AutoSelectStar(recal)"), 10);
-    EXPECT_TRUE(host.SettleDones().empty());
-    EXPECT_FALSE(PhdController::IsIdle());
-    EXPECT_FALSE(PhdController::IsWaitingForCalibration());
-    // only a stop or an abort ends it
-    PhdController::AbortController("Image capture stopped");
-    EXPECT_EQ(host.SettleDones(), (std::vector<std::string> { "SettleDone(Image capture stopped|0|0)" }));
+    EXPECT_EQ(RunToIdle(), 12); // 3 x (the selection and 3 frames of waiting)
+    EXPECT_EQ(host.Count("AutoSelectStar(recal)"), 3);
+    EXPECT_EQ(host.SettleDones(), (std::vector<std::string> { "SettleDone(" + kNoStar + "|0|0)" }));
+    EXPECT_EQ(host.Count("SettleBegin") + host.CountPrefix("ClearCalibration") + host.CountPrefix("StartGuiding"), 0);
+    EXPECT_EQ(host.Count("MountSettleDone(0)"), 1);
+    EXPECT_TRUE(host.calibrated[0]); // never cleared: no calibration was started
+}
+
+TEST_F(PhdControllerTest, WaitsThatRunOutAndFailedAutoSelectsShareTheThreeAttempts)
+{
+    host.starFoundAfterSelect = false;
+    host.autoSelectErrors = { false, true }; // a star never selected, then no star, then a star never selected
+    ASSERT_TRUE(Guide(GUIDEOPT_FORCE_RECAL));
+    EXPECT_EQ(RunToIdle(), 9);
+    EXPECT_EQ(host.Count("AutoSelectStar(recal)"), 3);
+    EXPECT_EQ(host.SettleDones(), (std::vector<std::string> { "SettleDone(" + kNoStar + "|0|0)" }));
 }
 
 TEST_F(PhdControllerTest, AStarSelectedWithinThreeFramesGoesOnToCalibrate)
