@@ -630,7 +630,7 @@ void MyFrame::SetupToolBar()
     MainToolbar->AddTool(BUTTON_AUTOSTAR, auto_select_bmp, auto_select_disabled_bmp, false, 0,
                          _("Auto-select Star. Shift-click to de-select star."));
     MainToolbar->AddTool(BUTTON_GUIDE, guide_bmp, guide_bmp_disabled, false, 0,
-                         _("Begin guiding (PHD). Shift-click to force calibration."));
+                         _("Begin guiding (PHD)."));
     MainToolbar->AddTool(BUTTON_STOP, stop_bmp, stop_bmp_disabled, false, 0, _("Stop looping and guiding"));
     MainToolbar->EnableTool(BUTTON_LOOP, false);
     MainToolbar->EnableTool(BUTTON_AUTOSTAR, false);
