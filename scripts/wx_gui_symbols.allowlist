@@ -228,7 +228,6 @@ wxMenuBar::Append(wxMenu*, wxString const&)
 wxMenuBar::wxMenuBar()
 wxMenuBarBase::Check(int, bool)
 wxMenuBase::Check(int, bool)
-wxMenuBase::FindItem(int, wxMenu**) const
 wxMenuBase::Init(long)
 wxMenuBase::~wxMenuBase()
 wxMenuItemBase::New(wxMenu*, int, wxString const&, wxString const&, wxItemKind, wxMenu*)

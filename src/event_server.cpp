@@ -3943,7 +3943,7 @@ static void run_dark_library_build(long frameCount, const std::vector<int>& sele
     pFrame->SaveDarkLibrary(notes);
     if (loadAfter)
         pFrame->LoadDarkHandler(true);
-    pFrame->SetDarkMenuState();
+    pFrame->SetDarkState();
 
     EvtServer.NotifyCalibrationBuildComplete(s_darkBuild.artifact, builtCount);
 
@@ -4129,7 +4129,7 @@ static void run_defect_map_build(long exposureMs, long frameCount, bool loadAfte
 
     if (loadAfter)
         pFrame->LoadDefectMapHandler(true);
-    pFrame->SetDarkMenuState();
+    pFrame->SetDarkState();
 
     pCamera->ShutterClosed = hadShutterClosed;
 
@@ -4306,7 +4306,7 @@ static void rebuild_defect_map(JObj& response, const json_value *params)
             pFrame->LoadDefectMapHandler(true);
             loaded = pCamera->CurrentDefectMap != nullptr;
         }
-        pFrame->SetDarkMenuState();
+        pFrame->SetDarkState();
     }
 
     const ImageStats& stats = builder.GetImageStats();
@@ -4433,7 +4433,7 @@ static void delete_calibration_files(JObj& response, const json_value *params)
         if (deleteDefect && pCamera->CurrentDefectMap)
             pCamera->ClearDefectMap();
     }
-    pFrame->SetDarkMenuState();
+    pFrame->SetDarkState();
 
     get_calibration_files_status(response, nullptr);
 }

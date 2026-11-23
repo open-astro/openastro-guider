@@ -133,7 +133,7 @@ private:
     void HandleImageScaleChange() override;
     void SendReconnected(GearDevice dev) override;
 
-    // the connect and disconnect leaves; StatusMsg, the status-bar labels and SetDarkMenuState still go through
+    // the connect and disconnect leaves; StatusMsg, the status-bar labels and SetDarkState still go through
     // pFrame (step 6). The camera's is also the #105 auto-reconnect's (autoReconnecting, which runs outside any gear
     // request). The camera id is keyed from the camera baseline, not the current choice, as it always was.
     void ConnectCamera(bool autoReconnecting);

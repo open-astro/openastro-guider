@@ -164,13 +164,11 @@ public:
     // pFrame; the members they read are null (or false) until the constructor creates them.
     Guider *pGuider = nullptr;
     wxMenuBar *Menubar;
-    wxMenu *tools_menu, *view_menu, *darks_menu;
+    wxMenu *tools_menu, *view_menu;
     wxMenuItem *m_loopMenuItem;
     wxMenuItem *m_guideMenuItem;
     wxMenuItem *m_stopMenuItem;
     wxMenuItem *m_autoSelectStarMenuItem;
-    wxMenuItem *m_useDarksMenuItem;
-    wxMenuItem *m_useDefectMapMenuItem;
     wxAuiToolBar *MainToolbar;
     wxInfoBar *m_infoBar;
     wxComboBox *Dur_Choice;
@@ -192,6 +190,12 @@ public:
     bool m_rawImageMode;
     bool m_rawImageModeWarningDone;
     wxSize m_prevDarkFrameSize;
+    // #115 S6.1: the dark library and the defect map can be used (a file that fits the camera) and are in use; what
+    // the Darks menu items' enabled and checked states held. A file can be in use only while available.
+    bool m_darksAvailable = true;
+    bool m_darksInUse = false;
+    bool m_defectMapAvailable = true;
+    bool m_defectMapInUse = false;
 
     void OnQuit(wxCommandEvent& evt);
     void OnClose(wxCloseEvent& evt);
@@ -200,8 +204,6 @@ public:
     void OnButtonLoop(wxCommandEvent& evt);
     void OnButtonStop(wxCommandEvent& evt);
     void OnButtonAutoStar(wxCommandEvent& evt);
-    void OnLoadDark(wxCommandEvent& evt);
-    void OnLoadDefectMap(wxCommandEvent& evt);
     void GuideButtonClick(bool interactive, const wxString& context);
     void OnButtonGuide(wxCommandEvent& evt);
     void OnIdle(wxIdleEvent& evt);
@@ -260,8 +262,8 @@ public:
     void SaveDarkLibrary(const wxString& note);
     static void DeleteDarkLibraryFiles(int profileID);
     static wxString DarkLibFileName(int profileId);
-    void SetDarkMenuState();
-    bool LoadDarkHandler(bool checkIt); // Use to also set menu item states
+    void SetDarkState();
+    bool LoadDarkHandler(bool checkIt); // Use to also set the in-use states below
     void LoadDefectMapHandler(bool checkIt);
     void CheckDarkFrameGeometry();
     void UpdateStatusBarCalibrationStatus();
@@ -441,8 +443,6 @@ enum
     MENU_AUTOSTAR,
     MENU_SAVESETTINGS,
     MENU_LOADSETTINGS,
-    MENU_LOADDARK,
-    MENU_LOADDEFECTMAP,
     MENU_INDICONFIG,
     MENU_INDIDIALOG,
     EEGG_STICKY_LOCK,

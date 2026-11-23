@@ -560,7 +560,7 @@ void EquipmentManager::ConnectCamera(bool autoReconnecting)
             {
                 AutoLoadDarks();
             }
-            pFrame->SetDarkMenuState();
+            pFrame->SetDarkState();
         }
 
         pFrame->StatusMsg(_("Camera Connected"));

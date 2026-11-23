@@ -79,8 +79,6 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 EVT_MENU(wxID_EXIT, MyFrame::OnQuit)
 EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
 EVT_MENU(wxID_SAVE, MyFrame::OnSave)
-EVT_MENU(MENU_LOADDARK, MyFrame::OnLoadDark)
-EVT_MENU(MENU_LOADDEFECTMAP, MyFrame::OnLoadDefectMap)
 
 EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
@@ -362,18 +360,11 @@ void MyFrame::SetupMenuBar()
     view_menu->Append(MENU_RESTORE_WINDOWS, _("Restore Window Positions"),
                       _("Restore all windows to their default/docked positions"));
 
-    darks_menu = new wxMenu();
-    m_useDarksMenuItem =
-        darks_menu->AppendCheckItem(MENU_LOADDARK, _("Use &Dark Library"), _("Use the the dark library for this profile"));
-    m_useDefectMapMenuItem =
-        darks_menu->AppendCheckItem(MENU_LOADDEFECTMAP, _("Use &Bad-pixel Map"), _("Use the bad-pixel map for this profile"));
-
     Menubar = new wxMenuBar();
     Menubar->Append(file_menu, _("&File"));
     Menubar->Append(guide_menu, _("&Guide"));
     Menubar->Append(tools_menu, _("&Tools"));
     Menubar->Append(view_menu, _("&View"));
-    Menubar->Append(darks_menu, _("&Darks"));
     SetMenuBar(Menubar);
 }
 
@@ -2238,33 +2229,33 @@ bool MyFrame::DarkLibExists(int profileId, bool showAlert)
 // surprise changes in binning
 void MyFrame::CheckDarkFrameGeometry()
 {
-    bool haveDefectMap = DefectMap::DefectMapExists(pConfig->GetCurrentProfileId(), m_useDefectMapMenuItem->IsEnabled());
-    bool haveDarkLib = DarkLibExists(pConfig->GetCurrentProfileId(), m_useDarksMenuItem->IsEnabled());
+    bool haveDefectMap = DefectMap::DefectMapExists(pConfig->GetCurrentProfileId(), m_defectMapAvailable);
+    bool haveDarkLib = DarkLibExists(pConfig->GetCurrentProfileId(), m_darksAvailable);
     bool defectMapOk = true;
 
-    if (m_useDefectMapMenuItem->IsEnabled())
+    if (m_defectMapAvailable)
     {
         if (!haveDefectMap)
         {
-            if (m_useDefectMapMenuItem->IsChecked())
+            if (m_defectMapInUse)
                 LoadDefectMapHandler(false);
-            m_useDefectMapMenuItem->Enable(false);
+            m_defectMapAvailable = false;
             Debug.Write("CheckDarkFrameGeometry: BPM incompatibility found\n");
             defectMapOk = false;
         }
     }
     else if (haveDefectMap)
     {
-        m_useDefectMapMenuItem->Enable(true);
+        m_defectMapAvailable = true;
     }
 
-    if (m_useDarksMenuItem->IsEnabled())
+    if (m_darksAvailable)
     {
         if (!haveDarkLib)
         {
-            if (m_useDarksMenuItem->IsChecked())
+            if (m_darksInUse)
                 LoadDarkHandler(false);
-            m_useDarksMenuItem->Enable(false);
+            m_darksAvailable = false;
             Debug.Write("CheckDarkFrameGeometry: Dark lib incompatibility found\n");
             if (!defectMapOk)
                 pFrame->Alert(_("Dark library and bad-pixel maps don't match the current camera. "
@@ -2273,22 +2264,22 @@ void MyFrame::CheckDarkFrameGeometry()
     }
     else if (haveDarkLib)
     {
-        m_useDarksMenuItem->Enable(true);
+        m_darksAvailable = true;
     }
 
     m_prevDarkFrameSize = pCamera->DarkFrameSize();
 }
 
-void MyFrame::SetDarkMenuState()
+void MyFrame::SetDarkState()
 {
     bool haveDarkLib = DarkLibExists(pConfig->GetCurrentProfileId(), true);
-    m_useDarksMenuItem->Enable(haveDarkLib);
+    m_darksAvailable = haveDarkLib;
     if (!haveDarkLib)
-        m_useDarksMenuItem->Check(false);
+        m_darksInUse = false;
     bool haveDefectMap = DefectMap::DefectMapExists(pConfig->GetCurrentProfileId(), true);
-    m_useDefectMapMenuItem->Enable(haveDefectMap);
+    m_defectMapAvailable = haveDefectMap;
     if (!haveDefectMap)
-        m_useDefectMapMenuItem->Check(false);
+        m_defectMapInUse = false;
 }
 
 bool MyFrame::LoadDarkLibrary()
