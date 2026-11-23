@@ -6,9 +6,10 @@
 // Scope::AlertLimitReached raises the limit-reached alert (LimitAlertThrottle) and the clock it
 // runs on (AlertClockS); when ScopeAlpaca::Guide raises the PulseGuide-failed alert
 // (PulseFailedAlertThrottle); what a dither's fast-recenter step moved (MovedPx,
-// AfterRecenterStep); and the result Mount::MoveOffset reports for its two pulses (SendDecAfter,
-// OffsetResult). The rules live in src/guide_move_plan.cpp; Scope and Mount keep the Debug lines,
-// the alert and the pulse.
+// AfterRecenterStep); the result Mount::MoveOffset reports for its two pulses (SendDecAfter,
+// OffsetResult); and the Dec backlash compensation BacklashComp::ApplyBacklashComp adds
+// (PlanBacklashComp). The rules live in src/guide_move_plan.cpp; Scope, Mount and BacklashComp
+// keep the Debug lines, the alert, the BLC history and the pulse.
 
 #include <gtest/gtest.h>
 
@@ -21,6 +22,7 @@
 #include <initializer_list>
 #include <limits>
 #include <random>
+#include <vector>
 
 using namespace guide_move_plan;
 
@@ -1044,4 +1046,162 @@ TEST(AfterGuideMove, MoreThanTenFailuresKeepStopping)
                                               MoveResult::Error, MoveResult::Error, MoveResult::Error });
     EXPECT_EQ(failed.inARow, 11);
     EXPECT_TRUE(failed.stopGuiding);
+}
+
+// --- PlanBacklashComp: Dec backlash compensation (#142) ---
+
+namespace
+{
+struct DecPulse
+{
+    Dir dir;
+    int ms;
+};
+
+// The Dec half of Mount::MoveOffset for each y offset in turn: PlanOffset's pulse, the backlash
+// compensation BacklashComp::ApplyBacklashComp adds, then what Scope::MoveAxis sends of it.
+// yRate 0.01 px/ms, so 1 px asks for 100 ms.
+std::vector<DecPulse> SendDec(std::initializer_list<double> ys, DecMode mode, unsigned opts = GUIDE_STEP, bool enabled = true,
+                              int pulseWidth = 800)
+{
+    std::vector<DecPulse> sent;
+    Dir last = Dir::None;
+    LimitTracker ra, dec;
+    AxisPolicy policy = Policy(mode, 2500, 2500);
+    for (double y : ys)
+    {
+        OffsetPlan offset = PlanOffset(0.0, y, 0.01, 0.01);
+        int requested = offset.decMs;
+        BacklashPlan blc = PlanBacklashComp(opts, enabled, pulseWidth, mode, y, last);
+        requested += blc.addMs;
+        AxisPlan axis = PlanAxis(offset.decDir, requested, opts, policy, ra, dec);
+        sent.push_back({ offset.decDir, axis.ms });
+    }
+    return sent;
+}
+
+int SentMs(const std::vector<DecPulse>& sent, Dir dir)
+{
+    int total = 0;
+    for (const DecPulse& p : sent)
+        if (p.dir == dir)
+            total += p.ms;
+    return total;
+}
+} // namespace
+
+TEST(PlanBacklashComp, FirstMoveAddsNothingAndSetsTheDirection)
+{
+    Dir last = Dir::None;
+    BacklashPlan p = PlanBacklashComp(GUIDE_STEP, true, 800, DecMode::Auto, 1.0, last);
+    EXPECT_FALSE(p.skipped);
+    EXPECT_FALSE(p.reversal);
+    EXPECT_EQ(p.addMs, 0);
+    EXPECT_EQ(last, Dir::South);
+}
+
+TEST(PlanBacklashComp, ReversalInAutoAddsThePulse)
+{
+    Dir last = Dir::South;
+    BacklashPlan p = PlanBacklashComp(GUIDE_STEP, true, 800, DecMode::Auto, -1.0, last);
+    EXPECT_TRUE(p.reversal);
+    EXPECT_EQ(p.addMs, 800);
+    EXPECT_EQ(last, Dir::North);
+
+    // the same direction again adds nothing
+    p = PlanBacklashComp(GUIDE_STEP, true, 800, DecMode::Auto, -0.5, last);
+    EXPECT_FALSE(p.reversal);
+    EXPECT_EQ(p.addMs, 0);
+    EXPECT_EQ(last, Dir::North);
+}
+
+TEST(PlanBacklashComp, RecoveryAndDeducedMovesAreCompensatedToo)
+{
+    for (unsigned opts : { RECOVERY_MOVE, DEDUCED_MOVE })
+    {
+        Dir last = Dir::North;
+        BacklashPlan p = PlanBacklashComp(opts, true, 800, DecMode::Auto, 2.0, last);
+        EXPECT_TRUE(p.reversal) << opts;
+        EXPECT_EQ(p.addMs, 800) << opts;
+        EXPECT_EQ(last, Dir::South) << opts;
+    }
+}
+
+TEST(PlanBacklashComp, SkippedMovesLeaveTheDirectionAlone)
+{
+    struct Case
+    {
+        unsigned opts;
+        bool enabled;
+        int pulse;
+        double y;
+    } cases[] = {
+        { CALIBRATION_MOVE, true, 800, 1.0 }, // no USE_BLC
+        { MANUAL, true, 800, 1.0 },           { GUIDE_STEP, false, 800, 1.0 }, // disabled
+        { GUIDE_STEP, true, 0, 1.0 }, // no pulse
+        { GUIDE_STEP, true, -5, 1.0 },        { GUIDE_STEP, true, 800, 0.0 }, // no Dec distance
+    };
+    for (const Case& c : cases)
+    {
+        Dir last = Dir::North;
+        BacklashPlan p = PlanBacklashComp(c.opts, c.enabled, c.pulse, DecMode::Auto, c.y, last);
+        EXPECT_TRUE(p.skipped);
+        EXPECT_FALSE(p.reversal);
+        EXPECT_EQ(p.addMs, 0);
+        EXPECT_EQ(last, Dir::North);
+    }
+}
+
+TEST(PlanBacklashComp, AutoModeCompensatesEachReversalOnce)
+{
+    // S, N, N, S: the first North and the second South are reversals
+    std::vector<DecPulse> sent = SendDec({ 1.0, -1.0, -1.0, 1.0 }, DecMode::Auto);
+    ASSERT_EQ(sent.size(), 4u);
+    EXPECT_EQ(sent[0].ms, 100);
+    EXPECT_EQ(sent[1].ms, 900);
+    EXPECT_EQ(sent[2].ms, 100);
+    EXPECT_EQ(sent[3].ms, 900);
+}
+
+// Scope::SetDecGuideMode disables the compensator for North and South ("no recovery from
+// over-shoots"), but set_backlash_comp {Enabled: true}, a Guiding Assistant apply or the profile
+// can enable it in those modes. The guide steps the mode filters out are zeroed by MoveAxis after
+// the compensator has seen them, so each allowed pulse after one counted as a reversal and got a
+// whole compensation pulse more in the direction the mount was already moving.
+TEST(PlanBacklashComp, NorthOnlyModeAddsNoPulseToAlternatingRequests)
+{
+    std::vector<DecPulse> sent = SendDec({ -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0 }, DecMode::North);
+    EXPECT_EQ(SentMs(sent, Dir::South), 0); // filtered by the mode
+    EXPECT_EQ(SentMs(sent, Dir::North), 4 * 100); // only what the guide steps asked for
+    for (const DecPulse& p : sent)
+        EXPECT_EQ(p.ms, p.dir == Dir::North ? 100 : 0);
+}
+
+TEST(PlanBacklashComp, SouthOnlyModeAddsNoPulseToAlternatingRequests)
+{
+    std::vector<DecPulse> sent = SendDec({ 1.0, -1.0, 1.0, -1.0, 1.0 }, DecMode::South);
+    EXPECT_EQ(SentMs(sent, Dir::North), 0);
+    EXPECT_EQ(SentMs(sent, Dir::South), 3 * 100);
+}
+
+TEST(PlanBacklashComp, InertInEveryModeButAuto)
+{
+    for (DecMode mode : { DecMode::None, DecMode::North, DecMode::South })
+        for (unsigned opts : { GUIDE_STEP, DEDUCED_MOVE, RECOVERY_MOVE })
+        {
+            Dir last = Dir::South;
+            BacklashPlan p = PlanBacklashComp(opts, true, 800, mode, -1.0, last);
+            EXPECT_TRUE(p.skipped) << static_cast<int>(mode) << " " << opts;
+            EXPECT_EQ(p.addMs, 0) << static_cast<int>(mode) << " " << opts;
+            EXPECT_EQ(last, Dir::South) << static_cast<int>(mode) << " " << opts;
+        }
+}
+
+TEST(PlanBacklashComp, RecoveryMoveInNorthModeGetsNoCompensation)
+{
+    // a dither's fast recenter is not filtered by the Dec guide mode, so a South recovery move is
+    // sent; it is not compensated, and does not make the next North guide step a reversal
+    Dir last = Dir::North;
+    EXPECT_EQ(PlanBacklashComp(RECOVERY_MOVE, true, 800, DecMode::North, 2.0, last).addMs, 0);
+    EXPECT_EQ(PlanBacklashComp(GUIDE_STEP, true, 800, DecMode::North, -1.0, last).addMs, 0);
 }

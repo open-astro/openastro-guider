@@ -36,7 +36,15 @@
 #include "image_math.h"
 
 #include <algorithm>
+#include <atomic>
 #include <new>
+
+unsigned int usImage::NextImageId()
+{
+    // usImages are made on the worker threads too (camera binning, noise reduction)
+    static std::atomic<unsigned int> s_lastImageId(0);
+    return ++s_lastImageId;
+}
 
 class HistogramBuilder
 {

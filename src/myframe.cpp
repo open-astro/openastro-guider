@@ -38,6 +38,8 @@
 
 #include "guiding_assistant.h"
 #include "variable_delay.h"
+#include "image_scale.h"
+#include "calstep_dialog.h"
 
 #include <algorithm>
 #include <memory>
@@ -2605,6 +2607,91 @@ void MyFrame::RegisterTextCtrl(wxTextCtrl *ctrl)
     ctrl->Bind(wxEVT_KILL_FOCUS, &MyFrame::OnTextControlKillFocus, this);
 }
 
+// Get the best estimate for the current mount guide speeds
+double MyFrame::DetermineGuideSpeed()
+{
+    double sidRate = 0.5;
+
+    if (pPointingSource && pPointingSource->IsConnected())
+    {
+        double raSpd;
+        double decSpd;
+
+        if (!pPointingSource->GetGuideRates(&raSpd, &decSpd))
+        {
+            if (pPointingSource->ValidGuideRates(raSpd, decSpd))
+            {
+                double minSpd;
+                if (decSpd != -1)
+                    minSpd = wxMin(raSpd, decSpd);
+                else
+                    minSpd = raSpd;
+                sidRate = image_scale::SiderealRateFromGuideSpeed(minSpd);
+            }
+        }
+        else
+        {
+            CalibrationDetails calDetails;
+            TheScope()->LoadCalibrationDetails(&calDetails);
+            if (calDetails.IsValid())
+            {
+                if (TheScope()->ValidGuideRates(calDetails.raGuideSpeed, calDetails.decGuideSpeed))
+                {
+                    sidRate = image_scale::SiderealRateFromGuideSpeed(wxMin(calDetails.raGuideSpeed, calDetails.decGuideSpeed));
+                }
+            }
+        }
+    }
+    return sidRate;
+}
+
+// Reacts to param changes in the AD that change the image scale.  Calibration step-size is recalculated, calibration is
+// cleared, MinMoves are set to defaults based on new image scale
+void MyFrame::MakeImageScaleAdjustments()
+{
+    Scope *scope = TheScope();
+    if (!scope || !pCamera)
+    {
+        Debug.Write("Image scale changed but scope/camera unavailable; skipping adjustments\n");
+        return;
+    }
+
+    auto binning = pCamera->GetBinning();
+    auto focalLength = pFrame->GetFocalLength();
+    auto pixelSize = pCamera->GetCameraPixelSize();
+    double guideSpeedX;
+    Debug.Write("Image scale has changed via AD UI - step-size and algo adjustments will be made\n");
+    Debug.Write(wxString::Format("New image scale properties:  fl= %d, px= %.3fu, bin= %d\n", focalLength, pixelSize, binning));
+
+    // Determine a calibration step-size based on recommended distance and best estimator of mount guide speeds
+    guideSpeedX = DetermineGuideSpeed();
+    int recDistance = CalstepDialog::GetCalibrationDistance(focalLength, pixelSize, binning);
+    int oldStepSize = scope->GetCalibrationDuration();
+    int calibrationStep = oldStepSize;
+    if (CalstepDialog::GetCalibrationStepSize(focalLength, pixelSize, binning, guideSpeedX, CalstepDialog::DEFAULT_STEPS, 0,
+                                              recDistance, nullptr, &calibrationStep))
+    {
+        scope->SetCalibrationDuration(calibrationStep);
+        Debug.Write(wxString::Format("Cal step-size changed from %d ms to %d ms\n", oldStepSize, calibrationStep));
+    }
+    else
+        Debug.Write(
+            wxString::Format("Cal step-size kept at %d ms: no step size for this image scale and guide speed\n", oldStepSize));
+    // Clear the calibration to force a new one and reset the min-move values
+    if (pMount)
+    {
+        pMount->ClearCalibration();
+        if (pMount->IsStepGuider() && pSecondaryMount)
+            pSecondaryMount->ClearCalibration();
+        Debug.Write("Calibrations cleared because of image scale change\n");
+
+        double defMinMove = GuideAlgorithm::SmartDefaultMinMove(focalLength, pixelSize, binning);
+        Debug.Write(wxString::Format("Guide algo min moves reset to %.3fu\n", defMinMove));
+        pMount->GetXGuideAlgorithm()->SetMinMove(defMinMove);
+        pMount->GetYGuideAlgorithm()->SetMinMove(defMinMove);
+    }
+}
+
 // Reset the guiding parameters and the various graphical displays when image scale is changed outside the AD UI.  Goal is to
 // restore basic guiding behavior until a fresh calibration is done.
 void MyFrame::HandleImageScaleChange()
@@ -2613,7 +2700,7 @@ void MyFrame::HandleImageScaleChange()
     if (scope)
     {
         // Adjust calibration step-size, clear existing calibrations, set reasonable MinMoves
-        pFrame->pAdvancedDialog->MakeImageScaleAdjustments();
+        MakeImageScaleAdjustments();
     }
 
     if (pGuideHistory)
@@ -3081,7 +3168,7 @@ void MyFrameConfigDialogCtrlSet::UnloadValues()
         int oldFL = m_pFrame->GetFocalLength();
         int newFL = GetFocalLength(); // From UI control
         if (oldFL != newFL) // Validator insures fl is generally reasonable and non-zero; don't react to trivial changes
-            if (m_pFrame->pAdvancedDialog->PercentChange(oldFL, newFL) > 5.0)
+            if (image_scale::PercentChange(oldFL, newFL) > 5.0)
                 m_pFrame->pAdvancedDialog->FlagImageScaleChange();
         m_pFrame->SetFocalLength(GetFocalLength());
 

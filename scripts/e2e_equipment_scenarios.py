@@ -9,7 +9,7 @@ writing these are pinned as they are and reported, not fixed here.
 Two lanes, run by scripts/e2e_guide_scenarios.py beside its main and physics lanes (each on its own instance, fake
 port and display; see that script's LaneChild), or alone with --lane:
 
-the gear lane, on a fake that answers ImageBytes (no calibration except the one the camera-change scenario needs):
+the gear lane, on a fake that answers ImageBytes (no calibration but the camera-change and binning scenarios'):
 
   connect side effects    set_connected per device and for all: the result, the events, get_connected and
                           get_current_equipment; the #139 latch: a profile pixel size off the camera's is acted on
@@ -22,6 +22,12 @@ the gear lane, on a fake that answers ImageBytes (no calibration except the one 
   with the mount off      the camera connects, the mount fails with the server's reason; the mount connected later
                           by a per-device set_connected clears the calibration then (EquipmentReconnected mount),
                           and the saved calibration is not auto-loaded again in this process
+  guide speed sources     #115 N4, before S4.1 moves MakeImageScaleAdjustments and DetermineGuideSpeed out of
+                          AdvancedDialog: the #139 latch's image scale change on connect sets the calibration step
+                          for the guide speed of each branch: the mount's rates (the lower of RA and Dec), the saved
+                          calibration's when the mount's read fails or its rates are invalid, 0.5x with the mount
+                          not connected or nothing saved; with no mount selected nothing is adjusted, the Alert goes
+                          out
   auto-connect            the daemon restarted with --auto-connect (as debian/openastro-guider.service runs it)
                           against the running fake: connected by the time the RPC port answers, the saved
                           calibration auto-loaded, no EquipmentReconnected
@@ -34,6 +40,11 @@ the gear lane, on a fake that answers ImageBytes (no calibration except the one 
   guide connects first    restarted with nothing connected: guide connects the camera and the mount (#104), then
                           calibrates and guides; after set_connected false it refuses, naming both devices as
                           disconnected by the user
+  binning change on       #115 N4: a calibration at bin 1, software binning 2, restore_calibration, guide with no
+  guide start             recalibration: AdjustCalibrationForScopePointing halves the rates, the scale Alert, the
+                          step and MinMoves reset for bin 2 and the calibration cleared; the same guide then
+                          calibrates at bin 2 before it guides and settles (#255). Runs after the scenarios that
+                          calibrate, as it leaves that bin 2 calibration saved
   set_alpaca_server       with nothing connected, the mount wanted by the #104 retry and the camera disconnected by
   carry                   the user: the Alpaca selections follow the new server, the mount is tried there at once
                           and the camera is not; back on the fake, the mount reconnects at once
@@ -96,6 +107,7 @@ report. Everything it collects (each daemon's output and debug log, each fake's 
 import argparse
 import glob
 import json
+import math
 import os
 import re
 import shutil
@@ -216,7 +228,7 @@ def min_moves(cli):
 
 def smart_default_min_move(pixel_um, focal_mm=FOCAL_MM, binning=1):
     """GuideAlgorithm::SmartDefaultMinMove (src/guide_algorithm.cpp): the MinMove an image scale change resets both
-    axes to (AdvancedDialog::MakeImageScaleAdjustments); 0.2316 px for the fake's 3.75 um at 400 mm."""
+    axes to (MyFrame::MakeImageScaleAdjustments); 0.2316 px for the fake's 3.75 um at 400 mm."""
     scale = 206.265 * pixel_um * binning / focal_mm
     return max(0.1515 + 0.1548 / scale, 0.15)
 
@@ -546,7 +558,10 @@ def scenario_connect_side_effects(lane):
     want1 = 206.265 * FAKE_PIXEL_UM / FOCAL_MM
     expect(abs(scale1 - want1) < 0.01, f"get_pixel_scale {scale1} after connecting, expected {want1:.3f}")
     cal_step1 = after["calibration_duration"]
-    expect(cal_step1 != cal_step0, f"calibration_duration {cal_step1} not recomputed for the new image scale")
+    want_step1 = calibration_step_ms(sidereal_multiple(1.0))
+    expect((cal_step0, cal_step1) == (750, want_step1),
+           f"calibration_duration {cal_step0} -> {cal_step1}, expected 750 -> {want_step1} (a new profile's default, "
+           "then the new image scale's step at the mount's 1x; #115 N4)")
     mm1 = min_moves(cli)
     expect(all(abs(m - want_mm1) < 1e-3 for m in mm1),
            f"MinMoves {mm0} -> {mm1} after the scale change, expected both reset to the new scale's default "
@@ -737,6 +752,251 @@ def scenario_camera_change_mount_off(lane, args):
         cli.call("set_connected", dict(params, connected=True), timeout=60)
     expect(cli.call("get_calibrated") is True, "the new calibration was cleared by a reconnect")
     out.append("recalibrated; kept by reconnects all and per device")
+    return "; ".join(out)
+
+
+# --- #115 N4: the headless image-scale adjustments (MyFrame::HandleImageScaleChange ->
+# MyFrame::MakeImageScaleAdjustments / DetermineGuideSpeed, which S4.1 moved out of AdvancedDialog)
+
+SIDEREAL_SECS_PER_SEC = 0.9973  # image_scale::SiderealRateFromGuideSpeed (src/image_scale.h) and Scope::ValidGuideRates
+DEFAULT_GUIDE_SPEED = 0.5  # DetermineGuideSpeed's value when it has nothing better
+SCALE_STEP_LINE = r"Cal step-size changed from (\d+) ms to (\d+) ms"
+# MakeImageScaleAdjustments's first line, and its line when there is no scope or camera: never written on the
+# headless path, where MyFrame::HandleImageScaleChange calls it only with a scope, and a camera is connected
+SCALE_ADJUST_LINE = "Image scale has changed via AD UI - step-size and algo adjustments will be made"
+SCALE_SKIP_LINE = "Image scale changed but scope/camera unavailable; skipping adjustments"
+GUIDE_RATES_LINE = r"ScopeAlpaca::GetGuideRates returns (\d) ([\d.]+) ([\d.]+) a-s/sec"
+INVALID_RATES_ALERT = "reporting invalid guide speeds"
+BINNING_LINE = r"Binning (\d+) -> (\d+), rates \(([\d.]+), ([\d.]+)\) -> \(([\d.]+), ([\d.]+)\)"
+
+
+def sidereal_multiple(rate_x):
+    """SiderealRateFromGuideSpeed of a guide rate of rate_x * 15"/s, as the mount reports it in deg/s."""
+    return rate_x * 15.0 / (15.0 * SIDEREAL_SECS_PER_SEC)
+
+
+def calibration_step_ms(guide_speed, pixel_um=FAKE_PIXEL_UM, focal_mm=FOCAL_MM, binning=1):
+    """CalstepDialog::GetCalibrationStepSize (src/calstep_dialog.cpp) at Dec 0 with DEFAULT_STEPS (12) over
+    GetCalibrationDistance: the calibration step an image scale change sets for a guide speed (x sidereal). 300 ms
+    for the fake's 3.75 um at 400 mm and 1x, 550 ms at the 0.5x default."""
+    scale = 206.265 * pixel_um * binning / focal_mm
+    distance = math.ceil(max(25.0, 20.0 / scale))
+    total_s = distance * scale / (15.0 * guide_speed)
+    pulse_ms = min(total_s / 6.0 * 1000.0, total_s / 12 * 1000.0)
+    return int(math.ceil(pulse_ms / 50.0)) * 50
+
+
+def scale_change_connect(lane, before_ms):
+    """Disconnect, put the #139 wrong pixel size and a known calibration step in the profile, connect all: the
+    latch's HandleImageScaleChange runs in GearSession::End. Returns (the connect's response, its events, the
+    debug log since the connect)."""
+    cli = lane.cli
+    cli.call("set_connected", {"connected": False}, timeout=60)
+    cli.call("set_profile_setup", {"pixel_size": WRONG_PIXEL_UM, "calibration_duration": before_ms})
+    lane.debug.mark()
+    start = cli.mark()
+    msg = cli.request("set_connected", {"connected": True}, 60)
+    evs = settle_events(cli, start)
+    return msg, evs, lane.debug.text()
+
+
+def check_scale_adjustment(lane, label, before_ms, want_speed, rates_line):
+    """One image scale change through the #139 latch: one scale Alert, the calibration step recomputed for
+    want_speed and both MinMoves reset (MakeImageScaleAdjustments), the calibration cleared, and the guide-rate read
+    the debug log shows (rates_line: GetGuideRates's '<error> <dec> <ra>' line, None for no read)."""
+    cli = lane.cli
+    msg, evs, dbg = scale_change_connect(lane, before_ms)
+    expect(msg.get("result") == 0, f"{label}: set_connected {msg}")
+    expect(len(alerts(evs, SCALE_ALERT)) == 1, f"{label}: scale Alerts {names_of(evs)}, expected 1")
+    want_ms = calibration_step_ms(want_speed)
+    got_ms = setup(cli)["calibration_duration"]
+    expect(got_ms == want_ms, f"{label}: calibration_duration {before_ms} -> {got_ms}, expected {want_ms} (guide "
+                              f"speed {want_speed:.4f}x)")
+    steps = re.findall(SCALE_STEP_LINE, dbg)
+    expect(steps == [(str(before_ms), str(want_ms))], f"{label}: debug log step-size lines {steps}")
+    mm = min_moves(cli)
+    want_mm = smart_default_min_move(FAKE_PIXEL_UM)
+    expect(all(abs(m - want_mm) < 1e-3 for m in mm), f"{label}: MinMoves {mm}, expected {want_mm:.4f}")
+    expect(cli.call("get_calibrated") is False, f"{label}: still calibrated after the image scale change")
+    # the read DetermineGuideSpeed made: the last GetGuideRates line before the step-size line
+    head = dbg[:dbg.find("Cal step-size changed")]
+    reads = re.findall(GUIDE_RATES_LINE, head)
+    if rates_line is not None:
+        expect(reads and reads[-1] == rates_line, f"{label}: GetGuideRates lines {reads}, expected the last "
+                                                  f"{rates_line}")
+    return f"{label}: {before_ms} -> {got_ms} ms ({want_speed:.3f}x)", evs
+
+
+def scenario_guide_speed_sources(lane):
+    """#115 N4: each branch of DetermineGuideSpeed, through the #139 latch's image scale change on connect."""
+    cli, fake = lane.cli, lane.fake
+    out = []
+    expect(cli.call("get_calibrated") is True, "no calibration to start from (camera change with the mount off)")
+
+    # the mount's guide rates read: the lower of RA and Dec, as a multiple of sidereal
+    r, _ = check_scale_adjustment(lane, "mount at 1x", 1234, sidereal_multiple(1.0), ("0", "15.000", "15.000"))
+    out.append(r)
+    fake.request("PUT", "/fake/guiderate", {"ra": 1.0, "dec": 0.75})
+    try:
+        r, _ = check_scale_adjustment(lane, "mount at RA 1x, Dec 0.75x", 1234, sidereal_multiple(0.75),
+                                      ("0", "11.250", "15.000"))
+        out.append(r)
+
+        # the mount's guide-rate read failing: the saved calibration's guide rates (1x, as calibrated), not the
+        # mount's 0.75x. The failure at connect (ScopeAlpaca::Connect's probe) leaves the driver unable to read
+        # them, so GetGuideRates fails with no request and no 'returns' line
+        fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "guideraterightascension",
+                                             "error": 1024, "count": 1000})
+        r, _ = check_scale_adjustment(lane, "guideraterightascension failing, saved calibration at 1x", 1234,
+                                      sidereal_multiple(1.0), None)
+        out.append(r)
+        fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "guideraterightascension", "count": 0})
+
+        # rates the mount reports but Scope::ValidGuideRates refuses (2x): ScopeAlpaca::GetGuideRates fails on
+        # them, with its invalid-speeds Alert, so this too takes the saved calibration's rates; the
+        # ValidGuideRates check in DetermineGuideSpeed's read branch is never false for an Alpaca mount
+        fake.request("PUT", "/fake/guiderate", {"ra": 2.0, "dec": 2.0})
+        r, evs = check_scale_adjustment(lane, "mount at 2x (invalid), saved calibration at 1x", 1234,
+                                        sidereal_multiple(1.0), None)
+        invalid = alerts(evs, INVALID_RATES_ALERT)
+        expect(len(invalid) == 1, f"invalid-speeds Alerts {names_of(evs)}, expected 1")
+        out.append(f"{r}, 1 invalid-speeds Alert")
+    finally:
+        fake.request("PUT", "/fake/clear_faults")
+
+    # the mount not connected: the 0.5x default (the mount refusing to connect, as in the camera change above)
+    fake.request("PUT", "/fake/unplug", {"device": "telescope", "unplugged": "true"})
+    try:
+        msg, evs, dbg = scale_change_connect(lane, 1234)
+    finally:
+        fake.request("PUT", "/fake/unplug", {"device": "telescope", "unplugged": "false"})
+    expect(msg.get("error", {}).get("code") == 1, f"set_connected with the mount refusing: {msg}")
+    expect(len(alerts(evs, SCALE_ALERT)) == 1, f"mount off: scale Alerts {names_of(evs)}")
+    want_ms = calibration_step_ms(DEFAULT_GUIDE_SPEED)
+    got_ms = setup(cli)["calibration_duration"]
+    expect(got_ms == want_ms, f"mount off: calibration_duration 1234 -> {got_ms}, expected {want_ms} (0.5x)")
+    expect(re.findall(SCALE_STEP_LINE, dbg) == [("1234", str(want_ms))], "mount off: step-size lines "
+                                                                          f"{re.findall(SCALE_STEP_LINE, dbg)}")
+    out.append(f"mount not connected: 1234 -> {got_ms} ms (0.5x default)")
+
+    # the guide-rate read failing with no saved calibration: the 0.5x default. On a profile of its own, which has
+    # never calibrated
+    cli.call("set_connected", {"connected": False}, timeout=60)
+    keep, current = lane.profile, cli.call("get_profile")
+    try:
+        lane.make_profile(WRONG_PIXEL_UM)
+        lane.profile = keep
+        fake.request("PUT", "/fake/inject", {"device": "telescope", "call": "guideraterightascension",
+                                             "error": 1024, "count": 1000})
+        cli.call("set_profile_setup", {"calibration_duration": 1234})
+        r, _ = check_scale_adjustment(lane, "guideraterightascension failing, no saved calibration", 1234,
+                                      DEFAULT_GUIDE_SPEED, None)
+        out.append(r)
+    finally:
+        fake.request("PUT", "/fake/clear_faults")
+        cli.call("set_connected", {"connected": False}, timeout=60)
+        made = cli.call("get_profile")
+        if made["id"] != current["id"]:
+            cli.call("set_profile", {"id": current["id"]})
+            cli.call("delete_profile", {"id": made["id"]})
+
+    # no mount selected: TheScope() is null, so MyFrame::HandleImageScaleChange does not call
+    # MakeImageScaleAdjustments at all (its own no-scope skip line is not reached): the calibration step is kept,
+    # and the Alert goes out
+    cli.call("set_selected_mount", {"mount": "None"})
+    try:
+        msg, evs, dbg = scale_change_connect(lane, 1234)
+        expect(msg.get("result") == 0, f"no mount: set_connected {msg}")
+        expect(len(alerts(evs, SCALE_ALERT)) == 1, f"no mount: scale Alerts {names_of(evs)}")
+        expect("gear_dialog: EndModal: imageScaleRatio changed" in dbg, "no mount: no latch line in the debug log")
+        expect(SCALE_ADJUST_LINE not in dbg and SCALE_SKIP_LINE not in dbg,
+               "no mount: MakeImageScaleAdjustments ran with no scope")
+        got_ms = setup(cli)["calibration_duration"]
+        expect(got_ms == 1234, f"no mount: calibration_duration 1234 -> {got_ms}, expected unchanged")
+        out.append("no mount selected: MakeImageScaleAdjustments not called, calibration_duration 1234 kept, "
+                   "1 scale Alert")
+    finally:
+        cli.call("set_connected", {"connected": False}, timeout=60)
+        cli.call("set_selected_mount", {"mount": mount_choice(fake)})
+        cli.call("set_profile_setup", dict(QUICK_CALIBRATION, pixel_size=FAKE_PIXEL_UM))
+        cli.call("set_connected", {"connected": True}, timeout=60)
+    return "; ".join(out)
+
+
+def scenario_binning_change(lane, args):
+    """#115 N4: Mount::AdjustCalibrationForScopePointing on a binning change: a calibration made at bin 1, the
+    camera at bin 2 (software binning: the fake camera has no hardware binning), the calibration restored and guide
+    with no recalibration.
+
+    The calibration is rescaled for bin 2 (and saved so), then MakeImageScaleAdjustments clears it. The adjustment
+    runs as the guider enters guiding, past the calibrating states, so the guider goes back to calibrating there and
+    the same guide calibrates before it guides and settles (#255). At bin 2 the fake's 1x moves the star 0.97 px/s,
+    a quarter of what the guider's 1.93"/px x 2 predicts, so this calibration takes a few minutes."""
+    cli = lane.cli
+    out = []
+    evs, _ = lane.calibrate(args.calibration_timeout)
+    cli.call("stop_capture")
+    cli.wait_state("Stopped", 30)
+    cal1 = cli.call("get_calibration_data", {"which": "Mount"})
+    expect(cal1.get("calibrated") is True, f"not calibrated at bin 1: {cal1}")
+    out.append(f"calibrated at bin 1 ({e2e.calibration_summary(evs)}, xRate {cal1['xRate']})")
+
+    cli.call("set_connected", {"connected": False}, timeout=60)
+    cli.call("set_profile_setup", {"software_binning": 2})
+    try:
+        # a binning change is not a pixel size change: no #139 latch, no Alert, the calibration auto-loaded
+        start = cli.mark()
+        cli.call("set_connected", {"connected": True}, timeout=60)
+        evs = settle_events(cli, start)
+        expect(cli.call("get_camera_binning") == 2, f"camera binning {cli.call('get_camera_binning')}, expected 2")
+        expect(names_of(evs) == ["ConfigurationChange"], f"events of the connect at bin 2: {names_of(evs)}")
+        expect(cli.call("get_calibrated") is True, "the bin 1 calibration was not auto-loaded at bin 2")
+        expect(cli.call("restore_calibration") is True, "restore_calibration did not return true")
+        out.append("connect at bin 2: no Alert, the bin 1 calibration auto-loaded; restore_calibration true")
+
+        e2e.loop_and_find_star(cli)
+        lane.debug.mark()
+        start = cli.mark()
+        expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": False}) == 0, "guide did not return 0")
+        done = cli.wait_events(start, "SettleDone", timeout=args.calibration_timeout + e2e.SETTLE["timeout"] + 60,
+                               abort_on=GUIDE_FAILURES)[0]
+        evs = cli.events_since(start)
+        names = names_of(evs, skip=("LoopingExposures", "GuideStep", "Settling", "StarSelected", "Calibrating"))
+        expect(len(alerts(evs, SCALE_ALERT)) == 1, f"scale Alerts on the guide start: {names}, expected 1")
+        # #255: the calibration the adjustment cleared is made again in this guide, before it guides and settles
+        # (the calibration's save writes the profile: a ConfigurationChange before its CalibrationComplete)
+        legs = e2e.check_full_calibration(evs)
+        expect(names[:2] == ["ConfigurationChange", "Alert"] and
+               [n for n in names[2:] if n != "ConfigurationChange"] ==
+               ["StartCalibration", "CalibrationComplete", "StartGuiding", "SettleBegin", "SettleDone"],
+               f"events of the guide: {names}")
+        expect(done.get("Status") == 0, f"SettleDone {strip(done)}")
+        dbg = lane.debug.text()
+        lines = re.findall(BINNING_LINE, dbg)
+        expect(len(lines) == 1 and lines[0][:2] == ("1", "2"), f"binning lines {lines}")
+        old, new = [float(v) for v in lines[0][2:4]], [float(v) for v in lines[0][4:6]]
+        expect(all(abs(n - o / 2) < 0.002 for o, n in zip(old, new)), f"rates {old} -> {new}, expected halved")
+        expect("Mount::AdjustCalibrationForScopePointing: imageScaleRatio changed" in dbg,
+               "no imageScaleRatio line from AdjustCalibrationForScopePointing")
+        want_ms = calibration_step_ms(sidereal_multiple(1.0), binning=2)
+        steps = re.findall(SCALE_STEP_LINE, dbg)
+        expect(steps == [(str(QUICK_CALIBRATION["calibration_duration"]), str(want_ms))],
+               f"step-size lines {steps}, expected 2500 -> {want_ms} (1x at bin 2)")
+        expect(setup(cli)["calibration_duration"] == want_ms, f"calibration_duration {setup(cli)}")
+        want_mm = smart_default_min_move(FAKE_PIXEL_UM, binning=2)
+        mm = min_moves(cli)
+        expect(all(abs(m - want_mm) < 1e-3 for m in mm), f"MinMoves {mm}, expected {want_mm:.4f} (bin 2)")
+        expect(cli.call("get_app_state") == "Guiding", f"app state {cli.call('get_app_state')}")
+        cal2 = cli.call("get_calibration_data", {"which": "Mount"})
+        expect(cal2.get("calibrated") is True, f"not calibrated after the guide: {cal2}")
+        out.append(f"guide (no recalibration): events {names}, rates {old} -> {new}, step 2500 -> {want_ms} ms, "
+                   f"MinMoves {want_mm:.4f}; calibrated again at bin 2 ({legs}, xRate {cal2['xRate']}), then guiding")
+    finally:
+        cli.call("stop_capture")
+        cli.wait_state("Stopped", 30)
+        cli.call("set_connected", {"connected": False}, timeout=60)
+        cli.call("set_profile_setup", dict(QUICK_CALIBRATION, software_binning=1))
+        cli.call("set_connected", {"connected": True}, timeout=60)
     return "; ".join(out)
 
 
@@ -1740,15 +2000,24 @@ def run_gear(lane, args):
     lane.start_daemon()
     lane.step("set_alpaca_server moves the imaging-gear reader (#236)",
               lambda: scenario_imaging_gear_server_change(lane))
+    scale_ok = False
     if lane.step("connect side effects (set_connected, get_connected, #139 latch, refusals)",
                  lambda: scenario_connect_side_effects(lane)):
-        lane.step("camera change with the mount off (#139)", lambda: scenario_camera_change_mount_off(lane, args))
+        if lane.step("camera change with the mount off (#139)", lambda: scenario_camera_change_mount_off(lane, args)):
+            lane.step("image scale change: the guide speed sources (#115 N4)",
+                      lambda: scenario_guide_speed_sources(lane))
+            scale_ok = True
     lane.step("startup --auto-connect against the running fake", lambda: scenario_auto_connect(lane))
     lane.step("startup --auto-connect, the fake starting late (#104 retry)",
               lambda: scenario_auto_connect_late_fake(lane))
     lane.step("stale and case-changed selections in the profile file, restarted",
               lambda: scenario_stale_selection(lane))
     lane.step("guide connects the camera and mount first (#104)", lambda: scenario_guide_connects_first(lane, args))
+    if scale_ok:
+        # after every scenario that calibrates: it leaves the bin 2 calibration it makes (#255) saved, and a
+        # calibration at bin 1 after it adjusts its step and distance for the binning change
+        # (Scope::CheckCalibrationDuration)
+        lane.step("binning change on guide start (#115 N4)", lambda: scenario_binning_change(lane, args))
     lane.step("set_alpaca_server keeps the selections and the #104 retry", lambda: scenario_alpaca_server_carry(lane))
     lane.step("shutdown during a #104 probe", lambda: scenario_shutdown_during_probe(lane))
 

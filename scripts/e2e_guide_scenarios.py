@@ -7,9 +7,16 @@ instance, port and display, so the others should cost little wall time beside th
 
 the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir):
 
+  http-before    before the first frame, the HTTP data port (8080 + instance - 1): /api/frame.jpg 404 "no image
+                 available", other paths, a POST and ../-style /api/capture names 404 "Not found" (N2)
   smoke          scripts/phd2_rpc_smoke.py with --fake-alpaca-url
   nr-at-schedule once connected, capture_single_frame with no noise reduction and set_noise_reduction
                  "3x3 Median" during the exposure: the saved frame is unfiltered, and the next one filtered (#210)
+  http-frame     after a single frame, /api/frame.jpg: 200 image/jpeg with Content-Length and an ETag "f<N>", 304 on
+                 a matching If-None-Match, a baseline JPEG of the frame's size with 3 components whose grey level
+                 matches the frame's FITS through the display stretch, the fake's stars where it put them; a new ETag
+                 on the next single frame (#259), rising while looping; /api/capture serving the file
+                 save_image wrote, and 404 for ../-style names, a POST and a symlink out of the capture dir (N2)
   calibrate      connect the Alpaca camera and mount, loop, find_star, guide with recalibrate true: a full
                  calibration, StartGuiding, a settle that ends in exactly one SettleDone with Status 0, then
                  guiding; the event order Ara consumes is checked on the way (design/API_CONTRACT.md)
@@ -531,30 +538,8 @@ NR_FILTERED_SIGMA = 11.0
 def read_fits_u16(path):
     """The pixels of a 2-D 16-bit FITS file as written by usImage::Save (BITPIX 16, BZERO 32768), as a numpy
     array [y][x]."""
-    import numpy as np
-
     with open(path, "rb") as f:
-        data = f.read()
-    cards, off = {}, 0
-    while True:
-        block = data[off:off + 2880]
-        expect(len(block) == 2880, f"{path}: the FITS header has no END card")
-        off += 2880
-        done = False
-        for i in range(0, 2880, 80):
-            card = block[i:i + 80].decode("ascii", errors="replace")
-            key = card[:8].strip()
-            if key == "END":
-                done = True
-                break
-            if card[8:10] == "= ":
-                cards[key] = card[10:].split("/")[0].strip()
-        if done:
-            break
-    expect(cards.get("BITPIX") == "16" and cards.get("NAXIS") == "2", f"{path}: not a 2-D 16-bit FITS ({cards})")
-    w, h = int(cards["NAXIS1"]), int(cards["NAXIS2"])
-    raw = np.frombuffer(data, dtype=">i2", count=w * h, offset=off).astype(np.float64)
-    return (raw * float(cards.get("BSCALE", "1")) + float(cards.get("BZERO", "0"))).reshape(h, w)
+        return fits_u16_from_bytes(f.read(), path)
 
 
 def background_sigma(pixels):
@@ -601,6 +586,466 @@ def scenario_noise_reduction_at_schedule(cli):
            f"(the next frame, scheduled with the median: {sigma_median:.1f})")
     return (f"none at schedule, median set during the exposure: sigma {sigma_changed:.1f} ADU (unfiltered); "
             f"next frame with the median: {sigma_median:.1f}")
+
+
+def http_request(port, path, headers=None, method="GET", timeout=30):
+    """One raw HTTP/1.1 request on the daemon's data port (8080 + instance - 1), the path sent byte for byte (no
+    client-side ../ or %-escape normalising, so the traversal guard sees what a hostile client sends), sent at
+    once after the connect, as every HTTP client does (#258). Returns (status, {lower-case header name: value},
+    body)."""
+    lines = [f"{method} {path} HTTP/1.1", "Host: 127.0.0.1", "Connection: close"]
+    lines += [f"{k}: {v}" for k, v in (headers or {}).items()]
+    raw = b""
+    with socket.create_connection(("127.0.0.1", port), timeout=timeout) as s:
+        s.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1"))
+        status, hdrs, body_at = None, {}, None
+        while True:
+            chunk = s.recv(65536)
+            if chunk:
+                raw += chunk
+            if body_at is None and b"\r\n\r\n" in raw:
+                head, _, _ = raw.partition(b"\r\n\r\n")
+                body_at = len(head) + 4
+                status_line, *header_lines = head.decode("latin-1").split("\r\n")
+                status = int(status_line.split()[1])
+                for line in header_lines:
+                    k, _, v = line.partition(":")
+                    hdrs[k.strip().lower()] = v.strip()
+            if body_at is not None:
+                # a 304 has no body; otherwise stop at Content-Length rather than wait for the close
+                if status == 304 or ("content-length" in hdrs and len(raw) - body_at >= int(hdrs["content-length"])):
+                    break
+            if not chunk:
+                break
+    expect(body_at is not None, f"GET {path}: no complete HTTP response header in {raw[:200]!r}")
+    return status, hdrs, raw[body_at:]
+
+
+def jpeg_segments(data):
+    """The JPEG's header segments up to its first SOS: [(marker, payload)], and the offset of the scan data."""
+    expect(data[:2] == b"\xff\xd8", f"not a JPEG: starts {data[:4]!r}")
+    segs, i = [], 2
+    while True:
+        expect(i + 4 <= len(data) and data[i] == 0xFF, f"JPEG: no marker at byte {i}")
+        while data[i] == 0xFF:
+            i += 1
+        marker = data[i]
+        i += 1
+        if marker == 0xD8 or 0xD0 <= marker <= 0xD7:
+            continue
+        length = int.from_bytes(data[i:i + 2], "big")
+        segs.append((marker, data[i + 2:i + length]))
+        i += length
+        if marker == 0xDA:
+            return segs, i
+
+
+def jpeg_sof(data):
+    """The JPEG's frame header, stdlib only: {"marker", "precision", "height", "width", "components": [(id, h, v,
+    table)]}. Fails unless it is a single SOF."""
+    segs, _ = jpeg_segments(data)
+    sofs = [(m, p) for m, p in segs if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC)]
+    expect(len(sofs) == 1, f"JPEG: {len(sofs)} SOF segments")
+    marker, p = sofs[0]
+    n = p[5]
+    comps = [(p[6 + 3 * k], p[7 + 3 * k] >> 4, p[7 + 3 * k] & 15, p[8 + 3 * k]) for k in range(n)]
+    return {"marker": marker, "precision": p[0], "height": int.from_bytes(p[1:3], "big"),
+            "width": int.from_bytes(p[3:5], "big"), "components": comps}
+
+
+JPEG_ZIGZAG = (
+    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21,
+    28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61,
+    54, 47, 55, 62, 63,
+)
+
+
+def jpeg_decode_luma(data):
+    """The first component (Y) of a baseline (SOF0) Huffman JPEG as a numpy uint8 array [y][x]: a small decoder
+    so the check needs no PIL. For the guide frame, which is grey (R = G = B), Y is the grey level."""
+    import numpy as np
+
+    segs, pos = jpeg_segments(data)
+    sof = jpeg_sof(data)
+    expect(sof["marker"] == 0xC0 and sof["precision"] == 8, f"not a baseline 8-bit JPEG: {sof}")
+    qt, ht, restart = {}, {}, 0
+    for marker, p in segs:
+        if marker == 0xDB:
+            j = 0
+            while j < len(p):
+                prec, tid = p[j] >> 4, p[j] & 15
+                size = 2 if prec else 1
+                vals = [int.from_bytes(p[j + 1 + size * k:j + 1 + size * (k + 1)], "big") for k in range(64)]
+                q = np.zeros(64)
+                q[list(JPEG_ZIGZAG)] = vals
+                qt[tid] = q.reshape(8, 8)
+                j += 1 + 64 * size
+        elif marker == 0xC4:
+            j = 0
+            while j < len(p):
+                cls, tid = p[j] >> 4, p[j] & 15
+                counts = p[j + 1:j + 17]
+                syms = p[j + 17:j + 17 + sum(counts)]
+                table, code, k = {}, 0, 0
+                for length in range(1, 17):
+                    for _ in range(counts[length - 1]):
+                        table[format(code, f"0{length}b")] = syms[k]
+                        code += 1
+                        k += 1
+                    code <<= 1
+                ht[(cls, tid)] = table
+                j += 17 + sum(counts)
+        elif marker == 0xDD:
+            restart = int.from_bytes(p[:2], "big")
+    sos = segs[-1][1]
+    scan = [(sos[1 + 2 * k], sos[2 + 2 * k] >> 4, sos[2 + 2 * k] & 15) for k in range(sos[0])]
+    comps = {cid: (h, v, tq) for cid, h, v, tq in sof["components"]}
+    expect(len(scan) == len(comps), "JPEG: the scan is not interleaved over every component")
+    hmax = max(h for h, _, _ in comps.values())
+    vmax = max(v for _, v, _ in comps.values())
+    mcus_x = -(-sof["width"] // (8 * hmax))
+    mcus_y = -(-sof["height"] // (8 * vmax))
+
+    # the entropy-coded data, split at the restart markers, with the 0xFF00 stuffing taken out
+    parts, cur, i = [], bytearray(), pos
+    while i < len(data):
+        b = data[i]
+        if b == 0xFF and i + 1 < len(data):
+            nxt = data[i + 1]
+            if nxt == 0x00:
+                cur.append(0xFF)
+                i += 2
+                continue
+            if 0xD0 <= nxt <= 0xD7:
+                parts.append(bytes(cur))
+                cur = bytearray()
+                i += 2
+                continue
+            break  # EOI or another marker: the scan ends
+        cur.append(b)
+        i += 1
+    parts.append(bytes(cur))
+
+    y_id = sof["components"][0][0]
+    yh, yv, ytq = comps[y_id]
+    coefs = np.zeros((mcus_y * yv, mcus_x * yh, 64))
+    mcus_per_part = restart or mcus_x * mcus_y
+    for part_no, part in enumerate(parts):
+        bits = "".join(format(b, "08b") for b in part)
+        bp = 0
+        pred = {cid: 0 for cid, _, _ in scan}
+
+        def huff(table):
+            nonlocal bp
+            for length in range(1, 17):
+                sym = table.get(bits[bp:bp + length])
+                if sym is not None:
+                    bp += length
+                    return sym
+            raise Failure(f"JPEG: bad Huffman code at bit {bp}")
+
+        def receive(n):
+            nonlocal bp
+            if n == 0:
+                return 0
+            v = int(bits[bp:bp + n], 2)
+            bp += n
+            return v - (1 << n) + 1 if v < (1 << (n - 1)) else v
+
+        first = part_no * mcus_per_part
+        for m in range(first, min(first + mcus_per_part, mcus_x * mcus_y)):
+            my, mx = divmod(m, mcus_x)
+            for cid, td, ta in scan:
+                h, v, _ = comps[cid]
+                for by in range(v):
+                    for bx in range(h):
+                        block = np.zeros(64) if cid == y_id else None
+                        pred[cid] += receive(huff(ht[(0, td)]))
+                        if block is not None:
+                            block[0] = pred[cid]
+                        k = 1
+                        while k < 64:
+                            rs = huff(ht[(1, ta)])
+                            r, s = rs >> 4, rs & 15
+                            if s == 0:
+                                if r != 15:
+                                    break
+                                k += 16
+                                continue
+                            k += r
+                            val = receive(s)
+                            if block is not None:
+                                block[JPEG_ZIGZAG[k]] = val
+                            k += 1
+                        if block is not None:
+                            coefs[my * v + by, mx * h + bx] = block
+    # dequantize, then the 8x8 inverse DCT of every block at once: f = C^T F C
+    n = np.arange(8)
+    c = np.cos((2 * n[None, :] + 1) * n[:, None] * np.pi / 16) / 2
+    c[0] /= math.sqrt(2)
+    blocks = coefs.reshape(*coefs.shape[:2], 8, 8) * qt[ytq]
+    pix = np.einsum("ux,abuv,vy->abxy", c, blocks, c) + 128.0
+    img = pix.transpose(0, 2, 1, 3).reshape(coefs.shape[0] * 8, coefs.shape[1] * 8)
+    img = img[:sof["height"] * yv // vmax, :sof["width"] * yh // hmax]
+    return np.clip(np.round(img), 0, 255).astype(np.uint8)
+
+
+def fits_u16_from_bytes(data, what):
+    """read_fits_u16 on bytes already read (`what` names them in a failure)."""
+    import numpy as np
+
+    cards, off = {}, 0
+    while True:
+        block = data[off:off + 2880]
+        expect(len(block) == 2880, f"{what}: the FITS header has no END card")
+        off += 2880
+        done = False
+        for i in range(0, 2880, 80):
+            card = block[i:i + 80].decode("ascii", errors="replace")
+            if card[:8].strip() == "END":
+                done = True
+                break
+            if card[8:10] == "= ":
+                cards[card[:8].strip()] = card[10:].split("/")[0].strip()
+        if done:
+            break
+    expect(cards.get("BITPIX") == "16" and cards.get("NAXIS") == "2", f"{what}: not a 2-D 16-bit FITS ({cards})")
+    w, h = int(cards["NAXIS1"]), int(cards["NAXIS2"])
+    raw = np.frombuffer(data, dtype=">i2", count=w * h, offset=off).astype(np.float64)
+    return (raw * float(cards.get("BSCALE", "1")) + float(cards.get("BZERO", "0"))).reshape(h, w)
+
+
+def display_stretch(pixels, gamma=1.0):
+    """What /api/frame.jpg paints, from the frame's pixels: usImage::CalcStats' FiltMin / FiltMax (the min and max
+    after a 3x3 median; the edge pixels, which Median3 takes over 4 or 6 neighbours, are left out here) through
+    CopyToImage's gamma table (buildGammaLookupTable: 0 at or under FiltMin, 255 at or over FiltMax, truncated).
+    The profile's default gamma is 1.0 (GAMMA_DEFAULT; the Gamma line of UpdateImageDisplay in the debug log)."""
+    import numpy as np
+
+    h, w = pixels.shape
+    shifted = [pixels[1 + dy:h - 1 + dy, 1 + dx:w - 1 + dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1)]
+    med = np.median(np.stack(shifted), axis=0)
+    lo, hi = float(med.min()), float(med.max())
+    d = np.clip((pixels - lo) / (hi - lo), 0.0, 1.0)
+    return np.floor((d ** gamma) * 255.0).astype(np.uint8), lo, hi
+
+
+# the fake's default star field (scripts/fake_alpaca_camera.py STARS), its brightest star at (320, 240): the
+# guide frame must show each one where the fake put it, after the field's move (pulses, from the smoke run)
+FAKE_STARS = ((80, 60, 30000), (200, 120, 25000), (320, 240, 40000), (500, 100, 20000), (120, 350, 35000),
+              (420, 380, 28000), (560, 300, 22000), (250, 420, 18000), (380, 60, 26000), (60, 250, 32000),
+              (520, 430, 24000), (300, 160, 15000))
+FAKE_SIZE = (640, 480)
+FAKE_BACKGROUND_ADU = 800.0  # the fake's background, Gaussian, sigma 15 ADU
+# The JPEG (quality 85) against the stretch of the same frame's FITS: its mean, and the 50th, 99th and 99.9th
+# percentiles, in 8-bit levels. The plain fake's frame is near black under the default stretch (the background at
+# 800 ADU is 0 over a FiltMin of about 771, FiltMax 34000-36000), so the mean is the stars': measured locally, 0.19
+# to 0.20 against 0.18 to 0.19, the percentiles 0, 0 and 65-69 against 0, 0 and 66-69; the FiltMin/FiltMax computed
+# here match the debug log's.
+JPEG_MEAN_TOL = 0.1
+JPEG_PERCENTILE_TOL = 3
+JPEG_PERCENTILES = (50, 99, 99.9)
+# a star of the field is painted at least this bright (8-bit) in the 3x3 px around where the fake put it; the
+# faintest (15000 ADU) peaks at about 108 under the default stretch
+JPEG_STAR_LEVEL = 40
+
+CAPTURE_TRAVERSAL = (
+    "../{name}", "..%2f{name}", "%2e%2e/{name}", "%2e%2e%2f{name}", "x/../{name}", "x%2f..%2f{name}",
+    "..\\{name}", "/{name}", "%2f{name}", "\\{name}", "../../../../etc/passwd", "%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+    "", "no_such_file.fits",
+)
+
+
+def check_not_found(port, path, method="GET"):
+    status, hdrs, body = http_request(port, path, method=method)
+    expect((status, body) == (404, b"Not found"),
+           f"{method} {path}: {status} {body[:80]!r}, expected 404 'Not found'")
+    expect(hdrs.get("content-type") == "text/plain; charset=utf-8", f"{method} {path}: Content-Type {hdrs}")
+
+
+def scenario_http_before_first_frame(args):
+    """N2: the HTTP data port before the daemon has taken a frame. /api/frame.jpg is 404 'no image available'
+    (text/plain), with or without an If-None-Match; any other path, a non-GET and a capture name the traversal
+    guard rejects are 404 'Not found'."""
+    port = args.http_port
+    for hdrs in (None, {"If-None-Match": '"f0"'}):
+        status, h, body = http_request(port, "/api/frame.jpg", headers=hdrs)
+        expect((status, body) == (404, b"no image available"),
+               f"/api/frame.jpg before the first frame ({hdrs}): {status} {body[:80]!r}, expected 404 "
+               "'no image available'")
+        expect(h.get("content-type") == "text/plain" and h.get("content-length") == str(len(body)),
+               f"/api/frame.jpg before the first frame: headers {h}")
+        expect("etag" not in h, f"/api/frame.jpg before the first frame has an ETag: {h}")
+    for path in ("/", "/index.html", "/api/frame.jpeg", "/api/frame.jpg/", "/api/capture"):
+        check_not_found(port, path)
+    check_not_found(port, "/api/frame.jpg", method="POST")
+    for name in CAPTURE_TRAVERSAL:
+        check_not_found(port, "/api/capture/" + name.format(name="x.fits"))
+    return (f"frame.jpg 404 'no image available' on :{port}; 6 other routes and {len(CAPTURE_TRAVERSAL)} "
+            "capture names 404 'Not found'")
+
+
+def single_frame(cli, exposure=500):
+    start = cli.mark()
+    cli.call("capture_single_frame", {"exposure": exposure})
+    done = cli.wait_events(start, "SingleFrameComplete", timeout=60)[0]
+    expect(done.get("Success") is True, f"the single frame failed: {strip(done)}")
+
+
+def scenario_http_frame_and_capture(cli, args, work):
+    """N2: /api/frame.jpg and /api/capture as Ara's live view and polar alignment use them, pinned before S5.3 and
+    S7.1-S7.3 replace the painting code and the wxImage JPEG path behind them. On a stopped capture, after one
+    single frame: frame.jpg is 200 image/jpeg with Content-Length, Cache-Control no-store and an ETag "f<N>"
+    (a per-process image id that never restarts, #259), 304 with the ETag and no body on a matching
+    If-None-Match, 200 on another one, and a new, higher ETag after the next single frame and each looping frame.
+    The JPEG is a baseline SOF0 of the frame's size with 3 components; decoded, its grey level matches the FITS
+    of the same frame through the display stretch (mean and percentiles), and each of the fake's stars is where
+    the fake put it. /api/capture/<name> serves the file save_image wrote, byte for byte, as application/fits;
+    the traversal guard answers 404 for ../-style names of that file, a POST, and a symlink in the capture dir to
+    a file outside it."""
+    import numpy as np
+
+    port = args.http_port
+    expect(cli.call("get_app_state") == "Stopped", "capture is not stopped before the frame.jpg check")
+    cli.call("set_noise_reduction", {"method": "None"})
+    single_frame(cli)
+
+    status, h, jpeg = http_request(port, "/api/frame.jpg")
+    expect(status == 200, f"/api/frame.jpg after a frame: {status} {jpeg[:80]!r}")
+    expect(h.get("content-type") == "image/jpeg", f"/api/frame.jpg Content-Type {h.get('content-type')!r}")
+    expect(h.get("content-length") == str(len(jpeg)) and jpeg,
+           f"/api/frame.jpg Content-Length {h.get('content-length')!r} for {len(jpeg)} bytes")
+    expect(h.get("cache-control") == "no-store", f"/api/frame.jpg Cache-Control {h.get('cache-control')!r}")
+    etag = h.get("etag", "")
+    m = re.fullmatch(r'"f(\d+)"', etag)
+    expect(m, f"/api/frame.jpg ETag {etag!r}, expected \"f<N>\"")
+    frame_no = int(m.group(1))
+    expect(jpeg[-2:] == b"\xff\xd9", f"the JPEG does not end with EOI: {jpeg[-4:]!r}")
+
+    status, h304, body = http_request(port, "/api/frame.jpg", headers={"If-None-Match": etag})
+    expect(status == 304 and body == b"" and h304.get("etag") == etag,
+           f"If-None-Match {etag}: {status}, ETag {h304.get('etag')!r}, {len(body)} body bytes; expected 304, the "
+           "same ETag, no body")
+    other = f'"f{frame_no + 1000}"'
+    status, h2, jpeg2 = http_request(port, "/api/frame.jpg", headers={"If-None-Match": other})
+    expect(status == 200 and h2.get("etag") == etag, f"If-None-Match {other}: {status}, ETag {h2.get('etag')!r}")
+
+    sof = jpeg_sof(jpeg)
+    expect(sof["marker"] == 0xC0 and sof["precision"] == 8, f"the JPEG is not baseline 8-bit (SOF0): {sof}")
+    expect((sof["width"], sof["height"]) == FAKE_SIZE, f"JPEG {sof['width']}x{sof['height']}, the fake's frame is "
+                                                       f"{FAKE_SIZE[0]}x{FAKE_SIZE[1]}")
+    expect(len(sof["components"]) == 3, f"JPEG with {len(sof['components'])} components, expected 3")
+
+    # save_image writes the same frame (the ETag still answers 304 after it), and /api/capture serves the file
+    fname = cli.call("save_image")["filename"]
+    status, _, _ = http_request(port, "/api/frame.jpg", headers={"If-None-Match": etag})
+    expect(status == 304, f"the frame changed under save_image: If-None-Match {etag} is {status}")
+    name = os.path.basename(fname)
+    with open(fname, "rb") as f:
+        on_disk = f.read()
+    status, hc, fits = http_request(port, "/api/capture/" + urllib.parse.quote(name))
+    expect(status == 200, f"/api/capture/{name}: {status} {fits[:80]!r}")
+    expect(hc.get("content-type") == "application/fits" and hc.get("content-length") == str(len(fits)),
+           f"/api/capture/{name}: headers {hc}")
+    expect(hc.get("cache-control") == "no-store" and "etag" not in hc, f"/api/capture/{name}: headers {hc}")
+    expect(fits == on_disk, f"/api/capture/{name}: {len(fits)} bytes, not the {len(on_disk)} bytes save_image wrote")
+    pixels = fits_u16_from_bytes(fits, name)
+    expect(pixels.shape == (sof["height"], sof["width"]), f"FITS {pixels.shape}, JPEG {sof['width']}x{sof['height']}")
+    bg = float(np.median(pixels))
+    expect(abs(bg - FAKE_BACKGROUND_ADU) < 3, f"the frame's median {bg:.1f} ADU, the fake's background is 800")
+
+    gray = jpeg_decode_luma(jpeg)
+    expect(gray.shape == pixels.shape, f"decoded JPEG {gray.shape}, FITS {pixels.shape}")
+    want, lo, hi = display_stretch(pixels)
+    got_p = [float(np.percentile(gray, q)) for q in JPEG_PERCENTILES]
+    want_p = [float(np.percentile(want, q)) for q in JPEG_PERCENTILES]
+    stats = (f"mean {gray.mean():.2f} (stretch of the FITS {want.mean():.2f}), percentiles {JPEG_PERCENTILES} "
+             f"{got_p} ({want_p}), FiltMin/Max ~{lo:.0f}/{hi:.0f}")
+    expect(abs(float(gray.mean()) - float(want.mean())) <= JPEG_MEAN_TOL, f"the JPEG's mean is off: {stats}")
+    for q, g, w in zip(JPEG_PERCENTILES, got_p, want_p):
+        expect(abs(g - w) <= JPEG_PERCENTILE_TOL, f"the JPEG's {q}th percentile is off: {stats}")
+    # the stars, where the fake put them: the field moved as a whole, by where the brightest star now is
+    by, bx = np.unravel_index(np.argmax(pixels), pixels.shape)
+    ox, oy = int(bx) - 320, int(by) - 240
+    expect(abs(ox) < 40 and abs(oy) < 40, f"the brightest pixel at ({bx}, {by}), not near the fake's (320, 240)")
+    gy, gx = np.unravel_index(np.argmax(gray), gray.shape)
+    expect(abs(int(gx) - int(bx)) <= 2 and abs(int(gy) - int(by)) <= 2,
+           f"the JPEG's brightest pixel at ({gx}, {gy}), the FITS's at ({bx}, {by})")
+    seen = 0
+    for sx, sy, _ in FAKE_STARS:
+        x, y = sx + ox, sy + oy
+        if 2 <= x < FAKE_SIZE[0] - 2 and 2 <= y < FAKE_SIZE[1] - 2:
+            peak = int(gray[y - 1:y + 2, x - 1:x + 2].max())
+            expect(peak >= JPEG_STAR_LEVEL, f"no star in the JPEG at ({x}, {y}) (the fake's ({sx}, {sy}) moved by "
+                                            f"({ox}, {oy})): peak {peak}")
+            seen += 1
+    expect(seen >= 10, f"only {seen} of the fake's stars inside the frame")
+
+    # the traversal guard, on names that would reach the real file
+    captured = os.path.dirname(fname)
+    up = os.path.basename(captured)
+    for pat in CAPTURE_TRAVERSAL[:6] + (f"../{up}/{{name}}", f"%2e%2e%2f{up}%2f{{name}}", "./../" + up + "/{name}"):
+        check_not_found(port, "/api/capture/" + pat.format(name=name))
+    check_not_found(port, "/api/capture/" + name, method="POST")
+    outside = os.path.join(work, "n2_outside.fits")
+    shutil.copy(fname, outside)
+    link = os.path.join(captured, "n2_link.fits")
+    os.symlink(outside, link)
+    try:
+        check_not_found(port, "/api/capture/n2_link.fits")
+    finally:
+        os.unlink(link)
+
+    # #259: the ETag was the frame counter, which StartCapturing sets back to 0 for every capture (and
+    # NotifyGuidingStarted when guiding starts), so each single frame was "f1" and the next one, a new exposure
+    # (save_image's DATE-OBS moves on), answered 304 to If-None-Match "f1". It is now an image id that never
+    # restarts: the next single frame answers 200 with a new, higher ETag, and 304 to its own; it rises while
+    # looping, and the loop's first frames are newer than the single frames before it.
+    obs1 = fits_card(on_disk, "DATE-OBS")
+    single_frame(cli)
+    with open(cli.call("save_image")["filename"], "rb") as f:
+        obs2 = fits_card(f.read(), "DATE-OBS")
+    expect(obs1 and obs2 and obs1 != obs2, f"the next single frame's DATE-OBS {obs2!r}, the first's {obs1!r}")
+    status, h3, body3 = http_request(port, "/api/frame.jpg", headers={"If-None-Match": etag})
+    etag2 = h3.get("etag", "")
+    m2 = re.fullmatch(r'"f(\d+)"', etag2)
+    expect(status == 200 and body3 and m2 and int(m2.group(1)) > frame_no,
+           f"the next single frame (DATE-OBS {obs2} after {obs1}) with If-None-Match {etag}: {status}, ETag "
+           f"{etag2!r}, {len(body3)} body bytes; expected 200 and a new, higher ETag (#259)")
+    status, _, _ = http_request(port, "/api/frame.jpg", headers={"If-None-Match": etag2})
+    expect(status == 304, f"the next single frame with its own ETag {etag2} as If-None-Match: {status}, expected 304")
+    start = cli.mark()
+    expect(cli.call("loop") == 0, "loop did not return 0")
+    try:
+        cli.wait_events(start, "LoopingExposures", count=2, timeout=60, abort_on=("LoopingExposuresStopped",))
+        _, h4, _ = http_request(port, "/api/frame.jpg")
+        mark = cli.mark()
+        cli.wait_events(mark, "LoopingExposures", count=2, timeout=60, abort_on=("LoopingExposuresStopped",))
+        _, h5, _ = http_request(port, "/api/frame.jpg")
+    finally:
+        cli.call("stop_capture")
+        cli.wait_state("Stopped", 30)
+        # the loop re-acquires the star still locked from earlier steps; leave none selected, or the next
+        # scenario's find_star picks the same position (the fake's frames repeat exactly) and sends no StarSelected
+        cli.call("deselect_star")
+    n4, n5 = (int(re.fullmatch(r'"f(\d+)"', h.get("etag", '"f-1"')).group(1)) for h in (h4, h5))
+    expect(n5 > n4 > int(m2.group(1)), f"after the single frames' {etag} and {etag2}, while looping the ETag went "
+           f"from {h4.get('etag')!r} to {h5.get('etag')!r}")
+    return (f"ETag {etag}, 304 on a match; SOF0 {sof['width']}x{sof['height']}x3, {len(jpeg)} bytes; {stats}; "
+            f"{seen} stars at the fake's places (moved {ox}, {oy}); /api/capture served {name} ({len(fits)} bytes), "
+            f"traversal 404; the next single frame is {etag2} (200 to {etag}), looping {h4.get('etag')} -> "
+            f"{h5.get('etag')}")
+
+
+def fits_card(data, key):
+    """The value of a FITS header card (quotes and comment taken off), or None."""
+    for off in range(0, len(data), 80):
+        card = data[off:off + 80].decode("ascii", errors="replace")
+        if card[:8].strip() == "END":
+            return None
+        if card[:8].strip() == key and card[8:10] == "= ":
+            return card[10:].split("/")[0].strip().strip("'").strip()
+    return None
 
 
 def angle_diff(a, b):
@@ -818,11 +1263,14 @@ def lane_steps(lane, step, cli, fake, args, ctx):
         return f"profile {ctx['name']}"
 
     if lane == "main":
+        step("HTTP data port before the first frame (N2)", lambda: scenario_http_before_first_frame(args))
         if not args.skip_smoke:
             step("smoke (phd2_rpc_smoke.py)", lambda: run_smoke(args, fake, ctx["work"]))
         if step("connect the fake camera and mount", connect):
             step("noise reduction is the one in effect when the frame was scheduled (#210)",
                  lambda: scenario_noise_reduction_at_schedule(cli))
+            step("HTTP data port: /api/frame.jpg and /api/capture (N2)",
+                 lambda: scenario_http_frame_and_capture(cli, args, ctx["work"]))
             if step("calibrate and guide (event order)", lambda: scenario_calibrate_and_guide(cli, args)):
                 step("guide history matches the GuideSteps (#133)", lambda: scenario_guide_history(cli))
                 if step("recalibrate on a new target", lambda: scenario_new_target(cli, fake, args)):
@@ -1003,6 +1451,7 @@ def main():
                     help="with --lane all, the lanes run beside the main lane (comma-separated; empty for none)")
     args = ap.parse_args()
     args.rpc_port = 4400 + args.instance - 1
+    args.http_port = 8080 + args.instance - 1
 
     work = os.path.abspath(args.work_dir)
     shutil.rmtree(work, ignore_errors=True)
