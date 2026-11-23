@@ -1281,6 +1281,14 @@ double MyFrame::CurrentGuideErrorSmoothed() const
 // SIGINT and a restart reach it from IdleClosing (phd.cpp), which then deletes the frame and exits the main loop.
 void MyFrame::Shutdown()
 {
+    // once only: a signal and the `shutdown` RPC can both reach IdleClosing
+    if (m_shutDown)
+    {
+        Debug.Write("MyFrame::Shutdown: already shut down\n");
+        return;
+    }
+    m_shutDown = true;
+
     Debug.Write("MyFrame::OnClose proceeding\n");
 
     // #104: before StopWorkerThread pumps the event loop below, so no background connect attempt starts (and could
