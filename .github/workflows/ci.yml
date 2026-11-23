@@ -379,7 +379,7 @@ jobs:
 
       - name: Install build dependencies
         # Names mirror debian/control's Build-Depends (the arm64 package's
-        # source of truth): wxWidgets 3.2, cfitsio, OpenCV, v4l, curl, Eigen
+        # source of truth): wxWidgets 3.2, cfitsio, libjpeg, OpenCV, v4l, curl, Eigen
         # and system GTest. libx11-dev and libnova-dev cover the X11/libnova
         # links the CMake targets pull in. g++ comes from build-essential.
         run: |
@@ -389,6 +389,7 @@ jobs:
             cmake \
             libwxgtk3.2-dev \
             libcfitsio-dev \
+            libjpeg-dev \
             libopencv-dev \
             libv4l-dev \
             libcurl4-openssl-dev \
@@ -452,6 +453,7 @@ jobs:
             cmake \
             libwxgtk3.2-dev \
             libcfitsio-dev \
+            libjpeg-dev \
             libopencv-dev \
             libv4l-dev \
             libcurl4-openssl-dev \

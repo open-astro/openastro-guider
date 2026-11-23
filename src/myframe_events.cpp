@@ -110,59 +110,6 @@ int MyFrame::SelectedExposureDuration() const
     return m_singleExposure.enabled ? m_singleExposure.duration : m_exposureDuration;
 }
 
-void MyFrame::OnQuit(wxCommandEvent& WXUNUSED(event))
-{
-    Close(false);
-}
-
-void MyFrame::OnSave(wxCommandEvent& WXUNUSED(event))
-{
-    if (!pGuider->CurrentImage()->ImageData)
-        return;
-
-    wxString fname = wxFileSelector(_("Save FITS Image"), (const wxChar *) NULL, (const wxChar *) NULL, wxT("fit"),
-                                    wxT("FITS files (*.fit)|*.fit"), wxFD_SAVE | wxFD_OVERWRITE_PROMPT, this);
-
-    if (fname.IsEmpty())
-        return; // Check for canceled dialog
-
-    if (pGuider->SaveCurrentImage(fname))
-    {
-        Alert(wxString::Format(_("The image could not be saved to %s"), fname));
-    }
-    else
-    {
-        pFrame->StatusMsg(wxString::Format(_("%s saved"), wxFileName(fname).GetFullName()));
-    }
-}
-
-void MyFrame::OnIdle(wxIdleEvent& WXUNUSED(event)) { }
-
-void MyFrame::StartLoopingInteractive(const wxString& context)
-{
-    Debug.Write(wxString::Format("StartLoopingInteractive: %s\n", context));
-
-    if (!pCamera || !pCamera->Connected)
-    {
-        Debug.Write(_T("Camera not connected\n"));
-        wxMessageBox(_("Please connect to a camera first"), _("Info"));
-        return;
-    }
-
-    if (CaptureActive && !pGuider->IsCalibratingOrGuiding())
-    {
-        Debug.Write(_T("cannot start looping when capture active\n"));
-        return;
-    }
-
-    StartLooping();
-}
-
-void MyFrame::OnButtonLoop(wxCommandEvent& WXUNUSED(event))
-{
-    StartLoopingInteractive(_T("Loop button clicked"));
-}
-
 void MyFrame::FinishStop(void)
 {
     assert(!CaptureActive);
@@ -581,20 +528,6 @@ void MyFrame::OnMoveComplete(wxThreadEvent& event_)
     }
 }
 
-void MyFrame::OnButtonStop(wxCommandEvent& WXUNUSED(event))
-{
-    Debug.Write("Stop button clicked\n");
-    StopCapturing();
-}
-
-void MyFrame::OnButtonAutoStar(wxCommandEvent& WXUNUSED(event))
-{
-    if (!wxGetKeyState(WXK_SHIFT))
-        AutoSelectStar();
-    else
-        pGuider->InvalidateCurrentPosition(true);
-}
-
 // Outside event handler because loading a dark library will automatically unload a defect map
 bool MyFrame::LoadDarkHandler(bool checkIt)
 {
@@ -672,37 +605,6 @@ void MyFrame::LoadDefectMapHandler(bool checkIt)
     }
 }
 
-void MyFrame::OnToolBar(wxCommandEvent& evt)
-{
-    if (evt.IsChecked())
-    {
-        // wxSize toolBarSize = MainToolbar->GetSize();
-        m_mgr.GetPane(_T("MainToolBar")).Show().Bottom() /*.MinSize(toolBarSize)*/;
-    }
-    else
-    {
-        m_mgr.GetPane(_T("MainToolBar")).Hide();
-    }
-    m_mgr.Update();
-}
-
-// Re-dock windows and restore main window to size/position where everything should be readily accessible
-void MyFrame::OnRestoreWindows(wxCommandEvent& evt)
-{
-    wxAuiPaneInfoArray& panes = m_mgr.GetAllPanes();
-
-    // Start by restoring the main window although it doesn't seem like this could be much of a problem
-    pFrame->SetSize(wxSize(800, 600));
-    pFrame->SetPosition(wxPoint(20, 20)); // Should work on any screen size
-    // Now re-dock all the windows that are being managed by wxAuiManager
-    int lim = panes.GetCount();
-    for (int i = 0; i < lim; i++)
-    {
-        panes.Item(i).Dock(); // Already docked, shown or not, doesn't matter
-    }
-    m_mgr.Update();
-}
-
 bool MyFrame::FlipCalibrationData()
 {
     bool bError = false;
@@ -719,11 +621,6 @@ bool MyFrame::FlipCalibrationData()
     }
 
     return bError;
-}
-
-void MyFrame::OnAutoStar(wxCommandEvent& WXUNUSED(evt))
-{
-    AutoSelectStar();
 }
 
 static wxString DarksWarningEnabledKey()
@@ -789,19 +686,5 @@ void MyFrame::GuideButtonClick(bool interactive, const wxString& context)
     {
         POSSIBLY_UNUSED(Msg);
         pGuider->Reset(false);
-    }
-}
-
-void MyFrame::OnButtonGuide(wxCommandEvent& WXUNUSED(event))
-{
-    GuideButtonClick(true, _T("Guide button clicked"));
-}
-
-void MyFrame::OnPanelClose(wxAuiManagerEvent& evt)
-{
-    wxAuiPaneInfo *p = evt.GetPane();
-    if (p->name == _T("MainToolBar"))
-    {
-        Menubar->Check(MENU_TOOLBAR, false);
     }
 }

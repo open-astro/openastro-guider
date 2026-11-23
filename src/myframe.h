@@ -54,10 +54,6 @@ enum E_MYFRAME_WORKER_THREAD_MESSAGES
     MYFRAME_WORKER_THREAD_MOVE_COMPLETE,
 };
 
-wxDECLARE_EVENT(REQUEST_EXPOSURE_EVENT, wxCommandEvent);
-wxDECLARE_EVENT(REQUEST_MOUNT_MOVE_EVENT, wxCommandEvent);
-wxDECLARE_EVENT(WXMESSAGEBOX_PROXY_EVENT, wxCommandEvent);
-wxDECLARE_EVENT(STATUSBAR_ENQUEUE_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDECLARE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
 
@@ -119,7 +115,7 @@ struct SingleExposure
 
 inline SingleExposure::SingleExposure() : enabled(false), duration(0) { }
 
-class MyFrame : public wxFrame
+class MyFrame : public wxEvtHandler
 {
 protected:
     bool GetServerMode() const;
@@ -148,8 +144,6 @@ private:
     double m_sampling;
     bool m_autoLoadCalibration;
 
-    wxAuiManager m_mgr;
-
     bool m_continueCapturing; // should another image be captured?
     SingleExposure m_singleExposure;
     // #97: set by a capture failure just before it stops capturing, so FinishStop fails a pending guide or
@@ -167,14 +161,6 @@ public:
     // The constructor sets the global pFrame first (#168), so the objects it builds can call back through
     // pFrame; the members they read are null (or false) until the constructor creates them.
     Guider *pGuider = nullptr;
-    wxMenuBar *Menubar;
-    wxMenu *tools_menu, *view_menu;
-    wxMenuItem *m_loopMenuItem;
-    wxMenuItem *m_guideMenuItem;
-    wxMenuItem *m_stopMenuItem;
-    wxMenuItem *m_autoSelectStarMenuItem;
-    wxAuiToolBar *MainToolbar;
-    wxCheckBox *HotPixel_Checkbox;
     GuideHistory *pGuideHistory = nullptr;
     EquipmentManager *pEquipment = nullptr; // the devices and their selection
     bool CaptureActive = false; // Is camera looping captures?
@@ -197,26 +183,16 @@ public:
     bool m_darksInUse = false;
     bool m_defectMapAvailable = true;
     bool m_defectMapInUse = false;
+    bool m_shutDown = false; // Shutdown() has run (#115 S6.8)
 
-    void OnQuit(wxCommandEvent& evt);
-    void OnClose(wxCloseEvent& evt);
-    void OnSave(wxCommandEvent& evt);
-    void OnSettings(wxCommandEvent& evt);
-    void OnButtonLoop(wxCommandEvent& evt);
-    void OnButtonStop(wxCommandEvent& evt);
-    void OnButtonAutoStar(wxCommandEvent& evt);
+    // #115 S6.8: the exit sequence (worker threads, devices, servers, guide log); IdleClosing calls it, then deletes the
+    // frame
+    void Shutdown();
+    bool IsShutDown() const { return m_shutDown; }
     void GuideButtonClick(bool interactive, const wxString& context);
-    void OnButtonGuide(wxCommandEvent& evt);
-    void OnIdle(wxIdleEvent& evt);
-    void OnEEGG(wxCommandEvent& evt);
     void OnSockServerEvent(wxSocketEvent& evt);
     void OnSockServerClientEvent(wxSocketEvent& evt);
     void HandleSockServerInput(wxSocketBase *sock);
-    void OnServerMenu(wxCommandEvent& evt);
-    void OnPanelClose(wxAuiManagerEvent& evt);
-    void OnToolBar(wxCommandEvent& evt);
-    void OnRestoreWindows(wxCommandEvent& evt);
-    void OnAutoStar(wxCommandEvent& evt);
 
     void OnExposeComplete(wxThreadEvent& evt);
     void OnExposeComplete(usImage *image, bool err);
@@ -272,9 +248,6 @@ public:
     bool GetBeepForLostStar();
     void SetBeepForLostStar(bool beep);
 
-    void OnRequestExposure(wxCommandEvent& evt);
-    void OnRequestMountMove(wxCommandEvent& evt);
-
     void ScheduleExposure();
 
     void SchedulePrimaryMove(Mount *mount, const GuiderOffset& ofs, unsigned int moveOptions);
@@ -289,8 +262,6 @@ public:
     bool AutoSelectStar(const wxRect& roi = wxRect(), bool willForceRecal = false);
 
     void SetPaused(PauseType pause);
-
-    void StartLoopingInteractive(const wxString& context);
 
     bool StartLooping(); // stop guiding and continue capturing, or, start capturing
     bool StartGuiding();
@@ -339,16 +310,6 @@ public:
 
     void NotifyExposureChanged();
 
-    // Following 2 functions are used by clients that need to size the spin control based on the max text width
-    wxSpinCtrl *MakeSpinCtrl(wxWindow *parent, wxWindowID id = -1, const wxString& value = wxEmptyString,
-                             const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
-                             long style = wxSP_ARROW_KEYS, int min = 0, int max = 100, int initial = 0,
-                             const wxString& name = wxT("wxSpinCtrl"));
-    wxSpinCtrlDouble *MakeSpinCtrlDouble(wxWindow *parent, wxWindowID id = wxID_ANY, const wxString& value = wxEmptyString,
-                                         const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
-                                         long style = wxSP_ARROW_KEYS | wxALIGN_RIGHT, double min = 0, double max = 100,
-                                         double initial = 0, double inc = 1, const wxString& name = wxT("wxSpinCtrlDouble"));
-
 private:
     double DetermineGuideSpeed();
     void MakeImageScaleAdjustments();
@@ -370,10 +331,6 @@ private:
     void DoAlert(const alert_params& params);
     void OnAlertFromThread(wxThreadEvent& event);
     void OnReconnectCameraFromThread(wxThreadEvent& event);
-    void OnMessageBoxProxy(wxCommandEvent& evt);
-    void SetupMenuBar();
-    void SetupToolBar();
-    void SetupKeyboardShortcuts();
     void ApplyExposureChoice(const exposure_choice::Selected& sel);
     void FinishStop();
     void DoTryReconnect();
@@ -406,10 +363,6 @@ enum
     AO_SIMULATOR,
     END_STEPGUIDERS,
     BUTTON_CAL,
-    BUTTON_LOOP,
-    BUTTON_GUIDE,
-    BUTTON_STOP,
-    BUTTON_AUTOSTAR,
     WIN_VFW, // Dummy event to capture VFW streams
     MGUIDE1_UP,
     MGUIDE1_DOWN,
@@ -419,18 +372,10 @@ enum
     MGUIDE2_DOWN,
     MGUIDE2_RIGHT,
     MGUIDE2_LEFT,
-    MENU_LOOP,
-    MENU_GUIDE,
-    MENU_STOP,
-    MENU_SERVER,
-    MENU_TOOLBAR,
-    MENU_RESTORE_WINDOWS,
-    MENU_AUTOSTAR,
     MENU_SAVESETTINGS,
     MENU_LOADSETTINGS,
     MENU_INDICONFIG,
     MENU_INDIDIALOG,
-    EEGG_STICKY_LOCK,
     STAR_MASS_ENABLE,
     MULTI_STAR_ENABLE,
     GA_REVIEW_BUTTON,
@@ -447,13 +392,6 @@ enum
     HTTP_SERVER_ID,
     HTTP_SERVER_CLIENT_ID,
 };
-
-inline static int StringWidth(const wxWindow *window, const wxString& s)
-{
-    int width, height;
-    window->GetTextExtent(s, &width, &height);
-    return width;
-}
 
 inline double MyFrame::GetPixelScale(double pixelSizeMicrons, int focalLengthMm, int binning)
 {
@@ -514,11 +452,5 @@ inline int MyFrame::GetFocalLength() const
 {
     return m_focalLength;
 }
-
-// utility function to get an integer value from a wxChoice control
-extern int GetIntChoice(wxChoice *choice, int dflt);
-
-// utility function to set an integer value in a wxChoice control
-extern void SetIntChoice(wxChoice *choice, int value);
 
 #endif /* MYFRAME_H_INCLUDED */

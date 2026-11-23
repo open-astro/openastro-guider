@@ -292,6 +292,23 @@ set_property(TARGET test_star_find_synthetic PROPERTY FOLDER "Unit tests")
 add_test(NAME test_star_find_synthetic COMMAND test_star_find_synthetic)
 
 ############################################################################
+# test_jpeg_encode  --  the REAL image_stretch.cpp and jpeg_encode.cpp, the
+# wx-free stretch and libjpeg encoder of GET /api/frame.jpg (#115, slice
+# S7.1): the stretch against a frozen twin of usImage::CopyToImage
+# (image/legacy/copy_to_image_legacy.h) byte for byte, and the JPEG decoded
+# back with libjpeg. Needs libjpeg, which phd2 links too.
+############################################################################
+find_package(JPEG REQUIRED)
+add_executable(test_jpeg_encode
+  ${PHD_TESTS_DIR}/image/test_jpeg_encode.cpp
+  ${phd_src_dir}/image_stretch.cpp
+  ${phd_src_dir}/jpeg_encode.cpp
+)
+target_link_libraries(test_jpeg_encode PRIVATE phd_test_common JPEG::JPEG)
+set_property(TARGET test_jpeg_encode PROPERTY FOLDER "Unit tests")
+add_test(NAME test_jpeg_encode COMMAND test_jpeg_encode)
+
+############################################################################
 # test_imaging_gear  --  imaging_gear.cpp / imaging_gear_poller.cpp: the
 # imaging-train guide log lines (design/IMAGING_GEAR_LOG.md), pixel scale,
 # unknown values, Alpaca device selection, and the background poller

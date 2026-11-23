@@ -13,7 +13,7 @@
  *  failed to connect, the guide RPC's connect-first and the #105 camera reconnect glue.
  *
  *  Main thread only: RPC dispatch, the retry timer's tick, the probe's CallAfter, the startup auto-connect and
- *  MyFrame::OnClose. The one exception is the #104 probe thread, which reads only its own copy of the target and
+ *  MyFrame::Shutdown. The one exception is the #104 probe thread, which reads only its own copy of the target and
  *  m_probeCancel, hands its result back through m_probeHandoff, and ends with a CallAfter to this handler; that is why
  *  this is a wxEvtHandler. The destructor joins the probe thread before any member goes.
  *
@@ -88,7 +88,7 @@ public:
     bool DisconnectAll(wxString *error);
     // one device, or all with GearDevice::All
     bool SetDeviceConnected(GearDevice device, bool connect, wxString *error);
-    // MyFrame::OnClose, at exit: disconnect the mount and camera (not when a worker thread had to be killed), then the
+    // MyFrame::Shutdown, at exit: disconnect the mount and camera (not when a worker thread had to be killed), then the
     // rotator; nothing is deleted
     void Shutdown(bool forced);
 

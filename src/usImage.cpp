@@ -242,66 +242,6 @@ void usImage::CalcStats()
     }
 }
 
-static unsigned char *buildGammaLookupTable(int blevel, int wlevel, double power)
-{
-    unsigned char *result = new unsigned char[0x10000];
-
-    if (blevel < 0)
-        blevel = 0;
-    if (wlevel < 0)
-        wlevel = 0;
-    if (blevel > 0xffff)
-        blevel = 0xffff;
-    if (wlevel > 0xffff)
-        wlevel = 0xffff;
-
-    for (int i = 0; i <= blevel; ++i)
-        result[i] = 0;
-
-    float range = wlevel - blevel;
-    for (int i = blevel + 1; i < wlevel; ++i)
-    {
-        float d = (i - blevel) / range;
-        result[i] = pow(d, (float) power) * 255.0;
-    }
-
-    for (int i = wlevel; i < 0x10000; ++i)
-        result[i] = 255;
-
-    return result;
-}
-
-bool usImage::CopyToImage(wxImage **rawimg, int blevel, int wlevel, double power)
-{
-    wxImage *img = *rawimg;
-
-    if (!img || !img->Ok() || (img->GetWidth() != Size.GetWidth()) ||
-        (img->GetHeight() != Size.GetHeight())) // can't reuse bitmap
-    {
-        delete img;
-        img = new wxImage(Size.GetWidth(), Size.GetHeight(), false);
-    }
-
-    unsigned char *ImgPtr = img->GetData();
-    unsigned short *RawPtr = ImageData;
-
-    unsigned char *lutTable = buildGammaLookupTable(blevel, wlevel, power);
-
-    for (unsigned int i = 0; i < NPixels; i++, RawPtr++)
-    {
-        unsigned short v = *RawPtr;
-        unsigned char d = lutTable[v];
-        *ImgPtr++ = d;
-        *ImgPtr++ = d;
-        *ImgPtr++ = d;
-    }
-
-    delete[] lutTable;
-
-    *rawimg = img;
-    return false;
-}
-
 void usImage::InitImgStartTime()
 {
     ImgStartTime = wxDateTime::UNow();
@@ -553,45 +493,5 @@ bool usImage::CopyFrom(const usImage& src)
     if (Init(src.Size))
         return true;
     memcpy(ImageData, src.ImageData, NPixels * sizeof(unsigned short));
-    return false;
-}
-
-bool usImage::Rotate(double theta, bool mirror)
-{
-    wxImage *pImg = 0;
-
-    CalcStats();
-
-    CopyToImage(&pImg, MinADU, MaxADU, 1.0);
-
-    wxImage mirrored = *pImg;
-
-    if (mirror)
-    {
-        mirrored = pImg->Mirror(false);
-    }
-
-    wxImage rotated = mirrored.Rotate(theta, wxPoint(0, 0));
-
-    CopyFromImage(rotated);
-
-    delete pImg;
-
-    return false;
-}
-
-bool usImage::CopyFromImage(const wxImage& img)
-{
-    Init(img.GetSize());
-
-    const unsigned char *pSrc = img.GetData();
-    unsigned short *pDest = ImageData;
-
-    for (unsigned int i = 0; i < NPixels; i++)
-    {
-        *pDest++ = ((unsigned short) *pSrc) << 8;
-        pSrc += 3;
-    }
-
     return false;
 }

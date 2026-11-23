@@ -34,15 +34,12 @@
 #ifndef GEAR_SIMULATOR_INCLUDED
 #define GEAR_SIMULATOR_INCLUDED
 
-class GuideCamera;
 class StepGuider;
 class Rotator;
 
 class GearSimulator
 {
 public:
-    static GuideCamera *MakeCamSimulator();
-    static void FlipPierSide(GuideCamera *camera);
     static StepGuider *MakeAOSimulator();
     static Rotator *MakeRotatorSimulator();
 };

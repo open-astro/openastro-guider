@@ -1309,7 +1309,7 @@ void GuidingAssistant::NotifyGearConnected()
     ++s_gaGearConnects;
 }
 
-// The app is closing (window close, `shutdown` RPC, SIGTERM -- all end in MyFrame::OnClose) while a headless
+// The app is closing (window close, `shutdown` RPC, SIGTERM -- all end in MyFrame::Shutdown) while a headless
 // run is active. The usual end-of-run path may never get to run, so restore the persisted settings the run
 // changed now, synchronously and without driving the guider or gear that is about to go away.
 void GuidingAssistant::ApiShutdown()

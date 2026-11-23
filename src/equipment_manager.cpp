@@ -48,7 +48,7 @@ EquipmentManager::EquipmentManager()
 
 EquipmentManager::~EquipmentManager()
 {
-    // A joinable std::thread must not be destroyed, and the probe thread uses the members: join it first (OnClose has
+    // A joinable std::thread must not be destroyed, and the probe thread uses the members: join it first (Shutdown has
     // normally joined it already). A CallAfter(OnProbeDone) it queued is dropped by ~wxEvtHandler.
     StopConnectRetry(true);
     ReleaseDevices();
@@ -819,7 +819,7 @@ void EquipmentManager::Shutdown(bool forced)
 {
     Debug.Write(wxString::Format("Shutdown: forced=%d\n", forced));
 
-    // OnClose stopped the retry before it stopped the worker threads; this is the backstop (#104)
+    // Shutdown stopped the retry before it stopped the worker threads; this is the backstop (#104)
     StopConnectRetry(true);
 
     Scope *mount = m_mount;

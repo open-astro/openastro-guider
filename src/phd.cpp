@@ -64,7 +64,7 @@ GuidingLog GuideLog;
 
 static const wxCmdLineEntryDesc cmdLineDesc[] = {
     { wxCMD_LINE_SWITCH, "?", "help", "display this help and exit" },
-    { wxCMD_LINE_SWITCH, "g", "gui", "show the GUI window (default is headless)" },
+    { wxCMD_LINE_SWITCH, "g", "gui", "deprecated: there is no window any more (accepted for compatibility)" },
     { wxCMD_LINE_SWITCH, "a", "auto-connect", "auto-connect the selected equipment on startup" },
     { wxCMD_LINE_SWITCH, "H", "headless", "deprecated: headless is now the default (accepted for compatibility)" },
     { wxCMD_LINE_SWITCH, "A", "headless-auto-connect", "deprecated alias for --auto-connect" },
@@ -85,6 +85,7 @@ enum ConfigOp
 };
 static ConfigOp s_configOp = CONFIG_OP_NONE;
 static wxString s_configPath;
+static bool s_guiIgnored = false; // --gui was given (#115 S6.9)
 
 wxIMPLEMENT_APP(PhdApp);
 
@@ -229,14 +230,29 @@ static void IdleClosing(wxIdleEvent& evt)
     }
 
     wxGetApp().Unbind(wxEVT_IDLE, &IdleClosing);
-    pFrame->Close(true /*force*/);
+
+    // #115 S6.8: a second request (a signal, or a shutdown RPC queued before the servers stopped) that got here after
+    // the frame was deleted, or after it shut down, has nothing left to do
+    if (!pFrame || pFrame->IsShutDown())
+        return;
+
+    // #115 S6.8/S6.9: the exit sequence, then the frame's deletion and the exit from the main loop. MyFrame is a plain
+    // wxEvtHandler: it has no native window, so there is no Destroy() and no window events to wait for, and no last
+    // window whose deletion would end the main loop
+    pFrame->Shutdown();
+    // nothing posts to the frame once Shutdown() has stopped the servers and the worker threads; drop anything already
+    // queued for it (~wxEvtHandler does too) so no event can reach it after the delete
+    pFrame->DeletePendingEvents();
+    delete pFrame;
+    pFrame = nullptr;
+    wxTheApp->ExitMainLoop();
 }
 
 void PhdApp::TerminateApp()
 {
-    // The wxEVT_CLOSE_WINDOW message may not be processed if phd2 is sitting idle
-    // when the client invokes shutdown. As a workaround pump some timer event messages to
-    // keep the event loop from stalling and ensure that the wxEVT_CLOSE_WINDOW is processed.
+    // IdleClosing may not run if phd2 is sitting idle when the client invokes shutdown.
+    // As a workaround pump some timer event messages to keep the event loop from stalling
+    // and ensure that IdleClosing runs.
 
     (new wxTimer(&wxGetApp()))->Start(20); // this object leaks but we don't care
 
@@ -428,6 +444,9 @@ bool PhdApp::OnInit()
 
     logger.Close(); // writes any deferrred error messages to the debug log
 
+    if (s_guiIgnored)
+        Debug.Write("--gui is ignored: there is no window any more\n");
+
     DisableOSXAppNap();
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -490,9 +509,6 @@ bool PhdApp::OnInit()
 
     ImageLogger::Init();
 
-    wxImage::AddHandler(new wxJPEGHandler);
-    wxImage::AddHandler(new wxPNGHandler);
-
     pFrame = new MyFrame();
 
     // The profile's camera, mount and rotator, now that pFrame is set: their constructors call through it (the Scope
@@ -501,8 +517,6 @@ bool PhdApp::OnInit()
 
     if (m_headless)
     {
-        pFrame->Show(false);
-
         // Graceful shutdown on `systemctl stop` (SIGTERM) and Ctrl-C (SIGINT).
         struct sigaction sa;
         memset(&sa, 0, sizeof(sa));
@@ -522,10 +536,6 @@ bool PhdApp::OnInit()
             else
                 Debug.Write("headless: auto-connect succeeded\n");
         }
-    }
-    else
-    {
-        pFrame->Show(true);
     }
 
     return true;
@@ -572,10 +582,13 @@ bool PhdApp::OnCmdLineParsed(wxCmdLineParser& parser)
     }
 
     (void) parser.Found("i", &m_instanceNumber);
-    // Headless is the default run mode for the guiding daemon; pass --gui to
-    // show the window for local debugging. --headless is still accepted (now a
-    // no-op) so existing scripts/units don't break.
-    m_headless = !parser.Found("gui");
+    // The guiding daemon is always headless: there is no window to show since
+    // #115 S6.9. --gui and --headless are still accepted (no-ops) so existing
+    // scripts/units don't break; --gui gets a warning.
+    m_headless = true;
+    s_guiIgnored = parser.Found("gui");
+    if (s_guiIgnored)
+        wxMessageOutputStderr().Printf("warning: --gui is ignored: there is no window any more\n");
     m_headlessAutoConnect = parser.Found("auto-connect") || parser.Found("headless-auto-connect");
 
     if (parser.Found("l", &s_configPath))

@@ -118,7 +118,6 @@ WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 #include "guide_history.h"
 #include "guide_algorithms.h"
 #include "guiders.h"
-#include "messagebox_proxy.h"
 #include "serialports.h"
 #include "cameras.h"
 #include "camera.h"
@@ -132,9 +131,7 @@ WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 #include "debuglog.h"
 #include "worker_thread.h"
 #include "event_server.h"
-#include "confirm_dialog.h"
 #include "phdcontrol.h"
-#include "runinbg.h"
 #include "fitsiowrap.h"
 #include "imagelogger.h"
 

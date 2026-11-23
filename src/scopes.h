@@ -40,6 +40,5 @@
 
 #include "scope.h"
 #include "scope_alpaca.h"
-#include "scope_manual_pointing.h"
 
 #endif /* SCOPES_H_INCLUDED */

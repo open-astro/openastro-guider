@@ -76,6 +76,16 @@ include_directories(${CURL_INCLUDE_DIRS})
 list(APPEND PHD_LINK_EXTERNAL ${CURL_LIBRARIES})
 
 #############################################
+# libjpeg: GET /api/frame.jpg encodes with it directly (#115, slice S7.1),
+# the same libjpeg wxJPEGHandler links on Debian and Ubuntu (libjpeg-turbo)
+#############################################
+
+find_package(JPEG REQUIRED)
+message(STATUS "using libjpeg ${JPEG_LIBRARIES}")
+include_directories(${JPEG_INCLUDE_DIRS})
+list(APPEND PHD_LINK_EXTERNAL ${JPEG_LIBRARIES})
+
+#############################################
 # the Eigen library, mostly header only
 
 find_package(Eigen3 REQUIRED)
