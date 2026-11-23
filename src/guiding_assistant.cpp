@@ -2203,6 +2203,14 @@ static void HeadlessGACheckAppState()
         Guider *guider = pFrame->pGuider;
         if (guider->IsGuiding())
             return;
+        if (s_ga.waitingForGuiding && guider->IsCalibrating())
+        {
+            // entering guiding cleared the calibration (an image scale change, #255); the run's guide output is
+            // disabled, so it cannot calibrate
+            HeadlessGAFail(_("the calibration was cleared when guiding started (the image scale changed) - calibrate "
+                             "before running the Guiding Assistant"));
+            return;
+        }
         if (s_ga.waitingForGuiding && guider->IsCalibratingOrGuiding())
             return; // guiding is still starting
         HeadlessGAFail(s_ga.waitingForGuiding ? _("guiding did not start") : _("guiding stopped"));

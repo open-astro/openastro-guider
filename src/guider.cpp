@@ -170,8 +170,6 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_ditherRecenterStepsPending = 0;
     m_ditherRecenterStalledSteps = 0;
     m_recenteringForWorker = false;
-    m_avgDistanceNeedReset = false;
-    m_avgDistanceCnt = 0;
     m_lockPosShift.shiftEnabled = false;
     m_lockPosShift.shiftRate.SetXY(0., 0.);
     m_lockPosShift.shiftUnits = UNIT_ARCSEC;
@@ -259,7 +257,7 @@ PauseType Guider::SetPaused(PauseType pause)
     if (prev == PAUSE_FULL && pause != prev)
     {
         Debug.Write("Guider::SetPaused: resetting avg dist filter\n");
-        m_avgDistanceNeedReset = true;
+        m_distance.RequestReset();
     }
 
     if (pause != prev)
@@ -888,10 +886,7 @@ bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
 
         // update average distance right away so GetCurrentDistance reflects the increased distance from the dither
         double dist = cameraDelta.Distance(), distRA = fabs(mountDelta.X);
-        m_avgDistance += dist;
-        m_avgDistanceLong += dist;
-        m_avgDistanceRA += distRA;
-        m_avgDistanceLongRA += distRA;
+        m_distance.OnDither(dist, distRA);
 
         // Zero-length dithers result in div-by-zero in calculation of 'f'.  We can still allow zero-length dithers as a way of
         // triggering a settling period if we temporarily ignore the 'fast re-center' option
@@ -950,7 +945,7 @@ void Guider::NotifyRecenterMoveComplete(const PHD_Point& mountMoved)
         m_ditherRecenterStepsPending = 0;
         m_ditherRecenterStalledSteps = 0;
         // reset distance tracker
-        m_avgDistanceNeedReset = true;
+        m_distance.RequestReset();
     }
     else
         m_ditherRecenterRemaining.SetXY(progress.remainingX, progress.remainingY);
@@ -1065,6 +1060,16 @@ void Guider::SetState(GUIDER_STATE newState)
 
             pFrame->UpdateStatusBarCalibrationStatus();
 
+            // #255: the adjustment clears the calibration when the image scale changed (HandleImageScaleChange), after
+            // the calibrating states decided there was nothing to calibrate; calibrate now instead of guiding uncalibrated
+            if (!pMount->IsCalibrated() ||
+                (pSecondaryMount && pSecondaryMount->IsConnected() && !pSecondaryMount->IsCalibrated()))
+            {
+                Debug.Write("calibration cleared on guiding start, calibrating\n");
+                newState = STATE_CALIBRATING_PRIMARY;
+                break;
+            }
+
             if (m_lockPosition.IsValid() && m_lockPosIsSticky)
             {
                 Debug.Write("keeping sticky lock position\n");
@@ -1100,58 +1105,18 @@ void Guider::SetState(GUIDER_STATE newState)
 
 void Guider::UpdateCurrentDistance(double distance, double distanceRA)
 {
-    m_starFound.Found(monotonic_timers::ClockS());
-
-    if (IsGuiding())
-    {
-        // update moving average distance
-        static double const alpha = .3; // moderately high weighting for latest sample
-        m_avgDistance += alpha * (distance - m_avgDistance);
-        m_avgDistanceRA += alpha * (distanceRA - m_avgDistanceRA);
-
-        ++m_avgDistanceCnt;
-
-        if (m_avgDistanceCnt < 10)
-        {
-            // initialize smoothed running avg with mean of first 10 pts
-            m_avgDistanceLong += (distance - m_avgDistanceLong) / m_avgDistanceCnt;
-            m_avgDistanceLongRA += (distanceRA - m_avgDistanceLongRA) / m_avgDistanceCnt;
-        }
-        else
-        {
-            static double const alpha_long =
-                .045; // heavy smoothing, low weighting for latest sample .045 => 15 frame half-life
-            m_avgDistanceLong += alpha_long * (distance - m_avgDistanceLong);
-            m_avgDistanceLongRA += alpha_long * (distanceRA - m_avgDistanceLongRA);
-        }
-    }
-    else
-    {
-        // not yet guiding, reinitialize average distance
-        m_avgDistance = m_avgDistanceLong = distance;
-        m_avgDistanceRA = m_avgDistanceLongRA = distanceRA;
-        m_avgDistanceCnt = 1;
-    }
-
-    if (m_avgDistanceNeedReset)
-    {
-        // avg distance history invalidated
-        m_avgDistance = m_avgDistanceLong = distance;
-        m_avgDistanceRA = m_avgDistanceLongRA = distanceRA;
-        m_avgDistanceCnt = 1;
-        m_avgDistanceNeedReset = false;
-    }
+    m_distance.OnStarFound(IsGuiding(), distance, distanceRA);
 }
 
-// The averaged distance, or 100 px when no star was found in the last 20 s (monotonic_timers.cpp, #226)
+// The averaged distance, or 100 px when no star was found in the last 20 s (guide_distance_tracker.cpp, #226)
 double Guider::CurrentError(bool raOnly)
 {
-    return m_starFound.CurrentError(monotonic_timers::ClockS(), raOnly ? m_avgDistanceRA : m_avgDistance);
+    return m_distance.CurrentError(raOnly);
 }
 
 double Guider::CurrentErrorSmoothed(bool raOnly)
 {
-    return m_starFound.CurrentError(monotonic_timers::ClockS(), raOnly ? m_avgDistanceLongRA : m_avgDistanceLong);
+    return m_distance.CurrentErrorSmoothed(raOnly);
 }
 
 void Guider::StartGuiding()
@@ -1498,6 +1463,8 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
         case STATE_CALIBRATED:
             assert(m_state == STATE_CALIBRATED);
             SetState(STATE_GUIDING);
+            if (m_state != STATE_GUIDING)
+                break; // entering guiding cleared the calibration and started a new one (#255)
 
             pFrame->NotifyGuidingStarted();
 
