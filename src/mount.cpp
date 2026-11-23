@@ -758,6 +758,11 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
 
             yResult = MoveAxis(yDirection, requestedYAmount, moveOptions, &yMoveResult);
         }
+        else
+        {
+            // the RA move failed: the frame is old, the next one corrects Dec (SendDecAfter, #294)
+            Debug.Write(wxString::Format("Dec move not sent: the RA move returned %d\n", xResult));
+        }
         result = static_cast<MOVE_RESULT>(guide_move_plan::OffsetResult(static_cast<guide_move_plan::MoveResult>(xResult),
                                                                         static_cast<guide_move_plan::MoveResult>(yResult)));
 
