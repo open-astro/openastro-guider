@@ -23,7 +23,6 @@ vtable for wxColour
 vtable for wxComboBox
 vtable for wxCommandEvent
 vtable for wxControl
-vtable for wxControlContainer
 vtable for wxCursor
 vtable for wxDC
 vtable for wxDialog
@@ -40,7 +39,6 @@ vtable for wxMemoryDC
 vtable for wxMenu
 vtable for wxMenuBase
 vtable for wxPNGHandler
-vtable for wxPanel
 vtable for wxProgressDialog
 vtable for wxRadioButton
 vtable for wxSizer
@@ -115,14 +113,11 @@ wxButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&,
 wxButtonNameStr
 wxCheckBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxCheckBoxNameStr
-wxChoice::Create(wxWindow*, int, wxPoint const&, wxSize const&, int, wxString const*, long, wxValidator const&, wxString const&)
-wxChoice::Create(wxWindow*, int, wxPoint const&, wxSize const&, wxArrayString const&, long, wxValidator const&, wxString const&)
 wxChoice::GetSelection() const
 wxChoice::Init()
 wxChoice::SetSelection(int)
 wxChoice::~wxChoice()
 wxChoiceBase::~wxChoiceBase()
-wxChoiceNameStr
 wxColour::InitRGBA(unsigned char, unsigned char, unsigned char, unsigned char)
 wxColour::~wxColour()
 wxComboBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, wxArrayString const&, long, wxValidator const&, wxString const&)
@@ -166,7 +161,6 @@ wxDropTarget::OnDrop(int, int)
 wxEVT_AUI_PANE_CLOSE
 wxEVT_BUTTON
 wxEVT_CHAR_HOOK
-wxEVT_CHOICE
 wxEVT_CLOSE_WINDOW
 wxEVT_COMBOBOX
 wxEVT_ERASE_BACKGROUND
@@ -280,7 +274,6 @@ wxNotebookNameStr
 wxObjectArrayTraitsForwxAuiToolBarItemArray::Free(wxAuiToolBarItem*)
 wxPaintDC::GetClassInfo() const
 wxPaintDC::wxPaintDC(wxWindow*)
-wxPanelBase::Create(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
 wxPanelNameStr
 wxPen::wxPen(wxColour const&, int, wxPenStyle)
 wxPen::~wxPen()
@@ -331,7 +324,6 @@ wxStaticBoxSizer::RepositionChildren(wxSize const&)
 wxStaticBoxSizer::ShowItems(bool)
 wxStaticBoxSizer::wxStaticBoxSizer(int, wxWindow*, wxString const&)
 wxStaticBoxSizer::wxStaticBoxSizer(wxStaticBox*, int)
-wxStaticBoxSizer::~wxStaticBoxSizer()
 wxStaticText::wxStaticText(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
 wxStaticTextBase::Wrap(int)
 wxStaticTextNameStr
@@ -501,8 +493,6 @@ wxWindowBase::GetClientSizeConstraint(int*, int*) const
 wxWindowBase::GetDPI() const
 wxWindowBase::GetDefaultBorder() const
 wxWindowBase::GetEffectiveMinSize() const
-wxWindowBase::GetEventHashTable() const
-wxWindowBase::GetEventTable() const
 wxWindowBase::GetHelpTextAtPoint(wxPoint const&, wxHelpEvent::Origin) const
 wxWindowBase::GetPositionConstraint(int*, int*) const
 wxWindowBase::GetSizeConstraint(int*, int*) const

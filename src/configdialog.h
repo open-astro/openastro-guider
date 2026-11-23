@@ -158,7 +158,6 @@ class ConfigDialogCtrlSet
 {
 protected:
     wxWindow *m_pParent;
-    AdvancedDialog *m_pAdvDlg;
 
 public:
     ConfigDialogCtrlSet(wxWindow *pParent, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
@@ -168,15 +167,10 @@ public:
     virtual void UnloadValues(void) = 0;
 
 public:
-    wxSizer *MakeLabeledControl(BRAIN_CTRL_IDS id, const wxString& label, wxWindow *pControl, const wxString& toolTip);
     void AddMapElement(BrainCtrlIdMap& CtrlMap, BRAIN_CTRL_IDS, wxObject *pElem);
     void AddGroup(BrainCtrlIdMap& CtrlMap, BRAIN_CTRL_IDS id, wxSizer *pSizer); // Sizer
     void AddCtrl(BrainCtrlIdMap& CtrlMap, BRAIN_CTRL_IDS id, wxControl *pCtrl); // Bare control
-    void AddLabeledCtrl(BrainCtrlIdMap& CtrlMap, BRAIN_CTRL_IDS id, const wxString& Label, wxControl *pCtrl,
-                        const wxString& toolTip);
     void AddCtrl(BrainCtrlIdMap& CtrlMap, BRAIN_CTRL_IDS id, wxControl *pCtrl, const wxString& toolTip); // Control with tooltip
-
-    wxWindow *GetParentWindow(BRAIN_CTRL_IDS id);
 
     int StringWidth(const wxString& string);
     int StringArrayWidth(wxString string[], int nElements);

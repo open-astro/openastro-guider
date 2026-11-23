@@ -43,26 +43,6 @@ const double AdvancedDialog::MAX_FOCAL_LENGTH = 10000.0;
 // a place to save id of selected panel so we can select the same panel next time the dialog is opened
 static int s_selectedPage = -1;
 
-void AdvancedDialog::BuildCtrlSets()
-{
-    if (TheAO())
-        m_pAOCtrlSet = new AOConfigDialogCtrlSet(m_pDevicesSettingsPanel, pMount, this, m_brainCtrls);
-    else
-        m_pAOCtrlSet = nullptr;
-
-    // Need a scope ctrl set even if pMount is null - it exports generic controls needed by other panes
-    m_pScopeCtrlSet = new ScopeConfigDialogCtrlSet(m_pGuiderSettingsPanel, TheScope(), this, m_brainCtrls);
-}
-
-void AdvancedDialog::CleanupCtrlSets()
-{
-    delete m_pScopeCtrlSet;
-    m_pScopeCtrlSet = nullptr;
-
-    delete m_pAOCtrlSet;
-    m_pAOCtrlSet = nullptr;
-}
-
 static void EnableValidators(wxWindow *win)
 {
     win->SetExtraStyle(wxWS_EX_VALIDATE_RECURSIVELY);
@@ -111,33 +91,6 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     m_pNotebook = new wxNotebook(this, wxID_ANY);
     m_pFrame = pFrame; // We get called before global var is initialized
 
-    // Build all the panels first - these are needed to create the various ConfigCtrlSets
-    // Each panel gets a vertical sizer attached to it
-    // Guiding pane
-    m_pGuiderSettingsPanel = new wxPanel(m_pNotebook);
-    wxBoxSizer *pGuidingTabSizer = new wxBoxSizer(wxVERTICAL);
-    m_pGuiderSettingsPanel->SetSizer(pGuidingTabSizer);
-    m_pNotebook->AddPage(m_pGuiderSettingsPanel, _("Guiding"));
-    // Guiding Algorithms pane
-    m_pScopeSettingsPanel = new wxPanel(m_pNotebook);
-    wxBoxSizer *pScopeTabSizer = new wxBoxSizer(wxVERTICAL);
-    m_pScopeSettingsPanel->SetSizer(pScopeTabSizer);
-    m_pNotebook->AddPage(m_pScopeSettingsPanel, _("Algorithms"));
-    // Devices pane - home for AO - won't be shown if no AO is used
-    m_pDevicesSettingsPanel = new wxPanel(m_pNotebook);
-    wxBoxSizer *pDevicesTabSizer = new wxBoxSizer(wxVERTICAL);
-    m_pDevicesSettingsPanel->SetSizer(pDevicesTabSizer);
-    m_pNotebook->AddPage(m_pDevicesSettingsPanel, _("Other Devices"));
-
-    BuildCtrlSets(); // Populates the m_brainCtrls map with all UI controls
-
-    // Pane construction now pulls controls from the map and places them where they make sense to a user
-    // Build Mount tab
-    AddMountPage();
-
-    // Build AO tab
-    AddAoPage();
-
     // Ok and cancel buttons for the entire dialog box
     wxBoxSizer *pTopLevelSizer = new wxBoxSizer(wxVERTICAL);
     pTopLevelSizer->Add(m_pNotebook, wxSizerFlags(0).Expand().Border(wxALL, 5));
@@ -155,176 +108,17 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     SetSizerAndFit(pTopLevelSizer);
 
     EnableValidators(this);
-
-    m_rebuildPanels = false;
 }
 
 AdvancedDialog::~AdvancedDialog()
 {
-    CleanupCtrlSets();
     delete m_tipTimer;
-}
-
-// Let a client (EquipmentManager) ask to preload the UI elements - prevents any visible delay when the AdvancedDialog is shown
-// for the first time
-void AdvancedDialog::Preload()
-{
-    if (m_rebuildPanels)
-        RebuildPanels();
-}
-
-// Internal debugging function to be sure all controls are hosted on a panel somewhere
-void AdvancedDialog::ConfirmLayouts()
-{
-    int orphan_controls = 0;
-    for (BrainCtrlIdMap::const_iterator it = m_brainCtrls.begin(); it != m_brainCtrls.end(); ++it)
-    {
-        BRAIN_CTRL_IDS id = it->first;
-        const BrainCtrlInfo& info = it->second;
-        if (!info.isPositioned)
-        {
-            Debug.AddLine(wxString::Format("AdvancedDialog internal error: Controlid %d is not positioned", id));
-            ++orphan_controls;
-        }
-    }
-    assert(orphan_controls == 0);
-}
-
-// Perform a from-scratch initialization and layout of all the tabs
-void AdvancedDialog::RebuildPanels()
-{
-    CleanupCtrlSets();
-
-    if (m_pMountPane)
-    {
-        m_pMountPane->Clear(true);
-        m_pScopeSettingsPanel->GetSizer()->Clear(true);
-    }
-    if (m_pAOPane)
-    {
-        m_pAOPane->Clear(true);
-    }
-    if (m_pAOPane != nullptr)
-        m_pDevicesSettingsPanel->GetSizer()->Clear(true);
-
-    m_brainCtrls.clear();
-
-    BuildCtrlSets();
-
-    AddMountPage();
-
-    AddAoPage(); // Will handle no AO case
-
-    if (m_pAOPane == nullptr) // Dump the Other Devices tab if not needed
-    {
-        int idx = m_pNotebook->FindPage(m_pDevicesSettingsPanel);
-        if (idx != wxNOT_FOUND)
-            m_pNotebook->RemovePage(idx);
-    }
-    else
-    {
-        int idx = m_pNotebook->FindPage(m_pDevicesSettingsPanel);
-        if (idx == wxNOT_FOUND)
-            m_pNotebook->AddPage(m_pDevicesSettingsPanel, _("Other Devices"));
-    }
-
-    GetSizer()->Layout();
-    GetSizer()->Fit(this);
-    m_rebuildPanels = false;
-
-    ConfirmLayouts(); // maybe should be under compiletime option
-}
-
-// Needed by ConfigDialogCtrlSets to know what parent to use when creating a control
-wxWindow *AdvancedDialog::GetTabLocation(BRAIN_CTRL_IDS id)
-{
-    if (id < AD_GUIDER_TAB_BOUNDARY)
-        return m_pGuiderSettingsPanel;
-    else if (id < AD_MOUNT_TAB_BOUNDARY)
-        return m_pScopeSettingsPanel;
-    else if (id < AD_DEVICES_TAB_BOUNDARY)
-        return m_pDevicesSettingsPanel;
-    else
-    {
-        assert(false); // Fundamental problem
-        return nullptr;
-    }
-}
-
-void AdvancedDialog::AddMountPage()
-{
-    const long ID_NOMOUNT = 99999;
-    Mount *mount = pMount;
-
-    if (mount)
-    {
-        wxWindow *noMsgWindow = m_pScopeSettingsPanel->FindWindow(ID_NOMOUNT);
-        if (noMsgWindow)
-            noMsgWindow->Destroy();
-        m_pMountPane = mount->GetConfigDialogPane(m_pScopeSettingsPanel);
-        m_pMountPane->LayoutControls(m_pScopeSettingsPanel, m_brainCtrls);
-        m_pMountPane->Layout();
-    }
-    else
-    {
-        m_pMountPane = new Mount::MountConfigDialogPane(m_pScopeSettingsPanel, _("Mount"), mount);
-        wxStaticText *pNoMount = new wxStaticText(m_pScopeSettingsPanel, ID_NOMOUNT, _("No mount specified"));
-        m_pMountPane->Add(pNoMount);
-    }
-
-    m_pScopeSettingsPanel->GetSizer()->Add(m_pMountPane, wxSizerFlags(0).Border(wxTOP, 10).Expand());
-    m_pScopeSettingsPanel->Layout();
-}
-
-void AdvancedDialog::AddAoPage()
-{
-    if (TheAO())
-    {
-        m_pAOPane = new AOConfigDialogPane(m_pDevicesSettingsPanel, TheAO());
-        m_pAOPane->LayoutControls(m_pDevicesSettingsPanel, m_brainCtrls);
-        m_pAOPane->Layout();
-
-        m_pDevicesSettingsPanel->GetSizer()->Add(m_pAOPane, wxSizerFlags(0).Border(wxTOP, 10).Expand());
-        m_pDevicesSettingsPanel->Layout();
-    }
-    else
-    {
-        m_pAOPane = nullptr;
-    }
-}
-
-// All update options for devices are handled by simply forcing a RebuildPanels before the Advanced Dialog is displayed
-
-void AdvancedDialog::UpdateMountPage()
-{
-    m_rebuildPanels = true;
-}
-
-void AdvancedDialog::UpdateAoPage()
-{
-    m_rebuildPanels = true;
 }
 
 void AdvancedDialog::LoadValues()
 {
-    // Late-binding rebuild of all the panels
-    if (m_rebuildPanels)
-        RebuildPanels();
-
     // Load all the current params
     m_imageScaleChanged = false;
-
-    // Mount sub-classes use a hybrid approach involving both CtrlSets and Panes
-
-    if (TheAO())
-    {
-        m_pAOCtrlSet->LoadValues();
-    }
-    if (TheScope())
-    {
-        m_pScopeCtrlSet->LoadValues();
-        m_pMountPane->LoadValues();
-    }
 
     if (s_selectedPage != -1)
         m_pNotebook->ChangeSelection(s_selectedPage);
@@ -333,18 +127,6 @@ void AdvancedDialog::LoadValues()
 void AdvancedDialog::UnloadValues()
 {
     // Unload all the current params
-
-    // Mount sub-classes use a hybrid approach involving both CtrlSets and Panes
-
-    if (TheAO())
-    {
-        m_pAOCtrlSet->UnloadValues();
-    }
-    if (TheScope())
-    {
-        m_pScopeCtrlSet->UnloadValues();
-        m_pMountPane->UnloadValues();
-    }
     if (m_imageScaleChanged)
     {
         m_pFrame->MakeImageScaleAdjustments();
@@ -355,14 +137,6 @@ void AdvancedDialog::UnloadValues()
 // Any un-do ops need to be handled at the ConfigDialogPane level
 void AdvancedDialog::Undo()
 {
-    ConfigDialogPane *const panes[] = { m_pMountPane, m_pAOPane };
-
-    for (unsigned int i = 0; i < WXSIZEOF(panes); i++)
-    {
-        ConfigDialogPane *const pane = panes[i];
-        if (pane)
-            pane->Undo();
-    }
     m_imageScaleChanged = false;
 }
 
@@ -388,22 +162,6 @@ int AdvancedDialog::GetBinning()
     return pCamera ? pCamera->GetBinning() : 1;
 }
 
-size_t AdvancedDialog::FindPage(wxWindow *ctrl)
-{
-    wxWindow *a[] = {
-        m_pGuiderSettingsPanel,
-        m_pScopeSettingsPanel,
-        m_pDevicesSettingsPanel,
-    };
-
-    for (wxWindow *p = ctrl; p; p = p->GetParent())
-        for (size_t i = 0; i < WXSIZEOF(a); i++)
-            if (p == a[i])
-                return i;
-
-    return wxNOT_FOUND;
-}
-
 struct ClearTipTimer : public wxTimer
 {
     wxTipWindow **m_w;
@@ -419,11 +177,6 @@ void AdvancedDialog::ShowInvalid(wxWindow *ctrl, const wxString& message)
 {
     if (m_tip)
         return; // already another error shown
-
-    // focus the notebook page with the error
-    size_t sel = FindPage(ctrl);
-    if (sel != wxNOT_FOUND)
-        m_pNotebook->ChangeSelection(sel);
 
     ctrl->SetFocus();
     m_tip = new wxTipWindow(ctrl, message, 100, &m_tip);

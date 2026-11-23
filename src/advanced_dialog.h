@@ -36,7 +36,6 @@
 #define ADVANCED_DIALOG_H_INCLUDED
 
 class MyFrame;
-class MountConfigDialogCtrlSet;
 class wxTipWindow;
 
 enum TAB_PAGES
@@ -54,16 +53,6 @@ class AdvancedDialog : public wxDialog
 {
     MyFrame *m_pFrame;
     wxBookCtrlBase *m_pNotebook;
-    Mount::MountConfigDialogPane *m_pMountPane;
-    AOConfigDialogPane *m_pAOPane;
-
-    BrainCtrlIdMap m_brainCtrls;
-    bool m_rebuildPanels;
-    MountConfigDialogCtrlSet *m_pScopeCtrlSet;
-    AOConfigDialogCtrlSet *m_pAOCtrlSet;
-    wxPanel *m_pGuiderSettingsPanel;
-    wxPanel *m_pScopeSettingsPanel;
-    wxPanel *m_pDevicesSettingsPanel;
     wxTipWindow *m_tip;
     wxTimer *m_tipTimer;
     bool m_imageScaleChanged;
@@ -77,13 +66,9 @@ public:
 
     void EndModal(int retCode) override;
 
-    void UpdateMountPage();
-    void UpdateAoPage();
-
     void LoadValues();
     void UnloadValues();
     void Undo();
-    void Preload();
 
     bool Validate() override;
     void ShowInvalid(wxWindow *ctrl, const wxString& message);
@@ -94,18 +79,6 @@ public:
     int GetFocalLength();
     double GetPixelSize();
     int GetBinning();
-    Mount::MountConfigDialogPane *GetCurrentMountPane() { return m_pMountPane; }
-
-    wxWindow *GetTabLocation(BRAIN_CTRL_IDS id);
-
-private:
-    void AddMountPage();
-    void AddAoPage();
-    size_t FindPage(wxWindow *ctrl);
-    void RebuildPanels();
-    void BuildCtrlSets();
-    void CleanupCtrlSets();
-    void ConfirmLayouts();
 };
 
 #endif // ADVANCED_DIALOG_H_INCLUDED

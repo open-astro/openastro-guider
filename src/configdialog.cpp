@@ -155,7 +155,6 @@ void ConfigDialogPane::EnableDecControls(bool enable)
 ConfigDialogCtrlSet::ConfigDialogCtrlSet(wxWindow *pParent, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap)
 {
     m_pParent = pParent;
-    m_pAdvDlg = pAdvancedDialog;
 }
 
 int ConfigDialogCtrlSet::StringWidth(const wxString& string)
@@ -201,11 +200,6 @@ int ConfigDialogCtrlSet::StringArrayWidth(const wxArrayString& ary)
     return width;
 }
 
-wxWindow *ConfigDialogCtrlSet::GetParentWindow(BRAIN_CTRL_IDS id)
-{
-    return m_pAdvDlg->GetTabLocation(id);
-}
-
 // Base method for adding map elements
 void ConfigDialogCtrlSet::AddMapElement(BrainCtrlIdMap& CtrlMap, BRAIN_CTRL_IDS id, wxObject *pElem)
 {
@@ -229,23 +223,4 @@ void ConfigDialogCtrlSet::AddCtrl(BrainCtrlIdMap& CtrlMap, BRAIN_CTRL_IDS id, wx
 void ConfigDialogCtrlSet::AddGroup(BrainCtrlIdMap& CtrlMap, BRAIN_CTRL_IDS id, wxSizer *pSizer)
 {
     AddMapElement(CtrlMap, id, pSizer);
-}
-
-wxSizer *ConfigDialogCtrlSet::MakeLabeledControl(BRAIN_CTRL_IDS id, const wxString& label, wxWindow *pControl,
-                                                 const wxString& toolTip)
-{
-    wxStaticText *pLabel = new wxStaticText(GetParentWindow(id), wxID_ANY, label + _(": "));
-    pControl->SetToolTip(toolTip);
-
-    wxBoxSizer *pSizer = new wxBoxSizer(wxHORIZONTAL);
-    pSizer->Add(pLabel, wxSizerFlags().Align(wxALIGN_CENTER_VERTICAL));
-    pSizer->Add(pControl, wxSizerFlags().Align(wxALIGN_CENTER_VERTICAL));
-
-    return pSizer;
-}
-
-void ConfigDialogCtrlSet::AddLabeledCtrl(BrainCtrlIdMap& CtrlMap, BRAIN_CTRL_IDS id, const wxString& Label, wxControl *pCtrl,
-                                         const wxString& toolTip)
-{
-    AddGroup(CtrlMap, id, MakeLabeledControl(id, Label, pCtrl, toolTip));
 }

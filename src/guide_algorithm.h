@@ -102,7 +102,6 @@ public:
     virtual bool SetMinMove(double minMove) { return true; }; // true indicates error
     wxString GetConfigPath() const;
     wxString GetAxis() const;
-    virtual void ResetParams(); // Override if fine-tuned logic is needed by a particular algo
     static double SmartDefaultMinMove();
     static double SmartDefaultMinMove(int focalLength, double pixelSize, int binning);
 };
