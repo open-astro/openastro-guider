@@ -44,7 +44,10 @@
 #ifndef GUIDER_MULTISTAR_H_INCLUDED
 #define GUIDER_MULTISTAR_H_INCLUDED
 
+namespace frame_reject
+{
 class MassChecker;
+}
 class GuiderMultiStar;
 class GuiderConfigDialogCtrlSet;
 
@@ -79,7 +82,7 @@ class GuiderMultiStar : public Guider
     Star m_primaryStar;
     std::vector<GuideStar> m_guideStars;
     DescriptiveStats *m_primaryDistStats;
-    MassChecker *m_massChecker;
+    frame_reject::MassChecker *m_massChecker;
     double m_lastPrimaryDistance;
     bool m_multiStarMode;
     bool m_stabilizing;
