@@ -69,10 +69,9 @@ wxDEFINE_EVENT(RECONNECT_CAMERA_EVENT, wxThreadEvent);
 
 // clang-format off
 // clang-format off
-wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
+wxBEGIN_EVENT_TABLE(MyFrame, wxEvtHandler)
 EVT_SOCKET(SOCK_SERVER_ID, MyFrame::OnSockServerEvent)
 EVT_SOCKET(SOCK_SERVER_CLIENT_ID, MyFrame::OnSockServerClientEvent)
-EVT_CLOSE(MyFrame::OnClose)
 EVT_THREAD(MYFRAME_WORKER_THREAD_EXPOSE_COMPLETE, MyFrame::OnExposeComplete)
 EVT_THREAD(MYFRAME_WORKER_THREAD_MOVE_COMPLETE, MyFrame::OnMoveComplete)
 EVT_THREAD(SET_STATUS_TEXT_EVENT, MyFrame::OnStatusMsg)
@@ -108,7 +107,7 @@ static GuideHistory *NewGuideHistory()
 
 // ---------------------- Main Frame -------------------------------------
 // frame constructor
-MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nullptr)
+MyFrame::MyFrame() : wxEvtHandler(), pGuideHistory(nullptr)
 {
     // #168: set the global before building anything. PhdApp::OnInit's pFrame = new MyFrame() assigns it only
     // when this constructor returns, but the guider, the dialogs and the mount built below already call
@@ -127,15 +126,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
     SetServerMode(serverMode);
 
     m_sampling = 1.0;
-
-#include "icons/oa512.png.h"
-    wxBitmap oaIcon(wxBITMAP_PNG_FROM_DATA(oa512));
-    wxIcon icon;
-    icon.CopyFromBitmap(oaIcon);
-    SetIcon(icon);
-
-    // SetIcon(wxIcon(_T("progicon")));
-    SetBackgroundColour(*wxLIGHT_GREY);
 
     LoadProfileSettings();
 
@@ -193,7 +183,8 @@ void MyFrame::UpdateTitle()
     wxString title = inst > 1 ? wxString::Format(_T("%s(#%d) %s - %s"), APPNAME, inst, FULLVER, prof)
                               : wxString::Format(_T("%s %s - %s"), APPNAME, FULLVER, prof);
 
-    SetTitle(title);
+    // #115 S6.9: there is no window to title
+    Debug.Write(wxString::Format("UpdateTitle: %s\n", title));
 }
 
 // Get either timelapse value or state-dependent variable-exposure-delay
@@ -1286,35 +1277,8 @@ double MyFrame::CurrentGuideErrorSmoothed() const
     return pGuider->CurrentErrorSmoothed(GuidingRAOnly());
 }
 
-void MyFrame::OnClose(wxCloseEvent& event)
-{
-    if (DarkBuildActive() && event.CanVeto())
-    {
-        // #100: a dark frame is being captured on its own thread while this event loop runs; pEquipment->Shutdown()
-        // below would disconnect the camera under it. The build ends within one exposure; the RPC `shutdown` is
-        // refused the same way. A close that cannot be vetoed (an OS session end) goes on regardless.
-        Debug.Write("MyFrame::OnClose vetoed: dark-frame capture in progress\n");
-        Alert(_("Dark-frame capture in progress; close again when the build has finished."));
-        event.Veto();
-        return;
-    }
-
-    if (event.CanVeto())
-    {
-        // #115 S6.8: closing the --gui window shuts down the way the `shutdown` RPC and SIGTERM do, through
-        // PhdApp::TerminateApp and Shutdown, not from this close event
-        event.Veto();
-        wxGetApp().TerminateApp();
-        return;
-    }
-
-    // a close that cannot be vetoed (an OS session end)
-    Shutdown();
-    Destroy();
-}
-
-// #115 S6.8: what OnClose did on every exit, in the same order. The `shutdown` RPC, SIGTERM, SIGINT and a restart reach
-// it from IdleClosing (phd.cpp), which then deletes the frame and exits the main loop.
+// #115 S6.8: the exit sequence MyFrame::OnClose ran on every exit, in the same order. The `shutdown` RPC, SIGTERM,
+// SIGINT and a restart reach it from IdleClosing (phd.cpp), which then deletes the frame and exits the main loop.
 void MyFrame::Shutdown()
 {
     Debug.Write("MyFrame::OnClose proceeding\n");

@@ -115,7 +115,7 @@ struct SingleExposure
 
 inline SingleExposure::SingleExposure() : enabled(false), duration(0) { }
 
-class MyFrame : public wxFrame
+class MyFrame : public wxEvtHandler
 {
 protected:
     bool GetServerMode() const;
@@ -184,7 +184,6 @@ public:
     bool m_defectMapAvailable = true;
     bool m_defectMapInUse = false;
 
-    void OnClose(wxCloseEvent& evt);
     // #115 S6.8: the exit sequence (worker threads, devices, servers, guide log); IdleClosing calls it, then deletes the
     // frame
     void Shutdown();

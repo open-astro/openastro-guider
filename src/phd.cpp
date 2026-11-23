@@ -64,7 +64,7 @@ GuidingLog GuideLog;
 
 static const wxCmdLineEntryDesc cmdLineDesc[] = {
     { wxCMD_LINE_SWITCH, "?", "help", "display this help and exit" },
-    { wxCMD_LINE_SWITCH, "g", "gui", "show the GUI window (default is headless)" },
+    { wxCMD_LINE_SWITCH, "g", "gui", "deprecated: there is no window any more (accepted for compatibility)" },
     { wxCMD_LINE_SWITCH, "a", "auto-connect", "auto-connect the selected equipment on startup" },
     { wxCMD_LINE_SWITCH, "H", "headless", "deprecated: headless is now the default (accepted for compatibility)" },
     { wxCMD_LINE_SWITCH, "A", "headless-auto-connect", "deprecated alias for --auto-connect" },
@@ -85,6 +85,7 @@ enum ConfigOp
 };
 static ConfigOp s_configOp = CONFIG_OP_NONE;
 static wxString s_configPath;
+static bool s_guiIgnored = false; // --gui was given (#115 S6.9)
 
 wxIMPLEMENT_APP(PhdApp);
 
@@ -439,6 +440,9 @@ bool PhdApp::OnInit()
 
     logger.Close(); // writes any deferrred error messages to the debug log
 
+    if (s_guiIgnored)
+        Debug.Write("--gui is ignored: there is no window any more\n");
+
     DisableOSXAppNap();
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -512,8 +516,6 @@ bool PhdApp::OnInit()
 
     if (m_headless)
     {
-        pFrame->Show(false);
-
         // Graceful shutdown on `systemctl stop` (SIGTERM) and Ctrl-C (SIGINT).
         struct sigaction sa;
         memset(&sa, 0, sizeof(sa));
@@ -533,10 +535,6 @@ bool PhdApp::OnInit()
             else
                 Debug.Write("headless: auto-connect succeeded\n");
         }
-    }
-    else
-    {
-        pFrame->Show(true);
     }
 
     return true;
@@ -583,10 +581,13 @@ bool PhdApp::OnCmdLineParsed(wxCmdLineParser& parser)
     }
 
     (void) parser.Found("i", &m_instanceNumber);
-    // Headless is the default run mode for the guiding daemon; pass --gui to
-    // show the window for local debugging. --headless is still accepted (now a
-    // no-op) so existing scripts/units don't break.
-    m_headless = !parser.Found("gui");
+    // The guiding daemon is always headless: there is no window to show since
+    // #115 S6.9. --gui and --headless are still accepted (no-ops) so existing
+    // scripts/units don't break; --gui gets a warning.
+    m_headless = true;
+    s_guiIgnored = parser.Found("gui");
+    if (s_guiIgnored)
+        wxMessageOutputStderr().Printf("warning: --gui is ignored: there is no window any more\n");
     m_headlessAutoConnect = parser.Found("auto-connect") || parser.Found("headless-auto-connect");
 
     if (parser.Found("l", &s_configPath))

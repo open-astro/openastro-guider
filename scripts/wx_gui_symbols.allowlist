@@ -5,8 +5,6 @@
 # This list may only shrink: steps 4-8 of #115 remove these uses.
 typeinfo for wxApp
 typeinfo for wxFrame
-vtable for wxFrame
-vtable for wxIcon
 vtable for wxImage
 vtable for wxImageHandler
 vtable for wxJPEGHandler
@@ -32,20 +30,14 @@ wxAppBase::SafeYield(wxWindow*, bool)
 wxAppBase::SafeYieldFor(wxWindow*, long)
 wxAppBase::SetActive(bool, wxWindow*)
 wxBeginBusyCursor(wxCursor const*)
-wxBitmap::~wxBitmap()
-wxBitmapHelpers::NewFromPNGData(void const*, unsigned long)
-wxDefaultPosition
 wxDefaultSize
-wxEVT_CLOSE_WINDOW
 wxEVT_MENU
 wxEVT_UPDATE_UI
 wxEndBusyCursor()
 wxFrame::AttachMenuBar(wxMenuBar*)
-wxFrame::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
 wxFrame::DetachMenuBar()
 wxFrame::DoGetClientSize(int*, int*) const
 wxFrame::GetClassInfo() const
-wxFrame::Init()
 wxFrame::SendIdleEvents(wxIdleEvent&)
 wxFrame::SetStatusBar(wxStatusBar*)
 wxFrame::SetToolBar(wxToolBar*)
@@ -65,12 +57,6 @@ wxFrameBase::SetMenuBar(wxMenuBar*)
 wxFrameBase::SetStatusText(wxString const&, int)
 wxFrameBase::SetStatusWidths(int, int const*)
 wxFrameBase::UpdateWindowUI(long)
-wxFrameBase::sm_eventTable
-wxFrameBase::wxFrameBase()
-wxFrameBase::~wxFrameBase()
-wxFrameNameStr
-wxIcon::CopyFromBitmap(wxBitmap const&)
-wxIcon::wxIcon()
 wxImage::AddHandler(wxImageHandler*)
 wxImage::Create(int, int, bool)
 wxImage::GetData() const
@@ -87,7 +73,6 @@ wxNonOwnedWindow::DoSetPathShape(wxGraphicsPath const&)
 wxNonOwnedWindow::DoSetRegionShape(wxRegion const&)
 wxRect::Contains(int, int) const
 wxRect::Intersect(wxRect const&)
-wxStockGDI::GetColour(wxStockGDI::Item)
 wxStockGDI::GetCursor(wxStockGDI::Item)
 wxTopLevelWindowBase::Destroy()
 wxTopLevelWindowBase::DoCentre(int)
@@ -98,7 +83,6 @@ wxTopLevelWindowBase::GetRectForTopLevelChildren(int*, int*, int*, int*)
 wxTopLevelWindowBase::IsAlwaysMaximized() const
 wxTopLevelWindowBase::IsTopNavigationDomain(wxWindowBase::NavigationKind) const
 wxTopLevelWindowBase::Layout()
-wxTopLevelWindowBase::SetIcon(wxIcon const&)
 wxTopLevelWindowBase::SetMaxSize(wxSize const&)
 wxTopLevelWindowBase::WXReservedTLW1(void*)
 wxTopLevelWindowBase::WXReservedTLW2(void*)
