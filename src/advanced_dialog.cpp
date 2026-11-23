@@ -45,7 +45,6 @@ static int s_selectedPage = -1;
 
 void AdvancedDialog::BuildCtrlSets()
 {
-    m_pGlobalCtrlSet = m_pFrame->GetConfigDlgCtrlSet(m_pFrame, this, m_brainCtrls);
     if (pCamera)
         m_pCameraCtrlSet = pCamera->GetConfigDlgCtrlSet(m_pCameraSettingsPanel, pCamera, this, m_brainCtrls);
     else
@@ -69,9 +68,6 @@ void AdvancedDialog::BuildCtrlSets()
 
 void AdvancedDialog::CleanupCtrlSets()
 {
-    delete m_pGlobalCtrlSet;
-    m_pGlobalCtrlSet = nullptr;
-
     delete m_pCameraCtrlSet;
     m_pCameraCtrlSet = nullptr;
 
@@ -140,10 +136,6 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
 
     // Build all the panels first - these are needed to create the various ConfigCtrlSets
     // Each panel gets a vertical sizer attached to it
-    m_pGlobalSettingsPanel = new wxPanel(m_pNotebook);
-    wxBoxSizer *pGlobalTabSizer = new wxBoxSizer(wxVERTICAL);
-    m_pGlobalSettingsPanel->SetSizer(pGlobalTabSizer);
-    m_pNotebook->AddPage(m_pGlobalSettingsPanel, _("Global"), true);
     // Camera pane
     m_pCameraSettingsPanel = new wxPanel(m_pNotebook);
     wxBoxSizer *pCameraTabSizer = new wxBoxSizer(wxVERTICAL);
@@ -168,11 +160,6 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     BuildCtrlSets(); // Populates the m_brainCtrls map with all UI controls
 
     // Pane construction now pulls controls from the map and places them where they make sense to a user
-    // Populate global pane
-    m_pGlobalPane = pFrame->GetConfigDialogPane(m_pGlobalSettingsPanel);
-    m_pGlobalPane->LayoutControls(m_brainCtrls);
-    pGlobalTabSizer->Add(m_pGlobalPane, sizer_flags);
-
     // Populate the camera pane
     AddCameraPage();
 
@@ -247,7 +234,6 @@ void AdvancedDialog::RebuildPanels()
 {
     CleanupCtrlSets();
 
-    m_pGlobalPane->Clear(true);
     m_pCameraPane->Clear(true);
 
     m_pCameraSettingsPanel->GetSizer()->Clear(true);
@@ -272,9 +258,6 @@ void AdvancedDialog::RebuildPanels()
     m_brainCtrls.clear();
 
     BuildCtrlSets();
-
-    m_pGlobalPane->LayoutControls(m_brainCtrls);
-    m_pGlobalPane->Layout();
 
     AddCameraPage();
 
@@ -309,9 +292,7 @@ void AdvancedDialog::RebuildPanels()
 // Needed by ConfigDialogCtrlSets to know what parent to use when creating a control
 wxWindow *AdvancedDialog::GetTabLocation(BRAIN_CTRL_IDS id)
 {
-    if (id < AD_GLOBAL_TAB_BOUNDARY)
-        return m_pGlobalSettingsPanel;
-    else if (id < AD_CAMERA_TAB_BOUNDARY)
+    if (id < AD_CAMERA_TAB_BOUNDARY)
         return m_pCameraSettingsPanel;
     else if (id < AD_GUIDER_TAB_BOUNDARY)
         return m_pGuiderSettingsPanel;
@@ -430,7 +411,6 @@ void AdvancedDialog::LoadValues()
 
     // Load all the current params
     m_imageScaleChanged = false;
-    m_pGlobalCtrlSet->LoadValues();
     if (m_pCameraCtrlSet)
         m_pCameraCtrlSet->LoadValues();
     if (m_pGuiderCtrlSet)
@@ -457,7 +437,6 @@ void AdvancedDialog::LoadValues()
 void AdvancedDialog::UnloadValues()
 {
     // Unload all the current params
-    m_pGlobalCtrlSet->UnloadValues();
     if (m_pCameraCtrlSet)
         m_pCameraCtrlSet->UnloadValues();
     if (m_pGuiderCtrlSet)
@@ -486,7 +465,7 @@ void AdvancedDialog::UnloadValues()
 // Any un-do ops need to be handled at the ConfigDialogPane level
 void AdvancedDialog::Undo()
 {
-    ConfigDialogPane *const panes[] = { m_pGlobalPane, m_pGuiderPane, m_pCameraPane, m_pMountPane, m_pAOPane, m_pRotatorPane };
+    ConfigDialogPane *const panes[] = { m_pGuiderPane, m_pCameraPane, m_pMountPane, m_pAOPane, m_pRotatorPane };
 
     for (unsigned int i = 0; i < WXSIZEOF(panes); i++)
     {
@@ -506,12 +485,7 @@ void AdvancedDialog::EndModal(int retCode)
 // Properties and methods needed by step-size calculator dialog
 int AdvancedDialog::GetFocalLength()
 {
-    return m_pGlobalCtrlSet->GetFocalLength();
-}
-
-void AdvancedDialog::SetFocalLength(int val)
-{
-    m_pGlobalCtrlSet->SetFocalLength(val);
+    return m_pFrame->GetFocalLength();
 }
 
 double AdvancedDialog::GetPixelSize()
@@ -539,7 +513,10 @@ void AdvancedDialog::SetBinning(int binning)
 size_t AdvancedDialog::FindPage(wxWindow *ctrl)
 {
     wxWindow *a[] = {
-        m_pGlobalSettingsPanel, m_pCameraSettingsPanel, m_pGuiderSettingsPanel, m_pScopeSettingsPanel, m_pDevicesSettingsPanel,
+        m_pCameraSettingsPanel,
+        m_pGuiderSettingsPanel,
+        m_pScopeSettingsPanel,
+        m_pDevicesSettingsPanel,
     };
 
     for (wxWindow *p = ctrl; p; p = p->GetParent())

@@ -36,8 +36,6 @@
 #define ADVANCED_DIALOG_H_INCLUDED
 
 class MyFrame;
-class MyFrameConfigDialogPane;
-class MyFrameConfigDialogCtrlSet;
 class MountConfigDialogCtrlSet;
 class CameraConfigDialogPane;
 class GuiderConfigDialogPane;
@@ -58,7 +56,6 @@ class AdvancedDialog : public wxDialog
 {
     MyFrame *m_pFrame;
     wxBookCtrlBase *m_pNotebook;
-    MyFrameConfigDialogPane *m_pGlobalPane;
     Guider::GuiderConfigDialogPane *m_pGuiderPane;
     CameraConfigDialogPane *m_pCameraPane;
     Mount::MountConfigDialogPane *m_pMountPane;
@@ -67,13 +64,11 @@ class AdvancedDialog : public wxDialog
 
     BrainCtrlIdMap m_brainCtrls;
     bool m_rebuildPanels;
-    MyFrameConfigDialogCtrlSet *m_pGlobalCtrlSet;
     CameraConfigDialogCtrlSet *m_pCameraCtrlSet;
     GuiderConfigDialogCtrlSet *m_pGuiderCtrlSet;
     MountConfigDialogCtrlSet *m_pScopeCtrlSet;
     AOConfigDialogCtrlSet *m_pAOCtrlSet;
     RotatorConfigDialogCtrlSet *m_pRotatorCtrlSet;
-    wxPanel *m_pGlobalSettingsPanel;
     wxPanel *m_pCameraSettingsPanel;
     wxPanel *m_pGuiderSettingsPanel;
     wxPanel *m_pScopeSettingsPanel;
@@ -108,7 +103,6 @@ public:
         m_imageScaleChanged = true;
     } // Allows image scale adjustment to be made only once when AD is closed
     int GetFocalLength();
-    void SetFocalLength(int val);
     double GetPixelSize();
     void SetPixelSize(double val);
     int GetBinning();

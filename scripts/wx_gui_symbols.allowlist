@@ -7,7 +7,6 @@ typeinfo for wxApp
 typeinfo for wxDialog
 typeinfo for wxFileDropTarget
 typeinfo for wxFrame
-typeinfo for wxIntegerValidatorBase
 typeinfo for wxPaintDC
 typeinfo for wxProgressDialog
 typeinfo for wxStaticBoxSizer
@@ -41,7 +40,6 @@ vtable for wxMDIClientWindow
 vtable for wxMemoryDC
 vtable for wxMenu
 vtable for wxMenuBase
-vtable for wxNumValidatorBase
 vtable for wxPNGHandler
 vtable for wxPanel
 vtable for wxPen
@@ -167,7 +165,6 @@ wxDialogBase::ShowWindowModal()
 wxDialogBase::sm_eventTable
 wxDialogBase::wxDialogBase()
 wxDialogNameStr
-wxDirSelector(wxString const&, wxString const&, long, wxPoint const&, wxWindow*)
 wxDropTarget::GetData()
 wxDropTarget::OnDrop(int, int)
 wxEVT_AUI_PANE_CLOSE
@@ -270,9 +267,6 @@ wxImage::SetOption(wxString const&, int)
 wxImage::Size(wxSize const&, wxPoint const&, int, int, int) const
 wxInfoBar::Create(wxWindow*, int)
 wxInfoBarGeneric::Init()
-wxIntegerValidatorBase::FromString(wxString const&, long long*) const
-wxIntegerValidatorBase::IsCharOk(wxString const&, int, wchar_t) const
-wxIntegerValidatorBase::ToString(long long) const
 wxItemContainerImmutable::SetStringSelection(wxString const&)
 wxLaunchDefaultBrowser(wxString const&, int)
 wxMemoryDC::SelectObject(wxBitmap&)
@@ -293,10 +287,6 @@ wxNonOwnedWindow::DoSetPathShape(wxGraphicsPath const&)
 wxNonOwnedWindow::DoSetRegionShape(wxRegion const&)
 wxNotebook::wxNotebook(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
 wxNotebookNameStr
-wxNumValidatorBase::GetEventHashTable() const
-wxNumValidatorBase::GetEventTable() const
-wxNumValidatorBase::GetTextEntry() const
-wxNumValidatorBase::SetWindow(wxWindow*)
 wxObjectArrayTraitsForwxAuiToolBarItemArray::Free(wxAuiToolBarItem*)
 wxPaintDC::GetClassInfo() const
 wxPaintDC::wxPaintDC(wxWindow*)
@@ -421,9 +411,6 @@ wxTopLevelWindowGTK::ShowFullScreen(bool, long)
 wxTopLevelWindowGTK::ShowWithoutActivating()
 wxTopLevelWindowGTK::WXSetInitialFittingClientSize(int, wxSizer*)
 wxTopLevelWindowGTK::~wxTopLevelWindowGTK()
-wxValidator::GetClassInfo() const
-wxValidator::wxValidator()
-wxValidator::~wxValidator()
 wxWindow::AddChild(wxWindowBase*)
 wxWindow::AddChildGTK(wxWindow*)
 wxWindow::AdjustForLayoutDirection(int, int, int) const
