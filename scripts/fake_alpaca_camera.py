@@ -196,6 +196,12 @@ by default, and with none given the frames, pulses and readings are exactly what
         Dec with --cos-dec), the Dec, the side of pier, the backlash (ms, and what is left of it), the
         drift, the periodic error, the seeing, the simulated time, the mount's RA/Dec offset and the
         field's offset on the sensor (px, without the seeing jitter) and the clouds left.
+    GET /fake/frames[?clear=1]
+        The truth at each frame drawn since the last clear (the latest 5000), as {"frames": [{"t": simulated
+        s, "ra_px", "dec_px": the mount's offsets in its axes, "x", "y": the field's offset on the sensor,
+        "jitter_x", "jitter_y": the seeing drawn for the frame}, ...]}: what an imaging camera on the mount
+        saw, frame by frame, for the guiding RMS (scripts/e2e_algorithm_matrix.py, #142 Tier 4); clear=1
+        returns them and empties the list.
 
 Usage:
     python3 scripts/fake_alpaca_camera.py [--host 127.0.0.1] [--port 11111] \
@@ -261,6 +267,8 @@ pier = {"side": 0, "flipped": False, "base_x": 0.0, "base_y": 0.0}
 clouds = {"frames": 0, "dim": 1e6}
 # the pulseguide requests received, latest last (see GET /fake/pulses)
 pulses = collections.deque(maxlen=1000)
+# the truth at each frame drawn, latest last (see GET /fake/frames)
+frames_drawn = collections.deque(maxlen=5000)
 
 # Slew simulation (off by default; see --slew-seconds / --slew-rotates / --slew-smear)
 SLEW_SECONDS = 0.0
@@ -516,6 +524,8 @@ def star_field():
             jx, jy = rngs["seeing"].normal(0.0, SEEING_PX, 2)
             jitter = (float(jx), float(jy))
         ox, oy = field_offset()
+        frames_drawn.append({"t": sim["t"], "ra_px": scope["ra_px"], "dec_px": scope["dec_px"], "x": ox, "y": oy,
+                             "jitter_x": jitter[0], "jitter_y": jitter[1]})
         if (theta != 0.0 or dim != 1.0 or ox or oy or decoys or FRAME_NOISE or SEEING_PX > 0.0
                 or DEC_DRIFT_PX_PER_MIN != 0.0):
             return render(theta, dim, jitter)
@@ -737,6 +747,11 @@ class Handler(BaseHTTPRequestHandler):
                 if params.get("clear", "0").lower() in ("1", "true"):
                     for c in requests.values():
                         c.clear()
+                return self.send_body(body, "application/json")
+            if method == "GET" and name == "/fake/frames":
+                body = json.dumps({"frames": list(frames_drawn)}).encode()
+                if params.get("clear", "0").lower() in ("1", "true"):
+                    frames_drawn.clear()
                 return self.send_body(body, "application/json")
             if method == "GET" and name == "/fake/truth":
                 return self.send_body(json.dumps(truth()).encode(), "application/json")
