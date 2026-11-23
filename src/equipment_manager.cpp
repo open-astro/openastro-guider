@@ -894,7 +894,7 @@ const int kGuideProbeConnectWaitMs = 2000;
 
 bool EquipmentManager::RetryEnabled() const
 {
-    return wxGetApp().IsHeadless();
+    return true;
 }
 
 // The same choice-string tests the factories route by, and the profile keys the Alpaca drivers read.

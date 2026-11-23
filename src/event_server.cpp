@@ -3689,14 +3689,14 @@ static bool capture_dark_frame_pumping_events(usImage& frame, const CaptureParam
         });
     while (!done.load(std::memory_order_acquire))
     {
-        wxTheApp->Yield();
+        wxGetApp().Yield();
         wxMilliSleep(10);
     }
     capture.join();
     // Deliver what the capture queued for the main thread on its way out (an EquipmentDisconnected, an Alert,
     // a camera reconnect, which DoTryReconnect defers to the build's end), so a client sees the disconnect
     // before the build reports the failed frame (#103).
-    wxTheApp->Yield();
+    wxGetApp().Yield();
     return err;
 }
 
@@ -3770,9 +3770,9 @@ static bool capture_master_dark_frame(usImage& darkFrame, int expTimeMs, int fra
         // Two rounds with a short gap: a poll that arrived mid-capture
         // needs accept -> read -> respond socket events, and one Yield
         // only advances the connection a step per frame.
-        wxTheApp->Yield();
+        wxGetApp().Yield();
         wxMilliSleep(10);
-        wxTheApp->Yield();
+        wxGetApp().Yield();
     }
 
     for (unsigned int i = 0; i < darkFrame.NPixels; i++)

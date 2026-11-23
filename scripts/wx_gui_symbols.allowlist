@@ -3,23 +3,3 @@
 #   scripts/check_wx_gui_symbols.sh --update build/phd2.bin
 # Demangled, without ELF symbol versions, sorted with LC_ALL=C.
 # This list may only shrink: steps 4-8 of #115 remove these uses.
-typeinfo for wxApp
-wxApp::CleanUp()
-wxApp::GetClassInfo() const
-wxApp::Initialize(int&, wchar_t**)
-wxApp::OnAssertFailure(wchar_t const*, int, wchar_t const*, wchar_t const*, wchar_t const*)
-wxApp::OnInitGui()
-wxApp::SetNativeTheme(wxString const&)
-wxApp::WakeUpIdle()
-wxApp::wxApp()
-wxApp::~wxApp()
-wxAppBase::CreateTraits()
-wxAppBase::GetDisplayMode() const
-wxAppBase::GetLayoutDirection() const
-wxAppBase::GetTopWindow() const
-wxAppBase::OnExit()
-wxAppBase::OnRun()
-wxAppBase::ProcessIdle()
-wxAppBase::SafeYield(wxWindow*, bool)
-wxAppBase::SafeYieldFor(wxWindow*, long)
-wxAppBase::SetActive(bool, wxWindow*)

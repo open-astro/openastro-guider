@@ -151,12 +151,11 @@ inline static StepGuider *TheAO()
     return static_cast<StepGuider *>(pMount && pMount->IsStepGuider() ? pMount : 0);
 }
 
-class PhdApp : public wxApp
+class PhdApp : public wxAppConsole
 {
     wxSingleInstanceChecker *m_instanceChecker = nullptr;
     long m_instanceNumber;
     bool m_resetConfig;
-    bool m_headless;
     bool m_headlessAutoConnect;
     wxString m_resourcesDir;
     wxDateTime m_logFileTime;
@@ -178,7 +177,6 @@ public:
     virtual bool Yield(bool onlyIfNeeded = false);
     static void ExecInMainThread(std::function<void()> func);
     int GetInstanceNumber() const { return m_instanceNumber; }
-    bool IsHeadless() const { return m_headless; }
     const wxString& GetPHDResourcesDir() const { return m_resourcesDir; }
     wxString GetLocalesDir() const;
     const wxLocale& GetLocale() const { return m_locale; }
