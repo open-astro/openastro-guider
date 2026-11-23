@@ -104,6 +104,12 @@ small control endpoint and is off until used, so the default behaviour is unchan
         startexposure until the next startexposure (a camera that stopped reading
         out, for the guider's capture timeout, #142); frames=0 clears it. The
         next exposure after them is a normal one.
+    PUT /fake/size     w=<px>&h=<px>
+        Change the sensor size the camera reports (cameraxsize/cameraysize, numx/numy)
+        and the frames it sends from the next one on, as a camera swapped or rebinned
+        under the guider does (the guider's dark geometry check, #115 N3). The guider
+        reads cameraxsize only at connect, so its frame size follows the frames.
+        clear_faults leaves it as it is; --size is the size at start.
     PUT /fake/guiderate [ra=<x sidereal>][&dec=<x sidereal>]
         The guide rates the telescope reports (guideraterightascension and
         guideratedeclination) as multiples of the sidereal rate, 15"/s; the pulses
@@ -508,12 +514,21 @@ def star_field():
         return _frame
 
 
+def set_size(w, h):
+    """PUT /fake/size: the sensor size from the next frame on. Guarded by state_lock."""
+    global W, H, _frame, _background
+    W, H = max(16, w), max(16, h)
+    PROPS.update(cameraxsize=W, cameraysize=H, numx=W, numy=H)
+    _frame = _background = None
+
+
 def imagebytes_frame(img):
     """An ASCOM ImageBytes response: 44-byte metadata, then UInt16 pixels, x-major."""
     data_start = 44
+    h, w = img.shape  # the frame's own size: PUT /fake/size may change W, H after it was drawn
     # MetadataVersion, ErrorNumber, ClientTransactionID, ServerTransactionID, DataStart,
     # ImageElementType (Int32=2), TransmissionElementType (UInt16=8), Rank, Dimension1..3
-    meta = struct.pack("<11I", 1, 0, 0, 0, data_start, 2, 8, 2, W, H, 0)
+    meta = struct.pack("<11I", 1, 0, 0, 0, data_start, 2, 8, 2, w, h, 0)
     return meta + img.T.astype("<u2").tobytes()
 
 
@@ -783,6 +798,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_body(b'{"error":"unknown device"}', "application/json")
                 stall_ms[device] = max(0, int(params.get("ms", "0")))
                 stall_call[device] = params.get("call", "")
+            elif method == "PUT" and name == "/fake/size":
+                set_size(int(params.get("w", W)), int(params.get("h", H)))
             elif method == "PUT" and name == "/fake/hold":
                 hold["frames"] = max(0, int(params.get("frames", "0")))
                 if hold["frames"] == 0:
