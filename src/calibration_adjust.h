@@ -84,7 +84,7 @@ bool IsOppositeSide(int a, int b);
 struct BinningChange
 {
     bool apply = false; // binning differs and the calibration is valid: Mount stores the rescaled rates
-    double scaleFactor = 1.; // what the image scale ratio is multiplied by
+    double scaleFactor = 1.; // what the image scale ratio is multiplied by: binning / calBinning
     double xRate = 0.; // the rates rescaled to the new binning
     double yRate = 0.;
 };

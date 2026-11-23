@@ -6,7 +6,7 @@
 // that has just been measured where the scope points. It matters after
 // restore_calibration, guide{recalibrate:false} and a meridian flip: a wrong flip makes
 // Dec run away, and a wrong RA rate or binning rescale makes every RA pulse the wrong
-// length. These pin what the code does today, including the binning bug below.
+// length. These pin what the code does, including the binning fix of #252 below.
 
 #include <gtest/gtest.h>
 
@@ -353,14 +353,12 @@ TEST(AdjustForPointing, AnInvalidCalibrationIsNotRescaled)
     EXPECT_EQ(r.cal.xRate, cal.xRate);
 }
 
-// KNOWN BUG, pinned as it is today: Mount::AdjustCalibrationForScopePointing multiplies the
-// image scale ratio by `binning / m_cal.binning`, an integer division of two unsigned shorts.
-// The rates are rescaled with a double ratio and are right, but the image scale factor is
-// truncated: 2 -> 3 gives 1 instead of 1.5, so the image scale change (HandleImageScaleChange:
-// a new calibration step, min-move reset, calibration cleared) is skipped; 2 -> 1 gives 0
-// instead of 0.5 and 3 -> 2 gives 0 instead of 2/3. Fixed on
-// fix/142-adjust-for-pointing-binning, which changes these to the exact ratios.
-TEST(AdjustForPointing, BinningImageScaleFactorIsIntegerDivisionKnownBug)
+// The image scale factor of a binning change is the exact ratio new / old (#252). It was an
+// integer division of two unsigned shorts, so 2 -> 3 gave 1 instead of 1.5 and the image scale
+// change (HandleImageScaleChange: a new calibration step, min-move reset, calibration cleared)
+// was skipped; 2 -> 1 gave 0 instead of 0.5 and 3 -> 2 gave 0 instead of 2/3. Every binning
+// change is now an image scale change.
+TEST(AdjustForPointing, BinningImageScaleFactorIsTheExactRatio)
 {
     struct Case
     {
@@ -368,7 +366,8 @@ TEST(AdjustForPointing, BinningImageScaleFactorIsIntegerDivisionKnownBug)
         double factor;
     };
     const Case cases[] = {
-        { 1, 2, 2. }, { 1, 3, 3. }, { 2, 4, 2. }, { 2, 3, 1. }, { 3, 2, 0. }, { 2, 1, 0. }, { 4, 2, 0. }, { 3, 4, 1. },
+        { 1, 2, 2. },  { 1, 3, 3. },  { 2, 4, 2. },      { 2, 3, 1.5 },  { 3, 2, 2. / 3. },
+        { 2, 1, 0.5 }, { 4, 2, 0.5 }, { 3, 4, 4. / 3. }, { 4, 3, 0.75 }, { 1, 4, 4. },
     };
     for (const Case& c : cases)
     {
@@ -379,10 +378,31 @@ TEST(AdjustForPointing, BinningImageScaleFactorIsIntegerDivisionKnownBug)
         PointingResult r = AdjustForPointing(in);
         SCOPED_TRACE(testing::Message() << c.from << " -> " << c.to);
         EXPECT_TRUE(r.plan.binning.apply);
-        EXPECT_EQ(r.plan.binning.scaleFactor, c.factor);
-        EXPECT_EQ(r.plan.imageScaleChanged, std::fabs(c.factor - 1.0) >= 0.01);
+        EXPECT_DOUBLE_EQ(r.plan.binning.scaleFactor, c.factor);
+        EXPECT_DOUBLE_EQ(r.plan.scaleAdjustment, c.factor);
+        EXPECT_TRUE(r.plan.imageScaleChanged);
         // the rates use the exact ratio
         EXPECT_DOUBLE_EQ(r.cal.xRate, Cal().xRate * c.from / c.to);
         EXPECT_DOUBLE_EQ(r.cal.yRate, Cal().yRate * c.from / c.to);
     }
+}
+
+TEST(AdjustForPointing, PixelSizeAndBinningFactorsMultiply)
+{
+    CalibrationRecord cal = Cal();
+    cal.binning = 2;
+    PointingInput in = Same(cal);
+    in.binning = 3;
+    in.cameraPixelSize = 7.5;
+    PointingResult r = AdjustForPointing(in);
+    EXPECT_DOUBLE_EQ(r.plan.scaleAdjustment, 2.0 * 1.5);
+    EXPECT_TRUE(r.plan.imageScaleChanged);
+
+    // a smaller pixel and a larger binning that cancel are no image scale change
+    in.cameraPixelSize = 2.5;
+    in.profilePixelSize = 3.75;
+    r = AdjustForPointing(in);
+    EXPECT_TRUE(r.plan.pixelSizeChanged);
+    EXPECT_NEAR(r.plan.scaleAdjustment, 1.0, 1e-12);
+    EXPECT_FALSE(r.plan.imageScaleChanged);
 }
