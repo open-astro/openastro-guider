@@ -158,8 +158,6 @@ protected:
     int m_searchRegion; // how far u/d/l/r do we do the initial search for a star
     bool m_forceFullFrame;
     double m_scaleFactor;
-    bool m_showBookmarks;
-    std::vector<wxRealPoint> m_bookmarks;
 
 public:
     OVERLAY_MODE GetOverlayMode() const;
@@ -172,8 +170,6 @@ protected:
     void SetState(GUIDER_STATE newState);
     friend class GuiderStateHost; // performs the state machine's actions (guider.cpp, guider_state_machine.h)
     void UpdateCurrentDistance(double distance, double distanceRA);
-
-    void ToggleBookmark(const wxRealPoint& pt);
 
 public:
     bool IsPaused() const;
@@ -222,13 +218,6 @@ public:
     double CurrentError(bool raOnly);
     double CurrentErrorSmoothed(bool raOnly);
     unsigned int CurrentErrorFrameCount() const { return m_distance.FrameCount(); }
-
-    bool GetBookmarksShown() const;
-    void SetBookmarksShown(bool show);
-    void ToggleShowBookmarks();
-    void DeleteAllBookmarks();
-    void BookmarkLockPosition();
-    void BookmarkCurPosition();
 
     void Reset(bool fullReset);
     // how far beyond the search region auto-select keeps a star from the frame edge for the calibration (#140)
@@ -368,11 +357,6 @@ inline wxImage *Guider::DisplayedImage() const
 inline double Guider::ScaleFactor() const
 {
     return m_scaleFactor;
-}
-
-inline bool Guider::GetBookmarksShown() const
-{
-    return m_showBookmarks;
 }
 
 inline double Guider::GetMinStarHFD() const

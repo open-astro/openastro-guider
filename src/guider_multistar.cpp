@@ -721,18 +721,6 @@ void GuiderMultiStar::OnLClick(wxMouseEvent& mevent)
 {
     try
     {
-        if (mevent.GetModifiers() == wxMOD_CONTROL)
-        {
-            double const scaleFactor = ScaleFactor();
-            wxRealPoint pt((double) mevent.m_x / scaleFactor, (double) mevent.m_y / scaleFactor);
-            ToggleBookmark(pt);
-            m_showBookmarks = true;
-            pFrame->bookmarks_menu->Check(MENU_BOOKMARKS_SHOW, GetBookmarksShown());
-            Refresh();
-            Update();
-            return;
-        }
-
         if (GetState() > STATE_SELECTED)
         {
             mevent.Skip();
@@ -820,21 +808,6 @@ void GuiderMultiStar::OnPaint(wxPaintEvent& event)
         }
         // PaintHelper drew the image and any overlays
         // now decorate the image to show the selection
-
-        // display bookmarks
-        if (m_showBookmarks && m_bookmarks.size() > 0)
-        {
-            dc.SetPen(wxPen(wxColour(0, 255, 255), 1, wxPENSTYLE_SOLID));
-            dc.SetBrush(*wxTRANSPARENT_BRUSH);
-
-            for (std::vector<wxRealPoint>::const_iterator it = m_bookmarks.begin(); it != m_bookmarks.end(); ++it)
-            {
-                wxPoint p((int) (it->x * m_scaleFactor), (int) (it->y * m_scaleFactor));
-                dc.DrawCircle(p, 3);
-                dc.DrawCircle(p, 6);
-                dc.DrawCircle(p, 12);
-            }
-        }
 
         // show in-use secondary stars
         if (m_multiStarMode && m_guideStars.size() > 1 && !pCamera->UseSubframes)

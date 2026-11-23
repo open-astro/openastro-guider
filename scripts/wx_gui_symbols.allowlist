@@ -155,7 +155,6 @@ wxDropTarget::GetData()
 wxDropTarget::OnDrop(int, int)
 wxEVT_AUI_PANE_CLOSE
 wxEVT_BUTTON
-wxEVT_CHAR_HOOK
 wxEVT_CLOSE_WINDOW
 wxEVT_COMBOBOX
 wxEVT_ERASE_BACKGROUND
@@ -302,7 +301,6 @@ wxStdDialogButtonSizer::wxStdDialogButtonSizer()
 wxStockGDI::GetBrush(wxStockGDI::Item)
 wxStockGDI::GetColour(wxStockGDI::Item)
 wxStockGDI::GetCursor(wxStockGDI::Item)
-wxTextCtrl::ms_classInfo
 wxTextCtrl::wxTextCtrl(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxTextCtrlNameStr
 wxTextEntry::wxTextEntry()

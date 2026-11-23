@@ -164,11 +164,7 @@ public:
     // pFrame; the members they read are null (or false) until the constructor creates them.
     Guider *pGuider = nullptr;
     wxMenuBar *Menubar;
-    wxMenu *tools_menu, *view_menu, *bookmarks_menu, *darks_menu;
-    wxMenuItem *m_showBookmarksMenuItem;
-    wxMenuItem *m_bookmarkLockPosMenuItem;
-    wxAcceleratorEntry *m_showBookmarksAccel;
-    wxAcceleratorEntry *m_bookmarkLockPosAccel;
+    wxMenu *tools_menu, *view_menu, *darks_menu;
     wxMenuItem *m_loopMenuItem;
     wxMenuItem *m_guideMenuItem;
     wxMenuItem *m_stopMenuItem;
@@ -218,15 +214,10 @@ public:
     void OnSockServerClientEvent(wxSocketEvent& evt);
     void HandleSockServerInput(wxSocketBase *sock);
     void OnServerMenu(wxCommandEvent& evt);
-    void OnCharHook(wxKeyEvent& evt);
     void OnPanelClose(wxAuiManagerEvent& evt);
     void OnToolBar(wxCommandEvent& evt);
     void OnRestoreWindows(wxCommandEvent& evt);
     void OnAutoStar(wxCommandEvent& evt);
-    void OnBookmarksShow(wxCommandEvent& evt);
-    void OnBookmarksSetAtLockPos(wxCommandEvent& evt);
-    void OnBookmarksSetAtCurPos(wxCommandEvent& evt);
-    void OnBookmarksClearAll(wxCommandEvent& evt);
 
     void OnExposeComplete(wxThreadEvent& evt);
     void OnExposeComplete(usImage *image, bool err);
@@ -466,10 +457,6 @@ enum
     EEGG_STICKY_LOCK,
     STAR_MASS_ENABLE,
     MULTI_STAR_ENABLE,
-    MENU_BOOKMARKS_SHOW,
-    MENU_BOOKMARKS_SET_AT_LOCK,
-    MENU_BOOKMARKS_SET_AT_STAR,
-    MENU_BOOKMARKS_CLEAR_ALL,
     GA_REVIEW_BUTTON,
     GA_REVIEW_ITEMS_BASE,
     GA_REVIEW_ITEMS_LIMIT = GA_REVIEW_ITEMS_BASE + 4,

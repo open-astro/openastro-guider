@@ -107,40 +107,12 @@ EVT_ERASE_BACKGROUND(Guider::OnErase)
 wxEND_EVENT_TABLE();
 // clang-format on
 
-static void SaveBookmarks(const std::vector<wxRealPoint>& vec)
-{
-    std::ostringstream os;
-    os.setf(std::ios::fixed);
-    os.precision(5);
-    for (auto it = vec.begin(); it != vec.end(); ++it)
-        os << it->x << ' ' << it->y << ' ';
-    pConfig->Profile.SetString("/guider/bookmarks", os.str().c_str());
-}
-
-static void LoadBookmarks(std::vector<wxRealPoint> *vec)
-{
-    wxString s(pConfig->Profile.GetString("/guider/bookmarks", wxEmptyString));
-    std::istringstream is(static_cast<const char *>(s.c_str()));
-
-    vec->clear();
-
-    while (true)
-    {
-        double x, y;
-        is >> x >> y;
-        if (!is.good())
-            break;
-        vec->push_back(wxRealPoint(x, y));
-    }
-}
-
 Guider::Guider(wxWindow *parent, int xSize, int ySize)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxSize(xSize, ySize), wxFULL_REPAINT_ON_RESIZE)
 {
     m_state = STATE_UNINITIALIZED;
     Debug.Write(wxString::Format("guider state => %s\n", guider_state_machine::StateName(m_state)));
     m_scaleFactor = 1.0;
-    m_showBookmarks = true;
     m_displayedImage = new wxImage(XWinSize, YWinSize, true);
     m_paused = PAUSE_NONE;
     m_ditherRecenterStepsPending = 0;
@@ -211,8 +183,6 @@ void Guider::LoadProfileSettings()
 
     unsigned int autoSelDownsample = wxMax(0, pConfig->Profile.GetInt("/guider/AutoSelDownsample", 0));
     SetAutoSelDownsample(autoSelDownsample);
-
-    LoadBookmarks(&m_bookmarks);
 
     // clear the display
     if (m_pCurrentImage->ImageData)
@@ -1603,99 +1573,4 @@ void Guider::SetAutoSelDownsample(unsigned int val)
     Debug.Write(wxString::Format("Setting AutoSelDownsample = %u\n", val));
     pConfig->Profile.SetInt("/guider/AutoSelDownsample", val);
     m_autoSelDownsample = val;
-}
-
-void Guider::SetBookmarksShown(bool show)
-{
-    bool prev = m_showBookmarks;
-    m_showBookmarks = show;
-    if (prev != show && m_bookmarks.size())
-    {
-        Refresh();
-        Update();
-    }
-}
-
-void Guider::ToggleShowBookmarks()
-{
-    SetBookmarksShown(!m_showBookmarks);
-}
-
-void Guider::DeleteAllBookmarks()
-{
-    if (m_bookmarks.size())
-    {
-        bool confirmed =
-            ConfirmDialog::Confirm(_("Are you sure you want to delete all Bookmarks?"), "/delete_all_bookmarks_ok");
-        if (confirmed)
-        {
-            m_bookmarks.clear();
-            SaveBookmarks(m_bookmarks);
-            if (m_showBookmarks)
-            {
-                Refresh();
-                Update();
-            }
-        }
-    }
-}
-
-static bool IsClose(const wxRealPoint& p1, const wxRealPoint& p2, double tolerance)
-{
-    return fabs(p1.x - p2.x) <= tolerance && fabs(p1.y - p2.y) <= tolerance;
-}
-
-static std::vector<wxRealPoint>::iterator FindBookmark(const wxRealPoint& pos, std::vector<wxRealPoint>& vec)
-{
-    static const double TOLERANCE = 6.0;
-    std::vector<wxRealPoint>::iterator it;
-    for (it = vec.begin(); it != vec.end(); ++it)
-        if (IsClose(*it, pos, TOLERANCE))
-            break;
-    return it;
-}
-
-void Guider::ToggleBookmark(const wxRealPoint& pos)
-{
-    std::vector<wxRealPoint>::iterator it = FindBookmark(pos, m_bookmarks);
-
-    if (it == m_bookmarks.end())
-        m_bookmarks.push_back(pos);
-    else
-        m_bookmarks.erase(it);
-
-    SaveBookmarks(m_bookmarks);
-}
-
-static bool BookmarkPos(const PHD_Point& pos, std::vector<wxRealPoint>& vec)
-{
-    if (pos.IsValid())
-    {
-        wxRealPoint pt(pos.X, pos.Y);
-        std::vector<wxRealPoint>::iterator it = FindBookmark(pt, vec);
-        if (it != vec.end())
-            vec.erase(it);
-        vec.push_back(pt);
-        SaveBookmarks(vec);
-        return true;
-    }
-    return false;
-}
-
-void Guider::BookmarkLockPosition()
-{
-    if (BookmarkPos(LockPosition(), m_bookmarks) && m_showBookmarks)
-    {
-        Refresh();
-        Update();
-    }
-}
-
-void Guider::BookmarkCurPosition()
-{
-    if (BookmarkPos(CurrentPosition(), m_bookmarks) && m_showBookmarks)
-    {
-        Refresh();
-        Update();
-    }
 }

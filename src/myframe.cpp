@@ -87,12 +87,6 @@ EVT_MENU(MENU_XHAIR3, MyFrame::OnOverlay)
 EVT_MENU(MENU_XHAIR4, MyFrame::OnOverlay)
 EVT_MENU(MENU_XHAIR5, MyFrame::OnOverlay)
 EVT_MENU(MENU_SLIT_OVERLAY_COORDS, MyFrame::OnOverlaySlitCoords)
-EVT_MENU(MENU_BOOKMARKS_SHOW, MyFrame::OnBookmarksShow)
-EVT_MENU(MENU_BOOKMARKS_SET_AT_LOCK, MyFrame::OnBookmarksSetAtLockPos)
-EVT_MENU(MENU_BOOKMARKS_SET_AT_STAR, MyFrame::OnBookmarksSetAtCurPos)
-EVT_MENU(MENU_BOOKMARKS_CLEAR_ALL, MyFrame::OnBookmarksClearAll)
-
-EVT_CHAR_HOOK(MyFrame::OnCharHook)
 
 EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
@@ -184,8 +178,7 @@ static GuideHistory *NewGuideHistory()
 
 // ---------------------- Main Frame -------------------------------------
 // frame constructor
-MyFrame::MyFrame()
-    : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pGuideHistory(nullptr)
+MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nullptr)
 {
     // #168: set the global before building anything. PhdApp::OnInit's pFrame = new MyFrame() assigns it only
     // when this constructor returns, but the guider, the dialogs and the mount built below already call
@@ -348,9 +341,6 @@ MyFrame::~MyFrame()
 
     delete pGuideHistory;
     pGuideHistory = nullptr;
-
-    delete m_showBookmarksAccel;
-    delete m_bookmarkLockPosAccel;
 }
 
 void MyFrame::UpdateTitle()
@@ -406,25 +396,12 @@ void MyFrame::SetupMenuBar()
     m_useDefectMapMenuItem =
         darks_menu->AppendCheckItem(MENU_LOADDEFECTMAP, _("Use &Bad-pixel Map"), _("Use the bad-pixel map for this profile"));
 
-    bookmarks_menu = new wxMenu();
-    m_showBookmarksMenuItem =
-        bookmarks_menu->AppendCheckItem(MENU_BOOKMARKS_SHOW, _("Show &Bookmarks\tb"), _("Hide or show bookmarks"));
-    m_showBookmarksAccel = m_showBookmarksMenuItem->GetAccel();
-    bookmarks_menu->Check(MENU_BOOKMARKS_SHOW, true);
-    m_bookmarkLockPosMenuItem = bookmarks_menu->Append(MENU_BOOKMARKS_SET_AT_LOCK, _("Bookmark &Lock Pos\tShift-B"),
-                                                       _("Set a bookmark at the current lock position"));
-    m_bookmarkLockPosAccel = m_bookmarkLockPosMenuItem->GetAccel();
-    bookmarks_menu->Append(MENU_BOOKMARKS_SET_AT_STAR, _("Bookmark &Star Pos"),
-                           _("Set a bookmark at the position of the currently selected star"));
-    bookmarks_menu->Append(MENU_BOOKMARKS_CLEAR_ALL, _("&Delete all\tCtrl-B"), _("Remove all bookmarks"));
-
     Menubar = new wxMenuBar();
     Menubar->Append(file_menu, _("&File"));
     Menubar->Append(guide_menu, _("&Guide"));
     Menubar->Append(tools_menu, _("&Tools"));
     Menubar->Append(view_menu, _("&View"));
     Menubar->Append(darks_menu, _("&Darks"));
-    Menubar->Append(bookmarks_menu, _("&Bookmarks"));
     SetMenuBar(Menubar);
 }
 
