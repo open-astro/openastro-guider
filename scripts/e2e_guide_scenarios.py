@@ -828,7 +828,7 @@ def fits_u16_from_bytes(data, what):
 def display_stretch(pixels, gamma=1.0):
     """What /api/frame.jpg paints, from the frame's pixels: usImage::CalcStats' FiltMin / FiltMax (the min and max
     after a 3x3 median; the edge pixels, which Median3 takes over 4 or 6 neighbours, are left out here) through
-    CopyToImage's gamma table (buildGammaLookupTable: 0 at or under FiltMin, 255 at or over FiltMax, truncated).
+    image_stretch::BuildGammaLut, once CopyToImage's gamma table (0 at or under FiltMin, 255 at or over FiltMax, truncated).
     The profile's default gamma is 1.0 (GAMMA_DEFAULT; the Gamma line of UpdateImageDisplay in the debug log)."""
     import numpy as np
 

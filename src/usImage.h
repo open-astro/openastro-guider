@@ -73,11 +73,8 @@ public:
     void CalcStats();
     void InitImgStartTime();
     bool CopyFrom(const usImage& src);
-    bool CopyToImage(wxImage **img, int blevel, int wlevel, double power);
-    bool CopyFromImage(const wxImage& img);
     bool Load(const wxString& fname);
     bool Save(const wxString& fname, const wxString& hdrComment = wxEmptyString) const;
-    bool Rotate(double theta, bool mirror = false);
     unsigned short& Pixel(int x, int y) { return ImageData[y * Size.x + x]; }
     const unsigned short& Pixel(int x, int y) const { return ImageData[y * Size.x + x]; }
     void Clear(void);

@@ -3,7 +3,8 @@
  *  PHD Guiding
  *
  *  See image_stretch.h. BuildGammaLut is a verbatim lift of usImage.cpp's
- *  buildGammaLookupTable: the same float arithmetic in the same order, so the
+ *  buildGammaLookupTable (deleted in slice S7.3; frozen twin in
+ *  tests/image/legacy): the same float arithmetic in the same order, so the
  *  table is the same byte for byte.
  */
 

@@ -5,7 +5,6 @@
 # This list may only shrink: steps 4-8 of #115 remove these uses.
 typeinfo for wxApp
 typeinfo for wxFrame
-vtable for wxImage
 vtable for wxMDIClientWindow
 wxApp::CleanUp()
 wxApp::GetClassInfo() const
@@ -54,13 +53,6 @@ wxFrameBase::SetMenuBar(wxMenuBar*)
 wxFrameBase::SetStatusText(wxString const&, int)
 wxFrameBase::SetStatusWidths(int, int const*)
 wxFrameBase::UpdateWindowUI(long)
-wxImage::Create(int, int, bool)
-wxImage::GetData() const
-wxImage::GetHeight() const
-wxImage::GetWidth() const
-wxImage::IsOk() const
-wxImage::Mirror(bool) const
-wxImage::Rotate(double, wxPoint const&, bool, wxPoint*) const
 wxMessageBox(wxString const&, wxString const&, long, wxWindow*, int, int)
 wxMessageBoxCaptionStr
 wxNonOwnedWindow::DoClearShape()

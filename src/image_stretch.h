@@ -4,8 +4,9 @@
  *
  *  The display stretch of a 16-bit guide frame to 8-bit gray (#115, slice S7.1
  *  of steps 4-9): black level, white level and gamma through a 64K-entry
- *  lookup table, the same table and arithmetic as usImage::CopyToImage, so the
- *  output is byte-identical to that wxImage's red, green and blue channels.
+ *  lookup table, the same table and arithmetic as usImage::CopyToImage, which
+ *  slice S7.3 deleted, so the output is byte-identical to that wxImage's red,
+ *  green and blue channels.
  *  GET /api/frame.jpg stretches with the frame's FiltMin and FiltMax (from
  *  usImage::CalcStats) and MyFrame::Stretch_gamma.
  *  Kept free of wx so it can be unit tested (tests/image/test_jpeg_encode.cpp).
