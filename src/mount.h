@@ -150,21 +150,6 @@ struct MoveResultInfo
     MoveResultInfo() : amountMoved(0), limited(false) { }
 };
 
-class MountConfigDialogCtrlSet : public ConfigDialogCtrlSet
-{
-    Mount *m_pMount;
-    wxCheckBox *m_pClearCalibration;
-    wxCheckBox *m_pEnableGuide;
-
-public:
-    MountConfigDialogCtrlSet(wxWindow *pParent, Mount *pMount, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
-    MountConfigDialogCtrlSet(const MountConfigDialogCtrlSet&) = delete;
-    MountConfigDialogCtrlSet& operator=(const MountConfigDialogCtrlSet&) = delete;
-    virtual ~MountConfigDialogCtrlSet() {};
-    virtual void LoadValues();
-    virtual void UnloadValues();
-};
-
 class Mount : public wxMessageBoxProxy
 {
     bool m_connected;
@@ -188,47 +173,7 @@ protected:
     mutable AlgorithmSlot m_algorithmSlot; // the algorithms' and the BLC's guard (#142 T2b)
     GuideStepInfo m_lastStep;
 
-    // Things related to the Advanced Config Dialog
 public:
-    class MountConfigDialogPane : public wxEvtHandler, public ConfigDialogPane
-    {
-    protected:
-        Mount *m_pMount;
-        wxWindow *m_pParent;
-        wxChoice *m_pXGuideAlgorithmChoice = nullptr;
-        wxChoice *m_pYGuideAlgorithmChoice = nullptr;
-        int m_initXGuideAlgorithmSelection = 0;
-        int m_initYGuideAlgorithmSelection = 0;
-        ConfigDialogPane *m_pXGuideAlgorithmConfigDialogPane = nullptr;
-        ConfigDialogPane *m_pYGuideAlgorithmConfigDialogPane = nullptr;
-        wxStaticBoxSizer *m_pAlgoBox;
-        wxStaticBoxSizer *m_pRABox;
-        wxStaticBoxSizer *m_pDecBox;
-        wxButton *m_pResetRAParams = nullptr;
-        wxButton *m_pResetDecParams = nullptr;
-        void OnResetRAParams(wxCommandEvent& evt);
-        void OnResetDecParams(wxCommandEvent& evt);
-
-    public:
-        MountConfigDialogPane(wxWindow *pParent, const wxString& title, Mount *pMount);
-        ~MountConfigDialogPane();
-
-        virtual void LoadValues();
-        virtual void UnloadValues();
-        virtual void LayoutControls(wxPanel *pParent, BrainCtrlIdMap& CtrlMap);
-        virtual void OnImageScaleChange();
-        bool IsValid() { return m_pMount != nullptr; }
-
-        virtual void Undo();
-
-        void OnXAlgorithmSelected(wxCommandEvent& evt);
-        void OnYAlgorithmSelected(wxCommandEvent& evt);
-        void ChangeYAlgorithm(const wxString& algoName);
-        void ResetRAGuidingParams();
-        void ResetDecGuidingParams();
-        void EnableDecControls(bool enable);
-    };
-
     GUIDE_ALGORITHM GetXGuideAlgorithmSelection() const;
     GUIDE_ALGORITHM GetYGuideAlgorithmSelection() const;
 
@@ -339,11 +284,6 @@ public:
     virtual void NotifyGuidingDithered(double dx, double dy, bool mountCoords);
     virtual void NotifyGuidingDitherSettleDone(bool success);
     virtual void NotifyDirectMove(const PHD_Point& dist);
-
-    virtual MountConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) = 0;
-    virtual MountConfigDialogCtrlSet *GetConfigDialogCtrlSet(wxWindow *pParent, Mount *pMount, AdvancedDialog *pAdvancedDialog,
-                                                             BrainCtrlIdMap& CtrlMap) = 0;
-    ConfigDialogCtrlSet *currConfigDialogCtrlSet = nullptr; // instance currently in-use by AD
 
     virtual wxString GetMountClassName() const = 0;
 

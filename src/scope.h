@@ -51,39 +51,6 @@ enum DEC_GUIDE_MODE
     DEC_SOUTH
 };
 
-class ScopeConfigDialogCtrlSet : public MountConfigDialogCtrlSet
-{
-    Scope *m_pScope;
-    wxSpinCtrl *m_pCalibrationDuration;
-    wxCheckBox *m_pNeedFlipDec;
-    wxCheckBox *m_pStopGuidingWhenSlewing;
-    wxCheckBox *m_assumeOrthogonal;
-    wxSpinCtrl *m_pMaxRaDuration;
-    wxSpinCtrl *m_pMaxDecDuration;
-    wxChoice *m_pDecMode;
-    wxCheckBox *m_pUseBacklashComp;
-    wxSpinCtrlDouble *m_pBacklashPulse;
-    wxSpinCtrlDouble *m_pBacklashFloor;
-    wxSpinCtrlDouble *m_pBacklashCeiling;
-    wxCheckBox *m_pUseDecComp;
-    bool m_origBLCEnabled;
-
-    void OnDecModeChoice(wxCommandEvent& evt);
-
-public:
-    ScopeConfigDialogCtrlSet(wxWindow *pParent, Scope *pScope, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
-    ScopeConfigDialogCtrlSet(const ScopeConfigDialogCtrlSet&) = delete;
-    ScopeConfigDialogCtrlSet& operator=(const ScopeConfigDialogCtrlSet&) = delete;
-    virtual ~ScopeConfigDialogCtrlSet() {};
-    void LoadValues() override;
-    void UnloadValues() override;
-    void ResetRAParameterUI();
-    void ResetDecParameterUI();
-    int GetCalStepSizeCtrlValue();
-    void SetCalStepSizeCtrlValue(int newStep);
-    DEC_GUIDE_MODE GetDecGuideModeUI();
-};
-
 class Scope : public Mount
 {
     int m_calibrationDuration;
@@ -117,23 +84,7 @@ public:
     bool m_CalDetailsValidated;
     bool m_bogusGuideRatesFlagged;
 
-    // Things related to the Advanced Config Dialog
 protected:
-    class ScopeConfigDialogPane : public MountConfigDialogPane
-    {
-        Scope *m_pScope;
-
-    public:
-        ScopeConfigDialogPane(wxWindow *pParent, Scope *pScope);
-        ~ScopeConfigDialogPane() {};
-
-        void LoadValues() override;
-        void UnloadValues() override;
-        void LayoutControls(wxPanel *pParent, BrainCtrlIdMap& CtrlMap) override;
-    };
-
-    friend class ScopeConfigDialogCtrlSet;
-
     GUIDE_ALGORITHM DefaultXGuideAlgorithm() const override;
     GUIDE_ALGORITHM DefaultYGuideAlgorithm() const override;
 
@@ -154,11 +105,6 @@ public:
     bool SetDecGuideMode(int decGuideMode);
 
     static wxString DecGuideModeStr(DEC_GUIDE_MODE m);
-    static wxString DecGuideModeLocaleStr(DEC_GUIDE_MODE m);
-
-    MountConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
-    MountConfigDialogCtrlSet *GetConfigDialogCtrlSet(wxWindow *pParent, Mount *pScope, AdvancedDialog *pAdvancedDialog,
-                                                     BrainCtrlIdMap& CtrlMap) override;
 
     wxString GetSettingsSummary() const override;
     wxString CalibrationSettingsSummary() const override;

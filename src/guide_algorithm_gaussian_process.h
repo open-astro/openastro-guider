@@ -59,39 +59,11 @@ class GaussianProcessGuider;
 
 class GuideAlgorithmGaussianProcess : public GuideAlgorithm
 {
-protected:
-    class GPExpertDialog : public wxDialog
-    {
-        wxSpinCtrlDouble *m_pPeriodLengthsInference;
-        wxSpinCtrlDouble *m_pPeriodLengthsPeriodEstimation;
-        wxSpinCtrl *m_pNumPointsApproximation;
-        wxSpinCtrlDouble *m_pSE0KLengthScale;
-        wxSpinCtrlDouble *m_pSE0KSignalVariance;
-        wxSpinCtrlDouble *m_pPKLengthScale;
-        wxSpinCtrlDouble *m_pPKSignalVariance;
-        wxSpinCtrlDouble *m_pSE1KLengthScale;
-        wxSpinCtrlDouble *m_pSE1KSignalVariance;
-        void AddTableEntry(wxFlexGridSizer *Grid, const wxString& Label, wxWindow *Ctrl, const wxString& ToolTip);
-
-    public:
-        GPExpertDialog(wxWindow *Parent);
-        void LoadExpertValues(GuideAlgorithmGaussianProcess *m_pGuideAlgorithm, const std::vector<double>& hyperParams);
-        void UnloadExpertValues(GuideAlgorithmGaussianProcess *m_pGuideAlgorithm, std::vector<double>& hyperParams);
-    };
-
-protected:
-    GPExpertDialog *m_expertDialog; // Exactly one per GP instance independent from ConfigDialogPane lifetimes
-
 private:
     /**
      * Holds all data that is needed for the GP guiding.
      */
     struct gp_guide_parameters;
-
-    /**
-     * Provides the GUI configuration functionality.
-     */
-    class GuideAlgorithmGaussianProcessDialogPane;
 
     /**
      * Pointer to the class that does the actual work.
@@ -141,8 +113,6 @@ public:
     GuideAlgorithmGaussianProcess& operator=(const GuideAlgorithmGaussianProcess&) = delete;
     ~GuideAlgorithmGaussianProcess();
     GUIDE_ALGORITHM Algorithm() const override;
-
-    ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
 
     /**
      * Calculates the control value based on the current input. 1. The input is

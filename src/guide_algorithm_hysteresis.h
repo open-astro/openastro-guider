@@ -50,31 +50,12 @@ class GuideAlgorithmHysteresis : public GuideAlgorithm
     guide_algorithm_kernels::HysteresisState m_state; // the last move
 
 protected:
-    class GuideAlgorithmHysteresisConfigDialogPane : public ConfigDialogPane
-    {
-        GuideAlgorithmHysteresis *m_pGuideAlgorithm;
-        wxSpinCtrl *m_pHysteresis;
-        wxSpinCtrl *m_pAggression;
-        wxSpinCtrlDouble *m_pMinMove;
-
-    public:
-        GuideAlgorithmHysteresisConfigDialogPane(wxWindow *pParent, GuideAlgorithmHysteresis *pGuideAlgorithm);
-        ~GuideAlgorithmHysteresisConfigDialogPane();
-
-        void LoadValues() override;
-        void UnloadValues() override;
-        void OnImageScaleChange() override;
-        void EnableDecControls(bool enable) override;
-    };
-
     double GetMinMove() const override;
     bool SetMinMove(double minMove) override;
     double GetHysteresis() const;
     bool SetHysteresis(double minMove);
     double GetAggression() const;
     bool SetAggression(double minMove);
-
-    friend class GuideAlgorithmHysteresisConfigDialogPane;
 
 public:
     GuideAlgorithmHysteresis(Mount *pMount, GuideAxis axis);
@@ -84,7 +65,6 @@ public:
 
     void reset() override;
     double result(double input) override;
-    ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
     wxString GetSettingsSummary() const override;
     wxString GetGuideAlgorithmClassName() const override { return "Hysteresis"; }
     void GetParamNames(wxArrayString& names) const override;

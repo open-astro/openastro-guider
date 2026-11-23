@@ -291,8 +291,6 @@ set(guiding_SRC
 source_group(Guiding FILES ${guiding_SRC})
 
 set(phd2_SRC
-  ${phd_src_dir}/advanced_dialog.cpp
-  ${phd_src_dir}/advanced_dialog.h
 
   ${phd_src_dir}/calstep_dialog.cpp
   ${phd_src_dir}/calstep_dialog.h
@@ -301,8 +299,6 @@ set(phd2_SRC
   ${phd_src_dir}/circbuf.h
   ${phd_src_dir}/image_scale.h
 
-  ${phd_src_dir}/configdialog.cpp
-  ${phd_src_dir}/configdialog.h
   ${phd_src_dir}/confirm_dialog.cpp
   ${phd_src_dir}/confirm_dialog.h
   ${phd_src_dir}/debuglog.cpp

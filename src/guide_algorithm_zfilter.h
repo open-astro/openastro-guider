@@ -51,29 +51,11 @@ class GuideAlgorithmZFilter : public GuideAlgorithm
     ZFilterFactory *m_pFactory;
 
 protected:
-    class GuideAlgorithmZFilterConfigDialogPane : public ConfigDialogPane
-    {
-        GuideAlgorithmZFilter *m_pGuideAlgorithm;
-        wxSpinCtrlDouble *m_pExpFactor;
-        wxSpinCtrlDouble *m_pMinMove;
-
-    public:
-        GuideAlgorithmZFilterConfigDialogPane(wxWindow *pParent, GuideAlgorithmZFilter *pGuideAlgorithm);
-        virtual ~GuideAlgorithmZFilterConfigDialogPane();
-
-        void LoadValues() override;
-        void UnloadValues() override;
-        void OnImageScaleChange() override;
-        void EnableDecControls(bool enable) override;
-    };
-
     bool BuildFilter();
     double GetMinMove() const override;
     bool SetMinMove(double minMove) override;
     double GetExpFactor() const;
     bool SetExpFactor(double expfactor);
-
-    friend class GuideAlgorithmZFilterConfigDialogPane;
 
 public:
     GuideAlgorithmZFilter(Mount *pMount, GuideAxis axis);
@@ -82,7 +64,6 @@ public:
 
     void reset() override;
     double result(double input) override;
-    ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
     wxString GetSettingsSummary() const override;
     wxString GetGuideAlgorithmClassName() const override { return "ZFilter"; }
     void GetParamNames(wxArrayString& names) const override;

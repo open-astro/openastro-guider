@@ -42,19 +42,6 @@
 
 class GuideAlgorithmIdentity : public GuideAlgorithm
 {
-protected:
-    class GuideAlgorithmIdentityConfigDialogPane : public ConfigDialogPane
-    {
-        GuideAlgorithmIdentity *m_pGuideAlgorithm;
-
-    public:
-        GuideAlgorithmIdentityConfigDialogPane(wxWindow *pParent, GuideAlgorithmIdentity *pGuideAlgorithm);
-        ~GuideAlgorithmIdentityConfigDialogPane();
-
-        void LoadValues() override;
-        void UnloadValues() override;
-    };
-
 public:
     GuideAlgorithmIdentity(Mount *pMount, GuideAxis axis);
     ~GuideAlgorithmIdentity();
@@ -62,7 +49,6 @@ public:
 
     void reset() override;
     double result(double input) override;
-    ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
     wxString GetSettingsSummary() const override { return "\n"; }
     wxString GetGuideAlgorithmClassName() const override { return "Identity"; }
 };

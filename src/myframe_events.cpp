@@ -1025,20 +1025,6 @@ void MyFrame::OnBookmarksClearAll(wxCommandEvent& evt)
     pGuider->DeleteAllBookmarks();
 }
 
-void MyFrame::OnTextControlSetFocus(wxFocusEvent& evt)
-{
-    m_showBookmarksMenuItem->SetAccel(0);
-    m_bookmarkLockPosMenuItem->SetAccel(0);
-    evt.Skip();
-}
-
-void MyFrame::OnTextControlKillFocus(wxFocusEvent& evt)
-{
-    m_showBookmarksMenuItem->SetAccel(m_showBookmarksAccel);
-    m_bookmarkLockPosMenuItem->SetAccel(m_bookmarkLockPosAccel);
-    evt.Skip();
-}
-
 void MyFrame::OnCharHook(wxKeyEvent& evt)
 {
     bool handled = false;
