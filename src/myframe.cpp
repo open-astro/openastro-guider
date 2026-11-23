@@ -287,12 +287,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
         StartServer(true);
     }
 
-#include "xhair.xpm"
-    wxImage Cursor = wxImage(mac_xhair);
-    Cursor.SetOption(wxIMAGE_OPTION_CUR_HOTSPOT_X, 8);
-    Cursor.SetOption(wxIMAGE_OPTION_CUR_HOTSPOT_Y, 8);
-    pGuider->SetCursor(wxCursor(Cursor));
-
     m_continueCapturing = false;
     CaptureActive = false;
     m_exposurePending = false;

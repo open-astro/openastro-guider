@@ -103,7 +103,6 @@ struct GuiderOffset
 
 class Guider : public wxWindow
 {
-    wxImage *m_displayedImage;
     PauseType m_paused;
     ShiftPoint m_lockPosition;
     PHD_Point m_ditherRecenterStep;
@@ -132,13 +131,11 @@ class Guider : public wxWindow
 protected:
     int m_searchRegion; // how far u/d/l/r do we do the initial search for a star
     bool m_forceFullFrame;
-    double m_scaleFactor;
 
 protected:
     Guider(wxWindow *parent, int xSize, int ySize);
     virtual ~Guider();
 
-    bool PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC);
     void SetState(GUIDER_STATE newState);
     friend class GuiderStateHost; // performs the state machine's actions (guider.cpp, guider_state_machine.h)
     void UpdateCurrentDistance(double distance, double distanceRA);
@@ -226,8 +223,6 @@ private:
     virtual bool SetCurrentPosition(const usImage *pImage, const PHD_Point& position) = 0;
 
 public:
-    virtual void OnPaint(wxPaintEvent& evt) = 0;
-
     virtual bool IsLocked() const = 0;
     // willForceRecal: the guide request selecting the star will clear the calibration before it calibrates (#140)
     virtual bool AutoSelect(const wxRect& roi = wxRect(), bool willForceRecal = false) = 0;
@@ -243,8 +238,6 @@ public:
     virtual wxString GetStarCount() const { return wxEmptyString; }
 
     usImage *CurrentImage() const;
-    wxImage *DisplayedImage() const;
-    double ScaleFactor() const;
 
     virtual wxString GetSettingsSummary() const;
 
@@ -309,16 +302,6 @@ inline bool Guider::IsFastRecenterEnabled() const
 inline usImage *Guider::CurrentImage() const
 {
     return m_pCurrentImage;
-}
-
-inline wxImage *Guider::DisplayedImage() const
-{
-    return m_displayedImage;
-}
-
-inline double Guider::ScaleFactor() const
-{
-    return m_scaleFactor;
 }
 
 inline double Guider::GetMinStarHFD() const

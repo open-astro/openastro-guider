@@ -91,8 +91,6 @@ public:
     GuiderMultiStar(wxWindow *parent);
     virtual ~GuiderMultiStar();
 
-    void OnPaint(wxPaintEvent& evt) override;
-
     virtual bool SetLockPosition(const PHD_Point& position) override;
     bool IsLocked() const override;
     bool AutoSelect(const wxRect& roi, bool willForceRecal) override;
@@ -115,11 +113,7 @@ private:
     bool UpdateCurrentPosition(const usImage *pImage, GuiderOffset *ofs, FrameDroppedInfo *errorInfo) final;
     bool SetCurrentPosition(const usImage *pImage, const PHD_Point& position) final;
 
-    void OnLClick(wxMouseEvent& evt);
-
     void SaveStarFITS();
-
-    wxDECLARE_EVENT_TABLE();
 };
 
 inline int GuiderMultiStar::GetMaxMovePixels() const

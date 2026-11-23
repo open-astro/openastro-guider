@@ -7,7 +7,6 @@ typeinfo for wxApp
 typeinfo for wxDialog
 typeinfo for wxFileDropTarget
 typeinfo for wxFrame
-typeinfo for wxPaintDC
 typeinfo for wxProgressDialog
 typeinfo for wxWindow
 vtable for wxAnyButton
@@ -23,7 +22,6 @@ vtable for wxComboBox
 vtable for wxCommandEvent
 vtable for wxControl
 vtable for wxCursor
-vtable for wxDC
 vtable for wxDialog
 vtable for wxFrame
 vtable for wxIcon
@@ -33,7 +31,6 @@ vtable for wxInfoBar
 vtable for wxInfoBarGeneric
 vtable for wxJPEGHandler
 vtable for wxMDIClientWindow
-vtable for wxMemoryDC
 vtable for wxMenu
 vtable for wxMenuBase
 vtable for wxPNGHandler
@@ -47,7 +44,6 @@ vtable for wxSpinCtrlDouble
 vtable for wxStaticBox
 vtable for wxTextEntryDialog
 vtable for wxTopLevelWindow
-vtable for wxWindowDC
 vtable for wxwxMenuItemListNode
 vtable for wxwxSizerItemListNode
 wxAcceleratorTable::wxAcceleratorTable(int, wxAcceleratorEntry const*)
@@ -92,10 +88,6 @@ wxAuiToolBar::GetToolEnabled(int) const
 wxAuiToolBar::Init()
 wxAuiToolBar::Realize()
 wxBeginBusyCursor(wxCursor const*)
-wxBell()
-wxBitmap::GetHeight() const
-wxBitmap::GetWidth() const
-wxBitmap::wxBitmap(wxImage const&, int, double)
 wxBitmap::~wxBitmap()
 wxBitmapBundle::operator=(wxBitmapBundle const&)
 wxBitmapBundle::wxBitmapBundle()
@@ -125,7 +117,6 @@ wxControlContainerBase::DoSetFocus()
 wxControlContainerBase::HasAnyChildrenAcceptingFocus() const
 wxControlContainerBase::UpdateCanFocusChildren()
 wxCursor::InitFromStock(wxStockCursor)
-wxCursor::wxCursor(wxImage const&)
 wxCursor::~wxCursor()
 wxDefaultPosition
 wxDefaultSize
@@ -157,9 +148,7 @@ wxEVT_BUTTON
 wxEVT_CLOSE_WINDOW
 wxEVT_COMBOBOX
 wxEVT_ERASE_BACKGROUND
-wxEVT_LEFT_DOWN
 wxEVT_MENU
-wxEVT_PAINT
 wxEVT_RADIOBUTTON
 wxEVT_SCROLL_BOTTOM
 wxEVT_SCROLL_CHANGED
@@ -224,7 +213,6 @@ wxGetKeyState(wxKeyCode)
 wxIcon::CopyFromBitmap(wxBitmap const&)
 wxIcon::wxIcon()
 wxImage::AddHandler(wxImageHandler*)
-wxImage::Create(char const* const*)
 wxImage::Create(int, int, bool)
 wxImage::GetData() const
 wxImage::GetHeight() const
@@ -232,15 +220,11 @@ wxImage::GetWidth() const
 wxImage::IsOk() const
 wxImage::Mirror(bool) const
 wxImage::Rotate(double, wxPoint const&, bool, wxPoint*) const
-wxImage::Scale(int, int, wxImageResizeQuality) const
 wxImage::SetOption(wxString const&, int)
-wxImage::Size(wxSize const&, wxPoint const&, int, int, int) const
 wxInfoBar::Create(wxWindow*, int)
 wxInfoBarGeneric::Init()
 wxItemContainerImmutable::SetStringSelection(wxString const&)
 wxLaunchDefaultBrowser(wxString const&, int)
-wxMemoryDC::SelectObject(wxBitmap&)
-wxMemoryDC::wxMemoryDC()
 wxMenu::Init()
 wxMenuBar::Append(wxMenu*, wxString const&)
 wxMenuBar::wxMenuBar()
@@ -256,11 +240,7 @@ wxNonOwnedWindow::DoClearShape()
 wxNonOwnedWindow::DoSetPathShape(wxGraphicsPath const&)
 wxNonOwnedWindow::DoSetRegionShape(wxRegion const&)
 wxObjectArrayTraitsForwxAuiToolBarItemArray::Free(wxAuiToolBarItem*)
-wxPaintDC::GetClassInfo() const
-wxPaintDC::wxPaintDC(wxWindow*)
 wxPanelNameStr
-wxPen::wxPen(wxColour const&, int, wxPenStyle)
-wxPen::~wxPen()
 wxProgressDialog::GetClassInfo() const
 wxRadioButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxRadioButtonNameStr
@@ -292,7 +272,6 @@ wxStaticTextNameStr
 wxStdDialogButtonSizer::AddButton(wxButton*)
 wxStdDialogButtonSizer::Realize()
 wxStdDialogButtonSizer::wxStdDialogButtonSizer()
-wxStockGDI::GetBrush(wxStockGDI::Item)
 wxStockGDI::GetColour(wxStockGDI::Item)
 wxStockGDI::GetCursor(wxStockGDI::Item)
 wxTextCtrl::wxTextCtrl(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
@@ -443,7 +422,6 @@ wxWindowBase::Enable(bool)
 wxWindowBase::FindWindow(long) const
 wxWindowBase::Fit()
 wxWindowBase::FitInside()
-wxWindowBase::GetBackgroundColour() const
 wxWindowBase::GetBestSize() const
 wxWindowBase::GetCapture()
 wxWindowBase::GetClassDefaultAttributes(wxWindowVariant)

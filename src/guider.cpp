@@ -100,7 +100,6 @@ static const bool DefaultScaleImage = true;
 
 // clang-format off
 wxBEGIN_EVENT_TABLE(Guider, wxWindow)
-EVT_PAINT(Guider::OnPaint)
 EVT_CLOSE(Guider::OnClose)
 EVT_ERASE_BACKGROUND(Guider::OnErase)
 wxEND_EVENT_TABLE();
@@ -111,8 +110,6 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
 {
     m_state = STATE_UNINITIALIZED;
     Debug.Write(wxString::Format("guider state => %s\n", guider_state_machine::StateName(m_state)));
-    m_scaleFactor = 1.0;
-    m_displayedImage = new wxImage(XWinSize, YWinSize, true);
     m_paused = PAUSE_NONE;
     m_ditherRecenterStepsPending = 0;
     m_ditherRecenterStalledSteps = 0;
@@ -137,7 +134,6 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
 
 Guider::~Guider()
 {
-    delete m_displayedImage;
     delete m_pCurrentImage;
 
     s_deflectionLogger.Uninit();
@@ -172,8 +168,6 @@ void Guider::LoadProfileSettings()
     // clear the display
     if (m_pCurrentImage->ImageData)
     {
-        delete m_displayedImage;
-        m_displayedImage = new wxImage(XWinSize, YWinSize, true);
         DisplayImage(new usImage());
     }
 }
@@ -254,131 +248,6 @@ void Guider::OnClose(wxCloseEvent& evt)
     Destroy();
 }
 
-bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
-{
-    bool bError = false;
-
-    try
-    {
-        GUIDER_STATE state = GetState();
-        GetSize(&XWinSize, &YWinSize);
-
-        if (m_pCurrentImage->ImageData)
-        {
-            int blevel = m_pCurrentImage->FiltMin;
-            int wlevel = m_pCurrentImage->FiltMax;
-            m_pCurrentImage->CopyToImage(&m_displayedImage, blevel, wlevel, pFrame->Stretch_gamma);
-        }
-
-        int imageWidth = m_displayedImage->GetWidth();
-        int imageHeight = m_displayedImage->GetHeight();
-
-        // scale the image if necessary
-
-        if (imageWidth != XWinSize || imageHeight != YWinSize)
-        {
-            // The image is not the exact right size -- figure out what to do.
-            double xScaleFactor = imageWidth / (double) XWinSize;
-            double yScaleFactor = imageHeight / (double) YWinSize;
-            int newWidth = imageWidth;
-            int newHeight = imageHeight;
-
-            double newScaleFactor = (xScaleFactor > yScaleFactor) ? xScaleFactor : yScaleFactor;
-
-            //            Debug.Write(wxString::Format("xScaleFactor=%.2f, yScaleFactor=%.2f, newScaleFactor=%.2f\n",
-            //            xScaleFactor,
-            //                    yScaleFactor, newScaleFactor));
-
-            // we rescale the image if:
-            // - The image is either too big
-            // - The image is so small that at least one dimension is less
-            //   than half the width of the window or
-            // - The user has requested rescaling
-
-            if (xScaleFactor > 1.0 || yScaleFactor > 1.0 || xScaleFactor < 0.45 || yScaleFactor < 0.45 || m_scaleImage)
-            {
-
-                newWidth /= newScaleFactor;
-                newHeight /= newScaleFactor;
-
-                newScaleFactor = 1.0 / newScaleFactor;
-
-                m_scaleFactor = newScaleFactor;
-
-                if (imageWidth != newWidth || imageHeight != newHeight)
-                {
-                    //                    Debug.Write(wxString::Format("Resizing image to %d,%d\n", newWidth, newHeight));
-
-                    if (newWidth > 0 && newHeight > 0)
-                    {
-                        m_displayedImage->Rescale(newWidth, newHeight, wxIMAGE_QUALITY_BILINEAR);
-                    }
-                }
-            }
-            else
-            {
-                m_scaleFactor = 1.0;
-            }
-        }
-
-        // important to provide explicit color for r,g,b, optional args to Size().
-        // If default args are provided wxWidgets performs some expensive histogram
-        // operations.
-        wxBitmap DisplayedBitmap(m_displayedImage->Size(wxSize(XWinSize, YWinSize), wxPoint(0, 0), 0, 0, 0));
-        memDC.SelectObject(DisplayedBitmap);
-
-        dc.Blit(0, 0, DisplayedBitmap.GetWidth(), DisplayedBitmap.GetHeight(), &memDC, 0, 0, wxCOPY, false);
-
-        int XImgSize = m_displayedImage->GetWidth();
-        int YImgSize = m_displayedImage->GetHeight();
-
-        // draw the lockpoint of there is one
-        if (state > STATE_SELECTED)
-        {
-            double LockX = LockPosition().X;
-            double LockY = LockPosition().Y;
-
-            switch (state)
-            {
-            case STATE_UNINITIALIZED:
-            case STATE_SELECTING:
-            case STATE_SELECTED:
-            case STATE_STOP:
-                break;
-            case STATE_CALIBRATING_PRIMARY:
-            case STATE_CALIBRATING_SECONDARY:
-                dc.SetPen(wxPen(wxColor(255, 255, 0), 1, wxPENSTYLE_DOT));
-                break;
-            case STATE_CALIBRATED:
-            case STATE_GUIDING:
-                dc.SetPen(wxPen(wxColor(0, 255, 0)));
-                break;
-            }
-
-            dc.DrawLine(0, int(LockY * m_scaleFactor), XImgSize, int(LockY * m_scaleFactor));
-            dc.DrawLine(int(LockX * m_scaleFactor), 0, int(LockX * m_scaleFactor), YImgSize);
-        }
-
-        if (IsPaused())
-        {
-            dc.SetTextForeground(*wxYELLOW);
-            dc.DrawText(_("PAUSED"), 10, YWinSize - 20);
-        }
-        else if (pMount && !pMount->GetGuidingEnabled())
-        {
-            dc.SetTextForeground(*wxYELLOW);
-            dc.DrawText(_("Guide output DISABLED"), 10, YWinSize - 20);
-        }
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        bError = true;
-    }
-
-    return bError;
-}
-
 void Guider::UpdateImageDisplay(usImage *pImage)
 {
     if (!pImage)
@@ -390,9 +259,6 @@ void Guider::UpdateImageDisplay(usImage *pImage)
         wxString::Format("UpdateImageDisplay: Size=(%d,%d) min=%u, max=%u, med=%u, FiltMin=%u, FiltMax=%u, Gamma=%.3f\n",
                          pImage->Size.x, pImage->Size.y, pImage->MinADU, pImage->MaxADU, pImage->MedianADU, pImage->FiltMin,
                          pImage->FiltMax, pFrame->Stretch_gamma));
-
-    Refresh();
-    Update();
 }
 
 bool Guider::SaveCurrentImage(const wxString& fileName)
@@ -716,13 +582,9 @@ bool GuiderStateHost::Do(guider_state_machine::Action action)
     }
     case Action::LostStarAlert:
     {
-        wxColor prevColor = g.GetBackgroundColour();
-        g.SetBackgroundColour(wxColour(64, 0, 0));
-        g.ClearBackground();
-        if (pFrame->GetBeepForLostStar())
-            wxBell();
+        // the GUI's dark red flash and beep went with the guider window (#115 S5.3); the pause stays so the
+        // lost-star frame's timing does not change
         wxMilliSleep(100);
-        g.SetBackgroundColour(prevColor);
         break;
     }
 

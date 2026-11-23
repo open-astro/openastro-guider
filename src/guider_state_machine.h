@@ -58,7 +58,7 @@ enum class Action
     GuidingFrameDropped, // GuideLog.FrameDropped(info)
     RecordDroppedFrame, // GuidingAssistant::NotifyFrameDropped(info), the guide history
     DeducedMove, // SchedulePrimaryMove(pMount, zero offset, MOVEOPTS_DEDUCED_MOVE)
-    LostStarAlert, // the dark red flash and the beep
+    LostStarAlert, // a 100 ms pause (the GUI flash and beep that went with it were removed in #115 S5.3)
 
     // UpdateGuideState, a frame with the star
     LockOnSelectedStar, // SetLockPosition(CurrentPosition()), the current position being valid
