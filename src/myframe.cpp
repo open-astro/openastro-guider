@@ -1281,8 +1281,7 @@ double MyFrame::CurrentGuideErrorSmoothed() const
 // SIGINT and a restart reach it from IdleClosing (phd.cpp), which then deletes the frame and exits the main loop.
 void MyFrame::Shutdown()
 {
-    // once only: an OS session end (OnClose, not vetoable) and a pending IdleClosing (a signal or the `shutdown` RPC)
-    // can both get here
+    // once only: a signal and the `shutdown` RPC can both reach IdleClosing
     if (m_shutDown)
     {
         Debug.Write("MyFrame::Shutdown: already shut down\n");

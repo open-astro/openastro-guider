@@ -232,13 +232,12 @@ static void IdleClosing(wxIdleEvent& evt)
     wxGetApp().Unbind(wxEVT_IDLE, &IdleClosing);
 
     // #115 S6.8: a second request (a signal, or a shutdown RPC queued before the servers stopped) that got here after
-    // the frame was deleted has nothing left to shut down; nor has one after an OS session end, whose close shut the
-    // frame down and Destroy()ed it (wx deletes it and exits the main loop)
+    // the frame was deleted, or after it shut down, has nothing left to do
     if (!pFrame || pFrame->IsShutDown())
         return;
 
-    // #115 S6.8: what the forced close's MyFrame::OnClose did, then the frame's deletion, which wx made in this idle
-    // pass after OnClose's Destroy(), and the exit from the main loop that the last window's deletion made
+    // #115 S6.8/S6.9: the exit sequence, then the frame's deletion and the exit from the main loop (MyFrame is a
+    // wxEvtHandler, so no window close does either)
     pFrame->Shutdown();
     // nothing posts to the frame once Shutdown() has stopped the servers and the worker threads; drop anything already
     // queued for it (~wxEvtHandler does too) so no event can reach it after the delete
