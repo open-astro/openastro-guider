@@ -50,7 +50,6 @@
 #include <wx/artprov.h>
 #include <wx/dirdlg.h>
 #include <wx/dnd.h>
-#include <wx/textwrapper.h>
 #include <wx/valnum.h>
 
 static const int DefaultNoiseReductionMethod = 0;
@@ -91,7 +90,6 @@ EVT_TOOL(BUTTON_AUTOSTAR, MyFrame::OnButtonAutoStar)
 EVT_MENU(MENU_STOP, MyFrame::OnButtonStop)
 EVT_TOOL(BUTTON_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(MENU_GUIDE, MyFrame::OnButtonGuide)
-EVT_MENU(BUTTON_ALERT_CLOSE, MyFrame::OnAlertButton) // Bit of a hack -- not actually on the menu but need an event to accelerate
 EVT_SOCKET(SOCK_SERVER_ID, MyFrame::OnSockServerEvent)
 EVT_SOCKET(SOCK_SERVER_CLIENT_ID, MyFrame::OnSockServerClientEvent)
 EVT_CLOSE(MyFrame::OnClose)
@@ -207,13 +205,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
 
     LoadProfileSettings();
 
-    // the alert info bar, in the frame; the guider is not a window (#115 S5.4)
-    m_infoBar = new wxInfoBar(this);
-    m_infoBar->Connect(BUTTON_ALERT_ACTION, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
-    m_infoBar->Connect(BUTTON_ALERT_DONTSHOW, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
-    m_infoBar->Connect(BUTTON_ALERT_CLOSE, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
-    m_infoBar->Connect(BUTTON_ALERT_HELP, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertHelp), nullptr, this);
-
     pGuider = new GuiderMultiStar();
 
     pGuider->LoadProfileSettings();
@@ -252,8 +243,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
     SetDropTarget(new FileDropTarget());
 
     m_mgr.AddPane(MainToolbar, wxAuiPaneInfo().Name(_T("MainToolBar")).Caption(_T("Main tool bar")).ToolbarPane().Bottom());
-
-    m_mgr.AddPane(m_infoBar, wxAuiPaneInfo().Name(_T("AlertBar")).CenterPane().PaneBorder(false));
 
     pGuideHistory = NewGuideHistory();
 
@@ -656,7 +645,6 @@ void MyFrame::SetupKeyboardShortcuts()
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'G', MENU_GUIDE),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', MENU_LOOP),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'S', MENU_STOP),
-        wxAcceleratorEntry(wxACCEL_CTRL, (int) 'D', BUTTON_ALERT_CLOSE),
     };
     wxAcceleratorTable accel(WXSIZEOF(entries), entries);
     SetAcceleratorTable(accel);
@@ -715,120 +703,36 @@ void MyFrame::UpdateButtonsStatus()
     }
 }
 
-static wxString WrapText(wxWindow *win, const wxString& text, int width)
-{
-    struct Wrapper : public wxTextWrapper
-    {
-        wxString m_str;
-        Wrapper(wxWindow *win, const wxString& text, int width) { Wrap(win, text, width); }
-        const wxString& Str() const { return m_str; }
-        void OnOutputLine(const wxString& line) { m_str += line; }
-        void OnNewLine() { m_str += '\n'; }
-    };
-    return Wrapper(win, text, width).Str();
-}
-
 struct alert_params
 {
     wxString msg;
-    wxString buttonLabel;
     int flags;
-    alert_fn *fnDontShow;
-    alert_fn *fnSpecial;
-    intptr_t arg;
-    bool showHelp;
 };
 
-void MyFrame::OnAlertButton(wxCommandEvent& evt)
-{
-    if (evt.GetId() == BUTTON_ALERT_ACTION && m_alertSpecialFn)
-        (*m_alertSpecialFn)(m_alertFnArg);
-    if (evt.GetId() == BUTTON_ALERT_DONTSHOW && m_alertDontShowFn)
-    {
-        (*m_alertDontShowFn)(m_alertFnArg);
-        // Don't show should also mean close the window
-        m_infoBar->Dismiss();
-    }
-    if (evt.GetId() == BUTTON_ALERT_CLOSE)
-        m_infoBar->Dismiss();
-}
-
-void MyFrame::OnAlertHelp(wxCommandEvent& evt)
-{
-    // The bundled GUI help was removed for the headless build; send the user
-    // to the online troubleshooting/help page instead.
-    wxLaunchDefaultBrowser("https://openphdguiding.org/getting-help/");
-}
-
-// Alerts may have a combination of 'Don't show', help, close, and 'Custom' buttons.  The 'close' button is added automatically
-// if any of the other buttons are present.
+// An alert is a Debug line and the Alert event, in that order (#115 S6.3). The info bar that showed it, with its
+// 'Don't show', custom-action, help and close buttons, is gone, so the alert_fn callbacks are never invoked.
 void MyFrame::DoAlert(const alert_params& params)
 {
     Debug.Write(wxString::Format("Alert: %s\n", params.msg));
-
-    m_alertDontShowFn = params.fnDontShow;
-    m_alertSpecialFn = params.fnSpecial;
-    m_alertFnArg = params.arg;
-
-    int buttonSpace = 80;
-    m_infoBar->RemoveButton(BUTTON_ALERT_ACTION);
-    m_infoBar->RemoveButton(BUTTON_ALERT_CLOSE);
-    m_infoBar->RemoveButton(BUTTON_ALERT_HELP);
-    m_infoBar->RemoveButton(BUTTON_ALERT_DONTSHOW);
-    if (params.fnDontShow)
-    {
-        m_infoBar->AddButton(BUTTON_ALERT_DONTSHOW, _("Don't show\n again"));
-        buttonSpace += 80;
-    }
-    if (params.fnSpecial)
-    {
-        m_infoBar->AddButton(BUTTON_ALERT_ACTION, params.buttonLabel);
-        buttonSpace += 80;
-    }
-    if (params.fnSpecial || params.fnDontShow || params.showHelp)
-    {
-        m_infoBar->AddButton(BUTTON_ALERT_CLOSE, _("Close"));
-        buttonSpace += 80;
-    }
-    if (params.showHelp)
-    {
-        m_infoBar->AddButton(BUTTON_ALERT_HELP, _("Help"));
-        buttonSpace += 80;
-    }
-    // the guider window the text wrapped to is gone (#115 S5.4): wrap to its default width
-    static const int AlertWrapWidth = 640;
-    int textWidth = wxMax(AlertWrapWidth - buttonSpace, 100);
-    wxString wrappedText = WrapText(m_infoBar, params.msg, textWidth);
-    int showMessageFlags = params.flags;
-    m_infoBar->ShowMessage(wrappedText, showMessageFlags);
     EvtServer.NotifyAlert(params.msg, params.flags);
 }
 
-void MyFrame::Alert(const wxString& msg, alert_fn *DontShowFn, const wxString& buttonLabel, alert_fn *SpecialFn, intptr_t arg,
-                    bool showHelpButton, int flags)
+// The button arguments are kept for the callers; with no info bar there are no buttons to offer them on
+void MyFrame::Alert(const wxString& msg, alert_fn * /*DontShowFn*/, const wxString& /*buttonLabel*/, alert_fn * /*SpecialFn*/,
+                    intptr_t /*arg*/, bool /*showHelpButton*/, int flags)
 {
     if (wxThread::IsMain())
     {
         alert_params params;
         params.msg = msg;
-        params.buttonLabel = buttonLabel;
         params.flags = flags;
-        params.fnDontShow = DontShowFn;
-        params.fnSpecial = SpecialFn;
-        params.arg = arg;
-        params.showHelp = showHelpButton;
         DoAlert(params);
     }
     else
     {
         alert_params *params = new alert_params;
         params->msg = msg;
-        params->buttonLabel = buttonLabel;
         params->flags = flags;
-        params->fnDontShow = DontShowFn;
-        params->fnSpecial = SpecialFn;
-        params->arg = arg;
-        params->showHelp = showHelpButton;
         wxThreadEvent *event = new wxThreadEvent(wxEVT_THREAD, ALERT_FROM_THREAD_EVENT);
         event->SetExtraLong((long) params);
         wxQueueEvent(this, event);

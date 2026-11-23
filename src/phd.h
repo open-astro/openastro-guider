@@ -47,7 +47,6 @@
 #include <wx/graphics.h>
 #include <wx/grid.h>
 #include <wx/image.h>
-#include <wx/infobar.h>
 #include <wx/intl.h>
 #include <wx/minifram.h>
 #include <wx/msgqueue.h>

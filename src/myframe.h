@@ -174,7 +174,6 @@ public:
     wxMenuItem *m_stopMenuItem;
     wxMenuItem *m_autoSelectStarMenuItem;
     wxAuiToolBar *MainToolbar;
-    wxInfoBar *m_infoBar;
     wxCheckBox *HotPixel_Checkbox;
     GuideHistory *pGuideHistory = nullptr;
     EquipmentManager *pEquipment = nullptr; // the devices and their selection
@@ -362,10 +361,6 @@ private:
     int m_exposureDuration;
     AutoExposureCfg m_autoExp;
 
-    alert_fn *m_alertDontShowFn;
-    alert_fn *m_alertSpecialFn;
-    intptr_t m_alertFnArg;
-
     // for rate-limiting camera reconnect attempts, on monotonic_timers::ClockS (#226)
     monotonic_timers::ReconnectThrottle m_cameraReconnectThrottle;
 
@@ -373,8 +368,6 @@ private:
     bool StopWorkerThread(WorkerThread *& pWorkerThread);
     void OnStatusMsg(wxThreadEvent& event);
     void DoAlert(const alert_params& params);
-    void OnAlertButton(wxCommandEvent& evt);
-    void OnAlertHelp(wxCommandEvent& evt);
     void OnAlertFromThread(wxThreadEvent& event);
     void OnReconnectCameraFromThread(wxThreadEvent& event);
     void OnMessageBoxProxy(wxCommandEvent& evt);
@@ -417,10 +410,6 @@ enum
     BUTTON_GUIDE,
     BUTTON_STOP,
     BUTTON_AUTOSTAR,
-    BUTTON_ALERT_ACTION,
-    BUTTON_ALERT_CLOSE,
-    BUTTON_ALERT_HELP,
-    BUTTON_ALERT_DONTSHOW,
     WIN_VFW, // Dummy event to capture VFW streams
     MGUIDE1_UP,
     MGUIDE1_DOWN,

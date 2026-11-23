@@ -23,8 +23,6 @@ vtable for wxFrame
 vtable for wxIcon
 vtable for wxImage
 vtable for wxImageHandler
-vtable for wxInfoBar
-vtable for wxInfoBarGeneric
 vtable for wxJPEGHandler
 vtable for wxMDIClientWindow
 vtable for wxMenu
@@ -192,10 +190,7 @@ wxImage::IsOk() const
 wxImage::Mirror(bool) const
 wxImage::Rotate(double, wxPoint const&, bool, wxPoint*) const
 wxImage::SetOption(wxString const&, int)
-wxInfoBar::Create(wxWindow*, int)
-wxInfoBarGeneric::Init()
 wxItemContainerImmutable::SetStringSelection(wxString const&)
-wxLaunchDefaultBrowser(wxString const&, int)
 wxMenu::Init()
 wxMenuBar::Append(wxMenu*, wxString const&)
 wxMenuBar::wxMenuBar()
@@ -245,7 +240,6 @@ wxStockGDI::GetColour(wxStockGDI::Item)
 wxStockGDI::GetCursor(wxStockGDI::Item)
 wxTextCtrl::wxTextCtrl(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxTextCtrlNameStr
-wxTextWrapper::Wrap(wxWindow*, wxString const&, int)
 wxTopLevelWindowBase::Destroy()
 wxTopLevelWindowBase::DoCentre(int)
 wxTopLevelWindowBase::DoClientToScreen(int*, int*) const
