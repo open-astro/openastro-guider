@@ -90,10 +90,17 @@ small control endpoint and is off until used, so the default behaviour is unchan
         (telescope, default 0) holds a Connected=true PUT that succeeds that long
         before it answers, connected only then (a synchronous connect that opens a
         serial port).
-    PUT /fake/stall    device=<camera|telescope>&ms=<N>[&call=<endpoint, e.g. startexposure>]
+    PUT /fake/stall    device=<camera|telescope>&ms=<N>[&call=<endpoint, e.g. startexposure>][&count=<N>]
         Every request for that device sleeps N ms before it answers (a server that
         accepts the connection, then stalls); ms=0 clears it. call= stalls only that
-        endpoint (a kill that lands while the guider waits on it, #211).
+        endpoint (a kill that lands while the guider waits on it, #211). count=N
+        stalls only the next N requests it applies to, then clears itself (one hung
+        request, #142 T2g); without it the stall stays until cleared.
+    GET /fake/requests[?clear=1]
+        The requests each device received since the last clear, per endpoint, as
+        {"camera": {"GET imageready": n, ...}, "telescope": {"PUT pulseguide": n, ...}};
+        clear=1 returns them and empties the counts (the HTTP cost of a guide pulse,
+        #142 T2g).
     PUT /fake/stop_listening
         Close the listening socket and answer: every connection after it is refused,
         as by a server that has gone, while requests already accepted (a stalled one)
@@ -104,6 +111,12 @@ small control endpoint and is off until used, so the default behaviour is unchan
         startexposure until the next startexposure (a camera that stopped reading
         out, for the guider's capture timeout, #142); frames=0 clears it. The
         next exposure after them is a normal one.
+    PUT /fake/size     w=<px>&h=<px>
+        Change the sensor size the camera reports (cameraxsize/cameraysize, numx/numy)
+        and the frames it sends from the next one on, as a camera swapped or rebinned
+        under the guider does (the guider's dark geometry check, #115 N3). The guider
+        reads cameraxsize only at connect, so its frame size follows the frames.
+        clear_faults leaves it as it is; --size is the size at start.
     PUT /fake/guiderate [ra=<x sidereal>][&dec=<x sidereal>]
         The guide rates the telescope reports (guideraterightascension and
         guideratedeclination) as multiples of the sidereal rate, 15"/s; the pulses
@@ -290,6 +303,9 @@ scope_unplugged = {"on": False, "error": 1280, "delay_ms": 0, "connect_delay_ms"
 STALE_FAILING_CALLS = ("startexposure", "imageready", "imagearray")
 stall_ms = {"camera": 0, "telescope": 0}
 stall_call = {"camera": "", "telescope": ""}  # "": every endpoint of the device
+stall_count = {"camera": 0, "telescope": 0}  # 0: every request until cleared; N: the next N requests only
+# GET /fake/requests: device -> "<METHOD> <endpoint>" -> requests since the last clear
+requests = {"camera": collections.Counter(), "telescope": collections.Counter()}
 
 
 def take_injected_error(call):
@@ -508,12 +524,21 @@ def star_field():
         return _frame
 
 
+def set_size(w, h):
+    """PUT /fake/size: the sensor size from the next frame on. Guarded by state_lock."""
+    global W, H, _frame, _background
+    W, H = max(16, w), max(16, h)
+    PROPS.update(cameraxsize=W, cameraysize=H, numx=W, numy=H)
+    _frame = _background = None
+
+
 def imagebytes_frame(img):
     """An ASCOM ImageBytes response: 44-byte metadata, then UInt16 pixels, x-major."""
     data_start = 44
+    h, w = img.shape  # the frame's own size: PUT /fake/size may change W, H after it was drawn
     # MetadataVersion, ErrorNumber, ClientTransactionID, ServerTransactionID, DataStart,
     # ImageElementType (Int32=2), TransmissionElementType (UInt16=8), Rank, Dimension1..3
-    meta = struct.pack("<11I", 1, 0, 0, 0, data_start, 2, 8, 2, W, H, 0)
+    meta = struct.pack("<11I", 1, 0, 0, 0, data_start, 2, 8, 2, w, h, 0)
     return meta + img.T.astype("<u2").tobytes()
 
 
@@ -707,6 +732,12 @@ class Handler(BaseHTTPRequestHandler):
                 if params.get("clear", "0").lower() in ("1", "true"):
                     pulses.clear()
                 return self.send_body(body, "application/json")
+            if method == "GET" and name == "/fake/requests":
+                body = json.dumps({d: dict(c) for d, c in requests.items()}).encode()
+                if params.get("clear", "0").lower() in ("1", "true"):
+                    for c in requests.values():
+                        c.clear()
+                return self.send_body(body, "application/json")
             if method == "GET" and name == "/fake/truth":
                 return self.send_body(json.dumps(truth()).encode(), "application/json")
             if method == "PUT" and name == "/fake/inject":
@@ -737,6 +768,7 @@ class Handler(BaseHTTPRequestHandler):
                 for device in stall_ms:
                     stall_ms[device] = 0
                     stall_call[device] = ""
+                    stall_count[device] = 0
                 hold["frames"] = 0
                 hold["held"] = False
                 clouds.update(frames=0)
@@ -783,13 +815,16 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_body(b'{"error":"unknown device"}', "application/json")
                 stall_ms[device] = max(0, int(params.get("ms", "0")))
                 stall_call[device] = params.get("call", "")
+                stall_count[device] = max(0, int(params.get("count", "0")))
+            elif method == "PUT" and name == "/fake/size":
+                set_size(int(params.get("w", W)), int(params.get("h", H)))
             elif method == "PUT" and name == "/fake/hold":
                 hold["frames"] = max(0, int(params.get("frames", "0")))
                 if hold["frames"] == 0:
                     hold["held"] = False
             body = json.dumps({"injections": injections, "telescope_injections": scope_injections,
                                "unplugged": unplugged, "telescope_unplugged": scope_unplugged, "stall": stall_ms,
-                               "stall_call": stall_call, "shift": shift, "decoys": decoys, "clouds": clouds,
+                               "stall_call": stall_call, "stall_count": stall_count, "shift": shift, "decoys": decoys, "clouds": clouds,
                                "hold": hold}).encode()
         self.log_message("control %s %s %s", method, name, params)
         return self.send_body(body, "application/json")
@@ -812,9 +847,16 @@ class Handler(BaseHTTPRequestHandler):
         return m.group(1) if m else None
 
     def stall(self, device, call):
-        """Sleep the /fake/stall time for the device (or only its stalled endpoint), outside the lock."""
+        """Count the request (GET /fake/requests), then sleep the /fake/stall time for the device (or only its
+        stalled endpoint), outside the lock."""
         with state_lock:
+            requests[device][f"{self.command} {call}"] += 1
             ms = stall_ms[device] if stall_call[device] in ("", call) else 0
+            if ms > 0 and stall_count[device] > 0:
+                stall_count[device] -= 1
+                if stall_count[device] == 0:
+                    stall_ms[device] = 0
+                    stall_call[device] = ""
         if ms > 0:
             self.log_message("stalling %s %d ms: %s", device, ms, self.path)
             time.sleep(ms / 1000.0)

@@ -36,6 +36,7 @@
 
 #include "image_math.h"
 #include "capture_cleanup.h"
+#include "exposure_choice.h"
 #include "guide_move_plan.h"
 
 #include <algorithm>
@@ -51,9 +52,11 @@
 
 void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
 {
-    unsigned int idx = Dur_Choice->GetSelection();
+    // what the entry means: Auto, a duration, or Edit Custom... (exposure_choice.cpp)
+    const std::vector<int>& dur(GetExposureDurations());
+    exposure_choice::Selected sel = exposure_choice::Interpret(dur, Dur_Choice->GetSelection());
 
-    if (idx == 0)
+    if (sel.pick == exposure_choice::Pick::Auto)
     {
         // Auto-exposure
         if (!m_autoExp.enabled)
@@ -63,11 +66,11 @@ void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
             NotifyExposureChanged();
         }
     }
-    else if (idx == Dur_Choice->GetCount() - 1)
+    else if (sel.pick == exposure_choice::Pick::EditCustom)
     {
         // edit custom
 
-        int customVal = *(GetExposureDurations().end() - 1);
+        int customVal = dur.back();
         wxTextEntryDialog dlg(this, _("Custom exposure duration (seconds)"), _("Edit custom exposure"),
                               wxString::Format("%g", (double) customVal / 1000.), wxOK | wxCANCEL);
         if (dlg.ShowModal() == wxID_OK)
@@ -80,26 +83,14 @@ void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
             }
         }
 
-        // restore the actual selection
-        if (m_autoExp.enabled)
-        {
-            Dur_Choice->SetSelection(0);
-        }
-        else
-        {
-            const std::vector<int>& dur(GetExposureDurations());
-            auto pos = std::find(dur.begin(), dur.end(), m_exposureDuration);
-            if (pos == dur.end())
-                pos = std::find(dur.begin(), dur.end(), 1000); // safe fall-back, should not happen
-            Dur_Choice->SetSelection(pos - dur.begin() + 1); // skip Auto
-        }
+        // restore the actual selection: Auto, or the exposure's duration (1 s if none, should not happen)
+        Dur_Choice->SetSelection(exposure_choice::EntryAfterEdit(dur, m_autoExp.enabled, m_exposureDuration));
     }
     else
     {
         // ordinary selection
 
-        const std::vector<int>& dur(GetExposureDurations());
-        int duration = dur[idx - 1];
+        int duration = sel.durationMs;
 
         if (m_autoExp.enabled || m_exposureDuration != duration)
         {
@@ -143,129 +134,6 @@ int MyFrame::SelectedExposureDuration() const
 void MyFrame::OnQuit(wxCommandEvent& WXUNUSED(event))
 {
     Close(false);
-}
-
-void MyFrame::OnOverlay(wxCommandEvent& evt)
-{
-    pGuider->SetOverlayMode(evt.GetId() - MENU_XHAIR0);
-}
-
-struct SlitPropertiesDlg : public wxDialog
-{
-    wxSpinCtrl *m_x;
-    wxSpinCtrl *m_y;
-    wxSpinCtrl *m_width;
-    wxSpinCtrl *m_height;
-    wxSpinCtrl *m_angle;
-
-    SlitPropertiesDlg(wxWindow *parent, wxWindowID id = wxID_ANY, const wxString& title = _("Spectrograph Slit Overlay"),
-                      const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize(390, 181),
-                      long style = wxDEFAULT_DIALOG_STYLE);
-};
-
-SlitPropertiesDlg::SlitPropertiesDlg(wxWindow *parent, wxWindowID id, const wxString& title, const wxPoint& pos,
-                                     const wxSize& size, long style)
-    : wxDialog(parent, id, title, pos, size, style)
-{
-    wxSize textSz = pFrame->GetTextExtent("888888");
-    wxBoxSizer *vSizer = new wxBoxSizer(wxVERTICAL);
-    wxBoxSizer *hSizer = new wxBoxSizer(wxHORIZONTAL);
-    wxStaticBoxSizer *szPosition = new wxStaticBoxSizer(new wxStaticBox(this, wxID_ANY, _("Position (Center)")), wxVERTICAL);
-    wxStaticBoxSizer *szSlitSize = new wxStaticBoxSizer(new wxStaticBox(this, wxID_ANY, _("Size")), wxVERTICAL);
-    // Position controls
-    wxBoxSizer *hXSizer = new wxBoxSizer(wxHORIZONTAL);
-    wxStaticText *xLabel = new wxStaticText(this, wxID_ANY, _("X"), wxDefaultPosition, wxDefaultSize, 0);
-    hXSizer->Add(xLabel, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-    m_x = pFrame->MakeSpinCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, textSz, wxSP_ARROW_KEYS, 0, 8000, 0);
-    hXSizer->Add(m_x, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-    szPosition->Add(hXSizer, 0, wxEXPAND, 5);
-
-    wxBoxSizer *hYSizer = new wxBoxSizer(wxHORIZONTAL);
-    wxStaticText *yLabel = new wxStaticText(this, wxID_ANY, _("Y"), wxDefaultPosition, wxDefaultSize, 0);
-    hYSizer->Add(yLabel, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-    m_y = pFrame->MakeSpinCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, textSz, wxSP_ARROW_KEYS, 0, 8000, 0);
-    hYSizer->Add(m_y, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-    szPosition->Add(hYSizer, 1, wxEXPAND, 5);
-    hSizer->Add(szPosition, 0, 0, 5);
-
-    // Size controls
-    wxBoxSizer *hWidthSizer = new wxBoxSizer(wxHORIZONTAL);
-    wxStaticText *widthLabel = new wxStaticText(this, wxID_ANY, _("Width"), wxDefaultPosition, wxDefaultSize, 0);
-    hWidthSizer->Add(widthLabel, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-    m_width = pFrame->MakeSpinCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, textSz, wxSP_ARROW_KEYS, 2, 1000, 2);
-    hWidthSizer->Add(m_width, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-    szSlitSize->Add(hWidthSizer, 1, wxEXPAND, 5);
-
-    wxBoxSizer *hHeightSizer = new wxBoxSizer(wxHORIZONTAL);
-    wxStaticText *heightLabel = new wxStaticText(this, wxID_ANY, _("Height"), wxDefaultPosition, wxDefaultSize, 0);
-    hHeightSizer->Add(heightLabel, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-    m_height = pFrame->MakeSpinCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, textSz, wxSP_ARROW_KEYS, 2, 1000, 2);
-    hHeightSizer->Add(m_height, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-    szSlitSize->Add(hHeightSizer, 1, wxEXPAND, 5);
-    hSizer->Add(szSlitSize, 0, 0, 5);
-
-    int ww = StringWidth(this, widthLabel->GetLabel());
-    int wh = StringWidth(this, heightLabel->GetLabel());
-    wxSize sz(wxMax(ww, wh), -1);
-    widthLabel->SetMinSize(sz);
-    heightLabel->SetMinSize(sz);
-
-    vSizer->Add(hSizer, 0, wxEXPAND, 5);
-    // Angle controls
-    wxBoxSizer *hAngleSizer = new wxBoxSizer(wxHORIZONTAL);
-    wxStaticText *staticText1 = new wxStaticText(this, wxID_ANY, _("Angle (degrees)"), wxDefaultPosition, wxDefaultSize, 0);
-    // staticText1->Wrap(-1);
-    hAngleSizer->Add(staticText1, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-    m_angle = pFrame->MakeSpinCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, textSz, wxSP_ARROW_KEYS, -90, 90, 0);
-    hAngleSizer->Add(m_angle, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-
-    vSizer->Add(hAngleSizer, 0, wxEXPAND, 5);
-
-    // ok/cancel buttons
-    vSizer->Add(CreateButtonSizer(wxOK | wxCANCEL), wxSizerFlags(0).Expand().Border(wxALL, 10));
-
-    SetSizerAndFit(vSizer);
-    CentreOnParent();
-}
-
-struct SlitPosCtx : public wxObject
-{
-    SlitPropertiesDlg *dlg;
-    Guider *guider;
-    SlitPosCtx(SlitPropertiesDlg *d, Guider *g) : dlg(d), guider(g) { }
-};
-
-static void UpdateSlitPos(wxSpinEvent& event)
-{
-    SlitPosCtx *ctx = static_cast<SlitPosCtx *>(event.GetEventUserData());
-    wxPoint center(ctx->dlg->m_x->GetValue(), ctx->dlg->m_y->GetValue());
-    wxSize size(ctx->dlg->m_width->GetValue(), ctx->dlg->m_height->GetValue());
-    int angle = ctx->dlg->m_angle->GetValue();
-    ctx->guider->SetOverlaySlitCoords(center, size, angle);
-}
-
-void MyFrame::OnOverlaySlitCoords(wxCommandEvent& evt)
-{
-    wxPoint center;
-    wxSize size;
-    int angle;
-    pGuider->GetOverlaySlitCoords(&center, &size, &angle);
-
-    SlitPropertiesDlg dlg(this);
-
-    dlg.m_x->SetValue(center.x);
-    dlg.m_y->SetValue(center.y);
-    dlg.m_width->SetValue(size.GetWidth());
-    dlg.m_height->SetValue(size.GetHeight());
-    dlg.m_angle->SetValue(angle);
-
-    dlg.Bind(wxEVT_SPINCTRL, &UpdateSlitPos, wxID_ANY, wxID_ANY, new SlitPosCtx(&dlg, pGuider));
-
-    if (dlg.ShowModal() != wxID_OK)
-    {
-        // revert to original values
-        pGuider->SetOverlaySlitCoords(center, size, angle);
-    }
 }
 
 void MyFrame::OnSave(wxCommandEvent& WXUNUSED(event))
@@ -872,7 +740,7 @@ void MyFrame::OnRestoreWindows(wxCommandEvent& evt)
     for (int i = 0; i < lim; i++)
     {
         panes.Item(i).Dock(); // Already docked, shown or not, doesn't matter
-        if (panes.Item(i).name == _("Guider"))
+        if (panes.Item(i).name == _("AlertBar"))
             panes.Item(i).Show(true);
     }
     m_mgr.Update();
@@ -1002,64 +870,5 @@ void MyFrame::OnPanelClose(wxAuiManagerEvent& evt)
     if (p->name == _T("MainToolBar"))
     {
         Menubar->Check(MENU_TOOLBAR, false);
-    }
-}
-
-void MyFrame::OnBookmarksShow(wxCommandEvent& evt)
-{
-    pGuider->SetBookmarksShown(evt.IsChecked());
-}
-
-void MyFrame::OnBookmarksSetAtLockPos(wxCommandEvent& evt)
-{
-    pGuider->BookmarkLockPosition();
-}
-
-void MyFrame::OnBookmarksSetAtCurPos(wxCommandEvent& evt)
-{
-    pGuider->BookmarkCurPosition();
-}
-
-void MyFrame::OnBookmarksClearAll(wxCommandEvent& evt)
-{
-    pGuider->DeleteAllBookmarks();
-}
-
-void MyFrame::OnCharHook(wxKeyEvent& evt)
-{
-    bool handled = false;
-
-    // We keep this handler here so the keystrokes work when other windows like
-    // the Guiding Assistant window have focus; the menu accelerators on the MyFrame
-    // provide the keyboard responses otherwise.
-
-    if (evt.GetKeyCode() == 'B')
-    {
-        if (!evt.GetEventObject()->IsKindOf(wxCLASSINFO(wxTextCtrl)))
-        {
-            int modifiers;
-            modifiers = evt.GetModifiers();
-            if (!modifiers)
-            {
-                pGuider->ToggleShowBookmarks();
-                bookmarks_menu->Check(MENU_BOOKMARKS_SHOW, pGuider->GetBookmarksShown());
-                handled = true;
-            }
-            else if (modifiers == wxMOD_CONTROL)
-            {
-                pGuider->DeleteAllBookmarks();
-                handled = true;
-            }
-            else if (modifiers == wxMOD_SHIFT)
-            {
-                pGuider->BookmarkLockPosition();
-                handled = true;
-            }
-        }
-    }
-
-    if (!handled)
-    {
-        evt.Skip();
     }
 }

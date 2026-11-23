@@ -486,6 +486,20 @@ set_property(TARGET test_capture_failure PROPERTY FOLDER "Unit tests")
 add_test(NAME test_capture_failure COMMAND test_capture_failure)
 
 ############################################################################
+# test_exposure_choice  --  exposure_choice.cpp: the guide exposure choice
+# (the durations, the custom one last, and the entry set_exposure selects
+# for a value and what each entry means), before #115 slice S6.2 drops the
+# combo box behind it (#115, slice N5). std-only.
+############################################################################
+add_executable(test_exposure_choice
+  ${PHD_TESTS_DIR}/capture/test_exposure_choice.cpp
+  ${phd_src_dir}/exposure_choice.cpp
+)
+target_link_libraries(test_exposure_choice PRIVATE phd_test_common)
+set_property(TARGET test_exposure_choice PROPERTY FOLDER "Unit tests")
+add_test(NAME test_exposure_choice COMMAND test_exposure_choice)
+
+############################################################################
 # test_settle_frame  --  settle_frame.cpp: what one guide frame does to a
 # guide or dither settle, including a frame dropped after a transient
 # capture failure (#136). std-only.
@@ -514,6 +528,31 @@ add_executable(test_settle_tracker
 target_link_libraries(test_settle_tracker PRIVATE phd_test_common)
 set_property(TARGET test_settle_tracker PROPERTY FOLDER "Unit tests")
 add_test(NAME test_settle_tracker COMMAND test_settle_tracker)
+
+############################################################################
+# test_phd_controller  --  the REAL phdcontrol.cpp (PhdController's guide and
+# dither state machine) driven frame by frame through a recording fake of
+# its ControllerHost (controller_host.h): one SettleDone on every way out,
+# the Dec guide mode plan of a dither, the #255 calibration on entering
+# guiding and STATE_WAIT_SELECTED (#142, slice T2f). phdcontrol_shim.h gives
+# it wxString, wxRect and the Debug log. std-only.
+############################################################################
+add_executable(test_phd_controller
+  ${PHD_TESTS_DIR}/guiding/test_phd_controller.cpp
+  ${phd_src_dir}/phdcontrol.cpp
+  ${phd_src_dir}/settle_tracker.cpp
+  ${phd_src_dir}/settle_frame.cpp
+  ${phd_src_dir}/monotonic_timers.cpp
+)
+if(MSVC)
+  target_compile_options(test_phd_controller PRIVATE /FI${PHD_TESTS_DIR}/guiding/phdcontrol_shim.h)
+else()
+  # SHELL: keeps this -include from being merged with phd_test_common's (CMake de-duplicates options)
+  target_compile_options(test_phd_controller PRIVATE "SHELL:-include ${PHD_TESTS_DIR}/guiding/phdcontrol_shim.h")
+endif()
+target_link_libraries(test_phd_controller PRIVATE phd_test_common)
+set_property(TARGET test_phd_controller PROPERTY FOLDER "Unit tests")
+add_test(NAME test_phd_controller COMMAND test_phd_controller)
 
 ############################################################################
 # test_guide_distance_tracker  --  guide_distance_tracker.cpp: the guider's

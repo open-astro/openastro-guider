@@ -34,6 +34,7 @@
 
 #include "phd.h"
 
+#include "controller_host.h"
 #include "instance_lock.h"
 
 #include <curl/curl.h>
@@ -60,9 +61,6 @@ GuideCamera *pCamera = nullptr;
 
 DebugLog Debug;
 GuidingLog GuideLog;
-
-int XWinSize = 640;
-int YWinSize = 512;
 
 static const wxCmdLineEntryDesc cmdLineDesc[] = {
     { wxCMD_LINE_SWITCH, "?", "help", "display this help and exit" },
@@ -488,7 +486,7 @@ bool PhdApp::OnInit()
         pConfig->Global.SetBoolean("/ServerMode", true);
     }
 
-    PhdController::OnAppInit();
+    PhdController::OnAppInit(ProductionControllerHost());
 
     ImageLogger::Init();
 

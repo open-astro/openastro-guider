@@ -202,6 +202,8 @@ set(cam_SRC
   ${phd_src_dir}/alpaca_poll.h
   ${phd_src_dir}/variable_delay.cpp
   ${phd_src_dir}/variable_delay.h
+  ${phd_src_dir}/exposure_choice.cpp
+  ${phd_src_dir}/exposure_choice.h
   ${phd_src_dir}/alpaca_errors.cpp
   ${phd_src_dir}/alpaca_errors.h
   ${phd_src_dir}/alpaca_discovery.cpp
@@ -347,6 +349,8 @@ set(phd2_SRC
   ${phd_src_dir}/phdconfig.h
   ${phd_src_dir}/phdcontrol.cpp
   ${phd_src_dir}/phdcontrol.h
+  ${phd_src_dir}/controller_host.cpp
+  ${phd_src_dir}/controller_host.h
   ${phd_src_dir}/settle_frame.cpp
   ${phd_src_dir}/settle_frame.h
   ${phd_src_dir}/settle_tracker.cpp

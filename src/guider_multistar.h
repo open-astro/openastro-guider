@@ -59,14 +59,14 @@ class GuiderMultiStar : public Guider
     bool m_multiStarMode;
     bool m_stabilizing;
     bool m_lockPositionMoved;
-    unsigned int m_starsUsed;
+    unsigned int m_starsUsed = 0;
     unsigned int m_lastStarsUsed;
 
     // parameters
-    bool m_massChangeThresholdEnabled;
-    double m_massChangeThreshold;
-    bool m_tolerateJumpsEnabled;
-    double m_tolerateJumpsThreshold;
+    bool m_massChangeThresholdEnabled = false;
+    double m_massChangeThreshold = 0.0;
+    bool m_tolerateJumpsEnabled = false;
+    double m_tolerateJumpsThreshold = 0.0;
     unsigned int m_maxStars;
     double m_stabilitySigmaX;
 
@@ -88,10 +88,8 @@ public:
     bool RefineOffset(const usImage *pImage, GuiderOffset *pOffset);
 
 public:
-    GuiderMultiStar(wxWindow *parent);
+    GuiderMultiStar();
     virtual ~GuiderMultiStar();
-
-    void OnPaint(wxPaintEvent& evt) override;
 
     virtual bool SetLockPosition(const PHD_Point& position) override;
     bool IsLocked() const override;
@@ -115,11 +113,7 @@ private:
     bool UpdateCurrentPosition(const usImage *pImage, GuiderOffset *ofs, FrameDroppedInfo *errorInfo) final;
     bool SetCurrentPosition(const usImage *pImage, const PHD_Point& position) final;
 
-    void OnLClick(wxMouseEvent& evt);
-
     void SaveStarFITS();
-
-    wxDECLARE_EVENT_TABLE();
 };
 
 inline int GuiderMultiStar::GetMaxMovePixels() const

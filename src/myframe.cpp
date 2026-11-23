@@ -38,6 +38,7 @@
 
 #include "guiding_assistant.h"
 #include "variable_delay.h"
+#include "exposure_choice.h"
 #include "image_scale.h"
 #include "calstep_dialog.h"
 
@@ -80,19 +81,6 @@ EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
 EVT_MENU(wxID_SAVE, MyFrame::OnSave)
 EVT_MENU(MENU_LOADDARK, MyFrame::OnLoadDark)
 EVT_MENU(MENU_LOADDEFECTMAP, MyFrame::OnLoadDefectMap)
-EVT_MENU(MENU_XHAIR0, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR1, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR2, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR3, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR4, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR5, MyFrame::OnOverlay)
-EVT_MENU(MENU_SLIT_OVERLAY_COORDS, MyFrame::OnOverlaySlitCoords)
-EVT_MENU(MENU_BOOKMARKS_SHOW, MyFrame::OnBookmarksShow)
-EVT_MENU(MENU_BOOKMARKS_SET_AT_LOCK, MyFrame::OnBookmarksSetAtLockPos)
-EVT_MENU(MENU_BOOKMARKS_SET_AT_STAR, MyFrame::OnBookmarksSetAtCurPos)
-EVT_MENU(MENU_BOOKMARKS_CLEAR_ALL, MyFrame::OnBookmarksClearAll)
-
-EVT_CHAR_HOOK(MyFrame::OnCharHook)
 
 EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
@@ -184,8 +172,7 @@ static GuideHistory *NewGuideHistory()
 
 // ---------------------- Main Frame -------------------------------------
 // frame constructor
-MyFrame::MyFrame()
-    : wxFrame(nullptr, wxID_ANY, wxEmptyString), m_showBookmarksAccel(0), m_bookmarkLockPosAccel(0), pGuideHistory(nullptr)
+MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nullptr)
 {
     // #168: set the global before building anything. PhdApp::OnInit's pFrame = new MyFrame() assigns it only
     // when this constructor returns, but the guider, the dialogs and the mount built below already call
@@ -224,22 +211,14 @@ MyFrame::MyFrame()
 
     LoadProfileSettings();
 
-    // Setup container window for alert message info bar and guider window
-    wxWindow *guiderWin = new wxWindow(this, wxID_ANY);
-    wxSizer *sizer = new wxBoxSizer(wxVERTICAL);
-
-    m_infoBar = new wxInfoBar(guiderWin);
+    // the alert info bar, in the frame; the guider is not a window (#115 S5.4)
+    m_infoBar = new wxInfoBar(this);
     m_infoBar->Connect(BUTTON_ALERT_ACTION, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
     m_infoBar->Connect(BUTTON_ALERT_DONTSHOW, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
     m_infoBar->Connect(BUTTON_ALERT_CLOSE, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
     m_infoBar->Connect(BUTTON_ALERT_HELP, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertHelp), nullptr, this);
 
-    sizer->Add(m_infoBar, wxSizerFlags().Expand());
-
-    pGuider = new GuiderMultiStar(guiderWin);
-    sizer->Add(pGuider, wxSizerFlags().Proportion(1).Expand());
-
-    guiderWin->SetSizer(sizer);
+    pGuider = new GuiderMultiStar();
 
     pGuider->LoadProfileSettings();
 
@@ -278,10 +257,7 @@ MyFrame::MyFrame()
 
     m_mgr.AddPane(MainToolbar, wxAuiPaneInfo().Name(_T("MainToolBar")).Caption(_T("Main tool bar")).ToolbarPane().Bottom());
 
-    guiderWin->SetMinSize(wxSize(XWinSize, YWinSize));
-    guiderWin->SetSize(wxSize(XWinSize, YWinSize));
-    m_mgr.AddPane(guiderWin,
-                  wxAuiPaneInfo().Name(_T("Guider")).Caption(_T("Guider")).CenterPane().MinSize(wxSize(XWinSize, YWinSize)));
+    m_mgr.AddPane(m_infoBar, wxAuiPaneInfo().Name(_T("AlertBar")).CenterPane().PaneBorder(false));
 
     pGuideHistory = NewGuideHistory();
 
@@ -301,12 +277,6 @@ MyFrame::MyFrame()
         StartServer(true);
     }
 
-#include "xhair.xpm"
-    wxImage Cursor = wxImage(mac_xhair);
-    Cursor.SetOption(wxIMAGE_OPTION_CUR_HOTSPOT_X, 8);
-    Cursor.SetOption(wxIMAGE_OPTION_CUR_HOTSPOT_Y, 8);
-    pGuider->SetCursor(wxCursor(Cursor));
-
     m_continueCapturing = false;
     CaptureActive = false;
     m_exposurePending = false;
@@ -322,8 +292,6 @@ MyFrame::MyFrame()
     {
         m_mgr.LoadPerspective(perspective);
         m_mgr.GetPane(_T("MainToolBar")).Caption(_T("Main tool bar"));
-        m_mgr.GetPane(_T("Guider")).Caption(_T("Guider"));
-        m_mgr.GetPane(_T("Guider")).PaneBorder(false);
     }
 
     bool panel_state;
@@ -349,8 +317,11 @@ MyFrame::~MyFrame()
     delete pGuideHistory;
     pGuideHistory = nullptr;
 
-    delete m_showBookmarksAccel;
-    delete m_bookmarkLockPosAccel;
+    // #115 S5.4: the guider is no longer a child window that wx deletes after this destructor, so delete it here, at
+    // the same point: OnClose has stopped the worker threads, the #104 probe and the servers, and the devices and the
+    // guide history it is used with are gone
+    delete pGuider;
+    pGuider = nullptr;
 }
 
 void MyFrame::UpdateTitle()
@@ -388,15 +359,6 @@ void MyFrame::SetupMenuBar()
     view_menu = new wxMenu();
     view_menu->AppendCheckItem(MENU_TOOLBAR, _("Display Toolbar"), _("Enable / disable tool bar"));
     (void) view_menu->AppendSeparator();
-    view_menu->AppendRadioItem(MENU_XHAIR0, _("&No Overlay"), _("No additional crosshairs"));
-    view_menu->AppendRadioItem(MENU_XHAIR1, _("&Bullseye"), _("Centered bullseye overlay"));
-    view_menu->AppendRadioItem(MENU_XHAIR2, _("&Fine Grid"), _("Grid overlay"));
-    view_menu->AppendRadioItem(MENU_XHAIR3, _("&Coarse Grid"), _("Grid overlay"));
-    view_menu->AppendRadioItem(MENU_XHAIR4, _("&RA/Dec"), _("RA and Dec overlay"));
-    view_menu->AppendRadioItem(MENU_XHAIR5, _("Spectrograph S&lit"), _("Spectrograph slit overlay"));
-    (void) view_menu->AppendSeparator();
-    view_menu->Append(MENU_SLIT_OVERLAY_COORDS, _("Slit Position..."));
-    (void) view_menu->AppendSeparator();
     view_menu->Append(MENU_RESTORE_WINDOWS, _("Restore Window Positions"),
                       _("Restore all windows to their default/docked positions"));
 
@@ -406,25 +368,12 @@ void MyFrame::SetupMenuBar()
     m_useDefectMapMenuItem =
         darks_menu->AppendCheckItem(MENU_LOADDEFECTMAP, _("Use &Bad-pixel Map"), _("Use the bad-pixel map for this profile"));
 
-    bookmarks_menu = new wxMenu();
-    m_showBookmarksMenuItem =
-        bookmarks_menu->AppendCheckItem(MENU_BOOKMARKS_SHOW, _("Show &Bookmarks\tb"), _("Hide or show bookmarks"));
-    m_showBookmarksAccel = m_showBookmarksMenuItem->GetAccel();
-    bookmarks_menu->Check(MENU_BOOKMARKS_SHOW, true);
-    m_bookmarkLockPosMenuItem = bookmarks_menu->Append(MENU_BOOKMARKS_SET_AT_LOCK, _("Bookmark &Lock Pos\tShift-B"),
-                                                       _("Set a bookmark at the current lock position"));
-    m_bookmarkLockPosAccel = m_bookmarkLockPosMenuItem->GetAccel();
-    bookmarks_menu->Append(MENU_BOOKMARKS_SET_AT_STAR, _("Bookmark &Star Pos"),
-                           _("Set a bookmark at the position of the currently selected star"));
-    bookmarks_menu->Append(MENU_BOOKMARKS_CLEAR_ALL, _("&Delete all\tCtrl-B"), _("Remove all bookmarks"));
-
     Menubar = new wxMenuBar();
     Menubar->Append(file_menu, _("&File"));
     Menubar->Append(guide_menu, _("&Guide"));
     Menubar->Append(tools_menu, _("&Tools"));
     Menubar->Append(view_menu, _("&View"));
     Menubar->Append(darks_menu, _("&Darks"));
-    Menubar->Append(bookmarks_menu, _("&Bookmarks"));
     SetMenuBar(Menubar);
 }
 
@@ -489,17 +438,16 @@ const std::vector<int>& MyFrame::GetExposureDurations() const
 
 bool MyFrame::SetCustomExposureDuration(int ms)
 {
-    auto end = exposure_durations.end() - 1;
-    for (auto it = exposure_durations.begin(); it != end; ++it)
-        if (ms == *it)
-            return true; // error, duplicate value
-    if (m_exposureDuration == *end && *end != ms)
+    if (exposure_choice::IsOtherDuration(exposure_durations, ms))
+        return true; // error, duplicate value
+    if (exposure_choice::CustomChangesExposure(exposure_durations, m_exposureDuration, ms))
     {
         m_exposureDuration = ms;
         NotifyExposureChanged();
     }
-    *end = ms;
-    Dur_Choice->SetString(1 + exposure_durations.size() - 1, wxString::Format(_("Custom: %g s"), (double) ms / 1000.));
+    exposure_durations.back() = ms;
+    Dur_Choice->SetString(exposure_choice::CustomEntry(exposure_durations),
+                          wxString::Format(_("Custom: %g s"), (double) ms / 1000.));
     pConfig->Profile.SetInt("/CustomExposureDuration", ms);
     return false;
 }
@@ -518,28 +466,13 @@ void MyFrame::GetExposureInfo(int *currExpMs, bool *autoExp) const
     }
 }
 
-static int dur_index(int duration)
-{
-    for (auto it = exposure_durations.begin(); it != exposure_durations.end(); ++it)
-        if (duration == *it)
-            return it - exposure_durations.begin();
-    return -1;
-}
-
 bool MyFrame::SetExposureDuration(int val)
 {
-    if (val < 0)
-    {
-        // Auto
-        Dur_Choice->SetSelection(0);
-    }
-    else
-    {
-        int idx = dur_index(val);
-        if (idx == -1)
-            return false;
-        Dur_Choice->SetSelection(idx + 1); // skip Auto
-    }
+    // Auto for any negative value, otherwise the duration's entry (exposure_choice.cpp)
+    int entry = exposure_choice::SelectionFor(exposure_durations, val);
+    if (entry == -1)
+        return false;
+    Dur_Choice->SetSelection(entry);
 
     wxCommandEvent dummy;
     OnExposureDurationSelected(dummy);
@@ -689,9 +622,9 @@ void MyFrame::LoadProfileSettings()
     ResetAutoExposure();
 
     // set custom exposure duration vector value and drop-down list string from profile setting
-    int customDuration = pConfig->Profile.GetInt("/CustomExposureDuration", 30000);
+    int customDuration = pConfig->Profile.GetInt("/CustomExposureDuration", exposure_choice::DEFAULT_CUSTOM_MS);
     *exposure_durations.rbegin() = customDuration;
-    Dur_Choice->SetString(1 + exposure_durations.size() - 1,
+    Dur_Choice->SetString(exposure_choice::CustomEntry(exposure_durations),
                           wxString::Format(_("Custom: %g s"), (double) customDuration / 1000.));
 
     // for backward compatibity:
@@ -757,18 +690,13 @@ void MyFrame::SetupToolBar()
 #include "icons/auto_select_disabled.png.h"
     wxBitmap auto_select_disabled_bmp(wxBITMAP_PNG_FROM_DATA(auto_select_disabled));
 
-    int dur_values[] = {
-        10,    20,   50,   100,  200,  500,  1000, 1500, 2000,  2500,  3000,
-        3500,  4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000, 15000,
-        30000, // final entry is custom value
-    };
-    for (unsigned int i = 0; i < WXSIZEOF(dur_values); i++)
-        exposure_durations.push_back(dur_values[i]);
+    // the final entry is the custom value (exposure_choice.cpp)
+    exposure_durations = exposure_choice::DefaultDurations();
 
     wxArrayString durs;
     durs.Add(_("Auto"));
-    for (unsigned int i = 0; i < WXSIZEOF(dur_values) - 1; i++)
-        durs.Add(ExposureDurationLabel(dur_values[i]));
+    for (size_t i = 0; i + 1 < exposure_durations.size(); i++)
+        durs.Add(ExposureDurationLabel(exposure_durations[i]));
     durs.Add(wxString::Format(_("Custom: %g s"), 9999.0));
     durs.Add(_("Edit Custom..."));
 
@@ -942,16 +870,10 @@ void MyFrame::DoAlert(const alert_params& params)
         m_infoBar->AddButton(BUTTON_ALERT_HELP, _("Help"));
         buttonSpace += 80;
     }
-    wxString wrappedText;
-    if (pFrame && pFrame->pGuider)
-    {
-        int textWidth = wxMax(pFrame->pGuider->GetSize().GetWidth() - buttonSpace, 100);
-        wrappedText = WrapText(m_infoBar, params.msg, textWidth);
-    }
-    else
-    {
-        wrappedText = params.msg;
-    }
+    // the guider window the text wrapped to is gone (#115 S5.4): wrap to its default width
+    static const int AlertWrapWidth = 640;
+    int textWidth = wxMax(AlertWrapWidth - buttonSpace, 100);
+    wxString wrappedText = WrapText(m_infoBar, params.msg, textWidth);
     int showMessageFlags = params.flags;
     m_infoBar->ShowMessage(wrappedText, showMessageFlags);
     EvtServer.NotifyAlert(params.msg, params.flags);

@@ -37,6 +37,8 @@
 
 #include "settle_frame.h" // struct SettleParams
 
+class ControllerHost; // controller_host.h
+
 enum ControlGuideOptions
 {
     GUIDEOPT_FORCE_RECAL = (1U << 0), // Always recalibrate
@@ -55,7 +57,8 @@ public:
     static void AbortController(const wxString& reason);
     // frameDropped (#136): the frame failed and was dropped while guiding; a settle counts it as a dropped frame
     static void UpdateControllerState(bool frameDropped = false);
-    static void OnAppInit();
+    // host: what the controller works through (controller_host.h); ProductionControllerHost() in the guider
+    static void OnAppInit(ControllerHost& host);
     static void OnAppExit();
 
     static bool IsSettling();

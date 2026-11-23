@@ -19,6 +19,13 @@ the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir
                  matches the frame's FITS through the display stretch, the fake's stars where it put them; a new ETag
                  on the next single frame (#259), rising while looping; /api/capture serving the file
                  save_image wrote, and 404 for ../-style names, a POST and a symlink out of the capture dir (N2)
+  darks          build_dark_library (2 exposures x 2 frames) polled by get_dark_build_progress, build_defect_map_darks,
+                 rebuild_defect_map, set_dark_library_enabled / set_defect_map_enabled on and off, each unloading the
+                 other, and get_calibration_files_status through it all; a frame of another size (/fake/size) unloads
+                 both with MyFrame::CheckDarkFrameGeometry's Alerts, and full size makes them compatible again (N3)
+  exposure       set_exposure through each value of get_exposure_durations (the custom duration last), Auto (-1 and
+                 any negative value) and refused values: the result, the GuideParamChange "Exposure" event of each
+                 change and get_exposure after it (N5)
   calibrate      connect the Alpaca camera and mount, loop, find_star, guide with recalibrate true: a full
                  calibration, StartGuiding, a settle that ends in exactly one SettleDone with Status 0, then
                  guiding; the event order Ara consumes is checked on the way (design/API_CONTRACT.md)
@@ -1071,6 +1078,281 @@ def scenario_http_frame_and_capture(cli, args, work):
             f"{h5.get('etag')}")
 
 
+# N3: the dark library and the defect map (#115 step 6 moves their state out of MyFrame's menu items)
+DARK_FRAMES = 2  # frames per exposure of each build
+DARK_EXPOSURES_MS = (100, 200)  # the two durations of get_exposure_durations the dark library build takes
+DEFECT_DARK_MS = 100
+DARK_SMALL_SIZE = (320, 240)  # the fake's sensor size for the geometry check
+# MyFrame::CheckDarkFrameGeometry's Alerts, in the order a frame of another size raises them with both files loaded
+# or enabled: DefectMap::DefectMapExists's, MyFrame::DarkLibExists's, then its own
+GEOMETRY_ALERTS = (
+    "Bad-pixel map does not match the camera in this profile - it needs to be replaced.",
+    "Dark library does not match the camera in this profile. Check that you are connected to the camera you want to "
+    "use for guiding.",
+    "Dark library and bad-pixel maps don't match the current camera. Check that you are connected to the camera you "
+    "want to use for guiding.",
+)
+# get_calibration_files_status with no dark loaded: GuideCamera::GetDarkLibraryProperties's start values
+NO_DARKS = {"dark_count_loaded": 0, "dark_min_exposure_seconds_loaded": 9999, "dark_max_exposure_seconds_loaded": -9999}
+
+
+def call_error(cli, method, params=None, timeout=30):
+    """The (code, message) of a call that must fail."""
+    msg = cli.request(method, params, timeout)
+    expect(msg.get("error"), f"{method} {params} succeeded ({msg.get('result')!r}), expected an error")
+    return msg["error"].get("code"), msg["error"].get("message")
+
+
+def calibration_files(cli, **want):
+    """get_calibration_files_status, checked against `want`."""
+    st = cli.call("get_calibration_files_status")
+    got = {k: st.get(k) for k in want}
+    expect(got == want, f"get_calibration_files_status {got}, expected {want} (all: {st})")
+    return st
+
+
+def loaded_state(dark, defect, auto_darks, auto_defect, compatible=True):
+    """What get_calibration_files_status reports with both files built: what is loaded, and the auto-load flags."""
+    want = {"dark_library_exists": True, "defect_map_exists": True, "dark_library_compatible": compatible,
+            "defect_map_compatible": compatible, "dark_library_loaded": dark, "defect_map_loaded": defect,
+            "auto_load_darks": auto_darks, "auto_load_defect_map": auto_defect}
+    want.update({"dark_count_loaded": 2, "dark_min_exposure_seconds_loaded": DARK_EXPOSURES_MS[0],
+                 "dark_max_exposure_seconds_loaded": DARK_EXPOSURES_MS[-1]} if dark else NO_DARKS)
+    return want
+
+
+def enable(cli, method, enabled, **want):
+    """set_dark_library_enabled / set_defect_map_enabled: its result is get_calibration_files_status, checked."""
+    got = cli.call(method, {"enabled": enabled})
+    sub = {k: got.get(k) for k in want}
+    expect(sub == want, f"{method} {enabled}: {sub}, expected {want}")
+
+
+def build_events(evs, artifact):
+    return [strip(e) for e in evs if e["Event"].startswith(artifact)]
+
+
+def scenario_dark_library(cli, fake, args, work):
+    """N3: the dark-library and defect-map RPCs, pinned before #115 step 6 (S6.1) moves their state from MyFrame's
+    menu items into plain bools. With no files: get_calibration_files_status reports none, enabling either fails, and
+    turning the dark library off fails while turning the defect map off succeeds; each call writes its auto-load flag
+    all the same. build_dark_library of 2 exposures x 2 frames, polled with get_dark_build_progress from a second
+    connection: the result, the DarkLibrary* events, the progress through each frame and idle after, the library
+    loaded. build_defect_map_darks: the DefectMap* events, the map loaded and the dark library unloaded; each enable
+    unloads the other (and turns its auto-load flag off); rebuild_defect_map saved and not. Then the fake's frames
+    shrink: the first smaller frame unloads both, with MyFrame::CheckDarkFrameGeometry's three Alerts, and the status
+    reads incompatible; back at full size both read compatible again and neither is loaded again. Both unloaded at
+    the end, with auto-load off, so the frames of the scenarios after it are the fake's own."""
+    import threading
+
+    expect(cli.call("get_app_state") == "Stopped", "capture is not stopped before the dark library scenario")
+    none = {"dark_library_exists": False, "defect_map_exists": False, "dark_library_compatible": False,
+            "defect_map_compatible": False, "dark_library_loaded": False, "defect_map_loaded": False}
+    st = calibration_files(cli, auto_load_darks=True, auto_load_defect_map=True, **none, **NO_DARKS)
+    expect(st["dark_library_path"].endswith(f"PHD2_dark_lib_{args.instance}_{st['profile_id']}.fit") and
+           st["defect_map_path"].endswith(f"PHD2_defect_map_{args.instance}_{st['profile_id']}.txt"),
+           f"the calibration file paths {st['dark_library_path']}, {st['defect_map_path']}")
+    expect(cli.call("get_dark_build_progress") == {"active": False, "exposure_index": 0, "exposure_count": 0,
+                                                   "exposure_ms": 0, "frame": 0, "frame_count": 0},
+           "get_dark_build_progress before a build")
+    # nothing built: each refusal still writes its auto-load flag (MyFrame::LoadDarkHandler / LoadDefectMapHandler)
+    for method, params, err in (
+            ("set_dark_library_enabled", {"enabled": True}, (1, "failed to load dark library")),
+            ("set_defect_map_enabled", {"enabled": True}, (1, "failed to load defect map")),
+            ("set_dark_library_enabled", {"enabled": False}, (1, "failed to unload dark library")),
+            ("rebuild_defect_map", {}, (1, "no master dark files for this profile; run build_defect_map_darks "
+                                           "first"))):
+        got = call_error(cli, method, params)
+        expect(got == err, f"{method} {params} with no files: {got}, expected {err}")
+    enable(cli, "set_defect_map_enabled", False, auto_load_darks=False, auto_load_defect_map=False, **none)
+
+    # the dark library, 2 exposures x 2 frames, polled from a second connection while the build holds this one
+    poller = Client(args.rpc_port, cli.daemon, os.path.join(work, "events-darks.jsonl"), connect_timeout=10)
+    polls, stop = [], threading.Event()
+
+    def poll():
+        while not stop.is_set():
+            p = poller.call("get_dark_build_progress")
+            if not polls or polls[-1] != p:
+                polls.append(p)
+            time.sleep(0.02)
+
+    th = threading.Thread(target=poll, daemon=True)
+    th.start()
+    mark, t = cli.mark(), time.time()
+    try:
+        built = cli.call("build_dark_library", {"frame_count": DARK_FRAMES, "min_exposure_ms": DARK_EXPOSURES_MS[0],
+                                                "max_exposure_ms": DARK_EXPOSURES_MS[-1], "notes": "e2e N3"},
+                         timeout=120)
+        build_s = time.time() - t
+        time.sleep(0.2)  # a poll after the end
+    finally:
+        stop.set()
+        th.join(10)
+        poller.close()
+    want = {"profile_id": st["profile_id"], "dark_library_path": st["dark_library_path"], "frame_count": DARK_FRAMES,
+            "exposure_count": len(DARK_EXPOSURES_MS), "exposures_ms": list(DARK_EXPOSURES_MS)}
+    expect(built == want, f"build_dark_library {built}, expected {want}")
+    frames = [{"exposure_index": i + 1, "exposure_count": len(DARK_EXPOSURES_MS), "frame": f + 1,
+               "frame_count": DARK_FRAMES, "exposure_ms": ms}
+              for i, ms in enumerate(DARK_EXPOSURES_MS) for f in range(DARK_FRAMES)]
+    evs = build_events(cli.events_since(mark), "DarkLibrary")
+    want_evs = ([{"Event": "DarkLibraryBuildStarted", "profile_id": st["profile_id"],
+                  "exposure_count": len(DARK_EXPOSURES_MS), "frames_per_exposure": DARK_FRAMES,
+                  "planned_exposures_ms": list(DARK_EXPOSURES_MS)}]
+                + [dict(f, Event="DarkLibraryFrameComplete") for f in frames]
+                + [{"Event": "DarkLibraryBuildComplete", "profile_id": st["profile_id"],
+                    "built_count": len(DARK_EXPOSURES_MS)}])
+    expect(evs == want_evs, f"the dark library build's events {evs}, expected {want_evs}")
+    # each poll during the build is the frame being captured, in order; idle before and after it
+    idle = {"active": False, "exposure_index": 0, "exposure_count": 0, "exposure_ms": 0, "frame": 0, "frame_count": 0}
+    active = [p for p in polls if p != idle]
+    expect(active and polls[-1] == idle, f"get_dark_build_progress during the build: {polls}")
+    want_active = [dict(f, active=True) for f in frames]
+    pos = [want_active.index(p) if p in want_active else -1 for p in active]
+    expect(-1 not in pos and pos == sorted(pos), f"get_dark_build_progress {active}, expected steps of {want_active}")
+    calibration_files(cli, dark_library_exists=True, dark_library_compatible=True, dark_library_loaded=True,
+                      defect_map_exists=False, auto_load_darks=True, auto_load_defect_map=False,
+                      dark_count_loaded=2, dark_min_exposure_seconds_loaded=DARK_EXPOSURES_MS[0],
+                      dark_max_exposure_seconds_loaded=DARK_EXPOSURES_MS[-1])
+    out = [f"dark library {built['exposures_ms']} x {DARK_FRAMES} in {build_s:.1f} s, {len(active)} of "
+           f"{len(want_active)} build steps polled, loaded (its exposures reported in ms as 'seconds')"]
+    enable(cli, "set_dark_library_enabled", False, dark_library_loaded=False, auto_load_darks=False, **NO_DARKS)
+    got = call_error(cli, "set_dark_library_enabled", {"enabled": False})
+    expect(got == (1, "failed to unload dark library"), f"set_dark_library_enabled false, unloaded: {got}")
+    enable(cli, "set_dark_library_enabled", True, dark_library_loaded=True, auto_load_darks=True)
+
+    # the defect map's darks: the map loaded, which unloads the dark library
+    mark = cli.mark()
+    built = cli.call("build_defect_map_darks", {"exposure_ms": DEFECT_DARK_MS, "frame_count": DARK_FRAMES,
+                                                "notes": "e2e N3"}, timeout=120)
+    defects = built.get("defect_count")
+    want = {"profile_id": st["profile_id"], "defect_map_path": st["defect_map_path"], "defect_count": defects,
+            "exposure_ms": DEFECT_DARK_MS, "frame_count": DARK_FRAMES}
+    # the fake's "darks" are its frames (it has no shutter): its stars are the hot pixels
+    expect(built == want and isinstance(defects, int) and defects > 0, f"build_defect_map_darks {built}")
+    evs = build_events(cli.events_since(mark), "DefectMap")
+    want_evs = ([{"Event": "DefectMapBuildStarted", "profile_id": st["profile_id"], "exposure_count": 1,
+                  "frames_per_exposure": DARK_FRAMES, "planned_exposures_ms": [DEFECT_DARK_MS]}]
+                + [{"Event": "DefectMapFrameComplete", "exposure_index": 1, "exposure_count": 1, "frame": f + 1,
+                    "frame_count": DARK_FRAMES, "exposure_ms": DEFECT_DARK_MS} for f in range(DARK_FRAMES)]
+                + [{"Event": "DefectMapBuildComplete", "profile_id": st["profile_id"], "built_count": DARK_FRAMES}])
+    expect(evs == want_evs, f"the defect map build's events {evs}, expected {want_evs}")
+    calibration_files(cli, **loaded_state(False, True, False, True))
+    # each enable unloads the other and turns its auto-load flag off
+    enable(cli, "set_dark_library_enabled", True, **loaded_state(True, False, True, False))
+    enable(cli, "set_defect_map_enabled", True, **loaded_state(False, True, False, True))
+    enable(cli, "set_defect_map_enabled", False, **loaded_state(False, False, False, False))
+    enable(cli, "set_defect_map_enabled", False, **loaded_state(False, False, False, False))  # no error, unlike darks
+    out.append(f"defect map {defects} defects from {DARK_FRAMES} x {DEFECT_DARK_MS} ms darks; each enable unloads "
+               "the other; the defect map off twice succeeds, the dark library off twice fails")
+
+    rebuilt = cli.call("rebuild_defect_map", {"aggressiveness_hot": 100, "aggressiveness_cold": 100})
+    want = {"aggressiveness_hot": 100, "aggressiveness_cold": 100, "defect_count": defects,
+            "master_dark_exposure_ms": DEFECT_DARK_MS, "master_dark_frame_count": DARK_FRAMES, "saved": True,
+            "loaded": True, "defect_map_path": st["defect_map_path"]}
+    got = {k: rebuilt.get(k) for k in want}
+    expect(got == want, f"rebuild_defect_map 100/100 {got}, expected {want}")
+    expect(rebuilt["hot_pixel_count"] + rebuilt["cold_pixel_count"] == defects,
+           f"rebuild_defect_map: {rebuilt['hot_pixel_count']} hot + {rebuilt['cold_pixel_count']} cold, {defects} "
+           "defects")
+    expect(abs(rebuilt["image_median"] - FAKE_BACKGROUND_ADU) <= 3, f"the master dark's median {rebuilt}")
+    calibration_files(cli, **loaded_state(False, True, False, True))
+    gentle = cli.call("rebuild_defect_map", {"aggressiveness_hot": 0, "aggressiveness_cold": 0, "save": False})
+    expect(gentle["saved"] is False and gentle["loaded"] is False and 0 < gentle["defect_count"] < defects,
+           f"rebuild_defect_map 0/0 unsaved: {gentle} (100/100: {defects})")
+    calibration_files(cli, **loaded_state(False, True, False, True))  # the saved map still loaded
+    out.append(f"rebuild 100/100 saved {defects} ({rebuilt['hot_pixel_count']} hot), 0/0 unsaved "
+               f"{gentle['defect_count']}")
+
+    # a frame of another size: MyFrame::CheckDarkFrameGeometry after the frame unloads both, with three Alerts
+    enable(cli, "set_dark_library_enabled", True, **loaded_state(True, False, True, False))
+    try:
+        fake.request("PUT", "/fake/size", {"w": DARK_SMALL_SIZE[0], "h": DARK_SMALL_SIZE[1]})
+        mark = cli.mark()
+        single_frame(cli)
+        time.sleep(1.0)
+        evs = cli.events_since(mark)
+        got = [e.get("Msg") for e in evs if e["Event"] == "Alert"]
+        expect(got == list(GEOMETRY_ALERTS), f"the Alerts of a {DARK_SMALL_SIZE} frame: {got}")
+        calibration_files(cli, **loaded_state(False, False, False, False, compatible=False))
+    finally:
+        fake.request("PUT", "/fake/size", {"w": FAKE_SIZE[0], "h": FAKE_SIZE[1]})
+    mark = cli.mark()
+    single_frame(cli)
+    time.sleep(1.0)
+    got = [e.get("Msg") for e in cli.events_since(mark) if e["Event"] == "Alert"]
+    expect(not got, f"Alerts of the frame back at full size: {got}")
+    calibration_files(cli, **loaded_state(False, False, False, False))
+    enable(cli, "set_dark_library_enabled", True, **loaded_state(True, False, True, False))
+    enable(cli, "set_dark_library_enabled", False, **loaded_state(False, False, False, False))
+    out.append(f"a {DARK_SMALL_SIZE[0]}x{DARK_SMALL_SIZE[1]} frame: both unloaded, {len(GEOMETRY_ALERTS)} Alerts, "
+               "incompatible; full size again: compatible, not reloaded")
+    return "; ".join(out)
+
+
+# N5: the exposure choice (#115 step 6, S6.2, drops the hidden Exposure combo box set_exposure goes through)
+# get_exposure_durations: the Exposure choice's durations, the custom duration (/CustomExposureDuration, 30 s in a new
+# profile) last (src/exposure_choice.cpp)
+EXPOSURE_DURATIONS = [10, 20, 50, 100, 200, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 6000, 7000,
+                      8000, 9000, 10000, 15000, 30000]
+# MyFrame::ExposureDurationSummary with Auto selected, at a new profile's auto-exposure settings
+AUTO_SUMMARY = "Auto (min = 1000 ms, max = 5000 ms, SNR = 6.00)"
+SET_EXPOSURE_REFUSED = (1, "could not set exposure duration")
+JSONRPC_INVALID_PARAMS = -32602
+
+
+def set_exposure(cli, value):
+    """set_exposure: (the response's result or error, the GuideParamChange "Exposure" values it sent). The event is
+    written before the response on the same connection, so it is in by the time the response is."""
+    mark = cli.mark()
+    msg = cli.request("set_exposure", {"exposure": value})
+    evs = [e.get("Value") for e in cli.events_since(mark, ("GuideParamChange",)) if e.get("Name") == "Exposure"]
+    if msg.get("error"):
+        return (msg["error"].get("code"), msg["error"].get("message")), evs
+    return msg.get("result"), evs
+
+
+def scenario_exposure_choice(cli):
+    """N5: set_exposure through each duration of get_exposure_durations, Auto (-1, and any negative value), the
+    custom duration (the list's last) and refused values, pinned before S6.2 drops the combo box it selects in. Each
+    change sends one GuideParamChange "Exposure" with MyFrame::ExposureDurationSummary ("<ms> ms", or the Auto
+    summary) and none when nothing changes; get_exposure reads the duration, and with Auto still the last one, until
+    a capture starts (PhdController's start resets it to the auto maximum). A value that is none of the durations
+    (0 included) fails with error 1 and changes nothing; a value that is not an integer is refused as invalid params.
+    Back at 500 ms after it."""
+    expect(cli.call("get_exposure_durations") == EXPOSURE_DURATIONS,
+           f"get_exposure_durations {cli.call('get_exposure_durations')}, expected {EXPOSURE_DURATIONS}")
+    current = cli.call("get_exposure")
+    expect(current == 500, f"get_exposure {current} before the table, expected the lane's 500")
+    # (value, the result, the events, get_exposure after it)
+    table = [(500, 0, [], 500)]  # the exposure it already has: no event
+    table += [(ms, 0, [f"{ms} ms"], ms) for ms in EXPOSURE_DURATIONS if ms != 500]  # each a change from the one before
+    last = EXPOSURE_DURATIONS[-1]
+    table += [
+        (-1, 0, [AUTO_SUMMARY], last),  # Auto: get_exposure still the last duration until a capture starts
+        (-1, 0, [], last),
+        (-2, 0, [], last),  # any negative value is Auto
+        (last, 0, [f"{last} ms"], last),  # the custom duration, from Auto: a change even at the same value
+        (1234, SET_EXPOSURE_REFUSED, [], last),
+        (0, SET_EXPOSURE_REFUSED, [], last),
+        (29999, SET_EXPOSURE_REFUSED, [], last),
+        (1.5, (JSONRPC_INVALID_PARAMS, "expected exposure param"), [], last),
+        ("500", (JSONRPC_INVALID_PARAMS, "expected exposure param"), [], last),
+        (500, 0, ["500 ms"], 500),
+    ]
+    for value, want, want_evs, want_exp in table:
+        got, evs = set_exposure(cli, value)
+        exp = cli.call("get_exposure")
+        expect((got, evs, exp) == (want, want_evs, want_exp),
+               f"set_exposure {value!r}: {got!r}, Exposure events {evs}, get_exposure {exp}; expected {want!r}, "
+               f"{want_evs}, {want_exp}")
+    refused = sum(1 for _, want, _, _ in table if want != 0)
+    return (f"{len(table)} set_exposure calls: the {len(EXPOSURE_DURATIONS)} durations (the custom {last} ms last, "
+            "500 ms first, unchanged), "
+            f"Auto (-1, -2), the custom duration from Auto and {refused} refused values, then 500 ms")
+
+
 def fits_card(data, key):
     """The value of a FITS header card (quotes and comment taken off), or None."""
     for off in range(0, len(data), 80):
@@ -1306,6 +1588,9 @@ def lane_steps(lane, step, cli, fake, args, ctx):
                  lambda: scenario_noise_reduction_at_schedule(cli))
             step("HTTP data port: /api/frame.jpg and /api/capture (N2)",
                  lambda: scenario_http_frame_and_capture(cli, args, ctx["work"]))
+            step("dark library and defect map (N3)", lambda: scenario_dark_library(cli, fake, args, ctx["work"]))
+            step("exposure choice: set_exposure, GuideParamChange and get_exposure (N5)",
+                 lambda: scenario_exposure_choice(cli))
             if step("calibrate and guide (event order)", lambda: scenario_calibrate_and_guide(cli, args)):
                 step("guide history matches the GuideSteps (#133)", lambda: scenario_guide_history(cli))
                 if step("recalibrate on a new target", lambda: scenario_new_target(cli, fake, args)):
