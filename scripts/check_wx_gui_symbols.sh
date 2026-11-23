@@ -127,7 +127,7 @@ if [ ! -f "$allowlist" ]; then
     echo "error: allowlist $allowlist not found (create it with --update)" >&2
     exit 2
 fi
-grep -v -e '^#' -e '^[[:space:]]*$' "$allowlist" | sort -u > "$tmp/allowed"
+{ grep -v -e '^#' -e '^[[:space:]]*$' "$allowlist" || true; } | sort -u > "$tmp/allowed"
 
 comm -23 "$tmp/current" "$tmp/allowed" > "$tmp/new"
 comm -13 "$tmp/current" "$tmp/allowed" > "$tmp/gone"
