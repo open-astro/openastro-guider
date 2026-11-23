@@ -236,8 +236,9 @@ static void IdleClosing(wxIdleEvent& evt)
     if (!pFrame || pFrame->IsShutDown())
         return;
 
-    // #115 S6.8/S6.9: the exit sequence, then the frame's deletion and the exit from the main loop (MyFrame is a
-    // wxEvtHandler, so no window close does either)
+    // #115 S6.8/S6.9: the exit sequence, then the frame's deletion and the exit from the main loop. MyFrame is a plain
+    // wxEvtHandler: it has no native window, so there is no Destroy() and no window events to wait for, and no last
+    // window whose deletion would end the main loop
     pFrame->Shutdown();
     // nothing posts to the frame once Shutdown() has stopped the servers and the worker threads; drop anything already
     // queued for it (~wxEvtHandler does too) so no event can reach it after the delete
