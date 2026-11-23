@@ -375,6 +375,10 @@ set(phd2_SRC
   ${phd_src_dir}/star.h
   ${phd_src_dir}/star_find_core.cpp
   ${phd_src_dir}/star_find_core.h
+  ${phd_src_dir}/image_stretch.cpp
+  ${phd_src_dir}/image_stretch.h
+  ${phd_src_dir}/jpeg_encode.cpp
+  ${phd_src_dir}/jpeg_encode.h
   ${phd_src_dir}/usImage.cpp
   ${phd_src_dir}/usImage.h
   ${phd_src_dir}/worker_thread.cpp
