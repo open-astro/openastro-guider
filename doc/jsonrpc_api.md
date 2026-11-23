@@ -590,7 +590,8 @@ Alpaca discovery/query:
     - `dark_library_compatible`, `defect_map_compatible`
     - `dark_library_loaded`, `defect_map_loaded`
     - `auto_load_darks`, `auto_load_defect_map`
-    - if camera present: `dark_count_loaded`, `dark_min_exposure_seconds_loaded`, `dark_max_exposure_seconds_loaded`
+    - if camera present: `dark_count_loaded`
+    - if camera present and darks loaded: `dark_min_exposure_seconds_loaded`, `dark_max_exposure_seconds_loaded` (seconds; before #295 these were the ms, and 9999 / -9999 with no darks)
 
 - `set_dark_library_enabled`
   - params: `{"enabled":bool}`
@@ -1000,8 +1001,8 @@ This section is normative for integrator behavior. Each method entry describes:
 | Method | Parameters | Preconditions | Success Result | Common Errors | Side Effects / Events |
 |---|---|---|---|---|---|
 | `get_calibration_files_status` | none | none | status object (paths, exists/loaded/compatible/autoload flags, optional loaded dark stats) | none expected | none |
-| `set_dark_library_enabled` | `enabled:bool` | enabling requires connected camera | status object | `-32602` invalid bool; `1` camera not connected/load/unload failure | dark library load state toggled |
-| `set_defect_map_enabled` | `enabled:bool` | enabling requires connected camera | status object | `-32602` invalid bool; `1` camera not connected/load/unload failure | defect map load state toggled |
+| `set_dark_library_enabled` | `enabled:bool` | enabling requires connected camera | status object | `-32602` invalid bool; `1` camera not connected/load/unload failure (off with nothing loaded succeeds) | dark library load state toggled; the auto-load flag is written only by a successful enable, and by a disable with a camera connected |
+| `set_defect_map_enabled` | `enabled:bool` | enabling requires connected camera | status object | `-32602` invalid bool; `1` camera not connected/load/unload failure (off with nothing loaded succeeds) | defect map load state toggled; the auto-load flag is written only by a successful enable, and by a disable with a camera connected |
 | `build_dark_library` | optional `frame_count`,`min_exposure_ms`,`max_exposure_ms`,`clear_existing`,`notes`,`load_after`,`async` | connected camera; capture inactive | sync: `{profile_id,dark_library_path,frame_count,exposure_count,exposures_ms}`; async: `0` | `-32602` invalid ranges/types; `1` no camera/capture active/no matched exposure/capture save failure | captures dark stacks for selected exposures, writes dark library, optional load. Default is SYNCHRONOUS: blocks for roughly `frame_count x sum(matched exposures)` (2–3 min), which can trip a client's per-call receive timeout. Pass `async:true` to return `0` immediately and get the result via the `DarkLibraryBuildComplete`/`DarkLibraryBuildFailed` event instead. Either way, subscribe to `DarkLibraryBuildStarted`/`DarkLibraryFrameComplete`/`DarkLibraryBuildComplete`/`DarkLibraryBuildFailed` for live progress (poll `get_calibration_files_status.build` as the fallback) |
 | `build_defect_map_darks` | optional `exposure_ms`,`frame_count`,`notes`,`load_after`,`async` | connected camera; capture inactive | sync: `{profile_id,defect_map_path,defect_count,exposure_ms,frame_count}`; async: `0` | `-32602` invalid ranges/types; `1` no camera/capture active/capture failure | captures master dark, builds defect map, saves files, optional load. Default SYNCHRONOUS like `build_dark_library`; `async:true` returns `0` immediately with the result riding `DefectMapBuildComplete`/`DefectMapBuildFailed`. Emits the `DefectMapBuildStarted`/`DefectMapFrameComplete`/`DefectMapBuildComplete`/`DefectMapBuildFailed` twins |
 | `delete_calibration_files` | optional `delete_dark_library:bool`,`delete_defect_map:bool` | none | status object | `-32602` invalid bools | deletes selected files for current profile, clears loaded artifacts where applicable |

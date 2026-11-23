@@ -535,22 +535,24 @@ bool MyFrame::LoadDarkHandler(bool checkIt)
         m_darksInUse = false;
         return false;
     }
-    pConfig->Profile.SetBoolean("/camera/AutoLoadDarks", checkIt);
     if (checkIt) // enable it
     {
-        m_darksInUse = true;
-        if (pCamera->CurrentDefectMap)
-            LoadDefectMapHandler(false);
-        if (LoadDarkLibrary())
-            return true;
-        else
+        // Load first, and only then unload the defect map and set the auto-load flag: a load that
+        // fails leaves the defect map and both flags as they were (#295).
+        if (!LoadDarkLibrary())
         {
             m_darksInUse = false;
             return false;
         }
+        m_darksInUse = true;
+        if (pCamera->CurrentDefectMap)
+            LoadDefectMapHandler(false);
+        pConfig->Profile.SetBoolean("/camera/AutoLoadDarks", true);
+        return true;
     }
     else
     {
+        pConfig->Profile.SetBoolean("/camera/AutoLoadDarks", false);
         if (!pCamera->CurrentDarkFrame)
         {
             m_darksInUse = false; // shouldn't have gotten here
@@ -572,7 +574,6 @@ void MyFrame::LoadDefectMapHandler(bool checkIt)
         m_defectMapInUse = false;
         return;
     }
-    pConfig->Profile.SetBoolean("/camera/AutoLoadDefectMap", checkIt);
     if (checkIt)
     {
         DefectMap *defectMap = DefectMap::LoadDefectMap(pConfig->GetCurrentProfileId());
@@ -583,6 +584,8 @@ void MyFrame::LoadDefectMapHandler(bool checkIt)
             pCamera->SetDefectMap(defectMap);
             m_darksInUse = false;
             m_defectMapInUse = true;
+            // only a map that loaded sets the auto-load flag (#295)
+            pConfig->Profile.SetBoolean("/camera/AutoLoadDefectMap", true);
             StatusMsg(_("Defect map loaded"));
         }
         else
@@ -592,6 +595,7 @@ void MyFrame::LoadDefectMapHandler(bool checkIt)
     }
     else
     {
+        pConfig->Profile.SetBoolean("/camera/AutoLoadDefectMap", false);
         if (!pCamera->CurrentDefectMap)
         {
             m_defectMapInUse = false; // Shouldn't have gotten here
