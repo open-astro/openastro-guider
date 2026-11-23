@@ -56,13 +56,11 @@ class AdvancedDialog : public wxDialog
     wxBookCtrlBase *m_pNotebook;
     Mount::MountConfigDialogPane *m_pMountPane;
     AOConfigDialogPane *m_pAOPane;
-    RotatorConfigDialogPane *m_pRotatorPane;
 
     BrainCtrlIdMap m_brainCtrls;
     bool m_rebuildPanels;
     MountConfigDialogCtrlSet *m_pScopeCtrlSet;
     AOConfigDialogCtrlSet *m_pAOCtrlSet;
-    RotatorConfigDialogCtrlSet *m_pRotatorCtrlSet;
     wxPanel *m_pGuiderSettingsPanel;
     wxPanel *m_pScopeSettingsPanel;
     wxPanel *m_pDevicesSettingsPanel;
@@ -81,7 +79,6 @@ public:
 
     void UpdateMountPage();
     void UpdateAoPage();
-    void UpdateRotatorPage();
 
     void LoadValues();
     void UnloadValues();
@@ -104,7 +101,6 @@ public:
 private:
     void AddMountPage();
     void AddAoPage();
-    void AddRotatorPage();
     size_t FindPage(wxWindow *ctrl);
     void RebuildPanels();
     void BuildCtrlSets();

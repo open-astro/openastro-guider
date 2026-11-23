@@ -50,11 +50,6 @@ void AdvancedDialog::BuildCtrlSets()
     else
         m_pAOCtrlSet = nullptr;
 
-    if (pRotator)
-        m_pRotatorCtrlSet = pRotator->GetConfigDlgCtrlSet(m_pDevicesSettingsPanel, pRotator, this, m_brainCtrls);
-    else
-        m_pRotatorCtrlSet = nullptr;
-
     // Need a scope ctrl set even if pMount is null - it exports generic controls needed by other panes
     m_pScopeCtrlSet = new ScopeConfigDialogCtrlSet(m_pGuiderSettingsPanel, TheScope(), this, m_brainCtrls);
 }
@@ -66,9 +61,6 @@ void AdvancedDialog::CleanupCtrlSets()
 
     delete m_pAOCtrlSet;
     m_pAOCtrlSet = nullptr;
-
-    delete m_pRotatorCtrlSet;
-    m_pRotatorCtrlSet = nullptr;
 }
 
 static void EnableValidators(wxWindow *win)
@@ -131,7 +123,7 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     wxBoxSizer *pScopeTabSizer = new wxBoxSizer(wxVERTICAL);
     m_pScopeSettingsPanel->SetSizer(pScopeTabSizer);
     m_pNotebook->AddPage(m_pScopeSettingsPanel, _("Algorithms"));
-    // Devices pane - home for AO and rotator - won't be shown if neither device is used
+    // Devices pane - home for AO - won't be shown if no AO is used
     m_pDevicesSettingsPanel = new wxPanel(m_pNotebook);
     wxBoxSizer *pDevicesTabSizer = new wxBoxSizer(wxVERTICAL);
     m_pDevicesSettingsPanel->SetSizer(pDevicesTabSizer);
@@ -145,9 +137,6 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
 
     // Build AO tab
     AddAoPage();
-
-    // Add page for rotator
-    AddRotatorPage();
 
     // Ok and cancel buttons for the entire dialog box
     wxBoxSizer *pTopLevelSizer = new wxBoxSizer(wxVERTICAL);
@@ -215,11 +204,7 @@ void AdvancedDialog::RebuildPanels()
     {
         m_pAOPane->Clear(true);
     }
-    if (m_pRotatorPane)
-    {
-        m_pRotatorPane->Clear(true);
-    }
-    if (m_pRotatorPane != nullptr || m_pAOPane != nullptr)
+    if (m_pAOPane != nullptr)
         m_pDevicesSettingsPanel->GetSizer()->Clear(true);
 
     m_brainCtrls.clear();
@@ -229,9 +214,8 @@ void AdvancedDialog::RebuildPanels()
     AddMountPage();
 
     AddAoPage(); // Will handle no AO case
-    AddRotatorPage(); // Will handle no Rotator case
 
-    if (m_pAOPane == nullptr && m_pRotatorPane == nullptr) // Dump the Other Devices tab if not needed
+    if (m_pAOPane == nullptr) // Dump the Other Devices tab if not needed
     {
         int idx = m_pNotebook->FindPage(m_pDevicesSettingsPanel);
         if (idx != wxNOT_FOUND)
@@ -309,24 +293,6 @@ void AdvancedDialog::AddAoPage()
     }
 }
 
-void AdvancedDialog::AddRotatorPage()
-{
-    if (pRotator)
-    {
-        // We have a rotator selected
-        m_pRotatorPane = new RotatorConfigDialogPane(m_pDevicesSettingsPanel);
-        m_pRotatorPane->LayoutControls(m_pDevicesSettingsPanel, m_brainCtrls);
-        m_pRotatorPane->Layout();
-
-        m_pDevicesSettingsPanel->GetSizer()->Add(m_pRotatorPane, wxSizerFlags(0).Border(wxTOP, 10).Expand());
-        m_pDevicesSettingsPanel->Layout();
-    }
-    else
-    {
-        m_pRotatorPane = nullptr;
-    }
-}
-
 // All update options for devices are handled by simply forcing a RebuildPanels before the Advanced Dialog is displayed
 
 void AdvancedDialog::UpdateMountPage()
@@ -339,11 +305,6 @@ void AdvancedDialog::UpdateAoPage()
     m_rebuildPanels = true;
 }
 
-void AdvancedDialog::UpdateRotatorPage()
-{
-    m_rebuildPanels = true;
-}
-
 void AdvancedDialog::LoadValues()
 {
     // Late-binding rebuild of all the panels
@@ -352,8 +313,6 @@ void AdvancedDialog::LoadValues()
 
     // Load all the current params
     m_imageScaleChanged = false;
-    if (m_pRotatorCtrlSet)
-        m_pRotatorCtrlSet->LoadValues();
 
     // Mount sub-classes use a hybrid approach involving both CtrlSets and Panes
 
@@ -374,8 +333,6 @@ void AdvancedDialog::LoadValues()
 void AdvancedDialog::UnloadValues()
 {
     // Unload all the current params
-    if (m_pRotatorCtrlSet)
-        m_pRotatorCtrlSet->UnloadValues();
 
     // Mount sub-classes use a hybrid approach involving both CtrlSets and Panes
 
@@ -398,7 +355,7 @@ void AdvancedDialog::UnloadValues()
 // Any un-do ops need to be handled at the ConfigDialogPane level
 void AdvancedDialog::Undo()
 {
-    ConfigDialogPane *const panes[] = { m_pMountPane, m_pAOPane, m_pRotatorPane };
+    ConfigDialogPane *const panes[] = { m_pMountPane, m_pAOPane };
 
     for (unsigned int i = 0; i < WXSIZEOF(panes); i++)
     {
