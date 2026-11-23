@@ -28,6 +28,8 @@ bool Same(double a, double b)
 {
     return std::memcmp(&a, &b, sizeof a) == 0;
 }
+} // namespace
+
 
 // --- MassChecker ---
 
@@ -158,6 +160,8 @@ TEST(MultistarParity, DistanceChecker)
     EXPECT_GT(states[frame_reject::DistanceChecker::ST_RECOVERING], 0);
 }
 
+namespace
+{
 // --- RefineOffset ---
 
 struct FindCall
@@ -231,6 +235,8 @@ size_t Count(const std::vector<std::string>& lines, const std::string& token)
             ++n;
     return n;
 }
+
+} // namespace
 
 TEST(MultistarParity, RefineOffset)
 {
@@ -435,5 +441,3 @@ TEST(MultistarParity, RefineOffset)
     EXPECT_GT(diverged, 0u); // the #262 path is reached
     EXPECT_GT(refinedFrames, 0u);
 }
-
-} // namespace
