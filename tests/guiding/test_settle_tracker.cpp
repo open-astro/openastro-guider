@@ -8,8 +8,10 @@
 // about the times the tracker gives it, read from the clock.
 //
 // The settle timers were wxStopWatch, which reads the wall clock. RC51 boots with a stale clock
-// and then syncs it, so the system time can step by hours mid-session. The ClockStep tests below
-// pin what a step of +-1 h does today to the clock PhdController gives the tracker.
+// and then syncs it, so the system time can step by hours mid-session (#257): a step forward
+// settled a run or timed the settle out on the next frame, a step back held both for the size
+// of the step. The tracker now reads the steady clock, and the ClockStep tests below check that
+// a step of +-1 h leaves the settle to real time.
 
 #include <gtest/gtest.h>
 
@@ -44,19 +46,14 @@ struct FakeTime
 int64_t FakeTime::wallMs = 0;
 int64_t FakeTime::steadyMs = 0;
 
-int64_t FakeWallMs()
-{
-    return FakeTime::wallMs;
-}
-
 int64_t FakeSteadyMs()
 {
     return FakeTime::steadyMs;
 }
 
 // The clock PhdController gives its SettleTracker (SettleTracker::ProductionClockMs), on the fake:
-// today the wall clock (ProductionClock.IsTheWallClock)
-constexpr SettleTracker::ClockMs kProductionClock = &FakeWallMs;
+// the steady clock (ProductionClock.IsTheSteadyClock, #257)
+constexpr SettleTracker::ClockMs kProductionClock = &FakeSteadyMs;
 
 constexpr int64_t kHourMs = 3600 * 1000;
 
@@ -99,18 +96,18 @@ protected:
 
 // --- the clock ---
 
-TEST(ProductionClock, IsTheWallClock)
+TEST(ProductionClock, IsTheSteadyClock)
 {
-    // Pins today's clock: the wall clock, which a step of the system time (a Pi syncing a stale
-    // clock at boot) moves, as wxStopWatch did
-    auto wall = []()
+    // The wall clock jumps when the system time is set (a Pi that boots with a stale clock and
+    // then syncs it); the monotonic clock does not (#257)
+    auto steady = []()
     {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
             .count();
     };
-    int64_t before = wall();
+    int64_t before = steady();
     int64_t now = SettleTracker::ProductionClockMs();
-    int64_t after = wall();
+    int64_t after = steady();
     EXPECT_GE(now, before);
     EXPECT_LE(now, after);
 }
@@ -322,79 +319,65 @@ TEST_F(SettleTrackerTest, ResetCountsZeroesTheCountsOnly)
 
 // --- a step of the system clock, +-1 h ---
 //
-// These pin today's behaviour on the wall clock, which is wrong: a step of the system time moves
-// both settle timers by the size of the step.
+// On the wall clock a step forward settled a run or timed the settle out on the next frame, and a
+// step back held both for the size of the step (#257). On the steady clock the settle takes its
+// settle time in range and its timeout in real time, whichever way the system time was set.
 
-TEST_F(SettleTrackerTest, ClockStepForwardSettlesARunAtOnce)
+TEST_F(SettleTrackerTest, ClockStepForwardDoesNotSettleARunEarly)
 {
-    // 2 s into a 10 s in-range run, the clock steps 1 h forward: the next frame settles, 8 s early
+    // 2 s into a 10 s in-range run, the clock steps 1 h forward: the run still needs its 10 s
     SettleParams p = Params(10, 60);
     tracker.Begin();
     FrameAt(0, p, kIn);
     FrameAt(2000, p, kIn);
     FakeTime::StepSystemTime(kHourMs);
     Result r = FrameAt(3000, p, kIn);
-    EXPECT_EQ(r.outcome, Outcome::Settled);
-    EXPECT_GE(r.timeInRangeMs, kHourMs); // the run read as over an hour long
+    EXPECT_EQ(r.outcome, Outcome::Settling);
+    EXPECT_EQ(r.timeInRangeMs, 3000);
+    EXPECT_EQ(FrameAt(9999, p, kIn).outcome, Outcome::Settling);
+    EXPECT_EQ(FrameAt(10000, p, kIn).outcome, Outcome::Settled);
 }
 
-TEST_F(SettleTrackerTest, ClockStepForwardTimesOutAtOnce)
+TEST_F(SettleTrackerTest, ClockStepForwardDoesNotTimeOutEarly)
 {
-    // 3 s into a 60 s timeout, out of range, the clock steps 1 h forward: the next frame fails
+    // 3 s into a 60 s timeout, out of range, the clock steps 1 h forward: the timeout still
+    // comes 60 s after Begin
     SettleParams p = Params(10, 60);
     tracker.Begin();
     FrameAt(1000, p, kOut);
     FrameAt(3000, p, kOut);
     FakeTime::StepSystemTime(kHourMs);
-    EXPECT_EQ(FrameAt(4000, p, kOut).outcome, Outcome::TimedOut);
+    for (int64_t t = 4000; t < 60000; t += 1000)
+        ASSERT_EQ(FrameAt(t, p, kOut).outcome, Outcome::Settling) << "t = " << t;
+    EXPECT_EQ(FrameAt(60000, p, kOut).outcome, Outcome::TimedOut);
 }
 
-TEST_F(SettleTrackerTest, ClockStepBackHoldsTheSettle)
+TEST_F(SettleTrackerTest, ClockStepBackDoesNotHoldTheSettle)
 {
-    // 2 s into a 10 s in-range run, the clock steps 1 h back: the run reads a negative time and
-    // does not complete, and the 60 s timeout does not fire, for well over the timeout of real time
+    // 2 s into a 10 s in-range run, the clock steps 1 h back: the run completes 10 s after its
+    // first frame, and Settling.SettleTime counts up from 0 meanwhile
     SettleParams p = Params(10, 60);
     tracker.Begin();
     FrameAt(0, p, kIn);
     FrameAt(2000, p, kIn);
     FakeTime::StepSystemTime(-kHourMs);
-    for (int64_t t = 3000; t <= 120000; t += 1000)
+    for (int64_t t = 3000; t < 10000; t += 1000)
     {
         Result r = FrameAt(t, p, kIn);
         ASSERT_EQ(r.outcome, Outcome::Settling) << "t = " << t;
-        ASSERT_LT(r.timeInRangeMs, 0) << "t = " << t; // Settling.SettleTime goes negative
+        ASSERT_EQ(r.timeInRangeMs, t) << "t = " << t;
     }
+    EXPECT_EQ(FrameAt(10000, p, kIn).outcome, Outcome::Settled);
 }
 
-TEST_F(SettleTrackerTest, ClockStepBackHoldsTheTimeout)
+TEST_F(SettleTrackerTest, ClockStepBackDoesNotHoldTheTimeout)
 {
-    // never in range, the clock steps 1 h back 3 s in: no timeout within 120 s of real time
+    // never in range, the clock steps 1 h back 3 s in: the settle still times out 60 s after Begin
     SettleParams p = Params(10, 60);
     tracker.Begin();
     FrameAt(3000, p, kOut);
     FakeTime::StepSystemTime(-kHourMs);
-    for (int64_t t = 4000; t <= 120000; t += 1000)
+    for (int64_t t = 4000; t < 60000; t += 1000)
         ASSERT_EQ(FrameAt(t, p, kOut).outcome, Outcome::Settling) << "t = " << t;
-}
-
-TEST(SettleTrackerSteadyClock, AStepOfTheSystemTimeDoesNotMoveASteadyClock)
-{
-    // the same +-1 h steps on a tracker given a steady clock leave the settle to real time
-    for (int64_t step : { kHourMs, -kHourMs })
-    {
-        FakeTime::Set(0);
-        SettleTracker tracker(&FakeSteadyMs);
-        SettleParams p = Params(10, 60);
-        tracker.Begin();
-        EXPECT_EQ(tracker.OnFrame(p, false, true, kIn, false).outcome, Outcome::Settling);
-        FakeTime::Advance(2000);
-        tracker.OnFrame(p, false, true, kIn, false);
-        FakeTime::StepSystemTime(step);
-        FakeTime::Advance(7999);
-        Result r = tracker.OnFrame(p, false, true, kIn, false);
-        EXPECT_EQ(r.outcome, Outcome::Settling) << "step " << step;
-        EXPECT_EQ(r.timeInRangeMs, 9999) << "step " << step;
-        FakeTime::Advance(1);
-        EXPECT_EQ(tracker.OnFrame(p, false, true, kIn, false).outcome, Outcome::Settled) << "step " << step;
-    }
+    EXPECT_EQ(FrameAt(60000, p, kOut).outcome, Outcome::TimedOut);
 }

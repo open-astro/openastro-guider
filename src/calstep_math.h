@@ -5,7 +5,7 @@
  *  The recommended calibration distance and calibration step (#142), from
  *  the focal length, pixel size, binning and mount guide speed. Used by
  *  CalstepDialog::GetCalibrationDistance / GetCalibrationStepSize, which
- *  Scope::CheckCalibrationDuration and AdvancedDialog::MakeImageScaleAdjustments
+ *  Scope::CheckCalibrationDuration and MyFrame::MakeImageScaleAdjustments
  *  call. Kept free of wx so it can be unit tested
  *  (tests/calibration/test_calstep_math.cpp).
  */

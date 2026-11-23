@@ -7,12 +7,14 @@
 
 #include "settle_tracker.h"
 
-#include <chrono>
+#include "monotonic_timers.h"
 
 int64_t SettleTracker::ProductionClockMs()
 {
-    // The wall clock, as wxStopWatch is: a step of the system time moves both settle timers
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    // Not the wall clock, which wxStopWatch read: a step of the system time (a Pi syncing a stale clock
+    // at boot) settled a run or timed the settle out on the next frame, or held both for the size of
+    // the step (#257)
+    return monotonic_timers::ClockMs();
 }
 
 SettleTracker::SettleTracker(ClockMs clock) : m_clock(clock) { }

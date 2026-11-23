@@ -502,12 +502,14 @@ add_test(NAME test_settle_frame COMMAND test_settle_frame)
 # test_settle_tracker  --  settle_tracker.cpp: PhdController's settle timers
 # (the timeout from the settle's start, the in-range run from its first
 # frame) and frame counts, on an injected clock, with steps of the system
-# time of +-1 h, and the clock PhdController gives it (#142). std-only.
+# time of +-1 h, and the clock PhdController gives it, the steady one (#142,
+# #257). std-only.
 ############################################################################
 add_executable(test_settle_tracker
   ${PHD_TESTS_DIR}/guiding/test_settle_tracker.cpp
   ${phd_src_dir}/settle_tracker.cpp
   ${phd_src_dir}/settle_frame.cpp
+  ${phd_src_dir}/monotonic_timers.cpp
 )
 target_link_libraries(test_settle_tracker PRIVATE phd_test_common)
 set_property(TARGET test_settle_tracker PROPERTY FOLDER "Unit tests")
@@ -571,6 +573,19 @@ add_executable(test_calstep_math
 target_link_libraries(test_calstep_math PRIVATE phd_test_common)
 set_property(TARGET test_calstep_math PROPERTY FOLDER "Unit tests")
 add_test(NAME test_calstep_math COMMAND test_calstep_math)
+
+############################################################################
+# test_image_scale  --  image_scale.h: PercentChange, the 5% test that flags
+# an image-scale change, and SiderealRateFromGuideSpeed, moved out of
+# AdvancedDialog with MakeImageScaleAdjustments (#115 step 4, S4.1).
+# std-only, header-only.
+############################################################################
+add_executable(test_image_scale
+  ${PHD_TESTS_DIR}/calibration/test_image_scale.cpp
+)
+target_link_libraries(test_image_scale PRIVATE phd_test_common)
+set_property(TARGET test_image_scale PROPERTY FOLDER "Unit tests")
+add_test(NAME test_image_scale COMMAND test_image_scale)
 
 ############################################################################
 # test_instance_lock  --  instance_lock.cpp: where the single-instance lock

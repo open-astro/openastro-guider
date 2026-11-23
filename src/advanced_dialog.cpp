@@ -478,7 +478,7 @@ void AdvancedDialog::UnloadValues()
     }
     if (m_imageScaleChanged)
     {
-        MakeImageScaleAdjustments();
+        m_pFrame->MakeImageScaleAdjustments();
         m_imageScaleChanged = false;
     }
 }
@@ -523,110 +523,6 @@ void AdvancedDialog::SetPixelSize(double val)
 {
     if (m_pCameraCtrlSet)
         m_pCameraCtrlSet->SetPixelSize(val);
-}
-
-inline static double SiderealRateFromGuideSpeed(double guideSpeed)
-{
-    double const siderealSecsPerSec = 0.9973;
-    return guideSpeed * 3600.0 / (15.0 * siderealSecsPerSec);
-}
-
-// Get the best estimate for the current mount guide speeds
-double AdvancedDialog::DetermineGuideSpeed()
-{
-    double sidRate = 0.5;
-
-    if (pPointingSource && pPointingSource->IsConnected())
-    {
-        double raSpd;
-        double decSpd;
-
-        if (!pPointingSource->GetGuideRates(&raSpd, &decSpd))
-        {
-            if (pPointingSource->ValidGuideRates(raSpd, decSpd))
-            {
-                double minSpd;
-                if (decSpd != -1)
-                    minSpd = wxMin(raSpd, decSpd);
-                else
-                    minSpd = raSpd;
-                sidRate = SiderealRateFromGuideSpeed(minSpd);
-            }
-        }
-        else
-        {
-            CalibrationDetails calDetails;
-            TheScope()->LoadCalibrationDetails(&calDetails);
-            if (calDetails.IsValid())
-            {
-                if (TheScope()->ValidGuideRates(calDetails.raGuideSpeed, calDetails.decGuideSpeed))
-                {
-                    sidRate = SiderealRateFromGuideSpeed(wxMin(calDetails.raGuideSpeed, calDetails.decGuideSpeed));
-                }
-            }
-        }
-    }
-    return sidRate;
-}
-
-// Floating point equality comparisons can be a problem due to rounding and trivial inequalities.
-// PercentChange can be used to see if a change is worth reacting to
-double AdvancedDialog::PercentChange(double oldVal, double newVal)
-{
-    double chg;
-    if (fabs(oldVal) < 0.0001)
-    {
-        return 100. * newVal; // not meaningful, but avoids divide by zero
-    }
-    else
-        return 100. * fabs(1. - newVal / oldVal);
-}
-
-// Reacts to param changes in the AD that change the image scale.  Calibration step-size is recalculated, calibration is
-// cleared, MinMoves are set to defaults based on new image scale
-void AdvancedDialog::MakeImageScaleAdjustments()
-{
-    Scope *scope = TheScope();
-    if (!scope || !pCamera)
-    {
-        Debug.Write("Image scale changed but scope/camera unavailable; skipping adjustments\n");
-        return;
-    }
-
-    auto binning = pCamera->GetBinning();
-    auto focalLength = pFrame->GetFocalLength();
-    auto pixelSize = pCamera->GetCameraPixelSize();
-    double guideSpeedX;
-    Debug.Write("Image scale has changed via AD UI - step-size and algo adjustments will be made\n");
-    Debug.Write(wxString::Format("New image scale properties:  fl= %d, px= %.3fu, bin= %d\n", focalLength, pixelSize, binning));
-
-    // Determine a calibration step-size based on recommended distance and best estimator of mount guide speeds
-    guideSpeedX = DetermineGuideSpeed();
-    int recDistance = CalstepDialog::GetCalibrationDistance(focalLength, pixelSize, binning);
-    int oldStepSize = scope->GetCalibrationDuration();
-    int calibrationStep = oldStepSize;
-    if (CalstepDialog::GetCalibrationStepSize(focalLength, pixelSize, binning, guideSpeedX, CalstepDialog::DEFAULT_STEPS, 0,
-                                              recDistance, nullptr, &calibrationStep))
-    {
-        scope->SetCalibrationDuration(calibrationStep);
-        Debug.Write(wxString::Format("Cal step-size changed from %d ms to %d ms\n", oldStepSize, calibrationStep));
-    }
-    else
-        Debug.Write(
-            wxString::Format("Cal step-size kept at %d ms: no step size for this image scale and guide speed\n", oldStepSize));
-    // Clear the calibration to force a new one and reset the min-move values
-    if (pMount)
-    {
-        pMount->ClearCalibration();
-        if (pMount->IsStepGuider() && pSecondaryMount)
-            pSecondaryMount->ClearCalibration();
-        Debug.Write("Calibrations cleared because of image scale change\n");
-
-        double defMinMove = GuideAlgorithm::SmartDefaultMinMove(focalLength, pixelSize, binning);
-        Debug.Write(wxString::Format("Guide algo min moves reset to %.3fu\n", defMinMove));
-        pMount->GetXGuideAlgorithm()->SetMinMove(defMinMove);
-        pMount->GetYGuideAlgorithm()->SetMinMove(defMinMove);
-    }
 }
 
 int AdvancedDialog::GetBinning()

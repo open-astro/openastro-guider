@@ -524,6 +524,20 @@ void PhdController::UpdateControllerState(bool frameDropped)
             break;
 
         case STATE_SETTLE_BEGIN:
+            if (ctrl.settleOp == OP_GUIDE && pFrame->pGuider->IsCalibrating())
+            {
+                // entering guiding cleared the calibration (an image scale change) and started a new one (#255)
+                Debug.AddLine("PhdController: guider calibrating, wait for the calibration before settling");
+                if (ctrl.useStickyLock && !ctrl.haveSaveSticky)
+                {
+                    // as STATE_CALIBRATE does: guide on the selected star's lock position after the calibration
+                    ctrl.saveSticky = pFrame->pGuider->LockPosIsSticky();
+                    ctrl.haveSaveSticky = true;
+                    pFrame->pGuider->SetLockPosIsSticky(true);
+                }
+                SETSTATE(STATE_CALIBRATION_WAIT);
+                break;
+            }
             EvtServer.NotifySettleBegin();
             GuideLog.NotifySettlingStateChange("Settling started");
             if (ctrl.overrideDecGuideMode)
@@ -539,6 +553,12 @@ void PhdController::UpdateControllerState(bool frameDropped)
 
         case STATE_SETTLE_WAIT:
         {
+            if (ctrl.settleOp == OP_GUIDE && pFrame->pGuider->IsCalibrating())
+            {
+                // a dropped frame began the settle before the guider entered guiding and started a calibration (#255)
+                SETSTATE(STATE_SETTLE_BEGIN);
+                break;
+            }
             // the decision and its timers are in the wx-free settle_frame.cpp and settle_tracker.cpp; #136: a dropped frame
             // (a transient capture failure while guiding) counts like a lost-star frame and neither ends nor completes an
             // in-range run

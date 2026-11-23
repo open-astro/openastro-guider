@@ -295,6 +295,7 @@ set(phd2_SRC
   ${phd_src_dir}/calstep_math.cpp
   ${phd_src_dir}/calstep_math.h
   ${phd_src_dir}/circbuf.h
+  ${phd_src_dir}/image_scale.h
 
   ${phd_src_dir}/configdialog.cpp
   ${phd_src_dir}/configdialog.h

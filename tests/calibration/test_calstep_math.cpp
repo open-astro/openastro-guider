@@ -1,7 +1,7 @@
 // calstep_math (#142).
 //
 // The recommended calibration distance and step that Scope::CheckCalibrationDuration (on a
-// binning or guide-speed change) and AdvancedDialog::MakeImageScaleAdjustments (on an image-scale
+// binning or guide-speed change) and MyFrame::MakeImageScaleAdjustments (on an image-scale
 // change) set from the focal length, pixel size, binning and mount guide speed. The math lived in
 // CalstepDialog and moved to src/calstep_math.cpp; the differential tests run it against the
 // frozen copy of the CalstepDialog lines (legacy/calstep_legacy.cpp) and require the same

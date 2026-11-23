@@ -25,8 +25,8 @@ public:
     // readings is used
     using ClockMs = int64_t (*)();
 
-    // The clock PhdController's settle is timed on: the wall clock, as the wxStopWatch timers it
-    // replaces were (wxStopWatch reads gettimeofday)
+    // The clock PhdController's settle is timed on: monotonic_timers::ClockMs, the steady clock, so a
+    // step of the system time moves neither timer (#257)
     static int64_t ProductionClockMs();
 
     explicit SettleTracker(ClockMs clock = &SettleTracker::ProductionClockMs);

@@ -41,6 +41,7 @@
 #include "alpaca_errors.h"
 #include "connect_retry.h"
 #include "gear_selection.h"
+#include "image_scale.h"
 
 #include <wx/stdpaths.h>
 
@@ -758,9 +759,8 @@ void CameraConfigDialogCtrlSet::UnloadValues()
     double oldPxSz = m_pCamera->GetCameraPixelSize();
     double newPxSz = m_pPixelSize->GetValue();
     if (oldPxSz != newPxSz &&
-        pFrame->pAdvancedDialog->PercentChange(oldPxSz, newPxSz) >
-            5.0) // Avoid rounding problems with floating point equality test; don't clear
-                 // calibration for inconsequential changes
+        image_scale::PercentChange(oldPxSz, newPxSz) > 5.0) // Avoid rounding problems with floating point equality test; don't
+                                                            // clear calibration for inconsequential changes
         pFrame->pAdvancedDialog->FlagImageScaleChange();
     m_pCamera->SetCameraPixelSize(m_pPixelSize->GetValue());
 
