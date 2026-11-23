@@ -77,6 +77,13 @@ jobs:
             echo "ok: $f ($(wc -l < "$f") lines)"
           done
 
+      - name: No wx GUI classes in src
+        # #115 step 9: the guider has no GUI. Fails if code under src/ names wxFrame,
+        # wxDialog, wxWindow, wxPanel, wxImage or wxBitmap again; comments may still name
+        # them. Here rather than in the build job so it runs on every event, merge
+        # queue included, and in seconds. See tests/README.md.
+        run: scripts/check_no_gui_classes.sh src
+
   format:
     name: clang-format (changed lines)
     if: github.event_name == 'pull_request'
@@ -309,6 +316,7 @@ jobs:
             build-deb.sh
             run_deb.sh
             scripts/check_no_gui_libs.sh
+            scripts/check_no_gui_classes.sh
             debian/openastro-guider.postinst
             debian/openastro-guider.postrm
             debian/openastro-guider.prerm

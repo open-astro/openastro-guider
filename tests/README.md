@@ -202,6 +202,13 @@ cmake --build build --target phd2      # `make phd2.bin` builds nothing
 scripts/check_no_gui_libs.sh build/phd2.bin
 ```
 
+The `No wx GUI classes in src` step of the `Sanity (design docs)` job (#115 step 9) runs
+`scripts/check_no_gui_classes.sh src`, which needs no build: it fails on a line under `src/` that
+names `wxFrame`, `wxDialog`, `wxWindow`, `wxPanel`, `wxImage` or `wxBitmap`
+(`grep -rnE '\b(wxFrame|wxDialog|wxWindow|wxPanel|wxImage|wxBitmap)\b'`), except in a comment:
+a line starting with `//`, `/*` or `*`, or the part of a line after `//` or inside `/* ... */`.
+Locally: `scripts/check_no_gui_classes.sh src`.
+
 ## How the build infra works (and why)
 
 Almost every production `.cpp` opens with `#include "phd.h"`, which transitively
