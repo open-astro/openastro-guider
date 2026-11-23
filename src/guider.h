@@ -170,6 +170,7 @@ protected:
 
     bool PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC);
     void SetState(GUIDER_STATE newState);
+    friend class GuiderStateHost; // performs the state machine's actions (guider.cpp, guider_state_machine.h)
     void UpdateCurrentDistance(double distance, double distanceRA);
 
     void ToggleBookmark(const wxRealPoint& pt);
