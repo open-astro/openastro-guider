@@ -174,7 +174,6 @@ public:
     wxMenuItem *m_guideMenuItem;
     wxMenuItem *m_stopMenuItem;
     wxMenuItem *m_autoSelectStarMenuItem;
-    wxMenuItem *m_takeDarksMenuItem;
     wxMenuItem *m_useDarksMenuItem;
     wxMenuItem *m_useDefectMapMenuItem;
     wxAuiToolBar *MainToolbar;
@@ -211,7 +210,6 @@ public:
     void OnButtonLoop(wxCommandEvent& evt);
     void OnButtonStop(wxCommandEvent& evt);
     void OnButtonAutoStar(wxCommandEvent& evt);
-    void OnDark(wxCommandEvent& evt);
     void OnLoadDark(wxCommandEvent& evt);
     void OnLoadDefectMap(wxCommandEvent& evt);
     void GuideButtonClick(bool interactive, const wxString& context);
@@ -462,7 +460,6 @@ enum
     MENU_XHAIR4,
     MENU_XHAIR5,
     MENU_SLIT_OVERLAY_COORDS,
-    MENU_TAKEDARKS,
     MENU_SERVER,
     MENU_TOOLBAR,
     MENU_RESTORE_WINDOWS,

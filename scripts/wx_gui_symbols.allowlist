@@ -28,7 +28,6 @@ vtable for wxCursor
 vtable for wxDC
 vtable for wxDialog
 vtable for wxFrame
-vtable for wxGauge
 vtable for wxGraphicsMatrix
 vtable for wxIcon
 vtable for wxImage
@@ -42,7 +41,6 @@ vtable for wxMenu
 vtable for wxMenuBase
 vtable for wxPNGHandler
 vtable for wxPanel
-vtable for wxPen
 vtable for wxProgressDialog
 vtable for wxRadioButton
 vtable for wxSizer
@@ -51,7 +49,6 @@ vtable for wxSlider
 vtable for wxSpinCtrl
 vtable for wxSpinCtrlDouble
 vtable for wxStaticBox
-vtable for wxStatusBar
 vtable for wxTextEntryDialog
 vtable for wxTopLevelWindow
 vtable for wxWindowDC
@@ -155,7 +152,6 @@ wxDialog::~wxDialog()
 wxDialogBase::CanDoLayoutAdaptation()
 wxDialogBase::CreateButtonSizer(long)
 wxDialogBase::DoLayoutAdaptation()
-wxDialogBase::EndDialog(int)
 wxDialogBase::GetEventHashTable() const
 wxDialogBase::GetEventTable() const
 wxDialogBase::GetModality() const
@@ -227,9 +223,6 @@ wxFrameBase::sm_eventTable
 wxFrameBase::wxFrameBase()
 wxFrameBase::~wxFrameBase()
 wxFrameNameStr
-wxGauge::Create(wxWindow*, int, int, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
-wxGaugeBase::~wxGaugeBase()
-wxGaugeNameStr
 wxGenericProgressDialog::GetEventHashTable() const
 wxGenericProgressDialog::GetEventTable() const
 wxGenericProgressDialog::GetMessage() const
@@ -344,12 +337,6 @@ wxStaticBoxSizer::~wxStaticBoxSizer()
 wxStaticText::wxStaticText(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
 wxStaticTextBase::Wrap(int)
 wxStaticTextNameStr
-wxStatusBar::Create(wxWindow*, int, long, wxString const&)
-wxStatusBar::Init()
-wxStatusBarBase::SetStatusText(wxString const&, int)
-wxStatusBarBase::wxStatusBarBase()
-wxStatusBarBase::~wxStatusBarBase()
-wxStatusBarNameStr
 wxStdDialogButtonSizer::AddButton(wxButton*)
 wxStdDialogButtonSizer::Realize()
 wxStdDialogButtonSizer::wxStdDialogButtonSizer()

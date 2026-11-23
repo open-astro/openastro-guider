@@ -78,7 +78,6 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 EVT_MENU(wxID_EXIT, MyFrame::OnQuit)
 EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
 EVT_MENU(wxID_SAVE, MyFrame::OnSave)
-EVT_MENU(MENU_TAKEDARKS, MyFrame::OnDark)
 EVT_MENU(MENU_LOADDARK, MyFrame::OnLoadDark)
 EVT_MENU(MENU_LOADDEFECTMAP, MyFrame::OnLoadDefectMap)
 EVT_MENU(MENU_XHAIR0, MyFrame::OnOverlay)
@@ -404,8 +403,6 @@ void MyFrame::SetupMenuBar()
                       _("Restore all windows to their default/docked positions"));
 
     darks_menu = new wxMenu();
-    m_takeDarksMenuItem = darks_menu->Append(MENU_TAKEDARKS, _("Dark &Library..."), _("Build a dark library for this profile"));
-    (void) darks_menu->AppendSeparator();
     m_useDarksMenuItem =
         darks_menu->AppendCheckItem(MENU_LOADDARK, _("Use &Dark Library"), _("Use the the dark library for this profile"));
     m_useDefectMapMenuItem =
@@ -842,13 +839,6 @@ void MyFrame::UpdateButtonsStatus()
 
     if (cond_update_tool(MainToolbar, BUTTON_AUTOSTAR, m_autoSelectStarMenuItem, CaptureActive))
         need_update = true;
-
-    bool dark_enabled = loop_enabled && !CaptureActive;
-    if (dark_enabled ^ m_takeDarksMenuItem->IsEnabled())
-    {
-        m_takeDarksMenuItem->Enable(dark_enabled);
-        need_update = true;
-    }
 
     bool guiding_active = pGuider && pGuider->IsCalibratingOrGuiding(); // Not the same as 'bGuideable below
 
