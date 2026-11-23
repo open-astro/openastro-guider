@@ -59,14 +59,14 @@ class GuiderMultiStar : public Guider
     bool m_multiStarMode;
     bool m_stabilizing;
     bool m_lockPositionMoved;
-    unsigned int m_starsUsed;
+    unsigned int m_starsUsed = 0;
     unsigned int m_lastStarsUsed;
 
     // parameters
-    bool m_massChangeThresholdEnabled;
-    double m_massChangeThreshold;
-    bool m_tolerateJumpsEnabled;
-    double m_tolerateJumpsThreshold;
+    bool m_massChangeThresholdEnabled = false;
+    double m_massChangeThreshold = 0.0;
+    bool m_tolerateJumpsEnabled = false;
+    double m_tolerateJumpsThreshold = 0.0;
     unsigned int m_maxStars;
     double m_stabilitySigmaX;
 
