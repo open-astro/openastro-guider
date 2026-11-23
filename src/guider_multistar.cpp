@@ -41,6 +41,7 @@
  */
 
 #include "phd.h"
+#include "edge_allowance.h"
 #include "frame_reject.h"
 #include "monotonic_timers.h"
 #include "multistar_refine.h"
@@ -704,9 +705,8 @@ bool GuiderMultiStar::SetLockPosition(const PHD_Point& position)
 bool GuiderMultiStar::IsValidLockPosition(const PHD_Point& pt)
 {
     const usImage *pImage = CurrentImage();
-    // this is a bit ugly as it is tightly coupled to Star::Find
-    return pt.X >= 1 + m_searchRegion && pt.X + 1 + m_searchRegion < pImage->Size.GetX() && pt.Y >= 1 + m_searchRegion &&
-        pt.Y + 1 + m_searchRegion < pImage->Size.GetY();
+    // this is a bit ugly as it is tightly coupled to Star::Find (edge_allowance.cpp)
+    return ValidLockPosition(pt.X, pt.Y, pImage->Size.GetX(), pImage->Size.GetY(), m_searchRegion);
 }
 
 bool GuiderMultiStar::IsValidSecondaryStarPosition(const PHD_Point& pt)

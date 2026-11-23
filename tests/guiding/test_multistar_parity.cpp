@@ -5,8 +5,10 @@
 // (frame_reject.cpp, and multistar_refine::Refine called the way GuiderMultiStar::RefineOffset now
 // calls it) with the same seeded calls and requires the same results, the same state, the same
 // star finder calls and the same Debug lines after every call, doubles bit for bit. Coverage
-// counters check every path is reached. The intended difference is #262 (the star after a
-// zero-count drop counted once): each multi-star scenario must match up to the frame it happens on.
+// counters check every path is reached. The intended differences are #261 (DistanceChecker back
+// from recovering clears the forced tolerance): the sequence must match up to it; and #262 (the star
+// after a zero-count drop counted once): each multi-star scenario must match up to the frame it
+// happens on.
 
 #include <gtest/gtest.h>
 
@@ -107,7 +109,7 @@ TEST(MultistarParity, MassChecker)
 TEST(MultistarParity, DistanceChecker)
 {
     std::map<int, int> states;
-    int activations = 0;
+    int activations = 0, keptTolerance = 0;
     for (uint64_t seed = 1; seed <= 300; seed++)
     {
         std::mt19937_64 rng(seed);
@@ -149,6 +151,14 @@ TEST(MultistarParity, DistanceChecker)
             bool rp = prod.CheckDistance(distance, tolerance, st, t);
             ASSERT_EQ(rt, rp) << "seed " << seed << " call " << i;
             ASSERT_EQ(twin.State(), static_cast<int>(prod.GetState())) << "seed " << seed << " call " << i;
+            if (twin.State() == frame_reject::DistanceChecker::ST_GUIDING && twin.ForceTolerance() != 0.)
+            {
+                // The intended difference (#261): the twin came back from recovering with the forced
+                // tolerance still set; production cleared it. They match up to here.
+                ASSERT_EQ(prod.ForceTolerance(), 0.) << "seed " << seed << " call " << i;
+                ++keptTolerance;
+                break;
+            }
             ASSERT_TRUE(Same(twin.ForceTolerance(), prod.ForceTolerance())) << "seed " << seed << " call " << i;
             ++states[twin.State()];
         }
@@ -158,6 +168,7 @@ TEST(MultistarParity, DistanceChecker)
     EXPECT_GT(states[frame_reject::DistanceChecker::ST_GUIDING], 0);
     EXPECT_GT(states[frame_reject::DistanceChecker::ST_WAITING], 0);
     EXPECT_GT(states[frame_reject::DistanceChecker::ST_RECOVERING], 0);
+    EXPECT_GT(keptTolerance, 0); // the #261 path is reached
 }
 
 namespace

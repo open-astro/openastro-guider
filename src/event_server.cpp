@@ -7136,9 +7136,10 @@ static std::string handle_http_request(const HttpRequest& req)
         if (!img || !img->ImageData)
             return http_response(404, "text/plain", "no image available");
 
-        // ETag from the frame counter so a client can poll fast: an
-        // unchanged frame answers 304 without paying the JPEG encode.
-        std::string etag(wxString::Format("\"f%u\"", img->FrameNum).ToUTF8().data());
+        // ETag from the image's never-reset id so a client can poll fast: an
+        // unchanged frame answers 304 without paying the JPEG encode. Not
+        // FrameNum, which restarts at every capture and guiding start (#259).
+        std::string etag(wxString::Format("\"f%u\"", img->ImageId).ToUTF8().data());
         auto inm = req.headers.find("if-none-match");
         if (inm != req.headers.end() && inm->second == etag)
             return "HTTP/1.1 304 Not Modified\r\nConnection: close\r\nETag: " + etag + "\r\n\r\n";
@@ -7401,6 +7402,17 @@ void EventServer::OnHttpServerEvent(wxSocketEvent& event)
 void EventServer::OnHttpServerClientEvent(wxSocketEvent& event)
 {
     wxSocketBase *cli = event.GetSocket();
+
+    // #258: a client is destroyed while more events for it can still be queued: a new
+    // connection queues an OUTPUT event as well as the INPUT one, and the INPUT handler
+    // answers and destroys the one-shot client. Destroy() keeps the socket object alive
+    // until the queued events are handled, but its HttpClientData is freed at once, so
+    // an event for a socket no longer in the set must not touch it.
+    if (m_httpServerClients.find(cli) == m_httpServerClients.end())
+    {
+        Debug.Write(wxString::Format("httpsrv: cli %p event %d after close, ignored\n", cli, event.GetSocketEvent()));
+        return;
+    }
 
     if (event.GetSocketEvent() == wxSOCKET_LOST)
     {

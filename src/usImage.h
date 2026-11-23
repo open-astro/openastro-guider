@@ -56,10 +56,13 @@ public:
     unsigned int Gain;
     unsigned short Pedestal;
     unsigned int FrameNum;
+    // #259: never reset, unlike FrameNum, which restarts at every capture and guiding start;
+    // each usImage gets the next one, so the HTTP /api/frame.jpg ETag changes with the image
+    const unsigned int ImageId;
 
     usImage()
         : ImageData(nullptr), NPixels(0), MinADU(0), MaxADU(0), MedianADU(0), FiltMin(0), FiltMax(0), ImgExpDur(0),
-          ImgStackCnt(1), Binning(0), BitsPerPixel(0), Gain(0), Pedestal(0), FrameNum(0)
+          ImgStackCnt(1), Binning(0), BitsPerPixel(0), Gain(0), Pedestal(0), FrameNum(0), ImageId(NextImageId())
     {
     }
     ~usImage() { delete[] ImageData; }
@@ -78,6 +81,9 @@ public:
     unsigned short& Pixel(int x, int y) { return ImageData[y * Size.x + x]; }
     const unsigned short& Pixel(int x, int y) const { return ImageData[y * Size.x + x]; }
     void Clear(void);
+
+private:
+    static unsigned int NextImageId();
 };
 
 inline void usImage::Clear(void)

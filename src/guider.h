@@ -41,7 +41,7 @@
 #define GUIDER_H_INCLUDED
 
 #include "guider_state.h" // enum GUIDER_STATE
-#include "monotonic_timers.h"
+#include "guide_distance_tracker.h"
 
 #include <atomic>
 
@@ -155,13 +155,7 @@ class Guider : public wxWindow
     // main thread since #182. Written only before that frame's move and exposure are queued, never when a
     // recenter step's move completes, so the delay is decided when the step is sent (#165)
     std::atomic<bool> m_recenteringForWorker;
-    monotonic_timers::StarFoundTimer m_starFound; // when the star was last found, on monotonic_timers::ClockS (#226)
-    double m_avgDistance; // averaged distance for distance reporting
-    double m_avgDistanceRA; // averaged distance, RA only
-    double m_avgDistanceLong; // averaged distance, more smoothed
-    double m_avgDistanceLongRA; // averaged distance, more smoothed, RA only
-    unsigned int m_avgDistanceCnt;
-    bool m_avgDistanceNeedReset;
+    GuideDistanceTracker m_distance; // the averaged distance behind CurrentError (guide_distance_tracker.cpp)
     GUIDER_STATE m_state;
     usImage *m_pCurrentImage;
     bool m_scaleImage;
@@ -260,7 +254,7 @@ public:
     int GetSearchRegion() const;
     double CurrentError(bool raOnly);
     double CurrentErrorSmoothed(bool raOnly);
-    unsigned int CurrentErrorFrameCount() const { return m_avgDistanceCnt; }
+    unsigned int CurrentErrorFrameCount() const { return m_distance.FrameCount(); }
 
     bool GetBookmarksShown() const;
     void SetBookmarksShown(bool show);

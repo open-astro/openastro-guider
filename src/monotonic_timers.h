@@ -9,7 +9,8 @@
  *  MyFrame's camera reconnect throttle (ReconnectThrottle, 3 attempts in 60 s);
  *  StepGuider's AO bump timeout reads ClockS too (#231). In milliseconds
  *  (#231): the set_pa_session lease (PaSessionLease); the multi-star
- *  DistanceChecker's wait and the star mass-change window read ClockMs. The
+ *  DistanceChecker's wait and the star mass-change window read ClockMs, and so
+ *  does the guide and dither settle (settle_tracker.cpp, #257). The
  *  timers take the time from their caller, so they are tested on an injected
  *  clock. RunTimer (#235) times the headless Guiding Assistant's sampling and
  *  the backlash measurement's north moves; it reads the clock itself, or takes
@@ -33,7 +34,7 @@ namespace monotonic_timers
 int64_t ClockS();
 
 // The same clock in milliseconds, for the set_pa_session lease, the multi-star DistanceChecker's
-// wait and the star mass-change window
+// wait, the star mass-change window and the guide and dither settle (SettleTracker, #257)
 int64_t ClockMs();
 
 // When Guider last found the star (Guider::UpdateCurrentDistance), for Guider::CurrentError and
