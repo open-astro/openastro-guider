@@ -145,37 +145,56 @@ TEST(GuiderStateMachine, ACalibratedMountSkipsToCalibrated)
     EXPECT_EQ(w2.state, STATE_CALIBRATED);
 }
 
-TEST(GuiderStateMachine, ACalibratedSecondaryTakesAFrameMore)
+TEST(GuiderStateMachine, ACalibratedSecondaryGuidesOnTheNextFrame)
 {
-    // Pinned as it is (inherited PHD2 code): with a connected, calibrated secondary (an AO), the
-    // fall-through from CALIBRATING_PRIMARY into the secondary's case sets CALIBRATED only when
-    // there is no connected secondary, so the state stays CALIBRATING_PRIMARY; the next frame asks
-    // for CALIBRATING_SECONDARY and stops there; the frame after guides, one frame later than
-    // without the AO. Nothing is calibrated in between, but a stop in those two frames reports
-    // CalibrationFailed.
+    // #285: with a connected, calibrated secondary (an AO) there is nothing to calibrate either:
+    // CALIBRATED at once and guiding on the next frame, as without the AO. (The inherited code
+    // stayed CALIBRATING_PRIMARY, then CALIBRATING_SECONDARY, and guided a frame later.)
     World w = Selected();
     w.secondaryExists = w.secondaryConnected = w.secondaryCalibrated = true;
     sm_test::SetState(w, STATE_CALIBRATING_PRIMARY);
-    EXPECT_EQ(w.state, STATE_CALIBRATING_PRIMARY);
-    EXPECT_TRUE(w.actions.empty());
-    sm_test::Frame(w, true, false);
-    EXPECT_EQ(w.state, STATE_CALIBRATING_SECONDARY);
+    EXPECT_EQ(w.state, STATE_CALIBRATED);
+    EXPECT_EQ(w.states, std::vector<GUIDER_STATE>({ STATE_CALIBRATED }));
     EXPECT_TRUE(w.actions.empty());
     sm_test::Frame(w, true, false);
     EXPECT_EQ(w.state, STATE_GUIDING);
     EXPECT_EQ(w.actions, std::vector<Action>({ Action::EnterGuiding, Action::SetLockToCurrent, Action::GuidingStarted }));
+
+    // the same states and actions as without the secondary
+    World none = Selected();
+    sm_test::SetState(none, STATE_CALIBRATING_PRIMARY);
+    sm_test::Frame(none, true, false);
+    EXPECT_EQ(w.states, none.states);
+    EXPECT_EQ(w.actions, none.actions);
 }
 
-TEST(GuiderStateMachine, AnUncalibratedSecondaryIsBegunUnderCalibratingPrimary)
+TEST(GuiderStateMachine, AStopBeforeTheFirstFrameWithACalibratedSecondaryKeepsTheStar)
 {
-    // Pinned as it is (inherited PHD2 code): the primary is calibrated, so CALIBRATING_PRIMARY
-    // falls through to the secondary's BeginCalibration but keeps the state it was asked for,
-    // CALIBRATING_PRIMARY. The next frame then asks for CALIBRATING_SECONDARY, which begins the
-    // secondary's calibration again: two StartCalibration notices for the AO.
+    // #285: a stop between StartGuiding and its first frame is a stop from CALIBRATED, as without
+    // the AO: back to SELECTED with the lock position. (The inherited code was still calibrating
+    // there, so the stop started over from SELECTING.)
+    World w = Selected();
+    w.secondaryExists = w.secondaryConnected = w.secondaryCalibrated = true;
+    sm_test::SetState(w, STATE_CALIBRATING_PRIMARY);
+    w.actions.clear();
+    sm_test::StopGuiding(w);
+    EXPECT_EQ(w.state, STATE_SELECTED);
+    EXPECT_TRUE(w.lockValid);
+    EXPECT_EQ(w.actions, std::vector<Action>({ Action::NotifyCalibrationFailedPrimary, Action::NotifyGuidingStopped }));
+}
+
+TEST(GuiderStateMachine, AnUncalibratedSecondaryIsBegunOnce)
+{
+    // #285: the primary is calibrated, so CALIBRATING_PRIMARY falls through to the secondary's
+    // BeginCalibration and the state is CALIBRATING_SECONDARY. The next frame updates that
+    // calibration; it does not begin it again. (The inherited code stayed CALIBRATING_PRIMARY,
+    // and the next frame began the secondary's calibration a second time: two StartCalibration
+    // notices for the AO.)
     World w = Selected();
     w.secondaryExists = w.secondaryConnected = true;
     sm_test::SetState(w, STATE_CALIBRATING_PRIMARY);
-    EXPECT_EQ(w.state, STATE_CALIBRATING_PRIMARY);
+    EXPECT_EQ(w.state, STATE_CALIBRATING_SECONDARY);
+    EXPECT_EQ(w.states, std::vector<GUIDER_STATE>({ STATE_CALIBRATING_SECONDARY }));
     EXPECT_EQ(w.actions,
               std::vector<Action>({ Action::ResetErrorCountSecondary, Action::BeginCalibrationSecondary,
                                     Action::CalibrationStartedSecondary }));
@@ -183,9 +202,38 @@ TEST(GuiderStateMachine, AnUncalibratedSecondaryIsBegunUnderCalibratingPrimary)
     w.actions.clear();
     sm_test::Frame(w, true, false);
     EXPECT_EQ(w.state, STATE_CALIBRATING_SECONDARY);
+    EXPECT_EQ(w.actions, std::vector<Action>({ Action::UpdateCalibrationSecondary }));
+
+    // the calibration completes: guiding in the same frame, one StartCalibration in all
+    w.calStep = [](bool) { return CalStep::Complete; };
+    sm_test::Frame(w, true, false);
+    EXPECT_EQ(w.state, STATE_GUIDING);
+    EXPECT_TRUE(w.secondaryCalibrated);
+    EXPECT_EQ(std::count(w.trace.begin(), w.trace.end(), "Evt.StartCalibration(Secondary)"), 1);
+    EXPECT_EQ(w.actions.back(), Action::GuidingStarted);
+
+    // a stop while it calibrates reports the secondary's calibration as stopped
+    World s = Selected();
+    s.secondaryExists = s.secondaryConnected = true;
+    sm_test::SetState(s, STATE_CALIBRATING_PRIMARY);
+    s.actions.clear();
+    sm_test::StopGuiding(s);
+    EXPECT_EQ(s.state, STATE_SELECTING);
+    EXPECT_EQ(s.actions.front(), Action::NotifyCalibrationFailedSecondary);
+}
+
+TEST(GuiderStateMachine, AnUncalibratedSecondaryBeginFailureStartsOver)
+{
+    World w = Selected();
+    w.secondaryExists = w.secondaryConnected = true;
+    w.beginFails = [](bool secondary) { return secondary; };
+    sm_test::SetState(w, STATE_CALIBRATING_PRIMARY);
+    EXPECT_EQ(w.state, STATE_SELECTING);
+    EXPECT_EQ(w.states, std::vector<GUIDER_STATE>({ STATE_SELECTING }));
     EXPECT_EQ(w.actions,
               std::vector<Action>({ Action::ResetErrorCountSecondary, Action::BeginCalibrationSecondary,
-                                    Action::CalibrationStartedSecondary }));
+                                    Action::BeginCalibrationFailedSecondary, Action::InvalidateLockPosition,
+                                    Action::InvalidateCurrentPosition }));
 }
 
 TEST(GuiderStateMachine, EnteringGuidingTakesTheCurrentPositionAsLock)
@@ -262,10 +310,18 @@ TEST(GuiderStateMachine, SecondaryCalibrationClearedOnGuidingStartCalibratesIt)
     w.secondaryExists = w.secondaryConnected = w.secondaryCalibrated = true;
     w.adjustClearsSecondary = true;
     sm_test::SetState(w, STATE_GUIDING);
-    EXPECT_EQ(w.state, STATE_CALIBRATING_PRIMARY);
+    // only the secondary calibrates: CALIBRATING_SECONDARY (#285)
+    EXPECT_EQ(w.state, STATE_CALIBRATING_SECONDARY);
+    EXPECT_EQ(w.states, std::vector<GUIDER_STATE>({ STATE_CALIBRATING_SECONDARY }));
     EXPECT_EQ(w.actions,
               std::vector<Action>({ Action::EnterGuiding, Action::ResetErrorCountSecondary, Action::BeginCalibrationSecondary,
                                     Action::CalibrationStartedSecondary }));
+
+    // the next frame updates it, without beginning it again
+    w.actions.clear();
+    sm_test::Frame(w, true, false);
+    EXPECT_EQ(w.state, STATE_CALIBRATING_SECONDARY);
+    EXPECT_EQ(w.actions, std::vector<Action>({ Action::UpdateCalibrationSecondary }));
 
     // a disconnected secondary's calibration does not matter
     World w2 = At(STATE_CALIBRATED);
@@ -324,8 +380,11 @@ TEST(GuiderStateMachine, StopFromEachState)
           STATE_SELECTING,
           { Action::NotifyCalibrationFailedSecondary, Action::NotifyGuidingStopped, Action::InvalidateLockPosition,
             Action::InvalidateCurrentPosition } },
-        // Pinned: CALIBRATED notifies CalibrationFailed although the calibration completed. It is
-        // only seen at rest after a StartGuiding while guiding (or a #255 begin that failed)
+        // Pinned: CALIBRATED notifies CalibrationFailed although the calibration completed, as
+        // upstream PHD2 does. CALIBRATED is at rest only between a StartGuiding that had nothing to
+        // calibrate and its first frame: guiding was asked for and never started, and clients
+        // written for PHD2 see the same events from a stop there as from a stop while calibrating
+        // (kept for the event server's PHD2 compatibility, #285)
         { STATE_CALIBRATED, STATE_SELECTED, { Action::NotifyCalibrationFailedPrimary, Action::NotifyGuidingStopped } },
         { STATE_GUIDING, STATE_SELECTED, { Action::NotifyGuidingStopped } },
     };
@@ -541,34 +600,49 @@ TEST(GuiderStateMachine, PrimaryThenSecondaryCalibration)
     EXPECT_EQ(w.actions.back(), Action::GuidingStarted);
 }
 
-TEST(GuiderStateMachine, ASecondaryBeginFailureStillUpdatesItsCalibration)
+TEST(GuiderStateMachine, ASecondaryBeginFailureEndsTheFrame)
 {
-    // Pinned as it is (inherited PHD2 code): when the frame that completes the primary's
-    // calibration asks for CALIBRATING_SECONDARY and the secondary's BeginCalibration fails, the
-    // state goes back to SELECTING but UpdateGuideState falls through into CALIBRATING_SECONDARY
-    // and updates the secondary's calibration anyway, on a calibration that never began.
-    World w = At(STATE_CALIBRATING_PRIMARY);
-    w.secondaryExists = w.secondaryConnected = true;
-    w.beginFails = [](bool secondary) { return secondary; };
-    w.calStep = [](bool secondary) { return secondary ? CalStep::Continue : CalStep::Complete; };
-    sm_test::Frame(w, true, false);
-    EXPECT_EQ(w.state, STATE_SELECTING);
-    EXPECT_EQ(w.actions,
-              std::vector<Action>({ Action::UpdateCalibrationPrimary, Action::ResetErrorCountSecondary,
-                                    Action::BeginCalibrationSecondary, Action::BeginCalibrationFailedSecondary,
-                                    Action::InvalidateLockPosition, Action::InvalidateCurrentPosition,
-                                    Action::UpdateCalibrationSecondary }));
+    // #285: when the frame that completes the primary's calibration asks for
+    // CALIBRATING_SECONDARY and the secondary's BeginCalibration fails, the state goes back to
+    // SELECTING and the frame ends there. (The inherited code fell through into
+    // CALIBRATING_SECONDARY and updated the secondary's calibration anyway, on a calibration that
+    // never began; when that update said calibrated, CALIBRATED and GUIDING were refused from
+    // SELECTING, past an assert that is off in the shipped build.)
+    for (CalStep secondaryStep : { CalStep::Continue, CalStep::Complete, CalStep::Fail })
+    {
+        World w = At(STATE_CALIBRATING_PRIMARY);
+        w.lockValid = true;
+        w.secondaryExists = w.secondaryConnected = true;
+        w.beginFails = [](bool secondary) { return secondary; };
+        w.calStep = [secondaryStep](bool secondary) { return secondary ? secondaryStep : CalStep::Complete; };
+        EXPECT_EQ(sm_test::Frame(w, true, false), "");
+        EXPECT_EQ(w.state, STATE_SELECTING);
+        EXPECT_FALSE(w.lockValid);
+        EXPECT_FALSE(w.secondaryCalibrated);
+        EXPECT_EQ(w.actions,
+                  std::vector<Action>({ Action::UpdateCalibrationPrimary, Action::ResetErrorCountSecondary,
+                                        Action::BeginCalibrationSecondary, Action::BeginCalibrationFailedSecondary,
+                                        Action::InvalidateLockPosition, Action::InvalidateCurrentPosition }));
+        EXPECT_EQ(w.states, std::vector<GUIDER_STATE>({ STATE_SELECTING }));
+    }
+}
 
-    // and when that update says calibrated: CALIBRATED and GUIDING are refused from SELECTING
-    // (the assert that the state is CALIBRATED is off in the shipped build)
-    World w2 = At(STATE_CALIBRATING_PRIMARY);
-    w2.secondaryExists = w2.secondaryConnected = true;
-    w2.beginFails = [](bool secondary) { return secondary; };
-    w2.calStep = [](bool) { return CalStep::Complete; };
-    sm_test::Frame(w2, true, false);
-    EXPECT_EQ(w2.state, STATE_SELECTING);
-    EXPECT_EQ(std::count(w2.actions.begin(), w2.actions.end(), Action::IllegalTransition), 2);
-    EXPECT_FALSE(Contains(w2.actions, Action::GuidingStarted));
+TEST(GuiderStateMachine, APrimaryCalibrationWithACalibratedSecondaryGuidesInTheSameFrame)
+{
+    // #285: the frame that completes the primary's calibration guides at once when the secondary
+    // is calibrated, as without a secondary. (The inherited code waited a frame in
+    // CALIBRATING_SECONDARY with nothing to calibrate.)
+    World w = At(STATE_CALIBRATING_PRIMARY);
+    w.secondaryExists = w.secondaryConnected = w.secondaryCalibrated = true;
+    w.calStep = [](bool) { return CalStep::Complete; };
+    EXPECT_EQ(sm_test::Frame(w, true, false), "");
+    EXPECT_EQ(w.state, STATE_GUIDING);
+
+    World none = At(STATE_CALIBRATING_PRIMARY);
+    none.calStep = [](bool) { return CalStep::Complete; };
+    sm_test::Frame(none, true, false);
+    EXPECT_EQ(w.states, none.states);
+    EXPECT_EQ(w.actions, none.actions);
 }
 
 TEST(GuiderStateMachine, GuidingFrames)

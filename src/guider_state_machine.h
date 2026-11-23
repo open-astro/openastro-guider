@@ -98,7 +98,8 @@ public:
 
 // Guider::SetState: STATE_STOP is remapped by the current state, a request more than one
 // state ahead is refused, and entering a state may end in another one (SELECTING for
-// UNINITIALIZED, CALIBRATED when there is nothing to calibrate, back to CALIBRATING_PRIMARY
+// UNINITIALIZED, CALIBRATED when there is nothing to calibrate, CALIBRATING_SECONDARY when
+// only the secondary's calibration begins (#285), back to CALIBRATING_PRIMARY or _SECONDARY
 // when entering GUIDING cleared the calibration, #255).
 void SetState(Host& host, GUIDER_STATE newState);
 

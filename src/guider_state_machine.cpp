@@ -122,11 +122,15 @@ void SetState(Host& host, GUIDER_STATE newState)
         }
         [[fallthrough]];
     case STATE_CALIBRATING_SECONDARY:
-        if (!host.SecondaryConnected())
+        // #285: the primary is calibrated here. A calibrated secondary (or none) leaves nothing to
+        // calibrate: CALIBRATED, so the next frame guides, as without a secondary. A secondary
+        // calibration that begins is CALIBRATING_SECONDARY even when CALIBRATING_PRIMARY was asked,
+        // so the next frame updates it instead of beginning it again.
+        if (!host.SecondaryConnected() || host.SecondaryCalibrated())
         {
             newState = STATE_CALIBRATED;
         }
-        else if (!host.SecondaryCalibrated())
+        else
         {
             host.Do(Action::ResetErrorCountSecondary);
             if (host.Do(Action::BeginCalibrationSecondary))
@@ -136,6 +140,7 @@ void SetState(Host& host, GUIDER_STATE newState)
             }
             else
             {
+                newState = STATE_CALIBRATING_SECONDARY;
                 host.Do(Action::CalibrationStartedSecondary);
             }
         }
@@ -284,11 +289,12 @@ FrameResult OnStarFound(Host& host)
 
         host.RequestState(STATE_CALIBRATING_SECONDARY);
 
-        if (host.State() == STATE_CALIBRATING_SECONDARY)
+        if (host.State() != STATE_CALIBRATED)
         {
             // if we really have a secondary mount, and it isn't calibrated, we need to take
             // another exposure before going on, so the frame does not show the lock position in
-            // the wrong place
+            // the wrong place. If its BeginCalibration failed the guider is SELECTING again:
+            // nothing more this frame (#285)
             break;
         }
 
