@@ -43,6 +43,10 @@
 class WorkerThread;
 class MyFrame;
 struct alert_params;
+namespace exposure_choice
+{
+struct Selected;
+}
 
 enum E_MYFRAME_WORKER_THREAD_MESSAGES
 {
@@ -171,9 +175,7 @@ public:
     wxMenuItem *m_autoSelectStarMenuItem;
     wxAuiToolBar *MainToolbar;
     wxInfoBar *m_infoBar;
-    wxComboBox *Dur_Choice;
     wxCheckBox *HotPixel_Checkbox;
-    wxSlider *Gamma_Slider;
     GuideHistory *pGuideHistory = nullptr;
     EquipmentManager *pEquipment = nullptr; // the devices and their selection
     bool CaptureActive = false; // Is camera looping captures?
@@ -208,8 +210,6 @@ public:
     void OnButtonGuide(wxCommandEvent& evt);
     void OnIdle(wxIdleEvent& evt);
     void OnEEGG(wxCommandEvent& evt);
-    void OnExposureDurationSelected(wxCommandEvent& evt);
-    void OnGammaSlider(wxScrollEvent& evt);
     void OnSockServerEvent(wxSocketEvent& evt);
     void OnSockServerClientEvent(wxSocketEvent& evt);
     void HandleSockServerInput(wxSocketBase *sock);
@@ -236,7 +236,6 @@ public:
     NOISE_REDUCTION_METHOD GetNoiseReductionMethod() const;
     bool SetNoiseReductionMethod(int noiseReductionMethod);
     void AdjustAutoExposure(double curSNR);
-    static wxString ExposureDurationLabel(int exposure);
     const VarDelayCfg& GetVariableDelayConfig() const { return m_varDelayConfig; }
     void SetVariableDelayConfig(bool varDelayEnabled, int ShortDelayMS, int LongDelayMS);
     double GetDitherScaleFactor() const;
@@ -382,8 +381,7 @@ private:
     void SetupMenuBar();
     void SetupToolBar();
     void SetupKeyboardShortcuts();
-    int GetTextWidth(wxControl *pControl, const wxString& string);
-    void SetComboBoxWidth(wxComboBox *pComboBox, unsigned int extra);
+    void ApplyExposureChoice(const exposure_choice::Selected& sel);
     void FinishStop();
     void DoTryReconnect();
 
@@ -419,12 +417,10 @@ enum
     BUTTON_GUIDE,
     BUTTON_STOP,
     BUTTON_AUTOSTAR,
-    BUTTON_DURATION,
     BUTTON_ALERT_ACTION,
     BUTTON_ALERT_CLOSE,
     BUTTON_ALERT_HELP,
     BUTTON_ALERT_DONTSHOW,
-    CTRL_GAMMA,
     WIN_VFW, // Dummy event to capture VFW streams
     MGUIDE1_UP,
     MGUIDE1_DOWN,

@@ -92,8 +92,6 @@ EVT_MENU(MENU_STOP, MyFrame::OnButtonStop)
 EVT_TOOL(BUTTON_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(MENU_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(BUTTON_ALERT_CLOSE, MyFrame::OnAlertButton) // Bit of a hack -- not actually on the menu but need an event to accelerate
-EVT_COMMAND_SCROLL(CTRL_GAMMA, MyFrame::OnGammaSlider)
-EVT_COMBOBOX(BUTTON_DURATION, MyFrame::OnExposureDurationSelected)
 EVT_SOCKET(SOCK_SERVER_ID, MyFrame::OnSockServerEvent)
 EVT_SOCKET(SOCK_SERVER_CLIENT_ID, MyFrame::OnSockServerClientEvent)
 EVT_CLOSE(MyFrame::OnClose)
@@ -368,15 +366,6 @@ void MyFrame::SetupMenuBar()
     SetMenuBar(Menubar);
 }
 
-int MyFrame::GetTextWidth(wxControl *pControl, const wxString& string)
-{
-    int width;
-
-    pControl->GetTextExtent(string, &width, nullptr);
-
-    return width;
-}
-
 // Get either timelapse value or state-dependent variable-exposure-delay
 // #182: main thread only, where the state it reads is written; ScheduleExposure hands the result to the worker
 int MyFrame::GetExposureDelay()
@@ -402,25 +391,8 @@ int MyFrame::GetExposureDelay()
     return rslt;
 }
 
-void MyFrame::SetComboBoxWidth(wxComboBox *pComboBox, unsigned int extra)
-{
-    unsigned int i;
-    int width = -1;
-
-    for (i = 0; i < pComboBox->GetCount(); i++)
-    {
-        int thisWidth = GetTextWidth(pComboBox, pComboBox->GetString(i));
-
-        if (thisWidth > width)
-        {
-            width = thisWidth;
-        }
-    }
-
-    pComboBox->SetMinSize(wxSize(width + extra, -1));
-}
-
-static std::vector<int> exposure_durations;
+// the final entry is the custom value (exposure_choice.cpp)
+static std::vector<int> exposure_durations = exposure_choice::DefaultDurations();
 
 const std::vector<int>& MyFrame::GetExposureDurations() const
 {
@@ -437,8 +409,6 @@ bool MyFrame::SetCustomExposureDuration(int ms)
         NotifyExposureChanged();
     }
     exposure_durations.back() = ms;
-    Dur_Choice->SetString(exposure_choice::CustomEntry(exposure_durations),
-                          wxString::Format(_("Custom: %g s"), (double) ms / 1000.));
     pConfig->Profile.SetInt("/CustomExposureDuration", ms);
     return false;
 }
@@ -463,10 +433,8 @@ bool MyFrame::SetExposureDuration(int val)
     int entry = exposure_choice::SelectionFor(exposure_durations, val);
     if (entry == -1)
         return false;
-    Dur_Choice->SetSelection(entry);
-
-    wxCommandEvent dummy;
-    OnExposureDurationSelected(dummy);
+    // what selecting that entry did, with no Exposure choice to select it in (#115 S6.2)
+    ApplyExposureChoice(exposure_choice::Interpret(exposure_durations, entry));
     return true;
 }
 
@@ -542,15 +510,6 @@ void MyFrame::AdjustAutoExposure(double curSNR)
     }
 }
 
-wxString MyFrame::ExposureDurationLabel(int duration)
-{
-    if (duration >= 10000)
-        return wxString::Format(_("%g s"), (double) duration / 1000.);
-
-    int digits = duration < 100 ? 2 : 1;
-    return wxString::Format(_("%.*f s"), digits, (double) duration / 1000.);
-}
-
 static void LoadImageLoggerSettings()
 {
     ImageLoggerSettings settings;
@@ -609,14 +568,12 @@ void MyFrame::LoadProfileSettings()
     double targetSNR = pConfig->Profile.GetDouble("/auto_exp/target_snr", DefaultAutoExpSNR);
     SetAutoExposureCfg(minExp, maxExp, targetSNR);
     // force reset of auto-exposure state
-    m_autoExp.enabled = true; // OnExposureDurationSelected below will set the actual value
+    m_autoExp.enabled = true; // SetExposureDuration below will set the actual value
     ResetAutoExposure();
 
-    // set custom exposure duration vector value and drop-down list string from profile setting
+    // set the custom exposure duration from the profile setting
     int customDuration = pConfig->Profile.GetInt("/CustomExposureDuration", exposure_choice::DEFAULT_CUSTOM_MS);
     *exposure_durations.rbegin() = customDuration;
-    Dur_Choice->SetString(exposure_choice::CustomEntry(exposure_durations),
-                          wxString::Format(_("Custom: %g s"), (double) customDuration / 1000.));
 
     // for backward compatibity:
     // exposure duration used to be stored as the formatted string value appearing in the drop-down list,
@@ -648,7 +605,6 @@ void MyFrame::LoadProfileSettings()
     if (val > GAMMA_MAX)
         val = GAMMA_MAX;
     Stretch_gamma = (double) val / 100.0;
-    Gamma_Slider->SetValue(val);
 
     LoadImageLoggerSettings();
 }
@@ -681,34 +637,12 @@ void MyFrame::SetupToolBar()
 #include "icons/auto_select_disabled.png.h"
     wxBitmap auto_select_disabled_bmp(wxBITMAP_PNG_FROM_DATA(auto_select_disabled));
 
-    // the final entry is the custom value (exposure_choice.cpp)
-    exposure_durations = exposure_choice::DefaultDurations();
-
-    wxArrayString durs;
-    durs.Add(_("Auto"));
-    for (size_t i = 0; i + 1 < exposure_durations.size(); i++)
-        durs.Add(ExposureDurationLabel(exposure_durations[i]));
-    durs.Add(wxString::Format(_("Custom: %g s"), 9999.0));
-    durs.Add(_("Edit Custom..."));
-
-    Dur_Choice =
-        new wxComboBox(MainToolbar, BUTTON_DURATION, wxEmptyString, wxDefaultPosition, wxDefaultSize, durs, wxCB_READONLY);
-    Dur_Choice->SetToolTip(_("Camera exposure duration"));
-    SetComboBoxWidth(Dur_Choice, 10);
-
-    Gamma_Slider = new wxSlider(MainToolbar, CTRL_GAMMA, GAMMA_DEFAULT, GAMMA_MIN, GAMMA_MAX, wxPoint(-1, -1), wxSize(160, -1));
-    Gamma_Slider->SetBackgroundColour(wxColor(60, 60, 60)); // Slightly darker than toolbar background
-    Gamma_Slider->SetToolTip(_("Screen gamma (brightness)"));
-
     MainToolbar->AddTool(BUTTON_LOOP, loop_bmp, loop_bmp_disabled, false, 0, _("Begin looping exposures for frame and focus"));
     MainToolbar->AddTool(BUTTON_AUTOSTAR, auto_select_bmp, auto_select_disabled_bmp, false, 0,
                          _("Auto-select Star. Shift-click to de-select star."));
     MainToolbar->AddTool(BUTTON_GUIDE, guide_bmp, guide_bmp_disabled, false, 0,
                          _("Begin guiding (PHD). Shift-click to force calibration."));
     MainToolbar->AddTool(BUTTON_STOP, stop_bmp, stop_bmp_disabled, false, 0, _("Stop looping and guiding"));
-    MainToolbar->AddSeparator();
-    MainToolbar->AddControl(Dur_Choice, _("Exposure duration"));
-    MainToolbar->AddControl(Gamma_Slider, _("Gamma"));
     MainToolbar->EnableTool(BUTTON_LOOP, false);
     MainToolbar->EnableTool(BUTTON_AUTOSTAR, false);
     MainToolbar->EnableTool(BUTTON_GUIDE, false);

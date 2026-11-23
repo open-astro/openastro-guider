@@ -15,13 +15,10 @@ vtable for wxBoxSizer
 vtable for wxButton
 vtable for wxButtonBase
 vtable for wxCheckBox
-vtable for wxChoice
 vtable for wxColour
-vtable for wxComboBox
 vtable for wxCommandEvent
 vtable for wxControl
 vtable for wxCursor
-vtable for wxDialog
 vtable for wxFrame
 vtable for wxIcon
 vtable for wxImage
@@ -41,8 +38,6 @@ vtable for wxSlider
 vtable for wxSpinCtrl
 vtable for wxSpinCtrlDouble
 vtable for wxStaticBox
-vtable for wxTextEntryDialog
-vtable for wxTopLevelWindow
 vtable for wxwxMenuItemListNode
 vtable for wxwxSizerItemListNode
 wxAcceleratorTable::wxAcceleratorTable(int, wxAcceleratorEntry const*)
@@ -78,8 +73,6 @@ wxAuiManager::Update()
 wxAuiManager::wxAuiManager(wxWindow*, unsigned int)
 wxAuiManager::~wxAuiManager()
 wxAuiPaneInfo::IsValid() const
-wxAuiToolBar::AddControl(wxControl*, wxString const&)
-wxAuiToolBar::AddSeparator()
 wxAuiToolBar::AddTool(int, wxString const&, wxBitmapBundle const&, wxBitmapBundle const&, wxItemKind, wxString const&, wxString const&, wxObject*)
 wxAuiToolBar::Create(wxWindow*, int, wxPoint const&, wxSize const&, long)
 wxAuiToolBar::EnableTool(int, bool)
@@ -98,16 +91,8 @@ wxButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&,
 wxButtonNameStr
 wxCheckBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxCheckBoxNameStr
-wxChoice::GetSelection() const
-wxChoice::Init()
-wxChoice::SetSelection(int)
-wxChoice::~wxChoice()
-wxChoiceBase::~wxChoiceBase()
 wxColour::InitRGBA(unsigned char, unsigned char, unsigned char, unsigned char)
 wxColour::~wxColour()
-wxComboBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, wxArrayString const&, long, wxValidator const&, wxString const&)
-wxComboBox::Init()
-wxComboBoxNameStr
 wxCommandEvent::GetString() const
 wxControl::wxControl()
 wxControlBase::~wxControlBase()
@@ -122,7 +107,6 @@ wxDefaultSize
 wxDefaultValidator
 wxDialog::EndModal(int)
 wxDialog::GetClassInfo() const
-wxDialog::Init()
 wxDialog::IsModal() const
 wxDialog::Show(bool)
 wxDialog::ShowModal()
@@ -138,25 +122,14 @@ wxDialogBase::IsEscapeKey(wxKeyEvent const&)
 wxDialogBase::SendWindowModalDialogEvent(int)
 wxDialogBase::ShowWindowModal()
 wxDialogBase::sm_eventTable
-wxDialogBase::wxDialogBase()
 wxDialogNameStr
 wxDropTarget::GetData()
 wxDropTarget::OnDrop(int, int)
 wxEVT_AUI_PANE_CLOSE
 wxEVT_BUTTON
 wxEVT_CLOSE_WINDOW
-wxEVT_COMBOBOX
 wxEVT_MENU
 wxEVT_RADIOBUTTON
-wxEVT_SCROLL_BOTTOM
-wxEVT_SCROLL_CHANGED
-wxEVT_SCROLL_LINEDOWN
-wxEVT_SCROLL_LINEUP
-wxEVT_SCROLL_PAGEDOWN
-wxEVT_SCROLL_PAGEUP
-wxEVT_SCROLL_THUMBRELEASE
-wxEVT_SCROLL_THUMBTRACK
-wxEVT_SCROLL_TOP
 wxEVT_UPDATE_UI
 wxEndBusyCursor()
 wxFileDropTarget::OnData(int, int, wxDragResult)
@@ -272,9 +245,6 @@ wxStockGDI::GetColour(wxStockGDI::Item)
 wxStockGDI::GetCursor(wxStockGDI::Item)
 wxTextCtrl::wxTextCtrl(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxTextCtrlNameStr
-wxTextEntry::wxTextEntry()
-wxTextEntry::~wxTextEntry()
-wxTextEntryDialog::Create(wxWindow*, wxString const&, wxString const&, wxString const&, long, wxPoint const&)
 wxTextWrapper::Wrap(wxWindow*, wxString const&, int)
 wxTopLevelWindowBase::Destroy()
 wxTopLevelWindowBase::DoCentre(int)
@@ -320,7 +290,6 @@ wxTopLevelWindowGTK::Show(bool)
 wxTopLevelWindowGTK::ShowFullScreen(bool, long)
 wxTopLevelWindowGTK::ShowWithoutActivating()
 wxTopLevelWindowGTK::WXSetInitialFittingClientSize(int, wxSizer*)
-wxTopLevelWindowGTK::~wxTopLevelWindowGTK()
 wxWindow::AddChild(wxWindowBase*)
 wxWindow::AddChildGTK(wxWindow*)
 wxWindow::AdjustForLayoutDirection(int, int, int) const

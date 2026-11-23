@@ -50,12 +50,10 @@
 #include <wx/utils.h>
 #include <wx/wfstream.h>
 
-void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
+// SetExposureDuration's choice: Auto or one of the durations (exposure_choice.cpp). What selecting its entry in the
+// Exposure choice did; the choice and its Edit Custom... entry are gone (#115 S6.2).
+void MyFrame::ApplyExposureChoice(const exposure_choice::Selected& sel)
 {
-    // what the entry means: Auto, a duration, or Edit Custom... (exposure_choice.cpp)
-    const std::vector<int>& dur(GetExposureDurations());
-    exposure_choice::Selected sel = exposure_choice::Interpret(dur, Dur_Choice->GetSelection());
-
     if (sel.pick == exposure_choice::Pick::Auto)
     {
         // Auto-exposure
@@ -66,27 +64,7 @@ void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
             NotifyExposureChanged();
         }
     }
-    else if (sel.pick == exposure_choice::Pick::EditCustom)
-    {
-        // edit custom
-
-        int customVal = dur.back();
-        wxTextEntryDialog dlg(this, _("Custom exposure duration (seconds)"), _("Edit custom exposure"),
-                              wxString::Format("%g", (double) customVal / 1000.), wxOK | wxCANCEL);
-        if (dlg.ShowModal() == wxID_OK)
-        {
-            double val;
-            if (dlg.GetValue().ToDouble(&val) && val > 0.0 && val < 3600.)
-            {
-                int ms = (int) (val * 1000.0);
-                SetCustomExposureDuration(ms);
-            }
-        }
-
-        // restore the actual selection: Auto, or the exposure's duration (1 s if none, should not happen)
-        Dur_Choice->SetSelection(exposure_choice::EntryAfterEdit(dur, m_autoExp.enabled, m_exposureDuration));
-    }
-    else
+    else if (sel.pick == exposure_choice::Pick::Duration)
     {
         // ordinary selection
 
@@ -94,6 +72,7 @@ void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
 
         if (m_autoExp.enabled || m_exposureDuration != duration)
         {
+            // the Debug line keeps the old handler's name, so a log reads as before
             Debug.Write(wxString::Format("OnExposureDurationSelected: duration = %d\n", duration));
 
             m_exposureDuration = duration;
@@ -614,14 +593,6 @@ void MyFrame::OnButtonAutoStar(wxCommandEvent& WXUNUSED(event))
         AutoSelectStar();
     else
         pGuider->InvalidateCurrentPosition(true);
-}
-
-void MyFrame::OnGammaSlider(wxScrollEvent& WXUNUSED(event))
-{
-    int val = Gamma_Slider->GetValue();
-    pConfig->Profile.SetInt("/Gamma", val);
-    Stretch_gamma = (double) val / 100.0;
-    pGuider->UpdateImageDisplay();
 }
 
 // Outside event handler because loading a dark library will automatically unload a defect map

@@ -6,9 +6,10 @@
  *  list of durations, the last of them the custom duration, and how an
  *  exposure value maps onto the entries of the Exposure choice and back. The
  *  choice lists Auto, one entry per duration (the custom one last) and Edit
- *  Custom...; set_exposure selects an entry by value and the selection decides
- *  the exposure (MyFrame::SetExposureDuration, OnExposureDurationSelected).
- *  Moved out of myframe.cpp so slice S6.2 can drop the combo box behind it.
+ *  Custom...; set_exposure maps a value to its entry and the entry decides the
+ *  exposure (MyFrame::SetExposureDuration, ApplyExposureChoice). Slice S6.2
+ *  dropped the combo box and its Edit Custom... dialog: the entries are no
+ *  longer shown, only mapped.
  *  Kept free of wx so it can be unit tested (tests/capture/test_exposure_choice.cpp).
  */
 
@@ -22,8 +23,6 @@ namespace exposure_choice
 
 // The custom duration of a profile that has none saved (/CustomExposureDuration), ms
 constexpr int DEFAULT_CUSTOM_MS = 30000;
-// The duration Edit Custom... falls back to when the exposure is none of the durations
-constexpr int FALLBACK_MS = 1000;
 
 // The durations of the choice, ms, in order; the last one is the custom duration, DEFAULT_CUSTOM_MS here
 std::vector<int> DefaultDurations();
@@ -63,10 +62,6 @@ bool IsOtherDuration(const std::vector<int>& durations, int ms);
 // Whether a new custom duration `ms` also changes the exposure: the exposure was the old custom duration, and
 // the new one differs from it
 bool CustomChangesExposure(const std::vector<int>& durations, int exposureMs, int ms);
-
-// The entry to show again after Edit Custom...: Auto, or the exposure's duration, or FALLBACK_MS's when the
-// exposure is none of the durations
-int EntryAfterEdit(const std::vector<int>& durations, bool autoExposure, int exposureMs);
 
 } // namespace exposure_choice
 
