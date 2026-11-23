@@ -8,7 +8,6 @@ typeinfo for wxDialog
 typeinfo for wxFileDropTarget
 typeinfo for wxFrame
 typeinfo for wxProgressDialog
-typeinfo for wxWindow
 vtable for wxAnyButton
 vtable for wxAuiToolBar
 vtable for wxBitmap
@@ -147,7 +146,6 @@ wxEVT_AUI_PANE_CLOSE
 wxEVT_BUTTON
 wxEVT_CLOSE_WINDOW
 wxEVT_COMBOBOX
-wxEVT_ERASE_BACKGROUND
 wxEVT_MENU
 wxEVT_RADIOBUTTON
 wxEVT_SCROLL_BOTTOM
@@ -240,7 +238,6 @@ wxNonOwnedWindow::DoClearShape()
 wxNonOwnedWindow::DoSetPathShape(wxGraphicsPath const&)
 wxNonOwnedWindow::DoSetRegionShape(wxRegion const&)
 wxObjectArrayTraitsForwxAuiToolBarItemArray::Free(wxAuiToolBarItem*)
-wxPanelNameStr
 wxProgressDialog::GetClassInfo() const
 wxRadioButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxRadioButtonNameStr
@@ -331,37 +328,29 @@ wxWindow::AdjustForLayoutDirection(int, int, int) const
 wxWindow::ClearBackground()
 wxWindow::DoApplyWidgetStyle(_GtkRcStyle*)
 wxWindow::DoCaptureMouse()
-wxWindow::DoClientToScreen(int*, int*) const
 wxWindow::DoEnable(bool)
 wxWindow::DoFreeze()
-wxWindow::DoGetClientSize(int*, int*) const
 wxWindow::DoGetPosition(int*, int*) const
 wxWindow::DoGetSize(int*, int*) const
 wxWindow::DoGetTextExtent(wxString const&, int*, int*, int*, int*, wxFont const*) const
 wxWindow::DoIsExposed(int, int) const
 wxWindow::DoIsExposed(int, int, int, int) const
 wxWindow::DoMoveInTabOrder(wxWindow*, wxWindowBase::WindowOrder)
-wxWindow::DoMoveWindow(int, int, int, int)
 wxWindow::DoNavigateIn(int)
 wxWindow::DoPopupMenu(wxMenu*, int, int)
 wxWindow::DoReleaseMouse()
-wxWindow::DoScreenToClient(int*, int*) const
-wxWindow::DoSetClientSize(int, int)
-wxWindow::DoSetSize(int, int, int, int, int)
 wxWindow::DoSetToolTip(wxToolTip*)
 wxWindow::DoThaw()
 wxWindow::EnableTouchEvents(int)
 wxWindow::GTKApplyToolTip(char const*)
 wxWindow::GTKGetWindow(wxArrayGdkWindows&) const
 wxWindow::GTKHandleFocusOut()
-wxWindow::GTKHandleRealized()
 wxWindow::GTKIMFilterKeypress(_GdkEventKey*) const
 wxWindow::GTKProcessEvent(wxEvent&) const
 wxWindow::GTKWidgetDoSetMnemonic(_GtkWidget*)
 wxWindow::GTKWidgetNeedsMnemonic() const
 wxWindow::GetCharHeight() const
 wxWindow::GetCharWidth() const
-wxWindow::GetClassInfo() const
 wxWindow::GetConnectWidget()
 wxWindow::GetContentScaleFactor() const
 wxWindow::GetDPIScaleFactor() const
@@ -376,8 +365,6 @@ wxWindow::IsShown() const
 wxWindow::IsTransparentBackgroundSupported(wxString*) const
 wxWindow::Lower()
 wxWindow::OnInternalIdle()
-wxWindow::Raise()
-wxWindow::Refresh(bool, wxRect const*)
 wxWindow::RemoveChild(wxWindowBase*)
 wxWindow::Reparent(wxWindowBase*)
 wxWindow::ScrollLines(int)
@@ -395,28 +382,19 @@ wxWindow::SetForegroundColour(wxColour const&)
 wxWindow::SetLayoutDirection(wxLayoutDirection)
 wxWindow::SetScrollPos(int, int, bool)
 wxWindow::SetScrollbar(int, int, int, int, bool)
-wxWindow::Show(bool)
 wxWindow::Update()
 wxWindow::WarpPointer(int, int)
 wxWindow::wxWindow()
-wxWindow::wxWindow(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
-wxWindow::~wxWindow()
-wxWindowBase::AdjustForParentClientOrigin(int&, int&, int) const
 wxWindowBase::CanScroll(int) const
 wxWindowBase::ClientToWindowSize(wxSize const&) const
 wxWindowBase::Close(bool)
-wxWindowBase::Destroy()
-wxWindowBase::DoCentre(int)
 wxWindowBase::DoGetBestSize() const
-wxWindowBase::DoGetScreenPosition(int*, int*) const
 wxWindowBase::DoGetVirtualSize() const
 wxWindowBase::DoHitTest(int, int) const
 wxWindowBase::DoPhase(int)
-wxWindowBase::DoSetSizeHints(int, int, int, int, int, int)
 wxWindowBase::DoSetToolTipText(wxString const&)
 wxWindowBase::DoSetVirtualSize(int, int)
 wxWindowBase::DoSetWindowVariant(wxWindowVariant)
-wxWindowBase::DoUpdateWindowUI(wxUpdateUIEvent&)
 wxWindowBase::DragAcceptFiles(bool)
 wxWindowBase::Enable(bool)
 wxWindowBase::FindWindow(long) const
@@ -424,7 +402,6 @@ wxWindowBase::Fit()
 wxWindowBase::FitInside()
 wxWindowBase::GetBestSize() const
 wxWindowBase::GetCapture()
-wxWindowBase::GetClassDefaultAttributes(wxWindowVariant)
 wxWindowBase::GetClientAreaOrigin() const
 wxWindowBase::GetClientSizeConstraint(int*, int*) const
 wxWindowBase::GetDPI() const
@@ -435,13 +412,10 @@ wxWindowBase::GetPositionConstraint(int*, int*) const
 wxWindowBase::GetSizeConstraint(int*, int*) const
 wxWindowBase::HasFocus() const
 wxWindowBase::InformFirstDirection(int, int, int)
-wxWindowBase::InheritAttributes()
 wxWindowBase::InitDialog()
 wxWindowBase::IsDescendant(wxWindowBase*) const
 wxWindowBase::IsEnabled() const
 wxWindowBase::IsShownOnScreen() const
-wxWindowBase::IsTopLevel() const
-wxWindowBase::Layout()
 wxWindowBase::LayoutPhase1(int*)
 wxWindowBase::LayoutPhase2(int*)
 wxWindowBase::MoveConstraint(int, int)
@@ -449,8 +423,6 @@ wxWindowBase::SendIdleEvents(wxIdleEvent&)
 wxWindowBase::SendSizeEvent(int)
 wxWindowBase::SetConstraintSizes(bool)
 wxWindowBase::SetInitialSize(wxSize const&)
-wxWindowBase::SetMaxSize(wxSize const&)
-wxWindowBase::SetMinSize(wxSize const&)
 wxWindowBase::SetNextHandler(wxEvtHandler*)
 wxWindowBase::SetPreviousHandler(wxEvtHandler*)
 wxWindowBase::SetSizeConstraint(int, int, int, int)
@@ -467,9 +439,7 @@ wxWindowBase::Validate()
 wxWindowBase::WXReservedWindow1(void*)
 wxWindowBase::WXReservedWindow2(void*)
 wxWindowBase::WXReservedWindow3(void*)
-wxWindowBase::WXSetInitialFittingClientSize(int, wxSizer*)
 wxWindowBase::WindowToClientSize(wxSize const&) const
-wxWindowBase::sm_eventTable
 wxWindowDisabler::wxWindowDisabler(bool)
 wxWindowDisabler::~wxWindowDisabler()
 wxYield()

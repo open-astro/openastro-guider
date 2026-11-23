@@ -156,10 +156,6 @@ inline static StepGuider *TheAO()
     return static_cast<StepGuider *>(pMount && pMount->IsStepGuider() ? pMount : 0);
 }
 
-// these seem to be the windowing/display related globals
-extern int XWinSize;
-extern int YWinSize;
-
 class PhdApp : public wxApp
 {
     wxSingleInstanceChecker *m_instanceChecker = nullptr;

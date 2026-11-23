@@ -88,7 +88,7 @@ public:
     bool RefineOffset(const usImage *pImage, GuiderOffset *pOffset);
 
 public:
-    GuiderMultiStar(wxWindow *parent);
+    GuiderMultiStar();
     virtual ~GuiderMultiStar();
 
     virtual bool SetLockPosition(const PHD_Point& position) override;

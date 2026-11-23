@@ -101,7 +101,7 @@ struct GuiderOffset
     PHD_Point mountMoved; // Mount::MoveOffset: what the mount moved of the offset, per mount axis (#165)
 };
 
-class Guider : public wxWindow
+class Guider
 {
     PauseType m_paused;
     ShiftPoint m_lockPosition;
@@ -133,14 +133,17 @@ protected:
     bool m_forceFullFrame;
 
 protected:
-    Guider(wxWindow *parent, int xSize, int ySize);
-    virtual ~Guider();
+    Guider();
 
     void SetState(GUIDER_STATE newState);
     friend class GuiderStateHost; // performs the state machine's actions (guider.cpp, guider_state_machine.h)
     void UpdateCurrentDistance(double distance, double distanceRA);
 
 public:
+    virtual ~Guider();
+    Guider(const Guider&) = delete;
+    Guider& operator=(const Guider&) = delete;
+
     bool IsPaused() const;
     PauseType GetPauseType() const;
     PauseType SetPaused(PauseType pause);
@@ -151,8 +154,6 @@ public:
     bool IsRecentering() const { return m_recenteringForWorker.load(); }
     void NotifyRecenterMoveComplete(const PHD_Point& mountMoved);
     bool IsGuiding() const;
-    void OnClose(wxCloseEvent& evt);
-    void OnErase(wxEraseEvent& evt);
     void UpdateImageDisplay(usImage *pImage = nullptr);
 
     bool MoveLockPosition(const PHD_Point& mountDelta);
@@ -246,7 +247,6 @@ public:
 
 private:
     void UpdateLockPosShiftCameraCoords();
-    wxDECLARE_EVENT_TABLE();
 };
 
 inline bool Guider::IsPaused() const

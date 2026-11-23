@@ -63,10 +63,10 @@ enum
     MAX_LIST_SIZE = 12
 };
 
-// Define a constructor for the guide canvas
-GuiderMultiStar::GuiderMultiStar(wxWindow *parent)
-    : Guider(parent, XWinSize, YWinSize), m_massChecker(new frame_reject::MassChecker()), m_stabilizing(false),
-      m_multiStarMode(true), m_lastPrimaryDistance(0), m_lockPositionMoved(false), m_maxStars(DEFAULT_MAX_STAR_COUNT),
+// Define a constructor for the guider
+GuiderMultiStar::GuiderMultiStar()
+    : Guider(), m_massChecker(new frame_reject::MassChecker()), m_stabilizing(false), m_multiStarMode(true),
+      m_lastPrimaryDistance(0), m_lockPositionMoved(false), m_maxStars(DEFAULT_MAX_STAR_COUNT),
       m_stabilitySigmaX(DEFAULT_STABILITY_SIGMAX), m_lastStarsUsed(0)
 {
     SetState(STATE_UNINITIALIZED);

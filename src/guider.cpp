@@ -98,15 +98,7 @@ inline void DeflectionLogger::Log(const PHD_Point&) { }
 
 static const bool DefaultScaleImage = true;
 
-// clang-format off
-wxBEGIN_EVENT_TABLE(Guider, wxWindow)
-EVT_CLOSE(Guider::OnClose)
-EVT_ERASE_BACKGROUND(Guider::OnErase)
-wxEND_EVENT_TABLE();
-// clang-format on
-
-Guider::Guider(wxWindow *parent, int xSize, int ySize)
-    : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxSize(xSize, ySize), wxFULL_REPAINT_ON_RESIZE)
+Guider::Guider()
 {
     m_state = STATE_UNINITIALIZED;
     Debug.Write(wxString::Format("guider state => %s\n", guider_state_machine::StateName(m_state)));
@@ -125,9 +117,6 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_pCurrentImage = new usImage(); // so we always have one
 
     m_userMultiStarMode = GetMultiStarMode();
-
-    SetBackgroundStyle(wxBG_STYLE_CUSTOM);
-    SetBackgroundColour(wxColour((unsigned char) 30, (unsigned char) 30, (unsigned char) 30));
 
     s_deflectionLogger.Init();
 }
@@ -185,12 +174,6 @@ PauseType Guider::SetPaused(PauseType pause)
         m_distance.RequestReset();
     }
 
-    if (pause != prev)
-    {
-        Refresh();
-        Update();
-    }
-
     return prev;
 }
 
@@ -236,16 +219,6 @@ bool Guider::SetScaleImage(bool newScaleValue)
 
     pConfig->Profile.SetBoolean("/guider/ScaleImage", m_scaleImage);
     return bError;
-}
-
-void Guider::OnErase(wxEraseEvent& evt)
-{
-    evt.Skip();
-}
-
-void Guider::OnClose(wxCloseEvent& evt)
-{
-    Destroy();
 }
 
 void Guider::UpdateImageDisplay(usImage *pImage)

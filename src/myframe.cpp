@@ -210,22 +210,14 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
 
     LoadProfileSettings();
 
-    // Setup container window for alert message info bar and guider window
-    wxWindow *guiderWin = new wxWindow(this, wxID_ANY);
-    wxSizer *sizer = new wxBoxSizer(wxVERTICAL);
-
-    m_infoBar = new wxInfoBar(guiderWin);
+    // the alert info bar, in the frame; the guider is not a window (#115 S5.4)
+    m_infoBar = new wxInfoBar(this);
     m_infoBar->Connect(BUTTON_ALERT_ACTION, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
     m_infoBar->Connect(BUTTON_ALERT_DONTSHOW, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
     m_infoBar->Connect(BUTTON_ALERT_CLOSE, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
     m_infoBar->Connect(BUTTON_ALERT_HELP, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertHelp), nullptr, this);
 
-    sizer->Add(m_infoBar, wxSizerFlags().Expand());
-
-    pGuider = new GuiderMultiStar(guiderWin);
-    sizer->Add(pGuider, wxSizerFlags().Proportion(1).Expand());
-
-    guiderWin->SetSizer(sizer);
+    pGuider = new GuiderMultiStar();
 
     pGuider->LoadProfileSettings();
 
@@ -264,10 +256,7 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
 
     m_mgr.AddPane(MainToolbar, wxAuiPaneInfo().Name(_T("MainToolBar")).Caption(_T("Main tool bar")).ToolbarPane().Bottom());
 
-    guiderWin->SetMinSize(wxSize(XWinSize, YWinSize));
-    guiderWin->SetSize(wxSize(XWinSize, YWinSize));
-    m_mgr.AddPane(guiderWin,
-                  wxAuiPaneInfo().Name(_T("Guider")).Caption(_T("Guider")).CenterPane().MinSize(wxSize(XWinSize, YWinSize)));
+    m_mgr.AddPane(m_infoBar, wxAuiPaneInfo().Name(_T("AlertBar")).CenterPane().PaneBorder(false));
 
     pGuideHistory = NewGuideHistory();
 
@@ -302,8 +291,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
     {
         m_mgr.LoadPerspective(perspective);
         m_mgr.GetPane(_T("MainToolBar")).Caption(_T("Main tool bar"));
-        m_mgr.GetPane(_T("Guider")).Caption(_T("Guider"));
-        m_mgr.GetPane(_T("Guider")).PaneBorder(false);
     }
 
     bool panel_state;
@@ -328,6 +315,12 @@ MyFrame::~MyFrame()
 
     delete pGuideHistory;
     pGuideHistory = nullptr;
+
+    // #115 S5.4: the guider is no longer a child window that wx deletes after this destructor, so delete it here, at
+    // the same point: OnClose has stopped the worker threads, the #104 probe and the servers, and the devices and the
+    // guide history it is used with are gone
+    delete pGuider;
+    pGuider = nullptr;
 }
 
 void MyFrame::UpdateTitle()
@@ -897,16 +890,10 @@ void MyFrame::DoAlert(const alert_params& params)
         m_infoBar->AddButton(BUTTON_ALERT_HELP, _("Help"));
         buttonSpace += 80;
     }
-    wxString wrappedText;
-    if (pFrame && pFrame->pGuider)
-    {
-        int textWidth = wxMax(pFrame->pGuider->GetSize().GetWidth() - buttonSpace, 100);
-        wrappedText = WrapText(m_infoBar, params.msg, textWidth);
-    }
-    else
-    {
-        wrappedText = params.msg;
-    }
+    // the guider window the text wrapped to is gone (#115 S5.4): wrap to its default width
+    static const int AlertWrapWidth = 640;
+    int textWidth = wxMax(AlertWrapWidth - buttonSpace, 100);
+    wxString wrappedText = WrapText(m_infoBar, params.msg, textWidth);
     int showMessageFlags = params.flags;
     m_infoBar->ShowMessage(wrappedText, showMessageFlags);
     EvtServer.NotifyAlert(params.msg, params.flags);
