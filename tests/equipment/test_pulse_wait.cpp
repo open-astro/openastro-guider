@@ -50,3 +50,23 @@ TEST(PulseWait, CompletionTimesOutTwoSecondsAfterThePulse)
     EXPECT_FALSE(CompletionTimedOut(117, 117 + 500 + 40));
     EXPECT_FALSE(CompletionTimedOut(117, 117 + 1000 + 40));
 }
+
+// ScopeAlpaca::Guide times the pulse with wxStopWatch, which reads the wall clock (#142). RC51
+// boots with a stale clock and then syncs it, so a step back during a pulse gives a negative
+// elapsed time: the sleep was the pulse plus the size of the step (an hour's step slept the
+// worker thread for an hour inside one guide pulse), and the completion wait never timed out.
+TEST(PulseWait, NegativeElapsedSleepsNoLongerThanTheWholePulse)
+{
+    EXPECT_EQ(SleepBeforeFirstPollMs(117, -1), 127);
+    EXPECT_EQ(SleepBeforeFirstPollMs(117, -3600 * 1000L), 127);
+    EXPECT_EQ(SleepBeforeFirstPollMs(0, -3600 * 1000L), 0);
+}
+
+TEST(PulseWait, NegativeElapsedStillTimesOut)
+{
+    // A negative elapsed time says the clock stepped back, not how long the mount has been
+    // waited on, so a mount still reporting IsPulseGuiding is given up on rather than waited
+    // on for the size of the step.
+    EXPECT_TRUE(CompletionTimedOut(117, -1));
+    EXPECT_TRUE(CompletionTimedOut(117, -3600 * 1000L));
+}
