@@ -88,6 +88,11 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
                           guiding going on with the same star and lock position and the secondary stars found again
                           (#187); apply's refusals, and min-move applied with a valid JSON response (#184); a run
                           started from looping guides and ends looping
+  stalled mount           #142 T2g: every telescope request 150 ms late while guiding: guiding converges, each
+                          pulse costs 4 requests (the fake's per-endpoint count, so an extra poll shows up) and each
+                          GuideStep's MoveTime its pulses plus 3-4 x the latency per axis; one PulseGuide held 35 s:
+                          given up at the mount's 30 s request timeout, one Alert, guiding goes on; stop_capture
+                          during one: it returns at once, guiding stops only after the 30 s, no Alert
   mutation while guiding  #142 T2b: set_algo through every RA and Dec algorithm (Predictive PEC among them),
                           set_algo_param on each one's parameters (the GP's periodLength included), set_backlash_comp,
                           and a Guiding Assistant run with the RA algorithm changing during it and then
@@ -158,6 +163,23 @@ RECONNECT_MAX = 3
 RETRY_FIRST_S, RETRY_SECOND_S = 15, 30
 # a GA run's shortest duration (guiding_assistant_start), never reached: each run here is stopped
 GA_DURATION_S = 60
+
+# #142 T2g, a mount that answers late or not at all. The telescope requests of one guide pulse
+# (ScopeAlpaca::Guide): the slewing check, the ispulseguiding check before the pulse and the one after it, the
+# PulseGuide PUT; with the fake's ispulseguiding false at once, no poll after it
+PULSE_REQUESTS = {"GET slewing": 1, "GET ispulseguiding": 2, "PUT pulseguide": 1}
+# what else reads the telescope meanwhile: the imaging-gear poller (src/imaging_gear_poller.cpp), on its own thread
+IMAGING_GEAR_SCOPE_READS = {"GET name", "GET focallength", "GET aperturediameter"}
+TELESCOPE_LATENCY_MS = 150
+LATENCY_STEPS = 8  # GuideSteps after the field's move, at the latency
+CONVERGED_PX = 0.5  # the last 3 of them within this of the lock
+# the mount's AlpacaClient keeps curl's 30 s CURLOPT_TIMEOUT (src/alpaca_client.cpp); a stall longer than that
+STALL_MS = 35000
+MOUNT_TIMEOUT_S = 30
+# the debug log lines of a PulseGuide PUT and of one that timed out: the time of day, and the thread
+PUT_LINE = re.compile(r"^(\d+):(\d+):(\d+\.\d+) \S+ (\d+) AlpacaClient PutAction: \S+/telescope/0/pulseguide,")
+PUT_TIMEOUT_LINE = re.compile(r"^(\d+):(\d+):(\d+\.\d+) \S+ (\d+) AlpacaClient PutAction failed: Timeout was reached$")
+PULSEGUIDE_ALERT_MSG = "PulseGuide command to mount has failed - guiding is likely to be ineffective."
 
 GUIDE_FAILURES = e2e.GUIDE_FAILURES
 # the abort list of a scenario whose camera is to be disconnected and reconnected while guiding
@@ -267,12 +289,12 @@ def fake_log_since(lane, offset):
         return f.read().decode("utf-8", errors="replace")
 
 
-def wait_fake_stall(lane, at, call, ms, timeout):
-    """Wait for a camera request to the stalled endpoint to reach the fake (its stall log line)."""
+def wait_fake_stall(lane, at, call, ms, timeout, device="camera", poll_s=0.1):
+    """Wait for a request to the stalled endpoint to reach the fake (its stall log line)."""
     deadline = time.time() + timeout
-    while f"stalling camera {ms} ms: /api/v1/camera/0/{call}" not in fake_log_since(lane, at):
+    while f"stalling {device} {ms} ms: /api/v1/{device}/0/{call}" not in fake_log_since(lane, at):
         expect(time.time() < deadline, f"no {call} reached the fake within {timeout} s")
-        time.sleep(0.1)
+        time.sleep(poll_s)
 
 
 def kill_fake_during_startexposure(lane, timeout=30):
@@ -1829,6 +1851,177 @@ MAX_GUIDESTEP_GAP_S = 15
 MUTATION_ENDED = GUIDE_FAILURES + ("StarLost",)
 
 
+def telescope_requests(fake, clear=False):
+    return fake.request("GET", "/fake/requests" + ("?clear=1" if clear else ""))["telescope"]
+
+
+def guide_on_kept_calibration(cli):
+    """From Stopped: loop, find_star, guide with no recalibration, to a settled guider."""
+    e2e.loop_and_find_star(cli)
+    start = cli.mark()
+    expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": False}) == 0, "guide did not return 0")
+    done = cli.wait_events(start, "SettleDone", timeout=e2e.SETTLE["timeout"] + 60, abort_on=GUIDE_FAILURES)[0]
+    expect(done.get("Status") == 0, f"SettleDone {strip(done)}")
+
+
+def scenario_telescope_latency(lane):
+    """#142 T2g: every telescope request answered 150 ms late while guiding (started on the kept calibration if the
+    scenario before it left capture stopped). Guiding converges after a 3 px move of the
+    field as it does with none, each pulse costs PULSE_REQUESTS (4 requests, counted by the fake per endpoint, so an
+    extra poll shows up), the steps without a pulse none, and each GuideStep's MoveTime is its pulses (at least the
+    latency each, the PUT's) plus 3 x the latency per pulsed axis (the slewing and the two ispulseguiding checks),
+    at most 4 x plus a margin."""
+    cli, fake = lane.cli, lane.fake
+    # the Guiding Assistant scenario before it ends stopped
+    if cli.call("get_app_state") != "Guiding":
+        cli.call("stop_capture")
+        cli.wait_state("Stopped", 30)
+        guide_on_kept_calibration(cli)
+    lat = TELESCOPE_LATENCY_MS
+    fake.request("PUT", "/fake/stall", {"device": "telescope", "ms": lat})
+    try:
+        # paused, with the move in flight done, the counts start with no pulse half-sent
+        cli.call("set_paused", {"paused": True})
+        time.sleep(3)
+        telescope_requests(fake, clear=True)
+        fake.request("GET", "/fake/pulses?clear=1")
+        mark = cli.mark()
+        cli.call("set_paused", {"paused": False})
+        fake.request("PUT", "/fake/shift", {"dx": 3, "dy": 3})
+        steps = cli.wait_events(mark, "GuideStep", count=LATENCY_STEPS, timeout=120, abort_on=GUIDE_FAILURES)
+        steps = steps[:LATENCY_STEPS]
+        cli.call("set_paused", {"paused": True})
+        time.sleep(3)
+        req = telescope_requests(fake, clear=True)
+        pulses = fake.request("GET", "/fake/pulses?clear=1")["pulses"]
+    finally:
+        fake.request("PUT", "/fake/stall", {"device": "telescope", "ms": 0})
+        cli.call("set_paused", {"paused": False})
+    n = len(pulses)
+    expect(n >= 2, f"{n} pulses for a 3 px move of the field")
+    want = {k: v * n for k, v in PULSE_REQUESTS.items()}
+    got = {k: req.get(k, 0) for k in PULSE_REQUESTS}
+    expect(got == want, f"telescope requests for {n} pulses: {req}, expected {want} (per pulse {PULSE_REQUESTS})")
+    other = set(req) - set(PULSE_REQUESTS)
+    expect(other <= IMAGING_GEAR_SCOPE_READS, f"telescope requests besides the pulses': {other} (all: {req})")
+    dist = [math.hypot(e.get("dx", 0), e.get("dy", 0)) for e in steps]
+    expect(dist[0] > 2 and max(dist[-3:]) < CONVERGED_PX,
+           f"the distances of the {LATENCY_STEPS} GuideSteps after the 3 px move: {[round(d, 2) for d in dist]}")
+    moves = []
+    for e in steps:
+        durs = [d for d in (e.get("RADuration"), e.get("DECDuration")) if d]
+        mt = e.get("MoveTime")
+        if not durs:
+            expect(not mt, f"MoveTime {mt} for a GuideStep with no pulse: {strip(e)}")
+            continue
+        base = sum(max(d, lat) for d in durs)
+        lo, hi = base + 3 * lat * len(durs) - 60, base + 4 * lat * len(durs) + 400
+        expect(mt is not None and lo <= mt <= hi,
+               f"MoveTime {mt} ms for pulses {durs} at {lat} ms latency, expected {lo}..{hi}: {strip(e)}")
+        moves.append(f"{'+'.join(map(str, durs))} -> {mt}")
+    expect(cli.call("get_app_state") == "Guiding", "not guiding after the latency")
+    return (f"{n} pulses, {sum(want.values())} pulse requests ({PULSE_REQUESTS} each), others {sorted(other)}; "
+            f"distances {[round(d, 2) for d in dist]}; MoveTime (pulses -> ms) {moves}")
+
+
+def put_timeouts(lane):
+    """The PulseGuide PUTs that timed out since the debug log's mark: each the time from the PUT's line to its timeout's
+    line on the same thread, s."""
+    def secs(m):
+        return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+
+    sent, out = {}, []
+    for line in lane.debug.text().splitlines():
+        m = PUT_LINE.match(line)
+        if m:
+            sent[m.group(4)] = secs(m)
+            continue
+        m = PUT_TIMEOUT_LINE.match(line)
+        if m and m.group(4) in sent:
+            out.append(round((secs(m) - sent.pop(m.group(4))) % 86400, 3))
+    return out
+
+
+def scenario_stalled_pulse(lane):
+    """#142 T2g: one PulseGuide PUT the mount holds for 35 s while guiding. The guider gives it up at the mount's
+    30 s request timeout, not the 35 s: one failed move (MOVE_ERROR), one Alert, the other axis's pulse sent; guiding
+    goes on, no StarLost, the mount connected. The worker waits the 30 s out, so no GuideStep comes meanwhile."""
+    cli, fake = lane.cli, lane.fake
+    expect(cli.call("get_app_state") == "Guiding", "not guiding")
+    lane.debug.mark()
+    mark, at = cli.mark(), fake_log_size(lane)
+    fake.request("PUT", "/fake/shift", {"dx": 3, "dy": 3})
+    fake.request("PUT", "/fake/stall", {"device": "telescope", "ms": STALL_MS, "call": "pulseguide", "count": 1})
+    try:
+        wait_fake_stall(lane, at, "pulseguide", STALL_MS, 60, device="telescope")
+        t_stall = time.time()
+        cli.wait_events(mark, "Alert", timeout=MOUNT_TIMEOUT_S + 30, abort_on=GUIDE_FAILURES)
+        after = cli.mark()
+        cli.wait_events(after, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
+        evs = settle_events(cli, mark)
+    finally:
+        fake.request("PUT", "/fake/stall", {"device": "telescope", "ms": 0})
+    al = alerts(evs)
+    expect([e.get("Msg") for e in al] == [PULSEGUIDE_ALERT_MSG], f"Alerts {[e.get('Msg') for e in al]}, expected one "
+                                                                  f"{PULSEGUIDE_ALERT_MSG!r}")
+    alert_s = al[0]["_t"] - t_stall
+    expect(MOUNT_TIMEOUT_S - 1.5 <= alert_s <= MOUNT_TIMEOUT_S + 5,
+           f"the Alert {alert_s:.1f} s after the stalled PUT reached the fake, expected about {MOUNT_TIMEOUT_S} s")
+    timeouts = put_timeouts(lane)
+    expect(len(timeouts) == 1 and MOUNT_TIMEOUT_S - 0.5 <= timeouts[0] <= MOUNT_TIMEOUT_S + 1,
+           f"PulseGuide PUT timeouts in the debug log: {timeouts} s, expected one of {MOUNT_TIMEOUT_S} s")
+    failed_moves = len(re.findall(FAILED_MOVE_LINE, lane.debug.text()))
+    expect(failed_moves == 1, f"{failed_moves} failed moves, expected the stalled one")
+    during = [e for e in evs if t_stall < e["_t"] < al[0]["_t"]]
+    expect(not [e for e in during if e["Event"] == "GuideStep"], f"GuideSteps during the stall: {names_of(during)}")
+    expect(not [e for e in evs if e["Event"] in ("StarLost", "GuidingStopped") or e["Event"].startswith("Equipment")],
+           f"events: {names_of(evs)}")
+    expect(cli.call("get_app_state") == "Guiding", "not guiding after the stall")
+    expect(cli.call("get_connected", {"device": "mount"}) is True, "the mount disconnected")
+    state = fake.request("GET", "/fake/state")
+    expect(state["stall"]["telescope"] == 0 and state["stall_count"]["telescope"] == 0, f"the fake's stall {state}")
+    return (f"the PUT timed out after {timeouts[0]:.3f} s, one Alert {alert_s:.1f} s after the stall began, "
+            f"{failed_moves} failed move, guiding (events {names_of(evs)})")
+
+
+def scenario_stop_during_stalled_pulse(lane):
+    """#142 T2g: stop_capture while a PulseGuide PUT is held for 35 s. stop_capture returns at once, and guiding stops
+    (GuidingStopped, Stopped) only once the PUT has timed out at the mount's 30 s, with no Alert: the worker's
+    interrupt does not reach a request in flight. Then guide (no recalibration) settles again."""
+    cli, fake = lane.cli, lane.fake
+    expect(cli.call("get_app_state") == "Guiding", "not guiding")
+    lane.debug.mark()
+    at = fake_log_size(lane)
+    fake.request("PUT", "/fake/shift", {"dx": 3, "dy": 3})
+    fake.request("PUT", "/fake/stall", {"device": "telescope", "ms": STALL_MS, "call": "pulseguide", "count": 1})
+    try:
+        wait_fake_stall(lane, at, "pulseguide", STALL_MS, 60, device="telescope", poll_s=0.02)
+        t_stall = time.time()
+        mark = cli.mark()
+        msg = cli.request("stop_capture", timeout=60)
+        returned_s = time.time() - t_stall
+        cli.wait_state("Stopped", MOUNT_TIMEOUT_S + 30)
+        stopped_s = time.time() - t_stall
+        evs = settle_events(cli, mark, quiet_s=2.0)
+    finally:
+        fake.request("PUT", "/fake/stall", {"device": "telescope", "ms": 0})
+    expect(msg.get("result") == 0 and not msg.get("error"), f"stop_capture {msg}")
+    expect(returned_s < 2, f"stop_capture returned {returned_s:.1f} s after the stall began, expected at once")
+    expect(MOUNT_TIMEOUT_S - 1.5 <= stopped_s <= MOUNT_TIMEOUT_S + 6,
+           f"Stopped {stopped_s:.1f} s after the stall began, expected after the {MOUNT_TIMEOUT_S} s timeout")
+    timeouts = put_timeouts(lane)
+    expect(len(timeouts) == 1 and MOUNT_TIMEOUT_S - 0.5 <= timeouts[0] <= MOUNT_TIMEOUT_S + 1,
+           f"PulseGuide PUT timeouts in the debug log: {timeouts} s")
+    stops = [e for e in evs if e["Event"] == "GuidingStopped"]
+    expect(len(stops) == 1 and stops[0]["_t"] - t_stall >= MOUNT_TIMEOUT_S - 1.5,
+           f"GuidingStopped {[round(e['_t'] - t_stall, 1) for e in stops]} s after the stall began: {names_of(evs)}")
+    expect(not alerts(evs), f"Alerts after stop_capture: {[e.get('Msg') for e in alerts(evs)]}")
+    expect(cli.call("get_connected", {"device": "mount"}) is True, "the mount disconnected")
+    guide_on_kept_calibration(cli)  # guiding again for the scenarios after it
+    return (f"stop_capture returned after {returned_s:.2f} s, Stopped after {stopped_s:.1f} s (the PUT timed out "
+            f"after {timeouts[0]:.3f} s), no Alert; guide settled again")
+
+
 def algo_params(cli, axis):
     """{name: value} of the axis's current algorithm, from get_algo_param_names and get_algo_param."""
     names = [n for n in cli.call("get_algo_param_names", {"axis": axis}) if n != "algorithmName"]
@@ -2212,6 +2405,11 @@ def run_faults(lane, args):
             ("Alpaca server killed during a startexposure and back while guiding (#211, #237)",
              fake_killed(scenario_fake_killed_mid_request), True),
             ("Guiding Assistant start/stop/apply and restore", lambda: scenario_guiding_assistant(lane), True),
+            ("telescope answering 150 ms late while guiding (#142 T2g)", lambda: scenario_telescope_latency(lane),
+             True),
+            ("one PulseGuide held 35 s while guiding (#142 T2g)", lambda: scenario_stalled_pulse(lane), True),
+            ("stop_capture during a held PulseGuide (#142 T2g)", lambda: scenario_stop_during_stalled_pulse(lane),
+             True),
             ("algorithm, parameter and BLC changes while guiding (#142 T2b)",
              lambda: scenario_mutation_while_guiding(lane), True),
             ("camera reconnect throttle, then the #104 retry", lambda: scenario_reconnect_throttle(lane), False),
