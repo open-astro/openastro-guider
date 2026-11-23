@@ -60,22 +60,3 @@ double GuideAlgorithmIdentity::result(double input)
 
     return dReturn;
 }
-
-ConfigDialogPane *GuideAlgorithmIdentity::GetConfigDialogPane(wxWindow *pParent)
-{
-    return new GuideAlgorithmIdentityConfigDialogPane(pParent, this);
-}
-
-GuideAlgorithmIdentity::GuideAlgorithmIdentityConfigDialogPane::GuideAlgorithmIdentityConfigDialogPane(
-    wxWindow *pParent, GuideAlgorithmIdentity *pGuideAlgorithm)
-    : ConfigDialogPane(_("Guide Algorithm"), pParent)
-{
-    m_pGuideAlgorithm = pGuideAlgorithm;
-    DoAdd(new wxStaticText(pParent, wxID_ANY, _("Nothing to Configure"), wxPoint(-1, -1), wxSize(-1, -1)));
-}
-
-GuideAlgorithmIdentity::GuideAlgorithmIdentityConfigDialogPane::~GuideAlgorithmIdentityConfigDialogPane(void) { }
-
-void GuideAlgorithmIdentity::GuideAlgorithmIdentityConfigDialogPane::LoadValues(void) { }
-
-void GuideAlgorithmIdentity::GuideAlgorithmIdentityConfigDialogPane::UnloadValues(void) { }

@@ -111,7 +111,6 @@ WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 #define PHD_MESSAGES_CATALOG "phd2"
 
 #include "phdconfig.h"
-#include "configdialog.h"
 #include "usImage.h"
 #include "point.h"
 #include "star.h"
@@ -129,7 +128,6 @@ WX_DEFINE_ARRAY_DOUBLE(double, ArrayOfDbl);
 #include "stepguiders.h"
 #include "rotators.h"
 #include "image_math.h"
-#include "advanced_dialog.h"
 #include "equipment_manager.h"
 #include "myframe.h"
 #include "debuglog.h"

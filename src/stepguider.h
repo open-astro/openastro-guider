@@ -36,46 +36,6 @@
 #ifndef STEPGUIDER_H_INCLUDED
 #define STEPGUIDER_H_INCLUDED
 
-class StepGuider;
-
-// The AO has two representations in AdvancedDialog.  One is as a 'mount' sub-class where the AO algorithms are shown in the
-// Algos tab.  The second is as a unique device appearing on the Other_Devices tab.  So there are two distinct
-// ConfigDialogCtrlSet classes to support these two views
-class AOConfigDialogCtrlSet : ConfigDialogCtrlSet
-{
-    StepGuider *m_pStepGuider;
-    wxSpinCtrl *m_travel;
-    wxSpinCtrl *m_pCalibrationStepsPerIteration;
-    wxSpinCtrl *m_pSamplesToAverage;
-    wxSpinCtrl *m_pBumpPercentage;
-    wxSpinCtrlDouble *m_pBumpMaxStepsPerCycle;
-    wxCheckBox *m_bumpOnDither;
-    wxCheckBox *m_pClearAOCalibration;
-    wxCheckBox *m_pEnableAOGuide;
-
-public:
-    AOConfigDialogCtrlSet(wxWindow *pParent, Mount *pStepGuider, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
-    AOConfigDialogCtrlSet(const AOConfigDialogCtrlSet&) = delete;
-    AOConfigDialogCtrlSet& operator=(const AOConfigDialogCtrlSet&) = delete;
-    ~AOConfigDialogCtrlSet() {};
-
-    virtual void LoadValues();
-    virtual void UnloadValues();
-};
-
-class AOConfigDialogPane : public ConfigDialogPane
-{
-    StepGuider *m_pStepGuider;
-
-public:
-    AOConfigDialogPane(wxWindow *pParent, StepGuider *pStepGuider);
-    ~AOConfigDialogPane() {};
-
-    virtual void LoadValues() {};
-    virtual void UnloadValues() {};
-    virtual void LayoutControls(wxPanel *pParent, BrainCtrlIdMap& CtrlMap);
-};
-
 struct StepInfo
 {
     int x;
@@ -133,21 +93,7 @@ class StepGuider : public Mount
         CALIBRATION_STATE_COMPLETE
     } m_calibrationState;
 
-    // Things related to the Advanced Config Dialog
 protected:
-    class StepGuiderConfigDialogPane : public MountConfigDialogPane
-    {
-        StepGuider *m_pStepGuider;
-
-    public:
-        StepGuiderConfigDialogPane(wxWindow *pParent, StepGuider *pStepGuider);
-        ~StepGuiderConfigDialogPane() {};
-
-        virtual void LoadValues();
-        virtual void UnloadValues();
-        virtual void LayoutControls(wxPanel *pParent, BrainCtrlIdMap& CtrlMap);
-    };
-
     virtual int GetSamplesToAverage() const;
     virtual bool SetSamplesToAverage(int samplesToAverage);
 
@@ -163,16 +109,7 @@ protected:
     GUIDE_ALGORITHM DefaultXGuideAlgorithm() const override;
     GUIDE_ALGORITHM DefaultYGuideAlgorithm() const override;
 
-    friend class StepGuiderConfigDialogCtrlSet;
-    friend class AOConfigDialogCtrlSet;
-
 public:
-    MountConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
-    MountConfigDialogCtrlSet *GetConfigDialogCtrlSet(wxWindow *pParent, Mount *pStepGuider, AdvancedDialog *pAdvancedDialog,
-                                                     BrainCtrlIdMap& CtrlMap) override
-    {
-        return nullptr;
-    };
     wxString GetSettingsSummary() const override;
     wxString CalibrationSettingsSummary() const override;
     wxString GetMountClassName() const override;

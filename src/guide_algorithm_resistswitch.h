@@ -50,31 +50,12 @@ class GuideAlgorithmResistSwitch : public GuideAlgorithm
     bool m_fastSwitchEnabled;
 
 protected:
-    class GuideAlgorithmResistSwitchConfigDialogPane : public ConfigDialogPane
-    {
-        GuideAlgorithmResistSwitch *m_pGuideAlgorithm;
-        wxSpinCtrlDouble *m_pMinMove;
-        wxSpinCtrl *m_pAggression;
-        wxCheckBox *m_pFastSwitch;
-
-    public:
-        GuideAlgorithmResistSwitchConfigDialogPane(wxWindow *pParent, GuideAlgorithmResistSwitch *pGuideAlgorithm);
-        ~GuideAlgorithmResistSwitchConfigDialogPane();
-
-        void LoadValues() override;
-        void UnloadValues() override;
-        void OnImageScaleChange() override;
-        void EnableDecControls(bool enable) override;
-    };
-
     double GetMinMove() const override;
     bool SetMinMove(double minMove) override;
     double GetAggression() const;
     bool SetAggression(double aggr);
     bool GetFastSwitchEnabled() const;
     void SetFastSwitchEnabled(bool enable);
-
-    friend class GuideAlgorithmResistSwitchConfigDialogPane;
 
 public:
     GuideAlgorithmResistSwitch(Mount *pMount, GuideAxis axis);
@@ -83,7 +64,6 @@ public:
 
     void reset() override;
     double result(double input) override;
-    ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
     wxString GetSettingsSummary() const override;
     wxString GetGuideAlgorithmClassName() const override { return "ResistSwitch"; }
     void GetParamNames(wxArrayString& names) const override;

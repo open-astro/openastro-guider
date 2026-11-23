@@ -51,28 +51,10 @@ class GuideAlgorithmLowpass : public GuideAlgorithm
     int m_timeBase;
 
 protected:
-    class GuideAlgorithmLowpassConfigDialogPane : public ConfigDialogPane
-    {
-        GuideAlgorithmLowpass *m_pGuideAlgorithm;
-        wxSpinCtrlDouble *m_pSlopeWeight;
-        wxSpinCtrlDouble *m_pMinMove;
-
-    public:
-        GuideAlgorithmLowpassConfigDialogPane(wxWindow *pParent, GuideAlgorithmLowpass *pGuideAlgorithm);
-        ~GuideAlgorithmLowpassConfigDialogPane();
-
-        void LoadValues() override;
-        void UnloadValues() override;
-        void OnImageScaleChange() override;
-        void EnableDecControls(bool enable) override;
-    };
-
     double GetMinMove() const override;
     bool SetMinMove(double minMove) override;
     double GetSlopeWeight() const;
     bool SetSlopeWeight(double SlopeWeight);
-
-    friend class GuideAlgorithmLowpassConfigDialogPane;
 
 public:
     GuideAlgorithmLowpass(Mount *pMount, GuideAxis axis);
@@ -81,7 +63,6 @@ public:
 
     void reset() override;
     double result(double input) override;
-    ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
     wxString GetSettingsSummary() const override;
     wxString GetGuideAlgorithmClassName() const override { return "Lowpass"; }
     void GetParamNames(wxArrayString& names) const override;

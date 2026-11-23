@@ -128,7 +128,6 @@ protected:
     bool SetFocalLength(int focalLength);
 
     friend class WorkerThread;
-    friend class AdvancedDialog; // AdvancedDialog::UnloadValues calls MakeImageScaleAdjustments
 
 private:
     NOISE_REDUCTION_METHOD m_noiseReductionMethod;
@@ -181,7 +180,6 @@ public:
     wxComboBox *Dur_Choice;
     wxCheckBox *HotPixel_Checkbox;
     wxSlider *Gamma_Slider;
-    AdvancedDialog *pAdvancedDialog = nullptr;
     GuideHistory *pGuideHistory = nullptr;
     EquipmentManager *pEquipment = nullptr; // the devices and their selection
     bool CaptureActive = false; // Is camera looping captures?
@@ -198,8 +196,6 @@ public:
     bool m_rawImageMode;
     bool m_rawImageModeWarningDone;
     wxSize m_prevDarkFrameSize;
-
-    void RegisterTextCtrl(wxTextCtrl *ctrl);
 
     void OnQuit(wxCommandEvent& evt);
     void OnClose(wxCloseEvent& evt);
@@ -223,8 +219,6 @@ public:
     void HandleSockServerInput(wxSocketBase *sock);
     void OnServerMenu(wxCommandEvent& evt);
     void OnCharHook(wxKeyEvent& evt);
-    void OnTextControlSetFocus(wxFocusEvent& evt);
-    void OnTextControlKillFocus(wxFocusEvent& evt);
     void OnPanelClose(wxAuiManagerEvent& evt);
     void OnToolBar(wxCommandEvent& evt);
     void OnRestoreWindows(wxCommandEvent& evt);
@@ -286,7 +280,6 @@ public:
     void UpdateStatusBarStarInfo(double SNR, bool Saturated);
     void UpdateStatusBarGuiderInfo(const GuideStepInfo& info);
     void ClearStatusBarGuiderInfo();
-    static void PlaceWindowOnScreen(wxWindow *window, int x, int y);
     bool GetBeepForLostStar();
     void SetBeepForLostStar(bool beep);
 
@@ -497,11 +490,6 @@ inline static int StringWidth(const wxWindow *window, const wxString& s)
     int width, height;
     window->GetTextExtent(s, &width, &height);
     return width;
-}
-
-inline static wxSize StringSize(const wxWindow *window, const wxString& s, int extra = 0)
-{
-    return wxSize(StringWidth(window, s) + extra, -1);
 }
 
 inline double MyFrame::GetPixelScale(double pixelSizeMicrons, int focalLengthMm, int binning)

@@ -285,8 +285,6 @@ MyFrame::MyFrame()
 
     pGuideHistory = NewGuideHistory();
 
-    // pAdvancedDialog stays null: the AdvancedDialog is no longer built (#115 step 4, S4.2)
-
     // no devices yet: PhdApp::OnInit loads them from the profile once pFrame is set (their constructors call through it)
     pEquipment = new EquipmentManager();
 
@@ -2565,13 +2563,6 @@ wxString MyFrame::GetSettingsSummary() const
         m_timeLapse, m_serverMode ? "enabled" : "disabled", PixelScaleSummary());
 }
 
-void MyFrame::RegisterTextCtrl(wxTextCtrl *ctrl)
-{
-    // Text controls gaining focus need to disable the Bookmarks Menu accelerators
-    ctrl->Bind(wxEVT_SET_FOCUS, &MyFrame::OnTextControlSetFocus, this);
-    ctrl->Bind(wxEVT_KILL_FOCUS, &MyFrame::OnTextControlKillFocus, this);
-}
-
 // Get the best estimate for the current mount guide speeds
 double MyFrame::DetermineGuideSpeed()
 {
@@ -2681,21 +2672,6 @@ void MyFrame::HandleImageScaleChange()
 //  undefined reference to wxPluralFormsCalculatorPtr::~wxPluralFormsCalculatorPtr
 wxPluralFormsCalculatorPtr::~wxPluralFormsCalculatorPtr() { }
 #endif
-
-void MyFrame::PlaceWindowOnScreen(wxWindow *win, int x, int y)
-{
-    if (x < 0 || x > wxSystemSettings::GetMetric(wxSYS_SCREEN_X) - 20 || y < 0 ||
-        y > wxSystemSettings::GetMetric(wxSYS_SCREEN_Y) - 20)
-    {
-        // Fall back to centering on the parent (main app frame) so the window
-        // appears on whichever display PHD2 is currently on. Centre(wxBOTH)
-        // always lands on the primary display and is jarring on multi-monitor
-        // setups.
-        win->CentreOnParent(wxBOTH);
-    }
-    else
-        win->Move(x, y);
-}
 
 inline static void AdjustSpinnerWidth(wxSize *sz) { }
 
