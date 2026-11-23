@@ -10,7 +10,9 @@
  *  (LimitAlertThrottle, AlertClockS), the PulseGuide-failed alert's throttle
  *  from ScopeAlpaca::Guide (PulseFailedAlertThrottle), what a dither's
  *  fast-recenter step moved (MovedPx, AfterRecenterStep), the result
- *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult), and
+ *  Mount::MoveOffset reports for its two pulses (SendDecAfter, OffsetResult), the
+ *  Dec backlash compensation from BacklashComp::ApplyBacklashComp
+ *  (PlanBacklashComp), and
  *  when MyFrame::OnMoveComplete stops guiding on failed moves (AfterGuideMove).
  *  Kept free of wx so it can be unit tested (tests/guiding/test_guide_move_plan.cpp).
  */
@@ -109,6 +111,25 @@ struct AxisPlan
 // are capped at MAX_PULSE_MS. Calibration (no bits) and manual moves pass through as asked. The
 // tracker of the move's axis is updated.
 AxisPlan PlanAxis(Dir dir, int ms, unsigned moveOptions, const AxisPolicy& policy, LimitTracker& ra, LimitTracker& dec);
+
+struct BacklashPlan
+{
+    bool skipped = true; // the compensator did not look at this move: lastDirection is unchanged
+    bool reversal = false; // the move reverses the last Dec direction: addMs is added to its pulse
+    int addMs = 0;
+};
+
+// What BacklashComp::ApplyBacklashComp does to the Dec pulse Mount::MoveOffset asks for (#142),
+// before Scope::MoveAxis filters and clamps it. Only moves with USE_BLC are looked at, and only
+// when the compensator is enabled with a pulse above 0, the Dec guide mode is Auto and the move
+// has a Dec distance. Such a move sets lastDirection (South for y > 0, else North), and adds
+// pulseWidthMs when it reverses a lastDirection other than None. In a North- or South-only
+// mode (or with Dec guiding off) the compensator is inert, as Scope::SetDecGuideMode intends by
+// disabling it there ("no recovery from over-shoots"): MoveAxis zeroes the guide steps the mode
+// filters, so counting them would make the next allowed pulse a reversal and add a whole
+// compensation pulse in the direction the mount was already moving.
+BacklashPlan PlanBacklashComp(unsigned moveOptions, bool enabled, int pulseWidthMs, DecMode decMode, double yDistance,
+                              Dir& lastDirection);
 
 // == GuideAxis (guide_algorithm.h)
 enum class Axis
