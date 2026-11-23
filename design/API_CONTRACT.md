@@ -1305,3 +1305,90 @@ guider closes mid-run) is unchanged and keeps the same measurement, recommendati
   returned it.
 
 ARA: no code change.
+
+## 2026-11-23 — a console daemon with no GUI (#115 steps 4-8)
+
+No method, parameter, result, error code, error string, event or event order changes on `:4400`,
+apart from the one removal recorded in the S4.3 entry above (`guiding_assistant_start` "the
+Guiding Assistant dialog is open", which the daemon never returned). Steps 4-8 deleted the hidden
+GUI: the Advanced Settings dialog and its panes, the guider window's bookmarks, overlays and
+painting, the menus, toolbar and AUI layout, `ConfirmDialog`, the leftover dialogs and the camera
+simulator. `MyFrame` is a `wxEvtHandler`, `PhdApp` a `wxAppConsole`, and `phd2.bin` links only
+wxBase and wxNet and runs with no X display. Every setting a client sets over JSON-RPC is held by
+its class and the profile, as before.
+
+Profile and global keys no longer read or written. An existing value stays in the config file,
+unread; nothing deletes it.
+
+- `/perspective` and `/geometry`: the window layout and the window's size, position and maximized
+  state (S6.5).
+- `/guider/bookmarks` (S5.1).
+- `/overlay/slit/center.x`, `/overlay/slit/center.y`, `/overlay/slit/width`,
+  `/overlay/slit/height` and `/overlay/slit/angle`, which the guider wrote back at every start
+  (S5.2).
+- The `ConfirmDialog` "don't ask again" keys: `/Confirm/delete_all_bookmarks_ok` (S5.1),
+  `/Confirm/guiding_assistant_while_guiding` (S4.3), `/Confirm/force_recalibration_ok` (S6.4) and
+  `/Confirm/quit_when_looping_ok` (S6.5).
+- `/GuidingAssistant/pos.x` and `/GuidingAssistant/pos.y`, the Guiding Assistant window's position
+  (S4.3).
+- The dark library dialog's `/camera/darks_min_exptime`, `/camera/darks_max_exptime`,
+  `/camera/darks_num_frames`, `/camera/darks_note`, `/camera/dmap_exptime` and
+  `/camera/dmap_num_frames` (S4.10). `build_dark_library` and `build_defect_map_darks` take their
+  values as parameters and never read these; `/camera/dmap_hot_factor` and
+  `/camera/dmap_cold_factor` are still read and written by `rebuild_defect_map`.
+- `/SimCam/*`, the camera simulator's settings (S6.6).
+- `/scope/manual_pointing/latitude` and `/scope/manual_pointing/longitude`, the "Ask for
+  coordinates" pointing source's (S6.6).
+
+Keys still read but no longer written:
+
+- `/Gamma`, the stretch of `/api/frame.jpg` (clamped to 10-300, /100). Its only writer was the
+  Gamma slider (S6.2).
+- The per-profile suppressible-alert keys under `/Confirm/<profile id>/` (`RawModeWarningEnabled`,
+  `DarksWarningEnabled`, `Max<axis>LimitWarningEnabled`, `DecBacklashWarningEnabled`,
+  `PulseGuideFailedAlertEnabled`, `SlewWarningEnabled`, `SlowBumpWarningEnabled`, `CalWarning_*`).
+  A key set to false still suppresses its `Alert` (the Debug log gets `Suppressed alert:` instead),
+  but the info bar's "Don't show again" button that set it is gone (S6.3).
+
+Debug log lines that changed (none is an event or a response):
+
+- `GuideButtonClick: no guide star selected`, new, where a `--gui` click showed a message box
+  (S6.4).
+- `UpdateTitle: <title>`, new: the title the window used to show (S6.9).
+- `--gui is ignored: there is no window any more`, new, when `--gui` is given (S6.9).
+- `Error: the camera cannot capture off the main thread, exposure not taken` and
+  `Error: <mount> cannot move off the main thread, move not made`, new, for a device that cannot
+  work on the worker thread (none that can be selected); `Handling exposure in myFrame` and
+  `Sending move to myFrame` can no longer appear (S6.7).
+- `frame.jpg: JPEG encode failed: <libjpeg message>`, new, before the `500` `could not encode frame`
+  (S7.2).
+- Gone with their message boxes, with the message kept on stderr or in the Debug log: the Debug
+  log's "unable to open file" box (S8.1) and the invalid log folder box (S4.4).
+- Unchanged: `Alert: <text>`, the `GuideButtonClick i=… ctx=…` line, the shutdown sequence's lines
+  (`MyFrame::OnClose proceeding`, …), the "headless: auto-connect ..." lines and the worker's
+  `Handling exposure in thread` and `Handling axis move` / `offset move in thread` lines.
+
+Command line:
+
+- `--gui` is accepted and ignored. It writes `warning: --gui is ignored: there is no window any
+  more` to stderr and the Debug log, and the daemon runs as without it: SIGTERM and SIGINT
+  handling and `--auto-connect` work as they do without the switch. `--headless` stays an accepted
+  no-op.
+- `--display` is no longer accepted. wxGTK took it (and GTK's other options) off the command line
+  before the daemon's parser saw it; the console app does not, so `--display=:0` gets
+  `Unknown long option 'display'`, the usage text and exit status 255. The packaged unit never
+  passed it. The e2e scripts' own `--display` option is accepted and ignored (S8.4).
+- No `DISPLAY` or X server is needed. The unit runs
+  `ExecStart=/usr/bin/openastro-guider --auto-connect` without `xvfb-run`, and the package no
+  longer depends on `xvfb` (S8.5).
+
+`GET /api/frame.jpg`: encoded by the wx-free `image_stretch::StretchGray8` and
+`jpeg_encode::EncodeGray8` (libjpeg) instead of `usImage::CopyToImage`, `wxImage` and
+`wxJPEGHandler` (S7.2). The bytes are the same: the same stretch (the frame's `FiltMin`/`FiltMax`
+from `CalcStats` and `/Gamma`) and a baseline quality-85 4:2:0 JPEG; a daemon instrumented to make
+both from each frame of the main e2e lane got identical output every time (640x480, 6083 bytes).
+The headers, the `ETag`, `304`, `404` and `500` answers are unchanged.
+
+Not changed: calibration policy. The guider still recalibrates on every new target.
+
+ARA: no code change.

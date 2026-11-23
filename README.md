@@ -10,8 +10,8 @@ on a Raspberry Pi (Linux arm64, the same target as AlpacaBridge) and be driven
 remotely over PHD2's JSON-RPC event-server API — primarily by
 [**OpenAstro ARA**](https://github.com/open-astro) and alongside
 [**AlpacaBridge**](https://github.com/open-astro/AlpacaBridge). All equipment is
-reached over **ASCOM Alpaca** (network), with built-in simulator and
-manual-pointing backends for testing.
+reached over **ASCOM Alpaca** (network); `scripts/fake_alpaca_camera.py`, a
+fake Alpaca camera and telescope, stands in for hardware in testing.
 
 This is a *strip + headless-enable* of PHD2, **not** a rewrite: the guiding
 engine, calibration math, guide algorithms, dark/defect-map logic, and the
@@ -23,10 +23,10 @@ Lineage: PHD2 (Open PHD Guiding) → `open-astro/openastro-phd2` (added Alpaca +
 INDI, GUI) → `open-astro/openastro-guider` (this repo: headless, Alpaca-only).
 `openastro-phd2` remains the GUI/INDI reference and is the `upstream` git remote.
 
-> **Status:** wxWidgets (wxBase + the existing GUI) is intentionally retained; a
-> headless run mode is being added incrementally per the playbook. Until that
-> lands, the binary is still the windowed PHD2 application — just Linux- and
-> Alpaca-only.
+> **Status:** the guider is a console daemon with no GUI (#115). It uses
+> wxWidgets' non-GUI wxBase and wxNet libraries only, needs no X display or
+> Xvfb, and runs straight from systemd (`openastro-guider.service`). Ara is its
+> only user interface, over JSON-RPC.
 
 ## Important Notice
 
@@ -37,13 +37,13 @@ INDI, GUI) → `open-astro/openastro-guider` (this repo: headless, Alpaca-only).
 
 ## Scope
 
-Equipment — cameras, mounts, and rotators — is reached through **one** transport,
-plus test backends:
+Equipment — cameras, mounts, and rotators — is reached through **one** transport:
 
 - **ASCOM Alpaca** (network) — cameras, mounts, rotators. Drivers are
   **user-installed**; no vendor SDKs are bundled. Designed to work alongside
   AlpacaBridge.
-- **Simulator** and **manual pointing** — for development and bench testing.
+- **Testing without hardware:** `scripts/fake_alpaca_camera.py` serves a fake
+  Alpaca camera and telescope, which the daemon e2e lanes use.
 
 **Removed compared to upstream PHD2:**
 
@@ -52,7 +52,10 @@ plus test backends:
   single equipment path.
 - **Backends:** all vendor SDK camera backends (ZWO, QHY, SBIG, Altair, ToupTek,
   SVBony, PlayerOne, Moravian, etc.), adaptive optics / step-guiders, on-camera
-  ST4, Shoestring/direct-ST4 guide outputs, and auxiliary mounts.
+  ST4, Shoestring/direct-ST4 guide outputs, and auxiliary mounts; the camera
+  simulator and the "Ask for coordinates" manual pointing source.
+- **User interface:** every window, dialog, menu and toolbar, and the web UI
+  (#114, #115). Ara drives the daemon over JSON-RPC.
 
 The intentional shape of this fork is that every supported camera/mount/rotator
 is a thin protocol shim over an Alpaca driver the user installs and the vendor
