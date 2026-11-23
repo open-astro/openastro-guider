@@ -138,12 +138,7 @@ bool DebugLog::ChangeDirLog(const wxString& newdir)
     if (!SetLogDir(newdir))
     {
         Debug.Write(wxString::Format("Error: unable to set new log dir %s\n", newdir));
-        // Headless: log instead of a modal that would hang the daemon (see above).
-        if (wxGetApp().IsHeadless())
-            fprintf(stderr, "invalid folder name %s, debug log folder unchanged\n",
-                    static_cast<const char *>(newdir.utf8_str()));
-        else
-            wxMessageBox(wxString::Format("invalid folder name %s, debug log folder unchanged", newdir));
+        fprintf(stderr, "invalid folder name %s, debug log folder unchanged\n", static_cast<const char *>(newdir.utf8_str()));
         ok = false;
     }
 

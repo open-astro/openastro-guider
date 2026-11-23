@@ -81,18 +81,6 @@ struct VarDelayCfg
 
 typedef void alert_fn(intptr_t);
 
-class MyFrameConfigDialogPane : public ConfigDialogPane
-{
-
-public:
-    MyFrameConfigDialogPane(wxWindow *pParent, MyFrame *pFrame);
-    virtual ~MyFrameConfigDialogPane() {};
-
-    void LayoutControls(BrainCtrlIdMap& CtrlMap);
-    virtual void LoadValues() {};
-    virtual void UnloadValues() {};
-};
-
 enum DitherMode
 {
     DITHER_RANDOM,
@@ -127,55 +115,6 @@ struct SingleExposure
 
 inline SingleExposure::SingleExposure() : enabled(false), duration(0) { }
 
-class MyFrameConfigDialogCtrlSet : public ConfigDialogCtrlSet
-{
-    MyFrame *m_pFrame;
-    wxCheckBox *m_pResetConfiguration;
-    wxCheckBox *m_pResetDontAskAgain;
-    wxRadioButton *m_ditherRandom;
-    wxRadioButton *m_ditherSpiral;
-    wxSpinCtrlDouble *m_ditherScaleFactor;
-    wxCheckBox *m_ditherRaOnly;
-    wxChoice *m_pNoiseReduction;
-    wxSpinCtrl *m_pTimeLapse;
-    wxTextCtrl *m_pFocalLength;
-    wxChoice *m_pLanguage;
-    int m_oldLanguageChoice;
-    wxTextCtrl *m_pLogDir;
-    wxButton *m_pSelectDir;
-    wxCheckBox *m_EnableImageLogging;
-    wxStaticBoxSizer *m_LoggingOptions;
-    wxCheckBox *m_LogNextNFrames;
-    wxCheckBox *m_LogRelErrors;
-    wxCheckBox *m_LogAbsErrors;
-    wxCheckBox *m_LogDroppedFrames;
-    wxCheckBox *m_LogAutoSelectFrames;
-    wxSpinCtrlDouble *m_LogRelErrorThresh;
-    wxSpinCtrlDouble *m_LogAbsErrorThresh;
-    wxSpinCtrl *m_LogNextNFramesCount;
-    wxCheckBox *m_pAutoLoadCalibration;
-    wxComboBox *m_autoExpDurationMin;
-    wxComboBox *m_autoExpDurationMax;
-    wxSpinCtrlDouble *m_autoExpSNR;
-    wxCheckBox *m_varExposureDelayEnabled;
-    wxSpinCtrl *m_varExpDelayShort;
-    wxSpinCtrl *m_varExpDelayLong;
-    void OnDirSelect(wxCommandEvent& evt);
-    void OnImageLogEnableChecked(wxCommandEvent& event);
-    void OnVariableDelayChecked(wxCommandEvent& evt);
-
-public:
-    MyFrameConfigDialogCtrlSet(MyFrame *pFrame, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
-    MyFrameConfigDialogCtrlSet(const MyFrameConfigDialogCtrlSet&) = delete;
-    MyFrameConfigDialogCtrlSet& operator=(const MyFrameConfigDialogCtrlSet&) = delete;
-    virtual ~MyFrameConfigDialogCtrlSet() {};
-
-    virtual void LoadValues();
-    virtual void UnloadValues();
-    int GetFocalLength() const;
-    void SetFocalLength(int val);
-};
-
 class MyFrame : public wxFrame
 {
 protected:
@@ -188,8 +127,6 @@ protected:
 
     bool SetFocalLength(int focalLength);
 
-    friend class MyFrameConfigDialogPane;
-    friend class MyFrameConfigDialogCtrlSet;
     friend class WorkerThread;
     friend class AdvancedDialog; // AdvancedDialog::UnloadValues calls MakeImageScaleAdjustments
 
@@ -237,7 +174,6 @@ public:
     wxMenuItem *m_guideMenuItem;
     wxMenuItem *m_stopMenuItem;
     wxMenuItem *m_autoSelectStarMenuItem;
-    wxMenuItem *m_takeDarksMenuItem;
     wxMenuItem *m_useDarksMenuItem;
     wxMenuItem *m_useDefectMapMenuItem;
     wxAuiToolBar *MainToolbar;
@@ -274,7 +210,6 @@ public:
     void OnButtonLoop(wxCommandEvent& evt);
     void OnButtonStop(wxCommandEvent& evt);
     void OnButtonAutoStar(wxCommandEvent& evt);
-    void OnDark(wxCommandEvent& evt);
     void OnLoadDark(wxCommandEvent& evt);
     void OnLoadDefectMap(wxCommandEvent& evt);
     void GuideButtonClick(bool interactive, const wxString& context);
@@ -354,9 +289,6 @@ public:
     static void PlaceWindowOnScreen(wxWindow *window, int x, int y);
     bool GetBeepForLostStar();
     void SetBeepForLostStar(bool beep);
-
-    MyFrameConfigDialogPane *GetConfigDialogPane(wxWindow *pParent);
-    MyFrameConfigDialogCtrlSet *GetConfigDlgCtrlSet(MyFrame *pFrame, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
 
     void OnRequestExposure(wxCommandEvent& evt);
     void OnRequestMountMove(wxCommandEvent& evt);
@@ -528,7 +460,6 @@ enum
     MENU_XHAIR4,
     MENU_XHAIR5,
     MENU_SLIT_OVERLAY_COORDS,
-    MENU_TAKEDARKS,
     MENU_SERVER,
     MENU_TOOLBAR,
     MENU_RESTORE_WINDOWS,

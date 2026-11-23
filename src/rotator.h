@@ -35,33 +35,6 @@
 #ifndef ROTATOR_INCLUDED
 #define ROTATOR_INCLUDED
 
-class Rotator;
-
-class RotatorConfigDialogCtrlSet : ConfigDialogCtrlSet
-{
-    Rotator *m_rotator;
-    wxCheckBox *m_cbReverse;
-
-public:
-    RotatorConfigDialogCtrlSet(wxWindow *pParent, Rotator *pRotator, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
-    RotatorConfigDialogCtrlSet(const RotatorConfigDialogCtrlSet&) = delete;
-    RotatorConfigDialogCtrlSet& operator=(const RotatorConfigDialogCtrlSet&) = delete;
-    virtual ~RotatorConfigDialogCtrlSet() {};
-    virtual void LoadValues();
-    virtual void UnloadValues();
-};
-
-class RotatorConfigDialogPane : public ConfigDialogPane
-{
-public:
-    RotatorConfigDialogPane(wxWindow *parent);
-    ~RotatorConfigDialogPane() {};
-
-    void LoadValues() {};
-    void UnloadValues() {};
-    virtual void LayoutControls(wxPanel *pParent, BrainCtrlIdMap& CtrlMap);
-};
-
 class Rotator
 {
     bool m_connected;
@@ -82,10 +55,6 @@ public:
     virtual bool Connect();
     virtual bool Disconnect();
     virtual bool IsConnected() const;
-
-    virtual ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent);
-    RotatorConfigDialogCtrlSet *GetConfigDlgCtrlSet(wxWindow *pParent, Rotator *pRotator, AdvancedDialog *pAdvancedDialog,
-                                                    BrainCtrlIdMap& CtrlMap);
 
     // get the display name of the rotator device
     virtual wxString Name() const = 0;

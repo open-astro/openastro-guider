@@ -114,21 +114,6 @@ class DefectMap;
  *
  */
 
-class GuiderConfigDialogCtrlSet : public ConfigDialogCtrlSet
-{
-    Guider *m_pGuider;
-    wxCheckBox *m_pEnableFastRecenter;
-    wxCheckBox *m_pScaleImage;
-
-public:
-    GuiderConfigDialogCtrlSet(wxWindow *pParent, Guider *pGuider, AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
-    GuiderConfigDialogCtrlSet(const GuiderConfigDialogCtrlSet&) = delete;
-    GuiderConfigDialogCtrlSet& operator=(const GuiderConfigDialogCtrlSet&) = delete;
-    virtual ~GuiderConfigDialogCtrlSet() {};
-    virtual void LoadValues();
-    virtual void UnloadValues();
-};
-
 struct GuiderOffset
 {
     PHD_Point cameraOfs;
@@ -176,27 +161,8 @@ protected:
     bool m_showBookmarks;
     std::vector<wxRealPoint> m_bookmarks;
 
-    // Things related to the Advanced Config Dialog
 public:
-    class GuiderConfigDialogPane : public ConfigDialogPane
-    {
-        Guider *m_pGuider;
-
-    public:
-        GuiderConfigDialogPane(wxWindow *pParent, Guider *pGuider);
-        ~GuiderConfigDialogPane() {};
-
-        void LoadValues() {};
-        void UnloadValues() {};
-        virtual void LayoutControls(Guider *pGuider, BrainCtrlIdMap& CtrlMap);
-    };
-
     OVERLAY_MODE GetOverlayMode() const;
-
-public:
-    virtual GuiderConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) = 0;
-    virtual GuiderConfigDialogCtrlSet *GetConfigDialogCtrlSet(wxWindow *pParent, Guider *pGuider,
-                                                              AdvancedDialog *pAdvancedDialog, BrainCtrlIdMap& CtrlMap);
 
 protected:
     Guider(wxWindow *parent, int xSize, int ySize);

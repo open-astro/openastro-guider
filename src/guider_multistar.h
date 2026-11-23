@@ -49,34 +49,6 @@ namespace frame_reject
 class MassChecker;
 }
 class GuiderMultiStar;
-class GuiderConfigDialogCtrlSet;
-
-class GuiderMultiStarConfigDialogCtrlSet : public GuiderConfigDialogCtrlSet
-{
-public:
-    GuiderMultiStarConfigDialogCtrlSet(wxWindow *pParent, Guider *pGuider, AdvancedDialog *pAdvancedDialog,
-                                       BrainCtrlIdMap& CtrlMap);
-    GuiderMultiStarConfigDialogCtrlSet(const GuiderMultiStarConfigDialogCtrlSet&) = delete;
-    GuiderMultiStarConfigDialogCtrlSet& operator=(const GuiderMultiStarConfigDialogCtrlSet&) = delete;
-    virtual ~GuiderMultiStarConfigDialogCtrlSet();
-
-    GuiderMultiStar *m_pGuiderMultiStar;
-    wxSpinCtrl *m_pSearchRegion;
-    wxCheckBox *m_pEnableStarMassChangeThresh;
-    wxSpinCtrlDouble *m_pMassChangeThreshold;
-    wxSpinCtrlDouble *m_MinHFD;
-    wxChoice *m_autoSelDownsample;
-    wxCheckBox *m_pBeepForLostStarCtrl;
-    wxCheckBox *m_pUseMultiStars;
-    wxSpinCtrlDouble *m_MinSNR;
-    wxSpinCtrlDouble *m_MaxHFD;
-
-    virtual void LoadValues();
-    virtual void UnloadValues();
-    void OnStarMassEnableChecked(wxCommandEvent& event);
-    void OnMultiStarChecked(wxCommandEvent& evt);
-};
-
 class GuiderMultiStar : public Guider
 {
     Star m_primaryStar;
@@ -99,20 +71,8 @@ class GuiderMultiStar : public Guider
     double m_stabilitySigmaX;
 
 public:
-    class GuiderMultiStarConfigDialogPane : public GuiderConfigDialogPane
-    {
-    protected:
-    public:
-        GuiderMultiStarConfigDialogPane(wxWindow *pParent, GuiderMultiStar *pGuider);
-        ~GuiderMultiStarConfigDialogPane() {};
-
-        virtual void LoadValues() {};
-        virtual void UnloadValues() {};
-        void LayoutControls(Guider *pGuider, BrainCtrlIdMap& CtrlMap);
-    };
-
-    // Search-region bounds (px), shared by the GUI spin control, SetSearchRegion,
-    // and the event-server set_star_detection validation (single source of truth).
+    // Search-region bounds (px), shared by SetSearchRegion and the event-server
+    // set_star_detection validation (single source of truth).
     static const int MIN_SEARCH_REGION = 7;
     static const int DEFAULT_SEARCH_REGION = 15;
     static const int MAX_SEARCH_REGION = 50;
@@ -126,9 +86,6 @@ public:
     double GetTolerateJumpsThreshold() const { return m_tolerateJumpsThreshold; }
     bool SetSearchRegion(int searchRegion);
     bool RefineOffset(const usImage *pImage, GuiderOffset *pOffset);
-
-    friend class GuiderMultiStarConfigDialogPane;
-    friend class GuiderMultiStarConfigDialogCtrlSet;
 
 public:
     GuiderMultiStar(wxWindow *parent);
@@ -148,10 +105,6 @@ public:
     void SetMultiStarMode(bool val) override;
     void ClearSecondaryStars();
     wxString GetSettingsSummary() const override;
-
-    Guider::GuiderConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) override;
-    GuiderConfigDialogCtrlSet *GetConfigDialogCtrlSet(wxWindow *pParent, Guider *pGuider, AdvancedDialog *pAdvancedDialog,
-                                                      BrainCtrlIdMap& CtrlMap) override;
 
     void LoadProfileSettings() override;
 

@@ -7,7 +7,6 @@ typeinfo for wxApp
 typeinfo for wxDialog
 typeinfo for wxFileDropTarget
 typeinfo for wxFrame
-typeinfo for wxIntegerValidatorBase
 typeinfo for wxPaintDC
 typeinfo for wxProgressDialog
 typeinfo for wxStaticBoxSizer
@@ -29,7 +28,6 @@ vtable for wxCursor
 vtable for wxDC
 vtable for wxDialog
 vtable for wxFrame
-vtable for wxGauge
 vtable for wxGraphicsMatrix
 vtable for wxIcon
 vtable for wxImage
@@ -41,10 +39,8 @@ vtable for wxMDIClientWindow
 vtable for wxMemoryDC
 vtable for wxMenu
 vtable for wxMenuBase
-vtable for wxNumValidatorBase
 vtable for wxPNGHandler
 vtable for wxPanel
-vtable for wxPen
 vtable for wxProgressDialog
 vtable for wxRadioButton
 vtable for wxSizer
@@ -53,7 +49,6 @@ vtable for wxSlider
 vtable for wxSpinCtrl
 vtable for wxSpinCtrlDouble
 vtable for wxStaticBox
-vtable for wxStatusBar
 vtable for wxTextEntryDialog
 vtable for wxTopLevelWindow
 vtable for wxWindowDC
@@ -157,7 +152,6 @@ wxDialog::~wxDialog()
 wxDialogBase::CanDoLayoutAdaptation()
 wxDialogBase::CreateButtonSizer(long)
 wxDialogBase::DoLayoutAdaptation()
-wxDialogBase::EndDialog(int)
 wxDialogBase::GetEventHashTable() const
 wxDialogBase::GetEventTable() const
 wxDialogBase::GetModality() const
@@ -167,13 +161,11 @@ wxDialogBase::ShowWindowModal()
 wxDialogBase::sm_eventTable
 wxDialogBase::wxDialogBase()
 wxDialogNameStr
-wxDirSelector(wxString const&, wxString const&, long, wxPoint const&, wxWindow*)
 wxDropTarget::GetData()
 wxDropTarget::OnDrop(int, int)
 wxEVT_AUI_PANE_CLOSE
 wxEVT_BUTTON
 wxEVT_CHAR_HOOK
-wxEVT_CHECKBOX
 wxEVT_CHOICE
 wxEVT_CLOSE_WINDOW
 wxEVT_COMBOBOX
@@ -231,9 +223,6 @@ wxFrameBase::sm_eventTable
 wxFrameBase::wxFrameBase()
 wxFrameBase::~wxFrameBase()
 wxFrameNameStr
-wxGauge::Create(wxWindow*, int, int, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
-wxGaugeBase::~wxGaugeBase()
-wxGaugeNameStr
 wxGenericProgressDialog::GetEventHashTable() const
 wxGenericProgressDialog::GetEventTable() const
 wxGenericProgressDialog::GetMessage() const
@@ -270,9 +259,6 @@ wxImage::SetOption(wxString const&, int)
 wxImage::Size(wxSize const&, wxPoint const&, int, int, int) const
 wxInfoBar::Create(wxWindow*, int)
 wxInfoBarGeneric::Init()
-wxIntegerValidatorBase::FromString(wxString const&, long long*) const
-wxIntegerValidatorBase::IsCharOk(wxString const&, int, wchar_t) const
-wxIntegerValidatorBase::ToString(long long) const
 wxItemContainerImmutable::SetStringSelection(wxString const&)
 wxLaunchDefaultBrowser(wxString const&, int)
 wxMemoryDC::SelectObject(wxBitmap&)
@@ -293,10 +279,6 @@ wxNonOwnedWindow::DoSetPathShape(wxGraphicsPath const&)
 wxNonOwnedWindow::DoSetRegionShape(wxRegion const&)
 wxNotebook::wxNotebook(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
 wxNotebookNameStr
-wxNumValidatorBase::GetEventHashTable() const
-wxNumValidatorBase::GetEventTable() const
-wxNumValidatorBase::GetTextEntry() const
-wxNumValidatorBase::SetWindow(wxWindow*)
 wxObjectArrayTraitsForwxAuiToolBarItemArray::Free(wxAuiToolBarItem*)
 wxPaintDC::GetClassInfo() const
 wxPaintDC::wxPaintDC(wxWindow*)
@@ -355,12 +337,6 @@ wxStaticBoxSizer::~wxStaticBoxSizer()
 wxStaticText::wxStaticText(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
 wxStaticTextBase::Wrap(int)
 wxStaticTextNameStr
-wxStatusBar::Create(wxWindow*, int, long, wxString const&)
-wxStatusBar::Init()
-wxStatusBarBase::SetStatusText(wxString const&, int)
-wxStatusBarBase::wxStatusBarBase()
-wxStatusBarBase::~wxStatusBarBase()
-wxStatusBarNameStr
 wxStdDialogButtonSizer::AddButton(wxButton*)
 wxStdDialogButtonSizer::Realize()
 wxStdDialogButtonSizer::wxStdDialogButtonSizer()
@@ -421,9 +397,6 @@ wxTopLevelWindowGTK::ShowFullScreen(bool, long)
 wxTopLevelWindowGTK::ShowWithoutActivating()
 wxTopLevelWindowGTK::WXSetInitialFittingClientSize(int, wxSizer*)
 wxTopLevelWindowGTK::~wxTopLevelWindowGTK()
-wxValidator::GetClassInfo() const
-wxValidator::wxValidator()
-wxValidator::~wxValidator()
 wxWindow::AddChild(wxWindowBase*)
 wxWindow::AddChildGTK(wxWindow*)
 wxWindow::AdjustForLayoutDirection(int, int, int) const

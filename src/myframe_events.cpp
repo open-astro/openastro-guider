@@ -34,7 +34,6 @@
 
 #include "phd.h"
 
-#include "darks_dialog.h"
 #include "image_math.h"
 #include "capture_cleanup.h"
 #include "guide_move_plan.h"
@@ -755,20 +754,6 @@ void MyFrame::OnGammaSlider(wxScrollEvent& WXUNUSED(event))
     pConfig->Profile.SetInt("/Gamma", val);
     Stretch_gamma = (double) val / 100.0;
     pGuider->UpdateImageDisplay();
-}
-
-void MyFrame::OnDark(wxCommandEvent& WXUNUSED(event))
-{
-    if (!pCamera || !pCamera->Connected)
-    {
-        wxMessageBox(_("Please connect to a camera first"), _("Info"));
-        return;
-    }
-
-    DarksDialog dlg(this, true);
-    dlg.ShowModal();
-
-    pCamera->SelectDark(RequestedExposureDuration()); // Might be req'd if user cancelled in midstream
 }
 
 // Outside event handler because loading a dark library will automatically unload a defect map

@@ -52,53 +52,6 @@ extern wxSize UNDEFINED_FRAME_SIZE;
 
 class GuideCamera;
 
-class CameraConfigDialogPane : public ConfigDialogPane
-{
-public:
-    CameraConfigDialogPane(wxWindow *pParent, GuideCamera *pCamera);
-    virtual ~CameraConfigDialogPane() {};
-
-    void LayoutControls(GuideCamera *pCamera, BrainCtrlIdMap& CtrlMap);
-    virtual void LoadValues() {};
-    virtual void UnloadValues() {};
-};
-
-class CameraConfigDialogCtrlSet : public ConfigDialogCtrlSet
-{
-    GuideCamera *m_pCamera;
-    wxCheckBox *m_pUseSubframes;
-    wxSpinCtrl *m_pCameraGain;
-    wxButton *m_resetGain;
-    wxSpinCtrl *m_timeoutVal;
-    wxSpinCtrl *m_pDelay;
-    wxSpinCtrlDouble *m_pPixelSize;
-    wxChoice *m_binning;
-    wxCheckBox *m_allowSwBinning;
-    wxCheckBox *m_coolerOn;
-    wxSpinCtrl *m_coolerSetpt;
-    wxTextCtrl *m_camSaturationADU;
-    wxRadioButton *m_SaturationByProfile;
-    wxRadioButton *m_SaturationByADU;
-    void OnSwBinningChecked(wxCommandEvent& event);
-
-    int m_prevBinning;
-
-public:
-    CameraConfigDialogCtrlSet(wxWindow *pParent, GuideCamera *pCamera, AdvancedDialog *pAdvancedDialog,
-                              BrainCtrlIdMap& CtrlMap);
-    CameraConfigDialogCtrlSet(const CameraConfigDialogCtrlSet&) = delete;
-    CameraConfigDialogCtrlSet& operator=(const CameraConfigDialogCtrlSet&) = delete;
-    virtual ~CameraConfigDialogCtrlSet() {};
-    virtual void LoadValues();
-    virtual void UnloadValues();
-
-    double GetPixelSize();
-    void SetPixelSize(double val);
-    int GetBinning();
-    void SetBinning(int val);
-    void OnSaturationChoiceChanged(wxCommandEvent& event);
-};
-
 enum CaptureOptionBits
 {
     CAPTURE_SUBTRACT_DARK = 1 << 0,
@@ -130,9 +83,6 @@ typedef std::map<int, std::pair<int, int>> BinningChoices;
 
 class GuideCamera : public wxMessageBoxProxy
 {
-    friend class CameraConfigDialogPane;
-    friend class CameraConfigDialogCtrlSet;
-
     double m_pixelSize;
 
 protected:
@@ -204,20 +154,12 @@ public:
     virtual bool Disconnect() = 0; // Disconnects, unloading any DLLs loaded by Connect
     virtual void InitCapture(); // Gets run at the start of any loop (e.g., reset stream, set gain, etc).
 
-    CameraConfigDialogPane *GetConfigDialogPane(wxWindow *pParent);
-    CameraConfigDialogCtrlSet *GetConfigDlgCtrlSet(wxWindow *pParent, GuideCamera *pCamera, AdvancedDialog *pAdvancedDialog,
-                                                   BrainCtrlIdMap& CtrlMap);
-
     static BinningChoices GetBinningChoices(int maxHwBinning);
     BinningChoices GetBinningChoices() const;
     static int MaxCombinedBinning(int maxHwBinning);
     int MaxCombinedBinning() const;
     static std::pair<int, int> GetHwAndSwBinning(int maxHwBinning, int combinedBinning);
     std::pair<int, int> GetHwAndSwBinning(int combinedBinning) const;
-    static void GetBinningOpts(wxArrayString *opts, int maxHwBinning, bool includeSwBinning);
-    void GetBinningOpts(wxArrayString *opts, bool includeSwBinning) const;
-    static bool GetOfferSwBinning(int maxHwBinning);
-    bool GetOfferSwBinning() const;
     int GetBinning() const;
     // set the combined binning level
     bool SetBinning(int binning);
@@ -333,31 +275,10 @@ inline std::pair<int, int> GuideCamera::GetHwAndSwBinning(int combinedBinning) c
     return GetHwAndSwBinning(MaxHwBinning, combinedBinning);
 }
 
-inline void GuideCamera::GetBinningOpts(wxArrayString *opts, bool includeSwBinning) const
-{
-    GetBinningOpts(opts, MaxHwBinning, includeSwBinning);
-}
-
 // get the combined binning level -- hardware and software binning
 inline int GuideCamera::GetBinning() const
 {
     return HwBinning * SwBinning;
-}
-
-// Returns true when software binning should be offered in the UI.
-//
-// For cameras with adequate hardware binning capability (>= 4x), returns false.
-inline bool GuideCamera::GetOfferSwBinning(int maxHwBinning)
-{
-    return maxHwBinning < MAX_SOFTWARE_BINNING;
-}
-
-// Returns true when software binning should be offered in the UI.
-//
-// For cameras with adequate hardware binning capability (>= 4x), returns false.
-inline bool GuideCamera::GetOfferSwBinning() const
-{
-    return GetOfferSwBinning(MaxHwBinning);
 }
 
 // returns the expected frame size after software binning
