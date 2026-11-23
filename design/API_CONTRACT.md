@@ -62,7 +62,10 @@ ARA call sites: the star-detection / camera panels.
 - `set_backlash_comp` { `Enabled`?, `PulseWidth`?, `Floor`?, `Ceiling`? } → result: 0. All
   optional; unspecified pulse/floor/ceiling keep current. Constraints (rejected, not clamped):
   `PulseWidth` in [min, max], `Floor` in [min, PulseWidth], `Ceiling` in [PulseWidth, max]
-  (min/max = backlash pulse min/max = 20/8000 ms).
+  (min/max = backlash pulse min/max = 20/8000 ms). `Enabled: true` is stored and read back by
+  `get_backlash_comp` in any Dec guide mode, but the compensation acts only while the Dec guide
+  mode is `Auto`: in `North`, `South` or `Off` it adds no pulse (#142). Switching the mode to
+  `North`, `South` or `Off` with `set_dec_guide_mode` disables it, as before.
 - `get_auto_exposure` → result: { `Enabled`, `MinExposure`, `MaxExposure` (ms), `TargetSNR` }.
 - `set_auto_exposure` { `MinExposure`?, `MaxExposure`?, `TargetSNR`? } → result: 0. All optional;
   `Min` <= `Max`. (Auto-exposure is *enabled* by selecting "Auto" via `set_exposure`.)
