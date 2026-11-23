@@ -486,6 +486,20 @@ set_property(TARGET test_capture_failure PROPERTY FOLDER "Unit tests")
 add_test(NAME test_capture_failure COMMAND test_capture_failure)
 
 ############################################################################
+# test_exposure_choice  --  exposure_choice.cpp: the guide exposure choice
+# (the durations, the custom one last, and the entry set_exposure selects
+# for a value and what each entry means), before #115 slice S6.2 drops the
+# combo box behind it (#115, slice N5). std-only.
+############################################################################
+add_executable(test_exposure_choice
+  ${PHD_TESTS_DIR}/capture/test_exposure_choice.cpp
+  ${phd_src_dir}/exposure_choice.cpp
+)
+target_link_libraries(test_exposure_choice PRIVATE phd_test_common)
+set_property(TARGET test_exposure_choice PROPERTY FOLDER "Unit tests")
+add_test(NAME test_exposure_choice COMMAND test_exposure_choice)
+
+############################################################################
 # test_settle_frame  --  settle_frame.cpp: what one guide frame does to a
 # guide or dither settle, including a frame dropped after a transient
 # capture failure (#136). std-only.

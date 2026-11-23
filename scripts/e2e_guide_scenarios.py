@@ -21,6 +21,9 @@ the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir
                  rebuild_defect_map, set_dark_library_enabled / set_defect_map_enabled on and off, each unloading the
                  other, and get_calibration_files_status through it all; a frame of another size (/fake/size) unloads
                  both with MyFrame::CheckDarkFrameGeometry's Alerts, and full size makes them compatible again (N3)
+  exposure       set_exposure through each value of get_exposure_durations (the custom duration last), Auto (-1 and
+                 any negative value) and refused values: the result, the GuideParamChange "Exposure" event of each
+                 change and get_exposure after it (N5)
   calibrate      connect the Alpaca camera and mount, loop, find_star, guide with recalibrate true: a full
                  calibration, StartGuiding, a settle that ends in exactly one SettleDone with Status 0, then
                  guiding; the event order Ara consumes is checked on the way (design/API_CONTRACT.md)
@@ -1254,6 +1257,68 @@ def scenario_dark_library(cli, fake, args, work):
     return "; ".join(out)
 
 
+# N5: the exposure choice (#115 step 6, S6.2, drops the hidden Exposure combo box set_exposure goes through)
+# get_exposure_durations: the Exposure choice's durations, the custom duration (/CustomExposureDuration, 30 s in a new
+# profile) last (src/exposure_choice.cpp)
+EXPOSURE_DURATIONS = [10, 20, 50, 100, 200, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 6000, 7000,
+                      8000, 9000, 10000, 15000, 30000]
+# MyFrame::ExposureDurationSummary with Auto selected, at a new profile's auto-exposure settings
+AUTO_SUMMARY = "Auto (min = 1000 ms, max = 5000 ms, SNR = 6.00)"
+SET_EXPOSURE_REFUSED = (1, "could not set exposure duration")
+JSONRPC_INVALID_PARAMS = -32602
+
+
+def set_exposure(cli, value):
+    """set_exposure: (the response's result or error, the GuideParamChange "Exposure" values it sent). The event is
+    written before the response on the same connection, so it is in by the time the response is."""
+    mark = cli.mark()
+    msg = cli.request("set_exposure", {"exposure": value})
+    evs = [e.get("Value") for e in cli.events_since(mark, ("GuideParamChange",)) if e.get("Name") == "Exposure"]
+    if msg.get("error"):
+        return (msg["error"].get("code"), msg["error"].get("message")), evs
+    return msg.get("result"), evs
+
+
+def scenario_exposure_choice(cli):
+    """N5: set_exposure through each duration of get_exposure_durations, Auto (-1, and any negative value), the
+    custom duration (the list's last) and refused values, pinned before S6.2 drops the combo box it selects in. Each
+    change sends one GuideParamChange "Exposure" with MyFrame::ExposureDurationSummary ("<ms> ms", or the Auto
+    summary) and none when nothing changes; get_exposure reads the duration, and with Auto still the last one, until
+    a capture starts (PhdController's start resets it to the auto maximum). A value that is none of the durations
+    (0 included) fails with error 1 and changes nothing; a value that is not an integer is refused as invalid params.
+    Back at 500 ms after it."""
+    expect(cli.call("get_exposure_durations") == EXPOSURE_DURATIONS,
+           f"get_exposure_durations {cli.call('get_exposure_durations')}, expected {EXPOSURE_DURATIONS}")
+    current = cli.call("get_exposure")
+    expect(current == 500, f"get_exposure {current} before the table, expected the lane's 500")
+    # (value, the result, the events, get_exposure after it)
+    table = [(500, 0, [], 500)]  # the exposure it already has: no event
+    table += [(ms, 0, [f"{ms} ms"], ms) for ms in EXPOSURE_DURATIONS if ms != 500]  # each a change from the one before
+    last = EXPOSURE_DURATIONS[-1]
+    table += [
+        (-1, 0, [AUTO_SUMMARY], last),  # Auto: get_exposure still the last duration until a capture starts
+        (-1, 0, [], last),
+        (-2, 0, [], last),  # any negative value is Auto
+        (last, 0, [f"{last} ms"], last),  # the custom duration, from Auto: a change even at the same value
+        (1234, SET_EXPOSURE_REFUSED, [], last),
+        (0, SET_EXPOSURE_REFUSED, [], last),
+        (29999, SET_EXPOSURE_REFUSED, [], last),
+        (1.5, (JSONRPC_INVALID_PARAMS, "expected exposure param"), [], last),
+        ("500", (JSONRPC_INVALID_PARAMS, "expected exposure param"), [], last),
+        (500, 0, ["500 ms"], 500),
+    ]
+    for value, want, want_evs, want_exp in table:
+        got, evs = set_exposure(cli, value)
+        exp = cli.call("get_exposure")
+        expect((got, evs, exp) == (want, want_evs, want_exp),
+               f"set_exposure {value!r}: {got!r}, Exposure events {evs}, get_exposure {exp}; expected {want!r}, "
+               f"{want_evs}, {want_exp}")
+    refused = sum(1 for _, want, _, _ in table if want != 0)
+    return (f"{len(table)} set_exposure calls: the {len(EXPOSURE_DURATIONS)} durations (the custom {last} ms last, "
+            "500 ms first, unchanged), "
+            f"Auto (-1, -2), the custom duration from Auto and {refused} refused values, then 500 ms")
+
+
 def fits_card(data, key):
     """The value of a FITS header card (quotes and comment taken off), or None."""
     for off in range(0, len(data), 80):
@@ -1489,6 +1554,8 @@ def lane_steps(lane, step, cli, fake, args, ctx):
             step("HTTP data port: /api/frame.jpg and /api/capture (N2)",
                  lambda: scenario_http_frame_and_capture(cli, args, ctx["work"]))
             step("dark library and defect map (N3)", lambda: scenario_dark_library(cli, fake, args, ctx["work"]))
+            step("exposure choice: set_exposure, GuideParamChange and get_exposure (N5)",
+                 lambda: scenario_exposure_choice(cli))
             if step("calibrate and guide (event order)", lambda: scenario_calibrate_and_guide(cli, args)):
                 step("guide history matches the GuideSteps (#133)", lambda: scenario_guide_history(cli))
                 if step("recalibrate on a new target", lambda: scenario_new_target(cli, fake, args)):

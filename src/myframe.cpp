@@ -38,6 +38,7 @@
 
 #include "guiding_assistant.h"
 #include "variable_delay.h"
+#include "exposure_choice.h"
 #include "image_scale.h"
 #include "calstep_dialog.h"
 
@@ -489,17 +490,16 @@ const std::vector<int>& MyFrame::GetExposureDurations() const
 
 bool MyFrame::SetCustomExposureDuration(int ms)
 {
-    auto end = exposure_durations.end() - 1;
-    for (auto it = exposure_durations.begin(); it != end; ++it)
-        if (ms == *it)
-            return true; // error, duplicate value
-    if (m_exposureDuration == *end && *end != ms)
+    if (exposure_choice::IsOtherDuration(exposure_durations, ms))
+        return true; // error, duplicate value
+    if (exposure_choice::CustomChangesExposure(exposure_durations, m_exposureDuration, ms))
     {
         m_exposureDuration = ms;
         NotifyExposureChanged();
     }
-    *end = ms;
-    Dur_Choice->SetString(1 + exposure_durations.size() - 1, wxString::Format(_("Custom: %g s"), (double) ms / 1000.));
+    exposure_durations.back() = ms;
+    Dur_Choice->SetString(exposure_choice::CustomEntry(exposure_durations),
+                          wxString::Format(_("Custom: %g s"), (double) ms / 1000.));
     pConfig->Profile.SetInt("/CustomExposureDuration", ms);
     return false;
 }
@@ -518,28 +518,13 @@ void MyFrame::GetExposureInfo(int *currExpMs, bool *autoExp) const
     }
 }
 
-static int dur_index(int duration)
-{
-    for (auto it = exposure_durations.begin(); it != exposure_durations.end(); ++it)
-        if (duration == *it)
-            return it - exposure_durations.begin();
-    return -1;
-}
-
 bool MyFrame::SetExposureDuration(int val)
 {
-    if (val < 0)
-    {
-        // Auto
-        Dur_Choice->SetSelection(0);
-    }
-    else
-    {
-        int idx = dur_index(val);
-        if (idx == -1)
-            return false;
-        Dur_Choice->SetSelection(idx + 1); // skip Auto
-    }
+    // Auto for any negative value, otherwise the duration's entry (exposure_choice.cpp)
+    int entry = exposure_choice::SelectionFor(exposure_durations, val);
+    if (entry == -1)
+        return false;
+    Dur_Choice->SetSelection(entry);
 
     wxCommandEvent dummy;
     OnExposureDurationSelected(dummy);
@@ -689,9 +674,9 @@ void MyFrame::LoadProfileSettings()
     ResetAutoExposure();
 
     // set custom exposure duration vector value and drop-down list string from profile setting
-    int customDuration = pConfig->Profile.GetInt("/CustomExposureDuration", 30000);
+    int customDuration = pConfig->Profile.GetInt("/CustomExposureDuration", exposure_choice::DEFAULT_CUSTOM_MS);
     *exposure_durations.rbegin() = customDuration;
-    Dur_Choice->SetString(1 + exposure_durations.size() - 1,
+    Dur_Choice->SetString(exposure_choice::CustomEntry(exposure_durations),
                           wxString::Format(_("Custom: %g s"), (double) customDuration / 1000.));
 
     // for backward compatibity:
@@ -757,18 +742,13 @@ void MyFrame::SetupToolBar()
 #include "icons/auto_select_disabled.png.h"
     wxBitmap auto_select_disabled_bmp(wxBITMAP_PNG_FROM_DATA(auto_select_disabled));
 
-    int dur_values[] = {
-        10,    20,   50,   100,  200,  500,  1000, 1500, 2000,  2500,  3000,
-        3500,  4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000, 15000,
-        30000, // final entry is custom value
-    };
-    for (unsigned int i = 0; i < WXSIZEOF(dur_values); i++)
-        exposure_durations.push_back(dur_values[i]);
+    // the final entry is the custom value (exposure_choice.cpp)
+    exposure_durations = exposure_choice::DefaultDurations();
 
     wxArrayString durs;
     durs.Add(_("Auto"));
-    for (unsigned int i = 0; i < WXSIZEOF(dur_values) - 1; i++)
-        durs.Add(ExposureDurationLabel(dur_values[i]));
+    for (size_t i = 0; i + 1 < exposure_durations.size(); i++)
+        durs.Add(ExposureDurationLabel(exposure_durations[i]));
     durs.Add(wxString::Format(_("Custom: %g s"), 9999.0));
     durs.Add(_("Edit Custom..."));
 

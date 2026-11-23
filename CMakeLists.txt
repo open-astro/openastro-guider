@@ -202,6 +202,8 @@ set(cam_SRC
   ${phd_src_dir}/alpaca_poll.h
   ${phd_src_dir}/variable_delay.cpp
   ${phd_src_dir}/variable_delay.h
+  ${phd_src_dir}/exposure_choice.cpp
+  ${phd_src_dir}/exposure_choice.h
   ${phd_src_dir}/alpaca_errors.cpp
   ${phd_src_dir}/alpaca_errors.h
   ${phd_src_dir}/alpaca_discovery.cpp

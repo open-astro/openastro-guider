@@ -36,6 +36,7 @@
 
 #include "image_math.h"
 #include "capture_cleanup.h"
+#include "exposure_choice.h"
 #include "guide_move_plan.h"
 
 #include <algorithm>
@@ -51,9 +52,11 @@
 
 void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
 {
-    unsigned int idx = Dur_Choice->GetSelection();
+    // what the entry means: Auto, a duration, or Edit Custom... (exposure_choice.cpp)
+    const std::vector<int>& dur(GetExposureDurations());
+    exposure_choice::Selected sel = exposure_choice::Interpret(dur, Dur_Choice->GetSelection());
 
-    if (idx == 0)
+    if (sel.pick == exposure_choice::Pick::Auto)
     {
         // Auto-exposure
         if (!m_autoExp.enabled)
@@ -63,11 +66,11 @@ void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
             NotifyExposureChanged();
         }
     }
-    else if (idx == Dur_Choice->GetCount() - 1)
+    else if (sel.pick == exposure_choice::Pick::EditCustom)
     {
         // edit custom
 
-        int customVal = *(GetExposureDurations().end() - 1);
+        int customVal = dur.back();
         wxTextEntryDialog dlg(this, _("Custom exposure duration (seconds)"), _("Edit custom exposure"),
                               wxString::Format("%g", (double) customVal / 1000.), wxOK | wxCANCEL);
         if (dlg.ShowModal() == wxID_OK)
@@ -80,26 +83,14 @@ void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
             }
         }
 
-        // restore the actual selection
-        if (m_autoExp.enabled)
-        {
-            Dur_Choice->SetSelection(0);
-        }
-        else
-        {
-            const std::vector<int>& dur(GetExposureDurations());
-            auto pos = std::find(dur.begin(), dur.end(), m_exposureDuration);
-            if (pos == dur.end())
-                pos = std::find(dur.begin(), dur.end(), 1000); // safe fall-back, should not happen
-            Dur_Choice->SetSelection(pos - dur.begin() + 1); // skip Auto
-        }
+        // restore the actual selection: Auto, or the exposure's duration (1 s if none, should not happen)
+        Dur_Choice->SetSelection(exposure_choice::EntryAfterEdit(dur, m_autoExp.enabled, m_exposureDuration));
     }
     else
     {
         // ordinary selection
 
-        const std::vector<int>& dur(GetExposureDurations());
-        int duration = dur[idx - 1];
+        int duration = sel.durationMs;
 
         if (m_autoExp.enabled || m_exposureDuration != duration)
         {
