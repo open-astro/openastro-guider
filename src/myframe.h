@@ -195,8 +195,6 @@ public:
 
     void OnQuit(wxCommandEvent& evt);
     void OnClose(wxCloseEvent& evt);
-    void OnOverlay(wxCommandEvent& evt);
-    void OnOverlaySlitCoords(wxCommandEvent& evt);
     void OnSave(wxCommandEvent& evt);
     void OnSettings(wxCommandEvent& evt);
     void OnButtonLoop(wxCommandEvent& evt);
@@ -437,13 +435,6 @@ enum
     MENU_LOOP,
     MENU_GUIDE,
     MENU_STOP,
-    MENU_XHAIR0,
-    MENU_XHAIR1,
-    MENU_XHAIR2,
-    MENU_XHAIR3,
-    MENU_XHAIR4,
-    MENU_XHAIR5,
-    MENU_SLIT_OVERLAY_COORDS,
     MENU_SERVER,
     MENU_TOOLBAR,
     MENU_RESTORE_WINDOWS,

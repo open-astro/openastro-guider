@@ -96,7 +96,6 @@ inline void DeflectionLogger::Log(const PHD_Point&) { }
 
 #endif // CAPTURE_DEFLECTIONS
 
-static const int DefaultOverlayMode = OVERLAY_NONE;
 static const bool DefaultScaleImage = true;
 
 // clang-format off
@@ -128,21 +127,7 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_searchRegion = 0;
     m_pCurrentImage = new usImage(); // so we always have one
 
-    SetOverlayMode(DefaultOverlayMode);
-
-    wxPoint center;
-    center.x = pConfig->Profile.GetInt("/overlay/slit/center.x", 752 / 2);
-    center.y = pConfig->Profile.GetInt("/overlay/slit/center.y", 580 / 2);
-    wxSize size;
-    size.x = pConfig->Profile.GetInt("/overlay/slit/width", 8);
-    size.y = pConfig->Profile.GetInt("/overlay/slit/height", 100);
-    int angle = pConfig->Profile.GetInt("/overlay/slit/angle", 0);
-    SetOverlaySlitCoords(center, size, angle);
-
-    m_defectMapPreview = 0;
     m_userMultiStarMode = GetMultiStarMode();
-
-    m_polarAlignCircleRadius = 0.0;
 
     SetBackgroundStyle(wxBG_STYLE_CUSTOM);
     SetBackgroundColour(wxColour((unsigned char) 30, (unsigned char) 30, (unsigned char) 30));
@@ -224,47 +209,6 @@ void Guider::ForceFullFrame()
     }
 }
 
-bool Guider::SetOverlayMode(int overlayMode)
-{
-    bool bError = false;
-
-    try
-    {
-        switch (overlayMode)
-        {
-        case OVERLAY_NONE:
-        case OVERLAY_BULLSEYE:
-        case OVERLAY_GRID_FINE:
-        case OVERLAY_GRID_COARSE:
-        case OVERLAY_RADEC:
-        case OVERLAY_SLIT:
-            break;
-        default:
-            throw ERROR_INFO("invalid overlayMode");
-        }
-
-        m_overlayMode = (OVERLAY_MODE) overlayMode;
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        m_overlayMode = OVERLAY_NONE;
-        bError = true;
-    }
-
-    Refresh();
-    Update();
-
-    return bError;
-}
-
-void Guider::GetOverlaySlitCoords(wxPoint *center, wxSize *size, int *angle)
-{
-    *center = m_overlaySlitCoords.center;
-    *size = m_overlaySlitCoords.size;
-    *angle = m_overlaySlitCoords.angle;
-}
-
 void Guider::EnableMeasurementMode(bool enable)
 {
     if (enable)
@@ -276,74 +220,10 @@ void Guider::EnableMeasurementMode(bool enable)
         m_measurementMode = false;
 }
 
-void Guider::SetOverlaySlitCoords(const wxPoint& center, const wxSize& size, int angle)
-{
-    m_overlaySlitCoords.center = center;
-    m_overlaySlitCoords.size = size;
-    m_overlaySlitCoords.angle = angle;
-
-    pConfig->Profile.SetInt("/overlay/slit/center.x", center.x);
-    pConfig->Profile.SetInt("/overlay/slit/center.y", center.y);
-    pConfig->Profile.SetInt("/overlay/slit/width", size.x);
-    pConfig->Profile.SetInt("/overlay/slit/height", size.y);
-    pConfig->Profile.SetInt("/overlay/slit/angle", angle);
-
-    if (size.GetWidth() > 0 && size.GetHeight() > 0)
-    {
-        if (angle != 0)
-        {
-            double a = -radians((double) angle);
-            double s = sin(a);
-            double c = cos(a);
-            double cx = (double) center.x;
-            double cy = (double) center.y;
-            double x, y;
-
-            x = +(double) size.GetWidth() / 2.0;
-            y = +(double) size.GetHeight() / 2.0;
-            m_overlaySlitCoords.corners[0].x = cx + (int) floor(x * c - y * s);
-            m_overlaySlitCoords.corners[0].y = cy + (int) floor(x * s + y * c);
-
-            x = -(double) size.GetWidth() / 2.0;
-            y = +(double) size.GetHeight() / 2.0;
-            m_overlaySlitCoords.corners[1].x = cx + (int) floor(x * c - y * s);
-            m_overlaySlitCoords.corners[1].y = cy + (int) floor(x * s + y * c);
-
-            x = -(double) size.GetWidth() / 2.0;
-            y = -(double) size.GetHeight() / 2.0;
-            m_overlaySlitCoords.corners[2].x = cx + (int) floor(x * c - y * s);
-            m_overlaySlitCoords.corners[2].y = cy + (int) floor(x * s + y * c);
-
-            x = +(double) size.GetWidth() / 2.0;
-            y = -(double) size.GetHeight() / 2.0;
-            m_overlaySlitCoords.corners[3].x = cx + (int) floor(x * c - y * s);
-            m_overlaySlitCoords.corners[3].y = cy + (int) floor(x * s + y * c);
-        }
-        else
-        {
-            m_overlaySlitCoords.corners[0] = wxPoint(center.x + size.GetWidth() / 2, center.y + size.GetHeight() / 2);
-            m_overlaySlitCoords.corners[1] = wxPoint(center.x - size.GetWidth() / 2, center.y + size.GetHeight() / 2);
-            m_overlaySlitCoords.corners[2] = wxPoint(center.x - size.GetWidth() / 2, center.y - size.GetHeight() / 2);
-            m_overlaySlitCoords.corners[3] = wxPoint(center.x + size.GetWidth() / 2, center.y - size.GetHeight() / 2);
-        }
-
-        m_overlaySlitCoords.corners[4] = m_overlaySlitCoords.corners[0];
-    }
-
-    Refresh();
-    Update();
-}
-
 void Guider::EnableFastRecenter(bool enable)
 {
     m_fastRecenterEnabled = enable;
     pConfig->Profile.SetInt("/guider/FastRecenter", m_fastRecenterEnabled);
-}
-
-void Guider::SetPolarAlignCircle(const PHD_Point& pt, double radius)
-{
-    m_polarAlignCircleRadius = radius;
-    m_polarAlignCircleCenter = pt;
 }
 
 bool Guider::SetScaleImage(bool newScaleValue)
@@ -452,163 +332,6 @@ bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
         int XImgSize = m_displayedImage->GetWidth();
         int YImgSize = m_displayedImage->GetHeight();
 
-        if (m_overlayMode)
-        {
-            dc.SetPen(wxPen(wxColor(200, 50, 50)));
-            dc.SetBrush(*wxTRANSPARENT_BRUSH);
-
-            switch (m_overlayMode)
-            {
-            case OVERLAY_BULLSEYE:
-            {
-                int cx = XImgSize / 2;
-                int cy = YImgSize / 2;
-                dc.DrawCircle(cx, cy, 25);
-                dc.DrawCircle(cx, cy, 50);
-                dc.DrawCircle(cx, cy, 100);
-                dc.DrawLine(0, cy, XImgSize, cy);
-                dc.DrawLine(cx, 0, cx, YImgSize);
-                break;
-            }
-            case OVERLAY_GRID_FINE:
-            case OVERLAY_GRID_COARSE:
-            {
-                int i;
-                int size = (m_overlayMode - 1) * 20;
-                for (i = size; i < XImgSize; i += size)
-                    dc.DrawLine(i, 0, i, YImgSize);
-                for (i = size; i < YImgSize; i += size)
-                    dc.DrawLine(0, i, XImgSize, i);
-                break;
-            }
-
-            case OVERLAY_RADEC:
-            {
-                Mount *mount = TheScope();
-                if (mount)
-                {
-                    double StarX = CurrentPosition().X;
-                    double StarY = CurrentPosition().Y;
-
-                    // the History graph's default RA and Dec colours
-                    const wxColour raColor(100, 100, 255);
-                    const wxColour decColor(255, 0, 0);
-
-                    double r = 15.0;
-                    double rlabel = r + 9.0;
-
-                    double wAngle = mount->IsCalibrated() ? mount->xAngle() : 0.0;
-                    double eAngle = wAngle + M_PI;
-                    GuideParity raParity = mount->RAParity();
-                    if (raParity == GUIDE_PARITY_ODD)
-                    {
-                        // odd parity => West calibration pulses move scope East
-                        //   => star moves West
-                        //   => East vector is opposite direction from X calibration vector (West calibration direction)
-                        eAngle += M_PI;
-                    }
-                    double cos_eangle = cos(eAngle);
-                    double sin_eangle = sin(eAngle);
-                    dc.SetPen(wxPen(raColor, 2, wxPENSTYLE_DOT));
-                    dc.DrawLine(ROUND(StarX * m_scaleFactor + r * cos_eangle), ROUND(StarY * m_scaleFactor + r * sin_eangle),
-                                ROUND(StarX * m_scaleFactor - r * cos_eangle), ROUND(StarY * m_scaleFactor - r * sin_eangle));
-                    if (raParity != GUIDE_PARITY_UNKNOWN)
-                    {
-                        dc.SetTextForeground(raColor);
-                        dc.DrawText(_("E"), ROUND(StarX * m_scaleFactor + rlabel * cos_eangle) - 4,
-                                    ROUND(StarY * m_scaleFactor + rlabel * sin_eangle) - 6);
-                    }
-
-                    double nAngle = mount->IsCalibrated() ? mount->yAngle() : M_PI / 2.0;
-                    GuideParity decParity = mount->DecParity();
-                    if (decParity == GUIDE_PARITY_EVEN)
-                    {
-                        // even parity => North calibration pulses move scope North
-                        //   => star moves South
-                        //   => North vector is opposite direction from Y calibration vector (North calibration direction)
-                        nAngle += M_PI;
-                    }
-                    double cos_nangle = cos(nAngle);
-                    double sin_nangle = sin(nAngle);
-                    dc.SetPen(wxPen(decColor, 2, wxPENSTYLE_DOT));
-                    dc.DrawLine(ROUND(StarX * m_scaleFactor + r * cos_nangle), ROUND(StarY * m_scaleFactor + r * sin_nangle),
-                                ROUND(StarX * m_scaleFactor - r * cos_nangle), ROUND(StarY * m_scaleFactor - r * sin_nangle));
-                    if (decParity != GUIDE_PARITY_UNKNOWN)
-                    {
-                        dc.SetTextForeground(decColor);
-                        dc.DrawText(_("N"), ROUND(StarX * m_scaleFactor + rlabel * cos_nangle) - 4,
-                                    ROUND(StarY * m_scaleFactor + rlabel * sin_nangle) - 6);
-                    }
-
-                    wxGraphicsContext *gc = wxGraphicsContext::Create(dc);
-                    gc->SetPen(wxPen(raColor, 1, wxPENSTYLE_DOT));
-                    double step = (double) YImgSize / 10.0;
-
-                    double MidX = (double) XImgSize / 2.0;
-                    double MidY = (double) YImgSize / 2.0;
-                    gc->Rotate(eAngle);
-                    gc->GetTransform().TransformPoint(&MidX, &MidY);
-                    gc->Rotate(-eAngle);
-                    gc->Translate((double) XImgSize / 2.0 - MidX, (double) YImgSize / 2.0 - MidY);
-                    gc->Rotate(eAngle);
-                    for (int i = -2; i < 12; i++)
-                    {
-                        gc->StrokeLine(0.0, step * (double) i, (double) XImgSize, step * (double) i);
-                    }
-
-                    MidX = (double) XImgSize / 2.0;
-                    MidY = (double) YImgSize / 2.0;
-                    gc->Rotate(-eAngle);
-                    gc->Rotate(nAngle);
-                    gc->GetTransform().TransformPoint(&MidX, &MidY);
-                    gc->Rotate(-nAngle);
-                    gc->Translate((double) XImgSize / 2.0 - MidX, (double) YImgSize / 2.0 - MidY);
-                    gc->Rotate(nAngle);
-                    gc->SetPen(wxPen(decColor, 1, wxPENSTYLE_DOT));
-                    for (int i = -2; i < 12; i++)
-                    {
-                        gc->StrokeLine(0.0, step * (double) i, (double) XImgSize, step * (double) i);
-                    }
-                    delete gc;
-                }
-                break;
-            }
-
-            case OVERLAY_SLIT:
-                if (m_overlaySlitCoords.size.GetWidth() > 0 && m_overlaySlitCoords.size.GetHeight() > 0)
-                {
-                    if (m_scaleFactor == 1.0)
-                    {
-                        dc.DrawLines(5, m_overlaySlitCoords.corners);
-                    }
-                    else
-                    {
-                        wxPoint pt[5];
-                        for (int i = 0; i < 5; i++)
-                        {
-                            pt[i].x = (int) floor(m_overlaySlitCoords.corners[i].x * m_scaleFactor);
-                            pt[i].y = (int) floor(m_overlaySlitCoords.corners[i].y * m_scaleFactor);
-                        }
-                        dc.DrawLines(5, pt);
-                    }
-                }
-                break;
-
-            case OVERLAY_NONE:
-                break;
-            }
-        }
-
-        if (m_defectMapPreview)
-        {
-            dc.SetPen(wxPen(wxColor(255, 0, 0), 1, wxPENSTYLE_SOLID));
-            for (DefectMap::const_iterator it = m_defectMapPreview->begin(); it != m_defectMapPreview->end(); ++it)
-            {
-                const wxPoint& pt = *it;
-                dc.DrawPoint((int) (pt.x * m_scaleFactor), (int) (pt.y * m_scaleFactor));
-            }
-        }
-
         // draw the lockpoint of there is one
         if (state > STATE_SELECTED)
         {
@@ -634,15 +357,6 @@ bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
 
             dc.DrawLine(0, int(LockY * m_scaleFactor), XImgSize, int(LockY * m_scaleFactor));
             dc.DrawLine(int(LockX * m_scaleFactor), 0, int(LockX * m_scaleFactor), YImgSize);
-        }
-
-        // draw a polar alignment circle
-        if (m_polarAlignCircleRadius)
-        {
-            dc.SetBrush(*wxTRANSPARENT_BRUSH);
-            dc.SetPen(wxPen(wxColor(255, 0, 255), 1, wxPENSTYLE_DOT));
-            int radius = ROUND(m_polarAlignCircleRadius * m_scaleFactor);
-            dc.DrawCircle(m_polarAlignCircleCenter.X * m_scaleFactor, m_polarAlignCircleCenter.Y * m_scaleFactor, radius);
         }
 
         if (IsPaused())
@@ -677,13 +391,6 @@ void Guider::UpdateImageDisplay(usImage *pImage)
                          pImage->Size.x, pImage->Size.y, pImage->MinADU, pImage->MaxADU, pImage->MedianADU, pImage->FiltMin,
                          pImage->FiltMax, pFrame->Stretch_gamma));
 
-    Refresh();
-    Update();
-}
-
-void Guider::SetDefectMapPreview(const DefectMap *defectMap)
-{
-    m_defectMapPreview = defectMap;
     Refresh();
     Update();
 }

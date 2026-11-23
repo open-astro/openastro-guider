@@ -64,24 +64,6 @@ enum DEC_GUIDING_ALGORITHM
     DEC_LOWPASS2,
 };
 
-enum OVERLAY_MODE
-{
-    OVERLAY_NONE = 0,
-    OVERLAY_BULLSEYE,
-    OVERLAY_GRID_FINE,
-    OVERLAY_GRID_COARSE,
-    OVERLAY_RADEC,
-    OVERLAY_SLIT,
-};
-
-struct OverlaySlitCoords
-{
-    wxPoint center;
-    wxSize size;
-    int angle;
-    wxPoint corners[5];
-};
-
 enum PauseType
 {
     PAUSE_NONE, // not paused
@@ -103,8 +85,6 @@ struct LockPosShiftParams
     bool shiftIsMountCoords;
 };
 
-class DefectMap;
-
 /*
  * The Guider class is responsible for running the state machine
  * associated with the GUIDER_STATES enumerated type.
@@ -124,11 +104,6 @@ struct GuiderOffset
 class Guider : public wxWindow
 {
     wxImage *m_displayedImage;
-    OVERLAY_MODE m_overlayMode;
-    OverlaySlitCoords m_overlaySlitCoords;
-    const DefectMap *m_defectMapPreview;
-    double m_polarAlignCircleRadius;
-    PHD_Point m_polarAlignCircleCenter;
     PauseType m_paused;
     ShiftPoint m_lockPosition;
     PHD_Point m_ditherRecenterStep;
@@ -158,9 +133,6 @@ protected:
     int m_searchRegion; // how far u/d/l/r do we do the initial search for a star
     bool m_forceFullFrame;
     double m_scaleFactor;
-
-public:
-    OVERLAY_MODE GetOverlayMode() const;
 
 protected:
     Guider(wxWindow *parent, int xSize, int ySize);
@@ -199,11 +171,6 @@ public:
     const LockPosShiftParams& GetLockPosShiftParams() const { return m_lockPosShift; }
     void ForceFullFrame();
 
-    bool SetOverlayMode(int newMode);
-    void GetOverlaySlitCoords(wxPoint *center, wxSize *size, int *angle);
-    void SetOverlaySlitCoords(const wxPoint& center, const wxSize& size, int angle);
-    void SetDefectMapPreview(const DefectMap *preview);
-    void SetPolarAlignCircle(const PHD_Point& center, double radius);
     bool SaveCurrentImage(const wxString& fileName);
 
     void StartGuiding();
@@ -297,11 +264,6 @@ inline bool Guider::IsPaused() const
 inline PauseType Guider::GetPauseType() const
 {
     return m_paused;
-}
-
-inline OVERLAY_MODE Guider::GetOverlayMode() const
-{
-    return m_overlayMode;
 }
 
 inline bool Guider::GetScaleImage() const

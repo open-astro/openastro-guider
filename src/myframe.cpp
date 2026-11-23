@@ -80,13 +80,6 @@ EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
 EVT_MENU(wxID_SAVE, MyFrame::OnSave)
 EVT_MENU(MENU_LOADDARK, MyFrame::OnLoadDark)
 EVT_MENU(MENU_LOADDEFECTMAP, MyFrame::OnLoadDefectMap)
-EVT_MENU(MENU_XHAIR0, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR1, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR2, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR3, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR4, MyFrame::OnOverlay)
-EVT_MENU(MENU_XHAIR5, MyFrame::OnOverlay)
-EVT_MENU(MENU_SLIT_OVERLAY_COORDS, MyFrame::OnOverlaySlitCoords)
 
 EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
@@ -377,15 +370,6 @@ void MyFrame::SetupMenuBar()
 
     view_menu = new wxMenu();
     view_menu->AppendCheckItem(MENU_TOOLBAR, _("Display Toolbar"), _("Enable / disable tool bar"));
-    (void) view_menu->AppendSeparator();
-    view_menu->AppendRadioItem(MENU_XHAIR0, _("&No Overlay"), _("No additional crosshairs"));
-    view_menu->AppendRadioItem(MENU_XHAIR1, _("&Bullseye"), _("Centered bullseye overlay"));
-    view_menu->AppendRadioItem(MENU_XHAIR2, _("&Fine Grid"), _("Grid overlay"));
-    view_menu->AppendRadioItem(MENU_XHAIR3, _("&Coarse Grid"), _("Grid overlay"));
-    view_menu->AppendRadioItem(MENU_XHAIR4, _("&RA/Dec"), _("RA and Dec overlay"));
-    view_menu->AppendRadioItem(MENU_XHAIR5, _("Spectrograph S&lit"), _("Spectrograph slit overlay"));
-    (void) view_menu->AppendSeparator();
-    view_menu->Append(MENU_SLIT_OVERLAY_COORDS, _("Slit Position..."));
     (void) view_menu->AppendSeparator();
     view_menu->Append(MENU_RESTORE_WINDOWS, _("Restore Window Positions"),
                       _("Restore all windows to their default/docked positions"));

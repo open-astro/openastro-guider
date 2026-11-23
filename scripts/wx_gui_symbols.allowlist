@@ -26,7 +26,6 @@ vtable for wxCursor
 vtable for wxDC
 vtable for wxDialog
 vtable for wxFrame
-vtable for wxGraphicsMatrix
 vtable for wxIcon
 vtable for wxImage
 vtable for wxImageHandler
@@ -171,7 +170,6 @@ wxEVT_SCROLL_PAGEUP
 wxEVT_SCROLL_THUMBRELEASE
 wxEVT_SCROLL_THUMBTRACK
 wxEVT_SCROLL_TOP
-wxEVT_SPINCTRL
 wxEVT_UPDATE_UI
 wxEndBusyCursor()
 wxFileDropTarget::OnData(int, int, wxDragResult)
@@ -223,10 +221,6 @@ wxGenericProgressDialog::wxGenericProgressDialog(wxString const&, wxString const
 wxGenericProgressDialog::~wxGenericProgressDialog()
 wxGetDisplaySize()
 wxGetKeyState(wxKeyCode)
-wxGraphicsContext::Create(wxWindowDC const&)
-wxGraphicsContext::SetPen(wxPen const&)
-wxGraphicsMatrix::TransformPoint(double*, double*) const
-wxGraphicsObject::~wxGraphicsObject()
 wxIcon::CopyFromBitmap(wxBitmap const&)
 wxIcon::wxIcon()
 wxImage::AddHandler(wxImageHandler*)
