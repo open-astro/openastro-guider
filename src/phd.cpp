@@ -34,6 +34,7 @@
 
 #include "phd.h"
 
+#include "controller_host.h"
 #include "instance_lock.h"
 
 #include <curl/curl.h>
@@ -488,7 +489,7 @@ bool PhdApp::OnInit()
         pConfig->Global.SetBoolean("/ServerMode", true);
     }
 
-    PhdController::OnAppInit();
+    PhdController::OnAppInit(ProductionControllerHost());
 
     ImageLogger::Init();
 

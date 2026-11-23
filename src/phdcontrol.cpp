@@ -34,6 +34,7 @@
 
 #include "phd.h"
 
+#include "controller_host.h"
 #include "settle_tracker.h"
 
 enum State
@@ -75,7 +76,7 @@ struct ControllerState
     SettleParams settle;
     wxRect roi;
     SettleTracker settleTracker; // the settle timeout, the in-range timer and the frame counts
-    DEC_GUIDE_MODE saveDecGuideMode;
+    ControllerDecMode saveDecGuideMode;
     bool overrideDecGuideMode;
     bool succeeded;
     wxString errorMsg;
@@ -83,9 +84,20 @@ struct ControllerState
 
 static ControllerState ctrl;
 
-void PhdController::OnAppInit()
+// the frame, guider, mounts, camera, event server and guide log the controller works through (controller_host.h)
+static ControllerHost *s_host;
+
+static ControllerHost& host()
 {
-    // nothing to set up: the settle timers are in ctrl.settleTracker (settle_tracker.cpp)
+    return *s_host;
+}
+
+void PhdController::OnAppInit(ControllerHost& h)
+{
+    s_host = &h;
+    // a new controller, idle, with its settle timed on the host's clock (settle_tracker.cpp)
+    ctrl = ControllerState();
+    ctrl.settleTracker = SettleTracker(h.SettleClock());
 }
 
 void PhdController::OnAppExit()
@@ -149,7 +161,7 @@ static void restore_sticky_lock(void)
 {
     if (ctrl.useStickyLock && ctrl.haveSaveSticky)
     {
-        pFrame->pGuider->SetLockPosIsSticky(ctrl.saveSticky);
+        host().SetLockPosIsSticky(ctrl.saveSticky);
         ctrl.haveSaveSticky = false;
     }
 }
@@ -175,7 +187,7 @@ bool PhdController::Dither(double pixels, bool forceRaOnly, const SettleParams& 
 
     Debug.AddLine("PhdController::Dither begins");
 
-    bool raOnly = pFrame->GetDitherRaOnly();
+    bool raOnly = host().DitherRaOnlySetting();
     if (forceRaOnly)
     {
         // event server client wants RA only
@@ -183,17 +195,17 @@ bool PhdController::Dither(double pixels, bool forceRaOnly, const SettleParams& 
     }
 
     bool overrideDecGuideMode = false;
-    DEC_GUIDE_MODE dgm = DEC_NONE;
+    ControllerDecMode dgm = ControllerDecMode::None;
 
-    if (pMount && !pMount->IsStepGuider() && !raOnly)
+    if (host().HasMount(ControllerMount::Primary) && !host().PrimaryMountIsStepGuider() && !raOnly)
     {
         // Check to see if we need to force raOnly or temporarily adjust dec guide mode
-        Scope *scope = static_cast<Scope *>(pMount);
-        dgm = scope->GetDecGuideMode();
+        dgm = host().PrimaryScopeDecGuideMode();
 
-        if (dgm != DEC_AUTO)
+        if (dgm != ControllerDecMode::Auto)
         {
-            if ((dgm == DEC_NORTH || dgm == DEC_SOUTH) && settle.settleTimeSec != SETTLING_TIME_DISABLED)
+            if ((dgm == ControllerDecMode::North || dgm == ControllerDecMode::South) &&
+                settle.settleTimeSec != SETTLING_TIME_DISABLED)
             {
                 // Temporarily override dec guide mode because user has not set ra-only
                 overrideDecGuideMode = true;
@@ -203,14 +215,14 @@ bool PhdController::Dither(double pixels, bool forceRaOnly, const SettleParams& 
                 // DEC_NONE or no settling parameters
 
                 Debug.Write(wxString::Format("PhdController: forcing dither RA-only since Dec guide mode is %s\n",
-                                             Scope::DecGuideModeStr(ctrl.saveDecGuideMode)));
+                                             host().DecGuideModeStr(ctrl.saveDecGuideMode)));
 
                 raOnly = true;
             }
         }
     }
 
-    bool error = pFrame->Dither(pixels, raOnly);
+    bool error = host().Dither(pixels, raOnly);
     if (error)
     {
         Debug.AddLine("PhdController::Dither pFrame->Dither failed");
@@ -263,8 +275,16 @@ void PhdController::AbortController(const wxString& reason)
 
 static bool all_gear_connected(void)
 {
-    return pCamera && pCamera->Connected && (!pMount || pMount->IsConnected()) &&
-        (!pSecondaryMount || pSecondaryMount->IsConnected());
+    return host().CameraConnected() &&
+        (!host().HasMount(ControllerMount::Primary) || host().MountConnected(ControllerMount::Primary)) &&
+        (!host().HasMount(ControllerMount::Secondary) || host().MountConnected(ControllerMount::Secondary));
+}
+
+// every mount there is calibrated (none counts as calibrated)
+static bool all_mounts_calibrated(void)
+{
+    return (!host().HasMount(ControllerMount::Primary) || host().MountCalibrated(ControllerMount::Primary)) &&
+        (!host().HasMount(ControllerMount::Secondary) || host().MountCalibrated(ControllerMount::Secondary));
 }
 
 static void do_notify(void)
@@ -272,44 +292,43 @@ static void do_notify(void)
     if (ctrl.succeeded)
     {
         Debug.AddLine("PhdController complete: success");
-        EvtServer.NotifySettleDone(wxEmptyString, ctrl.settleTracker.FrameCount(), ctrl.settleTracker.DroppedFrameCount());
-        GuideLog.NotifySettlingStateChange("Settling complete");
+        host().NotifySettleDone(wxEmptyString, ctrl.settleTracker.FrameCount(), ctrl.settleTracker.DroppedFrameCount());
+        host().LogSettlingStateChange("Settling complete");
     }
     else
     {
         Debug.AddLine(wxString::Format("PhdController complete: fail: %s", ctrl.errorMsg));
-        EvtServer.NotifySettleDone(ctrl.errorMsg, ctrl.settleTracker.FrameCount(), ctrl.settleTracker.DroppedFrameCount());
-        GuideLog.NotifySettlingStateChange("Settling failed");
+        host().NotifySettleDone(ctrl.errorMsg, ctrl.settleTracker.FrameCount(), ctrl.settleTracker.DroppedFrameCount());
+        host().LogSettlingStateChange("Settling failed");
     }
 
-    if (pMount)
-        pMount->NotifyGuidingDitherSettleDone(ctrl.succeeded);
+    host().NotifyMountSettleDone(ctrl.succeeded); // with a mount
 }
 
 static bool start_capturing(void)
 {
-    if (!pCamera || !pCamera->Connected)
+    if (!host().CameraConnected())
     {
         return false;
     }
 
-    pFrame->pGuider->Reset(true); // invalidate current position, etc.
-    pFrame->pGuider->ForceFullFrame(); // we need a full frame to auto-select a star
-    pFrame->ResetAutoExposure();
-    pFrame->StartCapturing();
+    host().ResetGuider(true); // invalidate current position, etc.
+    host().ForceFullFrame(); // we need a full frame to auto-select a star
+    host().ResetAutoExposure();
+    host().StartCapturing();
 
     return true;
 }
 
 static bool start_guiding(void)
 {
-    bool error = pFrame->StartGuiding();
+    bool error = host().StartGuiding();
     return !error;
 }
 
 static bool IsAoBumpInProgress()
 {
-    return pMount && pMount->IsStepGuider() && static_cast<StepGuider *>(pMount)->IsBumpInProgress();
+    return host().AoBumpInProgress();
 }
 
 bool PhdController::CanGuide(wxString *error)
@@ -355,7 +374,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
                 Debug.Write(wxString::Format("PhdController: not ready: %s\n", err));
                 do_fail(err);
             }
-            else if (pFrame->pGuider->IsCalibratingOrGuiding())
+            else if (host().GuiderIsCalibratingOrGuiding())
             {
                 if (ctrl.forceCalibration)
                 {
@@ -363,7 +382,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
                 }
                 else
                 {
-                    GUIDER_STATE state = pFrame->pGuider->GetState();
+                    GUIDER_STATE state = host().GuiderState();
                     Debug.Write(wxString::Format("PhdController: guider state = %d\n", state));
                     if (state == STATE_CALIBRATED || state == STATE_GUIDING)
                     {
@@ -376,7 +395,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
                     }
                 }
             }
-            else if (!pFrame->CaptureActive)
+            else if (!host().CaptureActive())
             {
                 Debug.AddLine("PhdController: start capturing");
                 if (!start_capturing())
@@ -387,15 +406,15 @@ void PhdController::UpdateControllerState(bool frameDropped)
                 SETSTATE(STATE_SELECT_STAR);
                 done = true;
             }
-            else if (pFrame->pGuider->GetState() == STATE_SELECTED)
+            else if (host().GuiderState() == STATE_SELECTED)
             {
-                if (ctrl.forceCalibration && !pFrame->pGuider->SelectedStarClearForRecalibration())
+                if (ctrl.forceCalibration && !host().SelectedStarClearForRecalibration())
                 {
                     // #140: the star (find_star while looping on a calibrated mount) was picked with no margin for
                     // the calibration walk; select again on the next full frame, keeping the margin
                     Debug.AddLine("PhdController: selected star too close to the edge for the recalibration, reselect");
-                    pFrame->pGuider->Reset(true);
-                    pFrame->pGuider->ForceFullFrame();
+                    host().ResetGuider(true);
+                    host().ForceFullFrame();
                     SETSTATE(STATE_SELECT_STAR);
                     done = true;
                 }
@@ -411,9 +430,9 @@ void PhdController::UpdateControllerState(bool frameDropped)
 
                 // if auto-exposure is enabled, reset to max exposure duration
                 // and wait for the next camera frame
-                if (pFrame->GetAutoExposureCfg().enabled)
+                if (host().AutoExposureEnabled())
                 {
-                    pFrame->ResetAutoExposure();
+                    host().ResetAutoExposure();
                     done = true;
                 }
             }
@@ -424,7 +443,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
         {
             // STATE_CALIBRATE clears the calibration of a forced recalibration only after this selection, so
             // tell the auto-select to keep the star far enough from the edge for the calibration walk (#140)
-            bool error = pFrame->AutoSelectStar(ctrl.roi, ctrl.forceCalibration);
+            bool error = host().AutoSelectStar(ctrl.roi, ctrl.forceCalibration);
             if (error)
             {
                 Debug.Write(
@@ -435,7 +454,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
                 }
                 else
                 {
-                    pFrame->pGuider->Reset(true);
+                    host().ResetGuider(true);
                     SETSTATE(STATE_ATTEMPT_START);
                     done = true;
                 }
@@ -450,7 +469,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
         }
 
         case STATE_WAIT_SELECTED:
-            if (pFrame->pGuider->GetState() == STATE_SELECTED)
+            if (host().GuiderState() == STATE_SELECTED)
             {
                 SETSTATE(STATE_CALIBRATE);
             }
@@ -470,21 +489,21 @@ void PhdController::UpdateControllerState(bool frameDropped)
             if (ctrl.forceCalibration)
             {
                 Debug.AddLine("PhdController: clearing calibration");
-                if (pMount)
-                    pMount->ClearCalibration();
-                if (pSecondaryMount)
-                    pSecondaryMount->ClearCalibration();
+                if (host().HasMount(ControllerMount::Primary))
+                    host().ClearMountCalibration(ControllerMount::Primary);
+                if (host().HasMount(ControllerMount::Secondary))
+                    host().ClearMountCalibration(ControllerMount::Secondary);
             }
 
-            if ((pMount && !pMount->IsCalibrated()) || (pSecondaryMount && !pSecondaryMount->IsCalibrated()))
+            if (!all_mounts_calibrated())
             {
                 Debug.AddLine("PhdController: start calibration");
 
                 if (ctrl.useStickyLock)
                 {
-                    ctrl.saveSticky = pFrame->pGuider->LockPosIsSticky();
+                    ctrl.saveSticky = host().LockPosIsSticky();
                     ctrl.haveSaveSticky = true;
-                    pFrame->pGuider->SetLockPosIsSticky(true);
+                    host().SetLockPosIsSticky(true);
                 }
 
                 if (!start_guiding())
@@ -503,7 +522,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
             break;
 
         case STATE_CALIBRATION_WAIT:
-            if ((!pMount || pMount->IsCalibrated()) && (!pSecondaryMount || pSecondaryMount->IsCalibrated()))
+            if (all_mounts_calibrated())
             {
                 restore_sticky_lock();
 
@@ -524,27 +543,27 @@ void PhdController::UpdateControllerState(bool frameDropped)
             break;
 
         case STATE_SETTLE_BEGIN:
-            if (ctrl.settleOp == OP_GUIDE && pFrame->pGuider->IsCalibrating())
+            if (ctrl.settleOp == OP_GUIDE && host().GuiderIsCalibrating())
             {
                 // entering guiding cleared the calibration (an image scale change) and started a new one (#255)
                 Debug.AddLine("PhdController: guider calibrating, wait for the calibration before settling");
                 if (ctrl.useStickyLock && !ctrl.haveSaveSticky)
                 {
                     // as STATE_CALIBRATE does: guide on the selected star's lock position after the calibration
-                    ctrl.saveSticky = pFrame->pGuider->LockPosIsSticky();
+                    ctrl.saveSticky = host().LockPosIsSticky();
                     ctrl.haveSaveSticky = true;
-                    pFrame->pGuider->SetLockPosIsSticky(true);
+                    host().SetLockPosIsSticky(true);
                 }
                 SETSTATE(STATE_CALIBRATION_WAIT);
                 break;
             }
-            EvtServer.NotifySettleBegin();
-            GuideLog.NotifySettlingStateChange("Settling started");
+            host().NotifySettleBegin();
+            host().LogSettlingStateChange("Settling started");
             if (ctrl.overrideDecGuideMode)
             {
                 Debug.Write(wxString::Format("PhdController: setting Dec guide mode to %s for dither settle\n",
-                                             Scope::DecGuideModeStr(DEC_AUTO)));
-                TheScope()->SetDecGuideMode(DEC_AUTO);
+                                             host().DecGuideModeStr(ControllerDecMode::Auto)));
+                host().SetScopeDecGuideMode(ControllerDecMode::Auto);
             }
             ctrl.settleTracker.Begin();
             SETSTATE(STATE_SETTLE_WAIT);
@@ -553,7 +572,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
 
         case STATE_SETTLE_WAIT:
         {
-            if (ctrl.settleOp == OP_GUIDE && pFrame->pGuider->IsCalibrating())
+            if (ctrl.settleOp == OP_GUIDE && host().GuiderIsCalibrating())
             {
                 // a dropped frame began the settle before the guider entered guiding and started a calibration (#255)
                 SETSTATE(STATE_SETTLE_BEGIN);
@@ -562,8 +581,8 @@ void PhdController::UpdateControllerState(bool frameDropped)
             // the decision and its timers are in the wx-free settle_frame.cpp and settle_tracker.cpp; #136: a dropped frame
             // (a transient capture failure while guiding) counts like a lost-star frame and neither ends nor completes an
             // in-range run
-            bool locked = pFrame->pGuider->IsLocked();
-            double error = pFrame->CurrentGuideError();
+            bool locked = host().GuiderIsLocked();
+            double error = host().CurrentGuideError();
             bool aoBump = IsAoBumpInProgress();
             SettleFrame::Result result = ctrl.settleTracker.OnFrame(ctrl.settle, frameDropped, locked, error, aoBump);
 
@@ -583,8 +602,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
                 do_fail(_T("timed-out waiting for guider to settle"));
                 break;
             }
-            EvtServer.NotifySettling(error, (double) result.timeInRangeMs / 1000., ctrl.settle.settleTimeSec,
-                                     result.lockedOnStar);
+            host().NotifySettling(error, (double) result.timeInRangeMs / 1000., ctrl.settle.settleTimeSec, result.lockedOnStar);
             done = true;
             break;
         }
@@ -593,8 +611,8 @@ void PhdController::UpdateControllerState(bool frameDropped)
             if (ctrl.overrideDecGuideMode)
             {
                 Debug.Write(wxString::Format("PhdController: restore Dec guide mode to %s after dither\n",
-                                             Scope::DecGuideModeStr(ctrl.saveDecGuideMode)));
-                TheScope()->SetDecGuideMode(ctrl.saveDecGuideMode);
+                                             host().DecGuideModeStr(ctrl.saveDecGuideMode)));
+                host().SetScopeDecGuideMode(ctrl.saveDecGuideMode);
                 ctrl.overrideDecGuideMode = false;
             }
             do_notify();
