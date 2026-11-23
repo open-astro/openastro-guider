@@ -513,6 +513,22 @@ set_property(TARGET test_restore_calibration PROPERTY FOLDER "Unit tests")
 add_test(NAME test_restore_calibration COMMAND test_restore_calibration)
 
 ############################################################################
+# test_calstep_math  --  calstep_math.cpp: the recommended calibration
+# distance and step (#142), with golden values, the guard for an unknown
+# image scale or guide speed, and a differential against the frozen copy of
+# the CalstepDialog lines it came from (calibration/legacy, check_twin.sh
+# diffs it against the source). std-only.
+############################################################################
+add_executable(test_calstep_math
+  ${PHD_TESTS_DIR}/calibration/test_calstep_math.cpp
+  ${PHD_TESTS_DIR}/calibration/legacy/calstep_legacy.cpp
+  ${phd_src_dir}/calstep_math.cpp
+)
+target_link_libraries(test_calstep_math PRIVATE phd_test_common)
+set_property(TARGET test_calstep_math PROPERTY FOLDER "Unit tests")
+add_test(NAME test_calstep_math COMMAND test_calstep_math)
+
+############################################################################
 # test_instance_lock  --  instance_lock.cpp: where the single-instance lock
 # goes, $RUNTIME_DIRECTORY under systemd or wx's default (#135). std-only.
 ############################################################################
