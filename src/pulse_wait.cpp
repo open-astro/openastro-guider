@@ -14,6 +14,8 @@ enum
     POLL_MARGIN_MS = 10,
     GRACE_PERIOD_MS = 1000,
     TIMEOUT_MS = GRACE_PERIOD_MS + 1000,
+    REQUEST_MARGIN_MS = 10000,
+    REQUEST_MIN_TIMEOUT_MS = 15000,
 };
 
 long SleepBeforeFirstPollMs(long durationMs, long elapsedSinceSendMs)
@@ -34,5 +36,11 @@ bool CompletionTimedOut(long durationMs, long elapsedSinceSendMs)
     if (elapsedSinceSendMs < 0)
         return true;
     return elapsedSinceSendMs > durationMs + TIMEOUT_MS;
+}
+
+long RequestTimeoutMs(long durationMs)
+{
+    long ms = (durationMs > 0 ? durationMs : 0) + REQUEST_MARGIN_MS;
+    return ms > REQUEST_MIN_TIMEOUT_MS ? ms : REQUEST_MIN_TIMEOUT_MS;
 }
 } // namespace PulseWait

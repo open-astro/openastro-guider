@@ -91,8 +91,9 @@ the faults lane, on a fake that answers ImageBytes, with one calibration (a long
   stalled mount           #142 T2g: every telescope request 150 ms late while guiding: guiding converges, each
                           pulse costs 4 requests (the fake's per-endpoint count, so an extra poll shows up) and each
                           GuideStep's MoveTime its pulses plus 3-4 x the latency per axis; one PulseGuide held 35 s:
-                          given up at the mount's 30 s request timeout, one Alert, guiding goes on; stop_capture
-                          during one: it returns at once, guiding stops only after the 30 s, no Alert
+                          given up at the PUT's own 15 s timeout (#294), one Alert, no Dec pulse after the failed RA
+                          one, guiding goes on; stop_capture during one: it returns at once, the PUT is given up
+                          within about a second and guiding stops within a few, no Dec pulse, no Alert
   mutation while guiding  #142 T2b: set_algo through every RA and Dec algorithm (Predictive PEC among them),
                           set_algo_param on each one's parameters (the GP's periodLength included), set_backlash_comp,
                           and a Guiding Assistant run with the RA algorithm changing during it and then
@@ -173,12 +174,25 @@ IMAGING_GEAR_SCOPE_READS = {"GET name", "GET focallength", "GET aperturediameter
 TELESCOPE_LATENCY_MS = 150
 LATENCY_STEPS = 8  # GuideSteps after the field's move, at the latency
 CONVERGED_PX = 0.5  # the last 3 of them within this of the lock
-# the mount's AlpacaClient keeps curl's 30 s CURLOPT_TIMEOUT (src/alpaca_client.cpp); a stall longer than that
+# A PulseGuide PUT has its own timeout, the pulse plus 10 s and at least 15 s (PulseWait::RequestTimeoutMs, #294), not
+# the mount AlpacaClient's 30 s: 15 s for the pulses here, under 5 s. A stall longer than the client's 30 s, so a PUT
+# that still had that timeout would show it
 STALL_MS = 35000
-MOUNT_TIMEOUT_S = 30
-# the debug log lines of a PulseGuide PUT and of one that timed out: the time of day, and the thread
-PUT_LINE = re.compile(r"^(\d+):(\d+):(\d+\.\d+) \S+ (\d+) AlpacaClient PutAction: \S+/telescope/0/pulseguide,")
+PULSE_TIMEOUT_S = 15
+# a stop gives a held PulseGuide up within about a second (curl's progress callback, alpaca_request_limits.h, #294);
+# Stopped follows at once, so "a few seconds" with the ASan build's margin
+STOP_ABORT_S = 2.5
+STOPPED_S = 5
+# the debug log lines of a PulseGuide PUT (its direction: 0-3, N S E W), of one that timed out and of one a stop
+# gave up: the time of day, and the thread
+PUT_LINE = re.compile(r"^(\d+):(\d+):(\d+\.\d+) \S+ (\d+) AlpacaClient PutAction: \S+/telescope/0/pulseguide, "
+                      r"params: Direction=(\d)")
 PUT_TIMEOUT_LINE = re.compile(r"^(\d+):(\d+):(\d+\.\d+) \S+ (\d+) AlpacaClient PutAction failed: Timeout was reached$")
+PUT_ABORT_LINE = re.compile(r"^(\d+):(\d+):(\d+\.\d+) \S+ (\d+) AlpacaClient PutAction aborted: \S+/telescope/0/"
+                            r"pulseguide given up before its response, a stop was requested$")
+# Mount::MoveOffset's line when it does not send the Dec pulse after a failed RA move (MOVE_ERROR is 1, #294)
+DEC_NOT_SENT_LINE = "Dec move not sent: the RA move returned 1"
+RA_DIRECTIONS = {2, 3}  # E, W
 PULSEGUIDE_ALERT_MSG = "PulseGuide command to mount has failed - guiding is likely to be ineffective."
 
 GUIDE_FAILURES = e2e.GUIDE_FAILURES
@@ -1928,28 +1942,54 @@ def scenario_telescope_latency(lane):
             f"distances {[round(d, 2) for d in dist]}; MoveTime (pulses -> ms) {moves}")
 
 
-def put_timeouts(lane):
-    """The PulseGuide PUTs that timed out since the debug log's mark: each the time from the PUT's line to its timeout's
-    line on the same thread, s."""
+def failed_puts(lane):
+    """The PulseGuide PUTs that failed since the debug log's mark, as dicts: how ("timeout" or "aborted"), the PUT's
+    direction (0-3), the time from the PUT's line to its failure's line on the same thread (s), and that thread's
+    lines after the failure up to the end of the move ("move complete")."""
     def secs(m):
         return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
 
+    lines = lane.debug.text().splitlines()
     sent, out = {}, []
-    for line in lane.debug.text().splitlines():
+    for i, line in enumerate(lines):
         m = PUT_LINE.match(line)
         if m:
-            sent[m.group(4)] = secs(m)
+            sent[m.group(4)] = (secs(m), int(m.group(5)))
             continue
-        m = PUT_TIMEOUT_LINE.match(line)
-        if m and m.group(4) in sent:
-            out.append(round((secs(m) - sent.pop(m.group(4))) % 86400, 3))
+        for how, pattern in (("timeout", PUT_TIMEOUT_LINE), ("aborted", PUT_ABORT_LINE)):
+            m = pattern.match(line)
+            if m and m.group(4) in sent:
+                t, direction = sent.pop(m.group(4))
+                after = []
+                for later in lines[i + 1:]:
+                    if f" {m.group(4)} " not in later:
+                        continue
+                    after.append(later)
+                    if "move complete, result=" in later:
+                        break
+                out.append({"how": how, "direction": direction, "s": round((secs(m) - t) % 86400, 3),
+                            "after": after})
     return out
 
 
+def expect_no_dec_after(put):
+    """#294: a failed RA PulseGuide ends its move: no other PulseGuide on the worker before the move completes, and
+    MoveOffset's line that says the Dec pulse was not sent."""
+    expect(put["direction"] in RA_DIRECTIONS, f"the held PulseGuide was direction {put['direction']}, expected RA "
+                                               f"(E or W) so that the frame had a Dec pulse after it")
+    more = [line for line in put["after"] if PUT_LINE.match(line)]
+    expect(not more, f"PulseGuide sent after the RA PUT failed, in the same move: {more}")
+    expect(any(DEC_NOT_SENT_LINE in line for line in put["after"]),
+           f"no {DEC_NOT_SENT_LINE!r} after the failed RA PUT: {put['after'][-5:]}")
+    expect(put["after"] and "move complete, result=1" in put["after"][-1],
+           f"the move of the failed RA PUT did not end failed: {put['after'][-3:]}")
+
+
 def scenario_stalled_pulse(lane):
-    """#142 T2g: one PulseGuide PUT the mount holds for 35 s while guiding. The guider gives it up at the mount's
-    30 s request timeout, not the 35 s: one failed move (MOVE_ERROR), one Alert, the other axis's pulse sent; guiding
-    goes on, no StarLost, the mount connected. The worker waits the 30 s out, so no GuideStep comes meanwhile."""
+    """#142 T2g, #294: one PulseGuide PUT the mount holds for 35 s while guiding. The guider gives it up at the PUT's
+    own 15 s timeout, not the client's 30 s nor the 35 s: one failed move (MOVE_ERROR), one Alert, and no Dec pulse
+    after the failed RA one in that frame (the frame is 15 s old); guiding goes on, no StarLost, the mount connected.
+    The worker waits the 15 s out, so no GuideStep comes meanwhile."""
     cli, fake = lane.cli, lane.fake
     expect(cli.call("get_app_state") == "Guiding", "not guiding")
     lane.debug.mark()
@@ -1959,7 +1999,7 @@ def scenario_stalled_pulse(lane):
     try:
         wait_fake_stall(lane, at, "pulseguide", STALL_MS, 60, device="telescope")
         t_stall = time.time()
-        cli.wait_events(mark, "Alert", timeout=MOUNT_TIMEOUT_S + 30, abort_on=GUIDE_FAILURES)
+        cli.wait_events(mark, "Alert", timeout=PULSE_TIMEOUT_S + 30, abort_on=GUIDE_FAILURES)
         after = cli.mark()
         cli.wait_events(after, "GuideStep", count=3, timeout=60, abort_on=GUIDE_FAILURES)
         evs = settle_events(cli, mark)
@@ -1969,11 +2009,13 @@ def scenario_stalled_pulse(lane):
     expect([e.get("Msg") for e in al] == [PULSEGUIDE_ALERT_MSG], f"Alerts {[e.get('Msg') for e in al]}, expected one "
                                                                   f"{PULSEGUIDE_ALERT_MSG!r}")
     alert_s = al[0]["_t"] - t_stall
-    expect(MOUNT_TIMEOUT_S - 1.5 <= alert_s <= MOUNT_TIMEOUT_S + 5,
-           f"the Alert {alert_s:.1f} s after the stalled PUT reached the fake, expected about {MOUNT_TIMEOUT_S} s")
-    timeouts = put_timeouts(lane)
-    expect(len(timeouts) == 1 and MOUNT_TIMEOUT_S - 0.5 <= timeouts[0] <= MOUNT_TIMEOUT_S + 1,
-           f"PulseGuide PUT timeouts in the debug log: {timeouts} s, expected one of {MOUNT_TIMEOUT_S} s")
+    expect(PULSE_TIMEOUT_S - 1.5 <= alert_s <= PULSE_TIMEOUT_S + 5,
+           f"the Alert {alert_s:.1f} s after the stalled PUT reached the fake, expected about {PULSE_TIMEOUT_S} s")
+    puts = failed_puts(lane)
+    expect(len(puts) == 1 and puts[0]["how"] == "timeout" and PULSE_TIMEOUT_S - 0.5 <= puts[0]["s"] <= PULSE_TIMEOUT_S + 1,
+           f"failed PulseGuide PUTs in the debug log: {[(p['how'], p['s']) for p in puts]}, expected one timeout of "
+           f"{PULSE_TIMEOUT_S} s")
+    expect_no_dec_after(puts[0])
     failed_moves = len(re.findall(FAILED_MOVE_LINE, lane.debug.text()))
     expect(failed_moves == 1, f"{failed_moves} failed moves, expected the stalled one")
     during = [e for e in evs if t_stall < e["_t"] < al[0]["_t"]]
@@ -1984,14 +2026,15 @@ def scenario_stalled_pulse(lane):
     expect(cli.call("get_connected", {"device": "mount"}) is True, "the mount disconnected")
     state = fake.request("GET", "/fake/state")
     expect(state["stall"]["telescope"] == 0 and state["stall_count"]["telescope"] == 0, f"the fake's stall {state}")
-    return (f"the PUT timed out after {timeouts[0]:.3f} s, one Alert {alert_s:.1f} s after the stall began, "
-            f"{failed_moves} failed move, guiding (events {names_of(evs)})")
+    return (f"the RA PUT timed out after {puts[0]['s']:.3f} s, no Dec pulse after it, one Alert {alert_s:.1f} s after "
+            f"the stall began, {failed_moves} failed move, guiding (events {names_of(evs)})")
 
 
 def scenario_stop_during_stalled_pulse(lane):
-    """#142 T2g: stop_capture while a PulseGuide PUT is held for 35 s. stop_capture returns at once, and guiding stops
-    (GuidingStopped, Stopped) only once the PUT has timed out at the mount's 30 s, with no Alert: the worker's
-    interrupt does not reach a request in flight. Then guide (no recalibration) settles again."""
+    """#142 T2g, #294: stop_capture while a PulseGuide PUT is held for 35 s. stop_capture returns at once, the stop
+    gives the PUT up within about a second (its abort check, alpaca_request_limits.h) and guiding stops
+    (GuidingStopped, Stopped) within a few seconds, not at the PUT's timeout; no Dec pulse after the given-up RA one,
+    no Alert. Then guide (no recalibration) settles again."""
     cli, fake = lane.cli, lane.fake
     expect(cli.call("get_app_state") == "Guiding", "not guiding")
     lane.debug.mark()
@@ -2004,26 +2047,28 @@ def scenario_stop_during_stalled_pulse(lane):
         mark = cli.mark()
         msg = cli.request("stop_capture", timeout=60)
         returned_s = time.time() - t_stall
-        cli.wait_state("Stopped", MOUNT_TIMEOUT_S + 30)
+        cli.wait_state("Stopped", PULSE_TIMEOUT_S + 30)
         stopped_s = time.time() - t_stall
         evs = settle_events(cli, mark, quiet_s=2.0)
     finally:
         fake.request("PUT", "/fake/stall", {"device": "telescope", "ms": 0})
     expect(msg.get("result") == 0 and not msg.get("error"), f"stop_capture {msg}")
     expect(returned_s < 2, f"stop_capture returned {returned_s:.1f} s after the stall began, expected at once")
-    expect(MOUNT_TIMEOUT_S - 1.5 <= stopped_s <= MOUNT_TIMEOUT_S + 6,
-           f"Stopped {stopped_s:.1f} s after the stall began, expected after the {MOUNT_TIMEOUT_S} s timeout")
-    timeouts = put_timeouts(lane)
-    expect(len(timeouts) == 1 and MOUNT_TIMEOUT_S - 0.5 <= timeouts[0] <= MOUNT_TIMEOUT_S + 1,
-           f"PulseGuide PUT timeouts in the debug log: {timeouts} s")
+    expect(stopped_s <= STOPPED_S,
+           f"Stopped {stopped_s:.1f} s after the stall began, expected within {STOPPED_S} s (the PUT given up)")
+    puts = failed_puts(lane)
+    expect(len(puts) == 1 and puts[0]["how"] == "aborted" and puts[0]["s"] <= STOP_ABORT_S,
+           f"failed PulseGuide PUTs in the debug log: {[(p['how'], p['s']) for p in puts]}, expected one given up "
+           f"within {STOP_ABORT_S} s")
+    expect_no_dec_after(puts[0])
     stops = [e for e in evs if e["Event"] == "GuidingStopped"]
-    expect(len(stops) == 1 and stops[0]["_t"] - t_stall >= MOUNT_TIMEOUT_S - 1.5,
+    expect(len(stops) == 1 and stops[0]["_t"] - t_stall <= STOPPED_S,
            f"GuidingStopped {[round(e['_t'] - t_stall, 1) for e in stops]} s after the stall began: {names_of(evs)}")
     expect(not alerts(evs), f"Alerts after stop_capture: {[e.get('Msg') for e in alerts(evs)]}")
     expect(cli.call("get_connected", {"device": "mount"}) is True, "the mount disconnected")
     guide_on_kept_calibration(cli)  # guiding again for the scenarios after it
-    return (f"stop_capture returned after {returned_s:.2f} s, Stopped after {stopped_s:.1f} s (the PUT timed out "
-            f"after {timeouts[0]:.3f} s), no Alert; guide settled again")
+    return (f"stop_capture returned after {returned_s:.2f} s, the RA PUT given up after {puts[0]['s']:.3f} s with no "
+            f"Dec pulse after it, Stopped after {stopped_s:.1f} s, no Alert; guide settled again")
 
 
 def algo_params(cli, axis):

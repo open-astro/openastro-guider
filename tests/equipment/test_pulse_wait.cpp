@@ -70,3 +70,23 @@ TEST(PulseWait, NegativeElapsedStillTimesOut)
     EXPECT_TRUE(CompletionTimedOut(117, -1));
     EXPECT_TRUE(CompletionTimedOut(117, -3600 * 1000L));
 }
+
+// #294: the PulseGuide PUT's own timeout. A held request (a 35 s stall on the e2e fake) fails the
+// move after 15 s, not the client's 30 s, and a mount that blocks for the whole pulse is waited for.
+TEST(PulseWait, ShortPulseRequestTimesOutAfter15s)
+{
+    EXPECT_EQ(PulseWait::RequestTimeoutMs(117), 15000);
+    EXPECT_EQ(PulseWait::RequestTimeoutMs(0), 15000);
+    EXPECT_EQ(PulseWait::RequestTimeoutMs(5000), 15000);
+}
+
+TEST(PulseWait, LongPulseRequestWaitsThePulsePlus10s)
+{
+    EXPECT_EQ(PulseWait::RequestTimeoutMs(5001), 15001);
+    EXPECT_EQ(PulseWait::RequestTimeoutMs(25000), 35000);
+}
+
+TEST(PulseWait, NegativePulseRequestTimesOutAfter15s)
+{
+    EXPECT_EQ(PulseWait::RequestTimeoutMs(-1), 15000);
+}

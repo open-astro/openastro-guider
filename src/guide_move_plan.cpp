@@ -205,13 +205,16 @@ RecenterProgress AfterRecenterStep(double remainingX, double remainingY, double 
 
 bool SendDecAfter(MoveResult ra)
 {
-    return ra != MoveResult::ErrorSlewing && ra != MoveResult::ErrorAoLimitReached;
+    // Only after an RA move that went through (#294): a failed one (an error or a timed-out or
+    // given-up request) leaves a frame that is old by the time it returns, so its Dec pulse is
+    // not sent; the next frame corrects both axes
+    return ra == MoveResult::Ok;
 }
 
 MoveResult OffsetResult(MoveResult ra, MoveResult dec)
 {
     // A failed Dec pulse fails the move; else the RA pulse's result stands. With the Dec pulse
-    // sent, RA was Ok or Error, so a Dec slew or AO limit, which OnMoveComplete acts on, wins
+    // sent RA was Ok (SendDecAfter), so a Dec slew or AO limit, which OnMoveComplete acts on, wins
     return dec != MoveResult::Ok ? dec : ra;
 }
 
