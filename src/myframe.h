@@ -54,9 +54,6 @@ enum E_MYFRAME_WORKER_THREAD_MESSAGES
     MYFRAME_WORKER_THREAD_MOVE_COMPLETE,
 };
 
-wxDECLARE_EVENT(REQUEST_EXPOSURE_EVENT, wxCommandEvent);
-wxDECLARE_EVENT(REQUEST_MOUNT_MOVE_EVENT, wxCommandEvent);
-wxDECLARE_EVENT(STATUSBAR_ENQUEUE_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDECLARE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
 
@@ -246,9 +243,6 @@ public:
     void ClearStatusBarGuiderInfo();
     bool GetBeepForLostStar();
     void SetBeepForLostStar(bool beep);
-
-    void OnRequestExposure(wxCommandEvent& evt);
-    void OnRequestMountMove(wxCommandEvent& evt);
 
     void ScheduleExposure();
 

@@ -5,7 +5,6 @@
 # This list may only shrink: steps 4-8 of #115 remove these uses.
 typeinfo for wxApp
 typeinfo for wxFrame
-vtable for wxCommandEvent
 vtable for wxFrame
 vtable for wxIcon
 vtable for wxImage
@@ -35,7 +34,6 @@ wxAppBase::SetActive(bool, wxWindow*)
 wxBeginBusyCursor(wxCursor const*)
 wxBitmap::~wxBitmap()
 wxBitmapHelpers::NewFromPNGData(void const*, unsigned long)
-wxCommandEvent::GetString() const
 wxDefaultPosition
 wxDefaultSize
 wxEVT_CLOSE_WINDOW

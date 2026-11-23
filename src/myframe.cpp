@@ -63,9 +63,6 @@ static const int DefaultAutoExpMin = 1000;
 static const int DefaultAutoExpMax = 5000;
 static const double DefaultAutoExpSNR = 6.0;
 
-wxDEFINE_EVENT(REQUEST_EXPOSURE_EVENT, wxCommandEvent);
-wxDEFINE_EVENT(REQUEST_MOUNT_MOVE_EVENT, wxCommandEvent);
-wxDEFINE_EVENT(STATUSBAR_ENQUEUE_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDEFINE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
 wxDEFINE_EVENT(RECONNECT_CAMERA_EVENT, wxThreadEvent);
@@ -78,13 +75,9 @@ EVT_SOCKET(SOCK_SERVER_CLIENT_ID, MyFrame::OnSockServerClientEvent)
 EVT_CLOSE(MyFrame::OnClose)
 EVT_THREAD(MYFRAME_WORKER_THREAD_EXPOSE_COMPLETE, MyFrame::OnExposeComplete)
 EVT_THREAD(MYFRAME_WORKER_THREAD_MOVE_COMPLETE, MyFrame::OnMoveComplete)
-
-EVT_COMMAND(wxID_ANY, REQUEST_EXPOSURE_EVENT, MyFrame::OnRequestExposure)
-
 EVT_THREAD(SET_STATUS_TEXT_EVENT, MyFrame::OnStatusMsg)
 EVT_THREAD(ALERT_FROM_THREAD_EVENT, MyFrame::OnAlertFromThread)
 EVT_THREAD(RECONNECT_CAMERA_EVENT, MyFrame::OnReconnectCameraFromThread)
-EVT_COMMAND(wxID_ANY, REQUEST_MOUNT_MOVE_EVENT, MyFrame::OnRequestMountMove)
 wxEND_EVENT_TABLE();
 // clang-format on
 
@@ -827,33 +820,6 @@ bool MyFrame::StopWorkerThread(WorkerThread *& pWorkerThread)
     pWorkerThread = nullptr;
 
     return killed;
-}
-
-void MyFrame::OnRequestExposure(wxCommandEvent& evt)
-{
-    EXPOSE_REQUEST *req = (EXPOSE_REQUEST *) evt.GetClientData();
-    bool error = GuideCamera::Capture(pCamera, *req->pImage, req->captureParams);
-    req->error = error;
-    req->pSemaphore->Post();
-}
-
-void MyFrame::OnRequestMountMove(wxCommandEvent& evt)
-{
-    MOVE_REQUEST *request = (MOVE_REQUEST *) evt.GetClientData();
-
-    Debug.Write("OnRequestMountMove() begins\n");
-
-    if (request->axisMove)
-    {
-        request->moveResult = request->mount->MoveAxis(request->direction, request->duration, request->moveOptions);
-    }
-    else
-    {
-        request->moveResult = request->mount->MoveOffset(&request->ofs, request->moveOptions);
-    }
-
-    request->semaphore->Post();
-    Debug.Write("OnRequestMountMove() ends\n");
 }
 
 void MyFrame::ScheduleExposure()

@@ -62,8 +62,6 @@ struct EXPOSE_REQUEST
     CaptureParams captureParams;
     int delayMs; // sleep before the exposure; MyFrame::GetExposureDelay on the main thread (#182)
     NOISE_REDUCTION_METHOD noiseReduction; // applied after the capture; read on the main thread (#210)
-    bool error;
-    wxSemaphore *pSemaphore;
 };
 
 struct MOVE_REQUEST
@@ -75,7 +73,6 @@ struct MOVE_REQUEST
     unsigned int moveOptions;
     Mount::MOVE_RESULT moveResult;
     GuiderOffset ofs;
-    wxSemaphore *semaphore;
 };
 
 struct MoveCompleteEvent : public wxThreadEvent

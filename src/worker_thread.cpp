@@ -95,7 +95,6 @@ void WorkerThread::EnqueueWorkerThreadExposeRequest(usImage *pImage, const Captu
     message.args.expose.captureParams = captureParams;
     message.args.expose.delayMs = delayMs;
     message.args.expose.noiseReduction = noiseReduction;
-    message.args.expose.pSemaphore = 0;
 
     EnqueueMessage(message);
 }
@@ -188,37 +187,24 @@ bool WorkerThread::HandleExpose(EXPOSE_REQUEST *req)
         }
 
         const CaptureParams& params = req->captureParams;
-        if (pCamera->HasNonGuiCapture())
+        // #115 S6.7: every camera captures on this thread; the fallback that ran the capture on the main thread is
+        // gone, so a camera that could not would be a bug
+        if (!pCamera->HasNonGuiCapture())
         {
-            Debug.Write(
-                wxString::Format("Handling exposure in thread, d=%d o=%x b=%u g=%d bpp=%u r=(%d,%d,%d,%d) l=(%d,%d,%d,%d)\n",
-                                 params.duration, params.captureOptions, params.hwBinning, params.gain, params.bpp,
-                                 params.subframe.x, params.subframe.y, params.subframe.width, params.subframe.height,
-                                 params.limitFrame.x, params.limitFrame.y, params.limitFrame.width, params.limitFrame.height));
-
-            if (GuideCamera::Capture(pCamera, *req->pImage, params))
-            {
-                throw ERROR_INFO("Capture failed");
-            }
+            Debug.Write("Error: the camera cannot capture off the main thread, exposure not taken\n");
+            assert(false);
+            throw ERROR_INFO("Camera has no non-GUI capture");
         }
-        else
+
+        Debug.Write(
+            wxString::Format("Handling exposure in thread, d=%d o=%x b=%u g=%d bpp=%u r=(%d,%d,%d,%d) l=(%d,%d,%d,%d)\n",
+                             params.duration, params.captureOptions, params.hwBinning, params.gain, params.bpp,
+                             params.subframe.x, params.subframe.y, params.subframe.width, params.subframe.height,
+                             params.limitFrame.x, params.limitFrame.y, params.limitFrame.width, params.limitFrame.height));
+
+        if (GuideCamera::Capture(pCamera, *req->pImage, params))
         {
-            Debug.Write(wxString::Format("Handling exposure in myFrame, d=%d o=%x r=(%d,%d,%d,%d)\n", params.duration,
-                                         params.captureOptions, params.subframe.x, params.subframe.y, params.subframe.width,
-                                         params.subframe.height));
-
-            wxSemaphore semaphore;
-            req->pSemaphore = &semaphore;
-
-            wxCommandEvent evt(REQUEST_EXPOSURE_EVENT, GetId());
-            evt.SetClientData(req);
-            wxQueueEvent(m_pFrame, evt.Clone());
-
-            // wait for the request to complete
-            req->pSemaphore->Wait();
-
-            bError = req->error;
-            req->pSemaphore = NULL;
+            throw ERROR_INFO("Capture failed");
         }
 
         Debug.Write("Exposure complete\n");
@@ -276,7 +262,6 @@ void WorkerThread::EnqueueWorkerThreadMoveRequest(Mount *mount, const GuiderOffs
     message.args.move.axisMove = false;
     message.args.move.ofs = ofs;
     message.args.move.moveOptions = moveOptions;
-    message.args.move.semaphore = nullptr;
 
     EnqueueMessage(message);
 }
@@ -296,7 +281,6 @@ void WorkerThread::EnqueueWorkerThreadAxisMove(Mount *mount, const GUIDE_DIRECTI
     message.args.move.direction = direction;
     message.args.move.duration = duration;
     message.args.move.moveOptions = moveOptions;
-    message.args.move.semaphore = nullptr;
 
     EnqueueMessage(message);
 }
@@ -307,56 +291,38 @@ void WorkerThread::HandleMove(MOVE_REQUEST *req)
 
     try
     {
-        if (req->mount->HasNonGuiMove())
+        // #115 S6.7: every mount moves on this thread; the fallback that sent the move to the main thread is gone, so
+        // a mount that could not would be a bug
+        if (!req->mount->HasNonGuiMove())
         {
-            if (req->axisMove)
+            Debug.Write(wxString::Format("Error: %s cannot move off the main thread, move not made\n",
+                                         req->mount->GetMountClassName()));
+            assert(false);
+            throw ERROR_INFO("Mount has no non-GUI move");
+        }
+
+        if (req->axisMove)
+        {
+            Debug.Write(wxString::Format("Handling axis move in thread for %s dir=%d dur=%d\n", req->mount->GetMountClassName(),
+                                         req->direction, req->duration));
+
+            result = req->mount->MoveAxis(req->direction, req->duration, req->moveOptions);
+
+            if (result != Mount::MOVE_OK)
             {
-                Debug.Write(wxString::Format("Handling axis move in thread for %s dir=%d dur=%d\n",
-                                             req->mount->GetMountClassName(), req->direction, req->duration));
-
-                result = req->mount->MoveAxis(req->direction, req->duration, req->moveOptions);
-
-                if (result != Mount::MOVE_OK)
-                {
-                    throw ERROR_INFO("MoveAxis failed");
-                }
-            }
-            else
-            {
-                Debug.Write(wxString::Format("Handling offset move in thread for %s, endpoint = (%.2f, %.2f)\n",
-                                             req->mount->GetMountClassName(), req->ofs.cameraOfs.X, req->ofs.cameraOfs.Y));
-
-                result = req->mount->MoveOffset(&req->ofs, req->moveOptions);
-
-                if (result != Mount::MOVE_OK)
-                {
-                    throw ERROR_INFO("Move failed");
-                }
+                throw ERROR_INFO("MoveAxis failed");
             }
         }
         else
         {
-            // we don't have a non-gui guide function, so we send this to the
-            // main frame routine that handles guides requests
+            Debug.Write(wxString::Format("Handling offset move in thread for %s, endpoint = (%.2f, %.2f)\n",
+                                         req->mount->GetMountClassName(), req->ofs.cameraOfs.X, req->ofs.cameraOfs.Y));
 
-            Debug.Write("Sending move to myFrame\n");
-
-            wxSemaphore semaphore;
-            req->semaphore = &semaphore;
-
-            wxCommandEvent evt(REQUEST_MOUNT_MOVE_EVENT, GetId());
-            evt.SetClientData(req);
-            wxQueueEvent(m_pFrame, evt.Clone());
-
-            // wait for the request to complete
-            req->semaphore->Wait();
-
-            req->semaphore = nullptr;
-            result = req->moveResult;
+            result = req->mount->MoveOffset(&req->ofs, req->moveOptions);
 
             if (result != Mount::MOVE_OK)
             {
-                throw ERROR_INFO("myFrame handled move failed");
+                throw ERROR_INFO("Move failed");
             }
         }
     }
