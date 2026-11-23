@@ -93,7 +93,6 @@ public:
     virtual void GuidingEnabled();
     virtual void GuidingDisabled();
 
-    virtual ConfigDialogPane *GetConfigDialogPane(wxWindow *pParent) = 0;
     virtual wxString GetSettingsSummary() const { return wxEmptyString; }
     virtual wxString GetGuideAlgorithmClassName() const = 0;
     virtual void GetParamNames(wxArrayString& names) const;
@@ -104,7 +103,6 @@ public:
     wxString GetConfigPath() const;
     wxString GetAxis() const;
     virtual void ResetParams(); // Override if fine-tuned logic is needed by a particular algo
-    static void AdjustMinMoveSpinCtrl(wxSpinCtrlDouble *minMoveCtrl);
     static double SmartDefaultMinMove();
     static double SmartDefaultMinMove(int focalLength, double pixelSize, int binning);
 };

@@ -199,8 +199,6 @@ public:
         wxChoice *m_pYGuideAlgorithmChoice = nullptr;
         int m_initXGuideAlgorithmSelection = 0;
         int m_initYGuideAlgorithmSelection = 0;
-        ConfigDialogPane *m_pXGuideAlgorithmConfigDialogPane = nullptr;
-        ConfigDialogPane *m_pYGuideAlgorithmConfigDialogPane = nullptr;
         wxStaticBoxSizer *m_pAlgoBox;
         wxStaticBoxSizer *m_pRABox;
         wxStaticBoxSizer *m_pDecBox;
@@ -216,7 +214,6 @@ public:
         virtual void LoadValues();
         virtual void UnloadValues();
         virtual void LayoutControls(wxPanel *pParent, BrainCtrlIdMap& CtrlMap);
-        virtual void OnImageScaleChange();
         bool IsValid() { return m_pMount != nullptr; }
 
         virtual void Undo();
@@ -226,7 +223,6 @@ public:
         void ChangeYAlgorithm(const wxString& algoName);
         void ResetRAGuidingParams();
         void ResetDecGuidingParams();
-        void EnableDecControls(bool enable);
     };
 
     GUIDE_ALGORITHM GetXGuideAlgorithmSelection() const;

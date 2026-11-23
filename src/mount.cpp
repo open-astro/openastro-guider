@@ -158,15 +158,6 @@ wxString Mount::DeclinationStrTr(double dec, const wxString& numFormatStr)
     return dec == UNKNOWN_DECLINATION ? _("Unknown") : wxString::Format(numFormatStr, degrees(dec));
 }
 
-static ConfigDialogPane *GetGuideAlgoDialogPane(GuideAlgorithm *algo, wxWindow *parent, int fixedHeight)
-{
-    // we need to force the guide alogorithm config pane to be large enough for
-    // any of the guide algorithms
-    ConfigDialogPane *pane = algo->GetConfigDialogPane(parent);
-    pane->SetMinSize(-1, fixedHeight);
-    return pane;
-}
-
 Mount::MountConfigDialogPane::MountConfigDialogPane(wxWindow *pParent, const wxString& title, Mount *mount)
     : ConfigDialogPane(title, pParent)
 {
@@ -281,17 +272,7 @@ void Mount::MountConfigDialogPane::LayoutControls(wxPanel *pParent, BrainCtrlIdM
         m_pParent->Connect(m_pXGuideAlgorithmChoice->GetId(), wxEVT_COMMAND_CHOICE_SELECTED,
                            wxCommandEventHandler(Mount::MountConfigDialogPane::OnXAlgorithmSelected), 0, this);
 
-        if (!m_pMount->m_pXGuideAlgorithm)
-        {
-            m_pXGuideAlgorithmConfigDialogPane = nullptr;
-        }
-        else
-        {
-            m_pXGuideAlgorithmConfigDialogPane =
-                GetGuideAlgoDialogPane(m_pMount->m_pXGuideAlgorithm, m_pParent, Algo_RA_Layout_Height);
-        }
         m_pRABox->Add(m_pXGuideAlgorithmChoice, def_flags);
-        m_pRABox->Add(m_pXGuideAlgorithmConfigDialogPane, def_flags);
 
         if (!stepGuider)
             m_pRABox->Add(GetSizerCtrl(CtrlMap, AD_szMaxRAAmt), wxSizerFlags(0).Border(wxTOP, 35).Center());
@@ -320,17 +301,7 @@ void Mount::MountConfigDialogPane::LayoutControls(wxPanel *pParent, BrainCtrlIdM
         m_pParent->Connect(m_pYGuideAlgorithmChoice->GetId(), wxEVT_COMMAND_CHOICE_SELECTED,
                            wxCommandEventHandler(Mount::MountConfigDialogPane::OnYAlgorithmSelected), 0, this);
 
-        if (!m_pMount->m_pYGuideAlgorithm)
-        {
-            m_pYGuideAlgorithmConfigDialogPane = nullptr;
-        }
-        else
-        {
-            m_pYGuideAlgorithmConfigDialogPane =
-                GetGuideAlgoDialogPane(m_pMount->m_pYGuideAlgorithm, m_pParent, Algo_Dec_Layout_Height);
-        }
         m_pDecBox->Add(m_pYGuideAlgorithmChoice, def_flags);
-        m_pDecBox->Add(m_pYGuideAlgorithmConfigDialogPane, def_flags);
 
         if (!stepGuider)
         {
@@ -376,13 +347,6 @@ void Mount::MountConfigDialogPane::ResetRAGuidingParams()
     }
 }
 
-// This logic only affects the controls in the UI, nothing permanent here
-void Mount::MountConfigDialogPane::OnImageScaleChange()
-{
-    m_pXGuideAlgorithmConfigDialogPane->OnImageScaleChange();
-    m_pYGuideAlgorithmConfigDialogPane->OnImageScaleChange();
-}
-
 void Mount::MountConfigDialogPane::OnResetRAParams(wxCommandEvent& evt)
 {
     ResetRAGuidingParams();
@@ -407,14 +371,6 @@ void Mount::MountConfigDialogPane::ResetDecGuidingParams()
     }
 }
 
-void Mount::MountConfigDialogPane::EnableDecControls(bool enable)
-{
-    if (m_pYGuideAlgorithmConfigDialogPane)
-    {
-        m_pYGuideAlgorithmConfigDialogPane->EnableDecControls(enable);
-    }
-}
-
 void Mount::MountConfigDialogPane::OnResetDecParams(wxCommandEvent& evt)
 {
     ResetDecGuidingParams();
@@ -422,13 +378,7 @@ void Mount::MountConfigDialogPane::OnResetDecParams(wxCommandEvent& evt)
 
 void Mount::MountConfigDialogPane::OnXAlgorithmSelected(wxCommandEvent& evt)
 {
-    ConfigDialogPane *oldpane = m_pXGuideAlgorithmConfigDialogPane;
-    oldpane->Clear(true);
     m_pMount->SetXGuideAlgorithm(GuideAlgorithmFromName(m_pXGuideAlgorithmChoice->GetStringSelection()));
-    ConfigDialogPane *newpane = GetGuideAlgoDialogPane(m_pMount->m_pXGuideAlgorithm, m_pParent, Algo_RA_Layout_Height);
-    m_pRABox->Replace(oldpane, newpane);
-    m_pXGuideAlgorithmConfigDialogPane = newpane;
-    m_pXGuideAlgorithmConfigDialogPane->LoadValues();
     m_pRABox->Layout();
     m_pAlgoBox->Layout();
     m_pParent->Layout();
@@ -442,26 +392,12 @@ void Mount::MountConfigDialogPane::OnXAlgorithmSelected(wxCommandEvent& evt)
 
 void Mount::MountConfigDialogPane::OnYAlgorithmSelected(wxCommandEvent& evt)
 {
-    ConfigDialogPane *oldpane = m_pYGuideAlgorithmConfigDialogPane;
-    oldpane->Clear(true);
     m_pMount->SetYGuideAlgorithm(GuideAlgorithmFromName(m_pYGuideAlgorithmChoice->GetStringSelection()));
-    ConfigDialogPane *newpane = GetGuideAlgoDialogPane(m_pMount->m_pYGuideAlgorithm, m_pParent, Algo_Dec_Layout_Height);
-    m_pDecBox->Replace(oldpane, newpane);
-    m_pYGuideAlgorithmConfigDialogPane = newpane;
-    m_pYGuideAlgorithmConfigDialogPane->LoadValues();
     m_pDecBox->Layout();
     m_pAlgoBox->Layout();
     m_pParent->Layout();
     m_pParent->Update();
     m_pParent->Refresh();
-
-    // For Dec algo change, enable algo controls based on current UI setting for Dec guide mode
-    if (!m_pMount->IsStepGuider())
-    {
-        ScopeConfigDialogCtrlSet *pScopeCtrlSet = (ScopeConfigDialogCtrlSet *) m_pMount->currConfigDialogCtrlSet;
-        DEC_GUIDE_MODE whichMode = pScopeCtrlSet->GetDecGuideModeUI();
-        EnableDecControls(whichMode != DEC_NONE);
-    }
 
     // we can probably get rid of this when we reduce the number of GP algo settings
     wxWindow *adv = pFrame->pAdvancedDialog;
@@ -490,34 +426,10 @@ void Mount::MountConfigDialogPane::LoadValues()
     m_initYGuideAlgorithmSelection = m_pMount->GetYGuideAlgorithmSelection();
     m_pYGuideAlgorithmChoice->SetStringSelection(GuideAlgorithmNameTr(m_initYGuideAlgorithmSelection));
     m_pYGuideAlgorithmChoice->Enable(!pFrame->CaptureActive);
-
-    if (m_pXGuideAlgorithmConfigDialogPane)
-    {
-        m_pXGuideAlgorithmConfigDialogPane->LoadValues();
-    }
-
-    if (m_pYGuideAlgorithmConfigDialogPane)
-    {
-        m_pYGuideAlgorithmConfigDialogPane->LoadValues();
-    }
 }
 
 void Mount::MountConfigDialogPane::UnloadValues()
 {
-
-    // note these two have to be before the SetXxxAlgorithm calls, because if we
-    // changed the algorithm, the current one will get freed, and if we make
-    // these two calls after that, bad things happen
-    if (m_pXGuideAlgorithmConfigDialogPane)
-    {
-        m_pXGuideAlgorithmConfigDialogPane->UnloadValues();
-    }
-
-    if (m_pYGuideAlgorithmConfigDialogPane)
-    {
-        m_pYGuideAlgorithmConfigDialogPane->UnloadValues();
-    }
-
     m_pMount->SetXGuideAlgorithm(GuideAlgorithmFromName(m_pXGuideAlgorithmChoice->GetStringSelection()));
     m_pMount->SetYGuideAlgorithm(GuideAlgorithmFromName(m_pYGuideAlgorithmChoice->GetStringSelection()));
 }
@@ -527,15 +439,6 @@ void Mount::MountConfigDialogPane::Undo()
 {
     if (pMount)
     {
-        if (m_pXGuideAlgorithmConfigDialogPane)
-        {
-            m_pXGuideAlgorithmConfigDialogPane->Undo();
-        }
-
-        if (m_pYGuideAlgorithmConfigDialogPane)
-        {
-            m_pYGuideAlgorithmConfigDialogPane->Undo();
-        }
         m_pMount->SetXGuideAlgorithm(m_initXGuideAlgorithmSelection);
         m_pXGuideAlgorithmChoice->SetStringSelection(GuideAlgorithmNameTr(m_initXGuideAlgorithmSelection));
         wxCommandEvent dummy;

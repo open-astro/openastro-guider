@@ -192,8 +192,6 @@ wxFileDropTarget::OnData(int, int, wxDragResult)
 wxFileDropTarget::wxFileDropTarget()
 wxFileSelector(wxString const&, wxString const&, wxString const&, wxString const&, wxString const&, int, wxWindow*, int, int)
 wxFlexGridSizer::wxFlexGridSizer(int, int, int, int)
-wxFont::~wxFont()
-wxFontBase::SetWeight(wxFontWeight)
 wxFrame::AttachMenuBar(wxMenuBar*)
 wxFrame::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
 wxFrame::DetachMenuBar()
@@ -505,7 +503,6 @@ wxWindowBase::GetDefaultBorder() const
 wxWindowBase::GetEffectiveMinSize() const
 wxWindowBase::GetEventHashTable() const
 wxWindowBase::GetEventTable() const
-wxWindowBase::GetFont() const
 wxWindowBase::GetHelpTextAtPoint(wxPoint const&, wxHelpEvent::Origin) const
 wxWindowBase::GetPositionConstraint(int*, int*) const
 wxWindowBase::GetSizeConstraint(int*, int*) const

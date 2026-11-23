@@ -89,15 +89,6 @@ double GuideAlgorithm::SmartDefaultMinMove()
     }
 }
 
-void GuideAlgorithm::AdjustMinMoveSpinCtrl(wxSpinCtrlDouble *minMoveCtrl)
-{
-    // Always use current AD values for all params affecting image scale
-    double smartMove =
-        GuideAlgorithm::SmartDefaultMinMove(pFrame->pAdvancedDialog->GetFocalLength(), pFrame->pAdvancedDialog->GetPixelSize(),
-                                            pFrame->pAdvancedDialog->GetBinning());
-    minMoveCtrl->SetValue(smartMove);
-}
-
 void GuideAlgorithm::GuidingStarted() { }
 
 void GuideAlgorithm::GuidingStopped()

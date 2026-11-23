@@ -173,67 +173,8 @@ bool GuideAlgorithmLowpass2::SetAggressiveness(double aggressiveness)
     return bError;
 }
 
-ConfigDialogPane *GuideAlgorithmLowpass2::GetConfigDialogPane(wxWindow *pParent)
-{
-    return new GuideAlgorithmLowpass2ConfigDialogPane(pParent, this);
-}
-
 wxString GuideAlgorithmLowpass2::GetSettingsSummary() const
 {
     // return a loggable summary of current mount settings
     return wxString::Format("Aggressiveness = %.3f, Minimum move = %.3f\n", GetAggressiveness(), GetMinMove());
-}
-
-GuideAlgorithmLowpass2::GuideAlgorithmLowpass2ConfigDialogPane::GuideAlgorithmLowpass2ConfigDialogPane(
-    wxWindow *pParent, GuideAlgorithmLowpass2 *pGuideAlgorithm)
-    : ConfigDialogPane(_("Lowpass2 Guide Algorithm"), pParent)
-{
-    int width;
-
-    m_pGuideAlgorithm = pGuideAlgorithm;
-
-    m_pGuideAlgorithm = pGuideAlgorithm;
-
-    width = StringWidth(_T("000.00"));
-    m_pAggressiveness = pFrame->MakeSpinCtrl(pParent, wxID_ANY, _T(" "), wxDefaultPosition, wxSize(width, -1), wxSP_ARROW_KEYS,
-                                             0.0, 100.0, 0.0, _T("Aggressiveness"));
-
-    DoAdd(_("Aggressiveness"), m_pAggressiveness,
-          wxString::Format(_("What percentage of the computed correction should be applied? Default = %.f%%"),
-                           DefaultAggressiveness));
-
-    width = StringWidth(_T("000.00"));
-    m_pMinMove = pFrame->MakeSpinCtrlDouble(pParent, wxID_ANY, _T(" "), wxDefaultPosition, wxSize(width, -1), wxSP_ARROW_KEYS,
-                                            0.0, 20.0, 0.0, 0.01, _T("MinMove"));
-    m_pMinMove->SetDigits(2);
-
-    DoAdd(_("Minimum Move (pixels)"), m_pMinMove,
-          wxString::Format(_("How many (fractional) pixels must the star move to trigger a guide pulse? \n"
-                             "If camera is binned, this is a fraction of the binned pixel size. Default = %.2f"),
-                           DefaultMinMove));
-}
-
-GuideAlgorithmLowpass2::GuideAlgorithmLowpass2ConfigDialogPane::~GuideAlgorithmLowpass2ConfigDialogPane(void) { }
-
-void GuideAlgorithmLowpass2::GuideAlgorithmLowpass2ConfigDialogPane::LoadValues(void)
-{
-    m_pAggressiveness->SetValue(m_pGuideAlgorithm->GetAggressiveness());
-    m_pMinMove->SetValue(m_pGuideAlgorithm->GetMinMove());
-}
-
-void GuideAlgorithmLowpass2::GuideAlgorithmLowpass2ConfigDialogPane::UnloadValues(void)
-{
-    m_pGuideAlgorithm->SetAggressiveness(m_pAggressiveness->GetValue());
-    m_pGuideAlgorithm->SetMinMove(m_pMinMove->GetValue());
-}
-
-void GuideAlgorithmLowpass2::GuideAlgorithmLowpass2ConfigDialogPane::OnImageScaleChange()
-{
-    GuideAlgorithm::AdjustMinMoveSpinCtrl(m_pMinMove);
-}
-
-void GuideAlgorithmLowpass2::GuideAlgorithmLowpass2ConfigDialogPane::EnableDecControls(bool enable)
-{
-    m_pAggressiveness->Enable(enable);
-    m_pMinMove->Enable(enable);
 }
