@@ -9,7 +9,6 @@ typeinfo for wxFileDropTarget
 typeinfo for wxFrame
 typeinfo for wxPaintDC
 typeinfo for wxProgressDialog
-typeinfo for wxStaticBoxSizer
 typeinfo for wxWindow
 vtable for wxAnyButton
 vtable for wxAuiToolBar
@@ -54,7 +53,6 @@ vtable for wxwxMenuItemListNode
 vtable for wxwxSizerItemListNode
 wxAcceleratorTable::wxAcceleratorTable(int, wxAcceleratorEntry const*)
 wxAcceleratorTable::~wxAcceleratorTable()
-wxAnyButtonBase::SetBitmapPosition(wxDirection)
 wxApp::CleanUp()
 wxApp::GetClassInfo() const
 wxApp::Initialize(int&, wchar_t**)
@@ -106,9 +104,6 @@ wxBitmapBundle::wxBitmapBundle(wxBitmap const&)
 wxBitmapBundle::wxBitmapBundle(wxBitmapBundle const&)
 wxBitmapBundle::~wxBitmapBundle()
 wxBitmapHelpers::NewFromPNGData(void const*, unsigned long)
-wxBoxSizer::AddSpacer(int)
-wxBoxSizer::DoInsert(unsigned long, wxSizerItem*)
-wxBoxSizer::InformFirstDirection(int, int, int)
 wxButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxButtonNameStr
 wxCheckBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
@@ -164,7 +159,6 @@ wxEVT_CHAR_HOOK
 wxEVT_CLOSE_WINDOW
 wxEVT_COMBOBOX
 wxEVT_ERASE_BACKGROUND
-wxEVT_KILL_FOCUS
 wxEVT_LEFT_DOWN
 wxEVT_MENU
 wxEVT_PAINT
@@ -178,7 +172,6 @@ wxEVT_SCROLL_PAGEUP
 wxEVT_SCROLL_THUMBRELEASE
 wxEVT_SCROLL_THUMBTRACK
 wxEVT_SCROLL_TOP
-wxEVT_SET_FOCUS
 wxEVT_SPINCTRL
 wxEVT_UPDATE_UI
 wxEndBusyCursor()
@@ -269,8 +262,6 @@ wxMessageBoxCaptionStr
 wxNonOwnedWindow::DoClearShape()
 wxNonOwnedWindow::DoSetPathShape(wxGraphicsPath const&)
 wxNonOwnedWindow::DoSetRegionShape(wxRegion const&)
-wxNotebook::wxNotebook(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
-wxNotebookNameStr
 wxObjectArrayTraitsForwxAuiToolBarItemArray::Free(wxAuiToolBarItem*)
 wxPaintDC::GetClassInfo() const
 wxPaintDC::wxPaintDC(wxWindow*)
@@ -282,26 +273,10 @@ wxRadioButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize co
 wxRadioButtonNameStr
 wxRect::Contains(int, int) const
 wxRect::Intersect(wxRect const&)
-wxSizer::Clear(bool)
-wxSizer::DeleteWindows()
-wxSizer::Detach(int)
-wxSizer::Detach(wxSizer*)
-wxSizer::DoSetItemMinSize(unsigned long, int, int)
-wxSizer::DoSetItemMinSize(wxSizer*, int, int)
-wxSizer::DoSetItemMinSize(wxWindow*, int, int)
-wxSizer::DoSetMinSize(int, int)
 wxSizer::Fit(wxWindow*)
-wxSizer::Layout()
-wxSizer::RecalcSizes()
-wxSizer::Remove(int)
-wxSizer::Remove(wxSizer*)
-wxSizer::Replace(unsigned long, wxSizerItem*)
-wxSizer::Replace(wxSizer*, wxSizer*, bool)
-wxSizer::Replace(wxWindow*, wxWindow*, bool)
 wxSizerItem::DoSetSizer(wxSizer*)
 wxSizerItem::DoSetWindow(wxWindow*)
 wxSizerItem::Init(wxSizerFlags const&)
-wxSizerItem::wxSizerItem(int, int, int, int, int, wxObject*)
 wxSizerItem::wxSizerItem(wxSizer*, int, int, int, wxObject*)
 wxSizerItem::wxSizerItem(wxWindow*, int, int, int, wxObject*)
 wxSlider::Create(wxWindow*, int, int, int, int, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
@@ -316,12 +291,6 @@ wxSpinCtrlGTKBase::~wxSpinCtrlGTKBase()
 wxStaticBox::DoCreate(wxWindow*, int, wxString const*, wxWindow*, wxPoint const&, wxSize const&, long, wxString const&)
 wxStaticBoxBase::wxStaticBoxBase()
 wxStaticBoxNameStr
-wxStaticBoxSizer::AreAnyItemsShown() const
-wxStaticBoxSizer::CalcMin()
-wxStaticBoxSizer::Detach(wxWindow*)
-wxStaticBoxSizer::GetClassInfo() const
-wxStaticBoxSizer::RepositionChildren(wxSize const&)
-wxStaticBoxSizer::ShowItems(bool)
 wxStaticBoxSizer::wxStaticBoxSizer(int, wxWindow*, wxString const&)
 wxStaticBoxSizer::wxStaticBoxSizer(wxStaticBox*, int)
 wxStaticText::wxStaticText(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
@@ -333,7 +302,6 @@ wxStdDialogButtonSizer::wxStdDialogButtonSizer()
 wxStockGDI::GetBrush(wxStockGDI::Item)
 wxStockGDI::GetColour(wxStockGDI::Item)
 wxStockGDI::GetCursor(wxStockGDI::Item)
-wxSystemSettingsNative::GetMetric(wxSystemMetric, wxWindow const*)
 wxTextCtrl::ms_classInfo
 wxTextCtrl::wxTextCtrl(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxTextCtrlNameStr
@@ -341,7 +309,6 @@ wxTextEntry::wxTextEntry()
 wxTextEntry::~wxTextEntry()
 wxTextEntryDialog::Create(wxWindow*, wxString const&, wxString const&, wxString const&, long, wxPoint const&)
 wxTextWrapper::Wrap(wxWindow*, wxString const&, int)
-wxTipWindow::wxTipWindow(wxWindow*, wxString const&, int, wxTipWindow**, wxRect*)
 wxTopLevelWindowBase::Destroy()
 wxTopLevelWindowBase::DoCentre(int)
 wxTopLevelWindowBase::DoClientToScreen(int*, int*) const
