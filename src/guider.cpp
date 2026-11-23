@@ -1065,6 +1065,16 @@ void Guider::SetState(GUIDER_STATE newState)
 
             pFrame->UpdateStatusBarCalibrationStatus();
 
+            // #255: the adjustment clears the calibration when the image scale changed (HandleImageScaleChange), after
+            // the calibrating states decided there was nothing to calibrate; calibrate now instead of guiding uncalibrated
+            if (!pMount->IsCalibrated() ||
+                (pSecondaryMount && pSecondaryMount->IsConnected() && !pSecondaryMount->IsCalibrated()))
+            {
+                Debug.Write("calibration cleared on guiding start, calibrating\n");
+                newState = STATE_CALIBRATING_PRIMARY;
+                break;
+            }
+
             if (m_lockPosition.IsValid() && m_lockPosIsSticky)
             {
                 Debug.Write("keeping sticky lock position\n");
@@ -1498,6 +1508,8 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
         case STATE_CALIBRATED:
             assert(m_state == STATE_CALIBRATED);
             SetState(STATE_GUIDING);
+            if (m_state != STATE_GUIDING)
+                break; // entering guiding cleared the calibration and started a new one (#255)
 
             pFrame->NotifyGuidingStarted();
 

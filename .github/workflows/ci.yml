@@ -493,8 +493,9 @@ jobs:
         # gear (connect side effects, the #139 latch, --auto-connect and the #104 retry; instance
         # 12, fake port 11152, display 112) and faults (camera and mount faults, the #105
         # reconnect and its throttle, the Guiding Assistant and its restore; instance 13, 11153,
-        # 113). Locally under ASan they take about 3 min each (gear 190 s, faults 185 s), under
-        # the main lane's 5; the runner has 4 vCPUs for the four daemons, so read the lanes'
+        # 113). Locally under ASan gear takes about 9 min (536 s, 232 s of it the #115 N4 binning
+        # scenario's calibration at bin 2, #255) and faults about 3 (185 s), beside the main lane's
+        # 5; the runner has 4 vCPUs for the four daemons, so read the lanes'
         # times off the first run's log before counting on the overlap.
         timeout-minutes: 45
         env:

@@ -28,10 +28,6 @@ the gear lane, on a fake that answers ImageBytes (no calibration but the camera-
                           calibration's when the mount's read fails or its rates are invalid, 0.5x with the mount
                           not connected or nothing saved; with no mount selected nothing is adjusted, the Alert goes
                           out
-  binning change on       #115 N4: a calibration at bin 1, software binning 2, restore_calibration, guide with no
-  guide start             recalibration: AdjustCalibrationForScopePointing halves the rates, the scale Alert, the
-                          step and MinMoves reset for bin 2 and the calibration cleared; guiding goes on uncalibrated
-                          with no calibration (pinned as it is), and the next guide calibrates
   auto-connect            the daemon restarted with --auto-connect (as debian/openastro-guider.service runs it)
                           against the running fake: connected by the time the RPC port answers, the saved
                           calibration auto-loaded, no EquipmentReconnected
@@ -44,6 +40,11 @@ the gear lane, on a fake that answers ImageBytes (no calibration but the camera-
   guide connects first    restarted with nothing connected: guide connects the camera and the mount (#104), then
                           calibrates and guides; after set_connected false it refuses, naming both devices as
                           disconnected by the user
+  binning change on       #115 N4: a calibration at bin 1, software binning 2, restore_calibration, guide with no
+  guide start             recalibration: AdjustCalibrationForScopePointing halves the rates, the scale Alert, the
+                          step and MinMoves reset for bin 2 and the calibration cleared; the same guide then
+                          calibrates at bin 2 before it guides and settles (#255). Runs after the scenarios that
+                          calibrate, as it leaves that bin 2 calibration saved
   set_alpaca_server       with nothing connected, the mount wanted by the #104 retry and the camera disconnected by
   carry                   the user: the Alpaca selections follow the new server, the mount is tried there at once
                           and the camera is not; back on the fake, the mount reconnects at once
@@ -927,10 +928,10 @@ def scenario_binning_change(lane, args):
     camera at bin 2 (software binning: the fake camera has no hardware binning), the calibration restored and guide
     with no recalibration.
 
-    Pinned as it is today, which is not what the Alert says: the calibration is rescaled for bin 2 (and saved so),
-    then MakeImageScaleAdjustments clears it, and guiding starts anyway, on a mount that reads uncalibrated, with
-    no new calibration (Guider::UpdateGuideState is already past STATE_CALIBRATED when the adjustment runs). Only
-    the next guide calibrates."""
+    The calibration is rescaled for bin 2 (and saved so), then MakeImageScaleAdjustments clears it. The adjustment
+    runs as the guider enters guiding, past the calibrating states, so the guider goes back to calibrating there and
+    the same guide calibrates before it guides and settles (#255). At bin 2 the fake's 1x moves the star 0.97 px/s,
+    a quarter of what the guider's 1.93"/px x 2 predicts, so this calibration takes a few minutes."""
     cli = lane.cli
     out = []
     evs, _ = lane.calibrate(args.calibration_timeout)
@@ -957,11 +958,17 @@ def scenario_binning_change(lane, args):
         lane.debug.mark()
         start = cli.mark()
         expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": False}) == 0, "guide did not return 0")
-        done = cli.wait_events(start, "SettleDone", timeout=e2e.SETTLE["timeout"] + 60, abort_on=GUIDE_FAILURES)[0]
+        done = cli.wait_events(start, "SettleDone", timeout=args.calibration_timeout + e2e.SETTLE["timeout"] + 60,
+                               abort_on=GUIDE_FAILURES)[0]
         evs = cli.events_since(start)
-        names = names_of(evs)
+        names = names_of(evs, skip=("LoopingExposures", "GuideStep", "Settling", "StarSelected", "Calibrating"))
         expect(len(alerts(evs, SCALE_ALERT)) == 1, f"scale Alerts on the guide start: {names}, expected 1")
-        expect(names == ["ConfigurationChange", "Alert", "StartGuiding", "SettleBegin", "SettleDone"],
+        # #255: the calibration the adjustment cleared is made again in this guide, before it guides and settles
+        # (the calibration's save writes the profile: a ConfigurationChange before its CalibrationComplete)
+        legs = e2e.check_full_calibration(evs)
+        expect(names[:2] == ["ConfigurationChange", "Alert"] and
+               [n for n in names[2:] if n != "ConfigurationChange"] ==
+               ["StartCalibration", "CalibrationComplete", "StartGuiding", "SettleBegin", "SettleDone"],
                f"events of the guide: {names}")
         expect(done.get("Status") == 0, f"SettleDone {strip(done)}")
         dbg = lane.debug.text()
@@ -979,21 +986,11 @@ def scenario_binning_change(lane, args):
         want_mm = smart_default_min_move(FAKE_PIXEL_UM, binning=2)
         mm = min_moves(cli)
         expect(all(abs(m - want_mm) < 1e-3 for m in mm), f"MinMoves {mm}, expected {want_mm:.4f} (bin 2)")
-        # today: guiding on, the calibration cleared, and no calibration run
         expect(cli.call("get_app_state") == "Guiding", f"app state {cli.call('get_app_state')}")
-        expect(cli.call("get_calibrated") is False, "still calibrated after the binning change")
+        cal2 = cli.call("get_calibration_data", {"which": "Mount"})
+        expect(cal2.get("calibrated") is True, f"not calibrated after the guide: {cal2}")
         out.append(f"guide (no recalibration): events {names}, rates {old} -> {new}, step 2500 -> {want_ms} ms, "
-                   f"MinMoves {want_mm:.4f}; guiding uncalibrated, no calibration run")
-
-        # the next guide calibrates: stopped as soon as it starts (at bin 2 the fake's 1x moves the star 0.97 px/s,
-        # a quarter of what the guider's 1.93"/px x 2 predicts, so a full calibration would take minutes)
-        cli.call("stop_capture")
-        cli.wait_state("Stopped", 30)
-        e2e.loop_and_find_star(cli)
-        start = cli.mark()
-        expect(cli.call("guide", {"settle": e2e.SETTLE, "recalibrate": False}) == 0, "guide did not return 0")
-        cli.wait_events(start, "StartCalibration", timeout=60, abort_on=GUIDE_FAILURES)
-        out.append("the next guide (no recalibration) starts a calibration")
+                   f"MinMoves {want_mm:.4f}; calibrated again at bin 2 ({legs}, xRate {cal2['xRate']}), then guiding")
     finally:
         cli.call("stop_capture")
         cli.wait_state("Stopped", 30)
@@ -2003,18 +2000,24 @@ def run_gear(lane, args):
     lane.start_daemon()
     lane.step("set_alpaca_server moves the imaging-gear reader (#236)",
               lambda: scenario_imaging_gear_server_change(lane))
+    scale_ok = False
     if lane.step("connect side effects (set_connected, get_connected, #139 latch, refusals)",
                  lambda: scenario_connect_side_effects(lane)):
         if lane.step("camera change with the mount off (#139)", lambda: scenario_camera_change_mount_off(lane, args)):
             lane.step("image scale change: the guide speed sources (#115 N4)",
                       lambda: scenario_guide_speed_sources(lane))
-            lane.step("binning change on guide start (#115 N4)", lambda: scenario_binning_change(lane, args))
+            scale_ok = True
     lane.step("startup --auto-connect against the running fake", lambda: scenario_auto_connect(lane))
     lane.step("startup --auto-connect, the fake starting late (#104 retry)",
               lambda: scenario_auto_connect_late_fake(lane))
     lane.step("stale and case-changed selections in the profile file, restarted",
               lambda: scenario_stale_selection(lane))
     lane.step("guide connects the camera and mount first (#104)", lambda: scenario_guide_connects_first(lane, args))
+    if scale_ok:
+        # after every scenario that calibrates: it leaves the bin 2 calibration it makes (#255) saved, and a
+        # calibration at bin 1 after it adjusts its step and distance for the binning change
+        # (Scope::CheckCalibrationDuration)
+        lane.step("binning change on guide start (#115 N4)", lambda: scenario_binning_change(lane, args))
     lane.step("set_alpaca_server keeps the selections and the #104 retry", lambda: scenario_alpaca_server_carry(lane))
     lane.step("shutdown during a #104 probe", lambda: scenario_shutdown_during_probe(lane))
 
