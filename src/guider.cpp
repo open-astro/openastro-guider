@@ -712,7 +712,6 @@ bool Guider::SelectedStarClearForRecalibration() const
 static void SetAutoLoad(intptr_t)
 {
     pFrame->SetAutoLoadCalibration(true);
-    pFrame->m_infoBar->Dismiss();
 }
 
 // Generate an alert if the user is likely to be missing the opportunity for auto-restore of

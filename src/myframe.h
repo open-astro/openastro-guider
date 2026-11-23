@@ -43,6 +43,10 @@
 class WorkerThread;
 class MyFrame;
 struct alert_params;
+namespace exposure_choice
+{
+struct Selected;
+}
 
 enum E_MYFRAME_WORKER_THREAD_MESSAGES
 {
@@ -164,18 +168,13 @@ public:
     // pFrame; the members they read are null (or false) until the constructor creates them.
     Guider *pGuider = nullptr;
     wxMenuBar *Menubar;
-    wxMenu *tools_menu, *view_menu, *darks_menu;
+    wxMenu *tools_menu, *view_menu;
     wxMenuItem *m_loopMenuItem;
     wxMenuItem *m_guideMenuItem;
     wxMenuItem *m_stopMenuItem;
     wxMenuItem *m_autoSelectStarMenuItem;
-    wxMenuItem *m_useDarksMenuItem;
-    wxMenuItem *m_useDefectMapMenuItem;
     wxAuiToolBar *MainToolbar;
-    wxInfoBar *m_infoBar;
-    wxComboBox *Dur_Choice;
     wxCheckBox *HotPixel_Checkbox;
-    wxSlider *Gamma_Slider;
     GuideHistory *pGuideHistory = nullptr;
     EquipmentManager *pEquipment = nullptr; // the devices and their selection
     bool CaptureActive = false; // Is camera looping captures?
@@ -192,6 +191,12 @@ public:
     bool m_rawImageMode;
     bool m_rawImageModeWarningDone;
     wxSize m_prevDarkFrameSize;
+    // #115 S6.1: the dark library and the defect map can be used (a file that fits the camera) and are in use; what
+    // the Darks menu items' enabled and checked states held. A file can be in use only while available.
+    bool m_darksAvailable = true;
+    bool m_darksInUse = false;
+    bool m_defectMapAvailable = true;
+    bool m_defectMapInUse = false;
 
     void OnQuit(wxCommandEvent& evt);
     void OnClose(wxCloseEvent& evt);
@@ -200,14 +205,10 @@ public:
     void OnButtonLoop(wxCommandEvent& evt);
     void OnButtonStop(wxCommandEvent& evt);
     void OnButtonAutoStar(wxCommandEvent& evt);
-    void OnLoadDark(wxCommandEvent& evt);
-    void OnLoadDefectMap(wxCommandEvent& evt);
     void GuideButtonClick(bool interactive, const wxString& context);
     void OnButtonGuide(wxCommandEvent& evt);
     void OnIdle(wxIdleEvent& evt);
     void OnEEGG(wxCommandEvent& evt);
-    void OnExposureDurationSelected(wxCommandEvent& evt);
-    void OnGammaSlider(wxScrollEvent& evt);
     void OnSockServerEvent(wxSocketEvent& evt);
     void OnSockServerClientEvent(wxSocketEvent& evt);
     void HandleSockServerInput(wxSocketBase *sock);
@@ -234,7 +235,6 @@ public:
     NOISE_REDUCTION_METHOD GetNoiseReductionMethod() const;
     bool SetNoiseReductionMethod(int noiseReductionMethod);
     void AdjustAutoExposure(double curSNR);
-    static wxString ExposureDurationLabel(int exposure);
     const VarDelayCfg& GetVariableDelayConfig() const { return m_varDelayConfig; }
     void SetVariableDelayConfig(bool varDelayEnabled, int ShortDelayMS, int LongDelayMS);
     double GetDitherScaleFactor() const;
@@ -260,8 +260,8 @@ public:
     void SaveDarkLibrary(const wxString& note);
     static void DeleteDarkLibraryFiles(int profileID);
     static wxString DarkLibFileName(int profileId);
-    void SetDarkMenuState();
-    bool LoadDarkHandler(bool checkIt); // Use to also set menu item states
+    void SetDarkState();
+    bool LoadDarkHandler(bool checkIt); // Use to also set the in-use states below
     void LoadDefectMapHandler(bool checkIt);
     void CheckDarkFrameGeometry();
     void UpdateStatusBarCalibrationStatus();
@@ -361,10 +361,6 @@ private:
     int m_exposureDuration;
     AutoExposureCfg m_autoExp;
 
-    alert_fn *m_alertDontShowFn;
-    alert_fn *m_alertSpecialFn;
-    intptr_t m_alertFnArg;
-
     // for rate-limiting camera reconnect attempts, on monotonic_timers::ClockS (#226)
     monotonic_timers::ReconnectThrottle m_cameraReconnectThrottle;
 
@@ -372,16 +368,13 @@ private:
     bool StopWorkerThread(WorkerThread *& pWorkerThread);
     void OnStatusMsg(wxThreadEvent& event);
     void DoAlert(const alert_params& params);
-    void OnAlertButton(wxCommandEvent& evt);
-    void OnAlertHelp(wxCommandEvent& evt);
     void OnAlertFromThread(wxThreadEvent& event);
     void OnReconnectCameraFromThread(wxThreadEvent& event);
     void OnMessageBoxProxy(wxCommandEvent& evt);
     void SetupMenuBar();
     void SetupToolBar();
     void SetupKeyboardShortcuts();
-    int GetTextWidth(wxControl *pControl, const wxString& string);
-    void SetComboBoxWidth(wxComboBox *pComboBox, unsigned int extra);
+    void ApplyExposureChoice(const exposure_choice::Selected& sel);
     void FinishStop();
     void DoTryReconnect();
 
@@ -417,12 +410,6 @@ enum
     BUTTON_GUIDE,
     BUTTON_STOP,
     BUTTON_AUTOSTAR,
-    BUTTON_DURATION,
-    BUTTON_ALERT_ACTION,
-    BUTTON_ALERT_CLOSE,
-    BUTTON_ALERT_HELP,
-    BUTTON_ALERT_DONTSHOW,
-    CTRL_GAMMA,
     WIN_VFW, // Dummy event to capture VFW streams
     MGUIDE1_UP,
     MGUIDE1_DOWN,
@@ -441,8 +428,6 @@ enum
     MENU_AUTOSTAR,
     MENU_SAVESETTINGS,
     MENU_LOADSETTINGS,
-    MENU_LOADDARK,
-    MENU_LOADDEFECTMAP,
     MENU_INDICONFIG,
     MENU_INDIDIALOG,
     EEGG_STICKY_LOCK,

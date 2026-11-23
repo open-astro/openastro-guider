@@ -50,7 +50,6 @@
 #include <wx/artprov.h>
 #include <wx/dirdlg.h>
 #include <wx/dnd.h>
-#include <wx/textwrapper.h>
 #include <wx/valnum.h>
 
 static const int DefaultNoiseReductionMethod = 0;
@@ -79,8 +78,6 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 EVT_MENU(wxID_EXIT, MyFrame::OnQuit)
 EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
 EVT_MENU(wxID_SAVE, MyFrame::OnSave)
-EVT_MENU(MENU_LOADDARK, MyFrame::OnLoadDark)
-EVT_MENU(MENU_LOADDEFECTMAP, MyFrame::OnLoadDefectMap)
 
 EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
 EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
@@ -93,9 +90,6 @@ EVT_TOOL(BUTTON_AUTOSTAR, MyFrame::OnButtonAutoStar)
 EVT_MENU(MENU_STOP, MyFrame::OnButtonStop)
 EVT_TOOL(BUTTON_GUIDE, MyFrame::OnButtonGuide)
 EVT_MENU(MENU_GUIDE, MyFrame::OnButtonGuide)
-EVT_MENU(BUTTON_ALERT_CLOSE, MyFrame::OnAlertButton) // Bit of a hack -- not actually on the menu but need an event to accelerate
-EVT_COMMAND_SCROLL(CTRL_GAMMA, MyFrame::OnGammaSlider)
-EVT_COMBOBOX(BUTTON_DURATION, MyFrame::OnExposureDurationSelected)
 EVT_SOCKET(SOCK_SERVER_ID, MyFrame::OnSockServerEvent)
 EVT_SOCKET(SOCK_SERVER_CLIENT_ID, MyFrame::OnSockServerClientEvent)
 EVT_CLOSE(MyFrame::OnClose)
@@ -211,13 +205,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
 
     LoadProfileSettings();
 
-    // the alert info bar, in the frame; the guider is not a window (#115 S5.4)
-    m_infoBar = new wxInfoBar(this);
-    m_infoBar->Connect(BUTTON_ALERT_ACTION, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
-    m_infoBar->Connect(BUTTON_ALERT_DONTSHOW, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
-    m_infoBar->Connect(BUTTON_ALERT_CLOSE, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertButton), nullptr, this);
-    m_infoBar->Connect(BUTTON_ALERT_HELP, wxEVT_BUTTON, wxCommandEventHandler(MyFrame::OnAlertHelp), nullptr, this);
-
     pGuider = new GuiderMultiStar();
 
     pGuider->LoadProfileSettings();
@@ -256,8 +243,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
     SetDropTarget(new FileDropTarget());
 
     m_mgr.AddPane(MainToolbar, wxAuiPaneInfo().Name(_T("MainToolBar")).Caption(_T("Main tool bar")).ToolbarPane().Bottom());
-
-    m_mgr.AddPane(m_infoBar, wxAuiPaneInfo().Name(_T("AlertBar")).CenterPane().PaneBorder(false));
 
     pGuideHistory = NewGuideHistory();
 
@@ -362,28 +347,12 @@ void MyFrame::SetupMenuBar()
     view_menu->Append(MENU_RESTORE_WINDOWS, _("Restore Window Positions"),
                       _("Restore all windows to their default/docked positions"));
 
-    darks_menu = new wxMenu();
-    m_useDarksMenuItem =
-        darks_menu->AppendCheckItem(MENU_LOADDARK, _("Use &Dark Library"), _("Use the the dark library for this profile"));
-    m_useDefectMapMenuItem =
-        darks_menu->AppendCheckItem(MENU_LOADDEFECTMAP, _("Use &Bad-pixel Map"), _("Use the bad-pixel map for this profile"));
-
     Menubar = new wxMenuBar();
     Menubar->Append(file_menu, _("&File"));
     Menubar->Append(guide_menu, _("&Guide"));
     Menubar->Append(tools_menu, _("&Tools"));
     Menubar->Append(view_menu, _("&View"));
-    Menubar->Append(darks_menu, _("&Darks"));
     SetMenuBar(Menubar);
-}
-
-int MyFrame::GetTextWidth(wxControl *pControl, const wxString& string)
-{
-    int width;
-
-    pControl->GetTextExtent(string, &width, nullptr);
-
-    return width;
 }
 
 // Get either timelapse value or state-dependent variable-exposure-delay
@@ -411,25 +380,8 @@ int MyFrame::GetExposureDelay()
     return rslt;
 }
 
-void MyFrame::SetComboBoxWidth(wxComboBox *pComboBox, unsigned int extra)
-{
-    unsigned int i;
-    int width = -1;
-
-    for (i = 0; i < pComboBox->GetCount(); i++)
-    {
-        int thisWidth = GetTextWidth(pComboBox, pComboBox->GetString(i));
-
-        if (thisWidth > width)
-        {
-            width = thisWidth;
-        }
-    }
-
-    pComboBox->SetMinSize(wxSize(width + extra, -1));
-}
-
-static std::vector<int> exposure_durations;
+// the final entry is the custom value (exposure_choice.cpp)
+static std::vector<int> exposure_durations = exposure_choice::DefaultDurations();
 
 const std::vector<int>& MyFrame::GetExposureDurations() const
 {
@@ -446,8 +398,6 @@ bool MyFrame::SetCustomExposureDuration(int ms)
         NotifyExposureChanged();
     }
     exposure_durations.back() = ms;
-    Dur_Choice->SetString(exposure_choice::CustomEntry(exposure_durations),
-                          wxString::Format(_("Custom: %g s"), (double) ms / 1000.));
     pConfig->Profile.SetInt("/CustomExposureDuration", ms);
     return false;
 }
@@ -472,10 +422,8 @@ bool MyFrame::SetExposureDuration(int val)
     int entry = exposure_choice::SelectionFor(exposure_durations, val);
     if (entry == -1)
         return false;
-    Dur_Choice->SetSelection(entry);
-
-    wxCommandEvent dummy;
-    OnExposureDurationSelected(dummy);
+    // what selecting that entry did, with no Exposure choice to select it in (#115 S6.2)
+    ApplyExposureChoice(exposure_choice::Interpret(exposure_durations, entry));
     return true;
 }
 
@@ -551,15 +499,6 @@ void MyFrame::AdjustAutoExposure(double curSNR)
     }
 }
 
-wxString MyFrame::ExposureDurationLabel(int duration)
-{
-    if (duration >= 10000)
-        return wxString::Format(_("%g s"), (double) duration / 1000.);
-
-    int digits = duration < 100 ? 2 : 1;
-    return wxString::Format(_("%.*f s"), digits, (double) duration / 1000.);
-}
-
 static void LoadImageLoggerSettings()
 {
     ImageLoggerSettings settings;
@@ -618,14 +557,12 @@ void MyFrame::LoadProfileSettings()
     double targetSNR = pConfig->Profile.GetDouble("/auto_exp/target_snr", DefaultAutoExpSNR);
     SetAutoExposureCfg(minExp, maxExp, targetSNR);
     // force reset of auto-exposure state
-    m_autoExp.enabled = true; // OnExposureDurationSelected below will set the actual value
+    m_autoExp.enabled = true; // SetExposureDuration below will set the actual value
     ResetAutoExposure();
 
-    // set custom exposure duration vector value and drop-down list string from profile setting
+    // set the custom exposure duration from the profile setting
     int customDuration = pConfig->Profile.GetInt("/CustomExposureDuration", exposure_choice::DEFAULT_CUSTOM_MS);
     *exposure_durations.rbegin() = customDuration;
-    Dur_Choice->SetString(exposure_choice::CustomEntry(exposure_durations),
-                          wxString::Format(_("Custom: %g s"), (double) customDuration / 1000.));
 
     // for backward compatibity:
     // exposure duration used to be stored as the formatted string value appearing in the drop-down list,
@@ -657,7 +594,6 @@ void MyFrame::LoadProfileSettings()
     if (val > GAMMA_MAX)
         val = GAMMA_MAX;
     Stretch_gamma = (double) val / 100.0;
-    Gamma_Slider->SetValue(val);
 
     LoadImageLoggerSettings();
 }
@@ -690,34 +626,11 @@ void MyFrame::SetupToolBar()
 #include "icons/auto_select_disabled.png.h"
     wxBitmap auto_select_disabled_bmp(wxBITMAP_PNG_FROM_DATA(auto_select_disabled));
 
-    // the final entry is the custom value (exposure_choice.cpp)
-    exposure_durations = exposure_choice::DefaultDurations();
-
-    wxArrayString durs;
-    durs.Add(_("Auto"));
-    for (size_t i = 0; i + 1 < exposure_durations.size(); i++)
-        durs.Add(ExposureDurationLabel(exposure_durations[i]));
-    durs.Add(wxString::Format(_("Custom: %g s"), 9999.0));
-    durs.Add(_("Edit Custom..."));
-
-    Dur_Choice =
-        new wxComboBox(MainToolbar, BUTTON_DURATION, wxEmptyString, wxDefaultPosition, wxDefaultSize, durs, wxCB_READONLY);
-    Dur_Choice->SetToolTip(_("Camera exposure duration"));
-    SetComboBoxWidth(Dur_Choice, 10);
-
-    Gamma_Slider = new wxSlider(MainToolbar, CTRL_GAMMA, GAMMA_DEFAULT, GAMMA_MIN, GAMMA_MAX, wxPoint(-1, -1), wxSize(160, -1));
-    Gamma_Slider->SetBackgroundColour(wxColor(60, 60, 60)); // Slightly darker than toolbar background
-    Gamma_Slider->SetToolTip(_("Screen gamma (brightness)"));
-
     MainToolbar->AddTool(BUTTON_LOOP, loop_bmp, loop_bmp_disabled, false, 0, _("Begin looping exposures for frame and focus"));
     MainToolbar->AddTool(BUTTON_AUTOSTAR, auto_select_bmp, auto_select_disabled_bmp, false, 0,
                          _("Auto-select Star. Shift-click to de-select star."));
-    MainToolbar->AddTool(BUTTON_GUIDE, guide_bmp, guide_bmp_disabled, false, 0,
-                         _("Begin guiding (PHD). Shift-click to force calibration."));
+    MainToolbar->AddTool(BUTTON_GUIDE, guide_bmp, guide_bmp_disabled, false, 0, _("Begin guiding (PHD)."));
     MainToolbar->AddTool(BUTTON_STOP, stop_bmp, stop_bmp_disabled, false, 0, _("Stop looping and guiding"));
-    MainToolbar->AddSeparator();
-    MainToolbar->AddControl(Dur_Choice, _("Exposure duration"));
-    MainToolbar->AddControl(Gamma_Slider, _("Gamma"));
     MainToolbar->EnableTool(BUTTON_LOOP, false);
     MainToolbar->EnableTool(BUTTON_AUTOSTAR, false);
     MainToolbar->EnableTool(BUTTON_GUIDE, false);
@@ -731,7 +644,6 @@ void MyFrame::SetupKeyboardShortcuts()
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'G', MENU_GUIDE),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', MENU_LOOP),
         wxAcceleratorEntry(wxACCEL_CTRL, (int) 'S', MENU_STOP),
-        wxAcceleratorEntry(wxACCEL_CTRL, (int) 'D', BUTTON_ALERT_CLOSE),
     };
     wxAcceleratorTable accel(WXSIZEOF(entries), entries);
     SetAcceleratorTable(accel);
@@ -790,120 +702,36 @@ void MyFrame::UpdateButtonsStatus()
     }
 }
 
-static wxString WrapText(wxWindow *win, const wxString& text, int width)
-{
-    struct Wrapper : public wxTextWrapper
-    {
-        wxString m_str;
-        Wrapper(wxWindow *win, const wxString& text, int width) { Wrap(win, text, width); }
-        const wxString& Str() const { return m_str; }
-        void OnOutputLine(const wxString& line) { m_str += line; }
-        void OnNewLine() { m_str += '\n'; }
-    };
-    return Wrapper(win, text, width).Str();
-}
-
 struct alert_params
 {
     wxString msg;
-    wxString buttonLabel;
     int flags;
-    alert_fn *fnDontShow;
-    alert_fn *fnSpecial;
-    intptr_t arg;
-    bool showHelp;
 };
 
-void MyFrame::OnAlertButton(wxCommandEvent& evt)
-{
-    if (evt.GetId() == BUTTON_ALERT_ACTION && m_alertSpecialFn)
-        (*m_alertSpecialFn)(m_alertFnArg);
-    if (evt.GetId() == BUTTON_ALERT_DONTSHOW && m_alertDontShowFn)
-    {
-        (*m_alertDontShowFn)(m_alertFnArg);
-        // Don't show should also mean close the window
-        m_infoBar->Dismiss();
-    }
-    if (evt.GetId() == BUTTON_ALERT_CLOSE)
-        m_infoBar->Dismiss();
-}
-
-void MyFrame::OnAlertHelp(wxCommandEvent& evt)
-{
-    // The bundled GUI help was removed for the headless build; send the user
-    // to the online troubleshooting/help page instead.
-    wxLaunchDefaultBrowser("https://openphdguiding.org/getting-help/");
-}
-
-// Alerts may have a combination of 'Don't show', help, close, and 'Custom' buttons.  The 'close' button is added automatically
-// if any of the other buttons are present.
+// An alert is a Debug line and the Alert event, in that order (#115 S6.3). The info bar that showed it, with its
+// 'Don't show', custom-action, help and close buttons, is gone, so the alert_fn callbacks are never invoked.
 void MyFrame::DoAlert(const alert_params& params)
 {
     Debug.Write(wxString::Format("Alert: %s\n", params.msg));
-
-    m_alertDontShowFn = params.fnDontShow;
-    m_alertSpecialFn = params.fnSpecial;
-    m_alertFnArg = params.arg;
-
-    int buttonSpace = 80;
-    m_infoBar->RemoveButton(BUTTON_ALERT_ACTION);
-    m_infoBar->RemoveButton(BUTTON_ALERT_CLOSE);
-    m_infoBar->RemoveButton(BUTTON_ALERT_HELP);
-    m_infoBar->RemoveButton(BUTTON_ALERT_DONTSHOW);
-    if (params.fnDontShow)
-    {
-        m_infoBar->AddButton(BUTTON_ALERT_DONTSHOW, _("Don't show\n again"));
-        buttonSpace += 80;
-    }
-    if (params.fnSpecial)
-    {
-        m_infoBar->AddButton(BUTTON_ALERT_ACTION, params.buttonLabel);
-        buttonSpace += 80;
-    }
-    if (params.fnSpecial || params.fnDontShow || params.showHelp)
-    {
-        m_infoBar->AddButton(BUTTON_ALERT_CLOSE, _("Close"));
-        buttonSpace += 80;
-    }
-    if (params.showHelp)
-    {
-        m_infoBar->AddButton(BUTTON_ALERT_HELP, _("Help"));
-        buttonSpace += 80;
-    }
-    // the guider window the text wrapped to is gone (#115 S5.4): wrap to its default width
-    static const int AlertWrapWidth = 640;
-    int textWidth = wxMax(AlertWrapWidth - buttonSpace, 100);
-    wxString wrappedText = WrapText(m_infoBar, params.msg, textWidth);
-    int showMessageFlags = params.flags;
-    m_infoBar->ShowMessage(wrappedText, showMessageFlags);
     EvtServer.NotifyAlert(params.msg, params.flags);
 }
 
-void MyFrame::Alert(const wxString& msg, alert_fn *DontShowFn, const wxString& buttonLabel, alert_fn *SpecialFn, intptr_t arg,
-                    bool showHelpButton, int flags)
+// The button arguments are kept for the callers; with no info bar there are no buttons to offer them on
+void MyFrame::Alert(const wxString& msg, alert_fn * /*DontShowFn*/, const wxString& /*buttonLabel*/, alert_fn * /*SpecialFn*/,
+                    intptr_t /*arg*/, bool /*showHelpButton*/, int flags)
 {
     if (wxThread::IsMain())
     {
         alert_params params;
         params.msg = msg;
-        params.buttonLabel = buttonLabel;
         params.flags = flags;
-        params.fnDontShow = DontShowFn;
-        params.fnSpecial = SpecialFn;
-        params.arg = arg;
-        params.showHelp = showHelpButton;
         DoAlert(params);
     }
     else
     {
         alert_params *params = new alert_params;
         params->msg = msg;
-        params->buttonLabel = buttonLabel;
         params->flags = flags;
-        params->fnDontShow = DontShowFn;
-        params->fnSpecial = SpecialFn;
-        params->arg = arg;
-        params->showHelp = showHelpButton;
         wxThreadEvent *event = new wxThreadEvent(wxEVT_THREAD, ALERT_FROM_THREAD_EVENT);
         event->SetExtraLong((long) params);
         wxQueueEvent(this, event);
@@ -2238,33 +2066,33 @@ bool MyFrame::DarkLibExists(int profileId, bool showAlert)
 // surprise changes in binning
 void MyFrame::CheckDarkFrameGeometry()
 {
-    bool haveDefectMap = DefectMap::DefectMapExists(pConfig->GetCurrentProfileId(), m_useDefectMapMenuItem->IsEnabled());
-    bool haveDarkLib = DarkLibExists(pConfig->GetCurrentProfileId(), m_useDarksMenuItem->IsEnabled());
+    bool haveDefectMap = DefectMap::DefectMapExists(pConfig->GetCurrentProfileId(), m_defectMapAvailable);
+    bool haveDarkLib = DarkLibExists(pConfig->GetCurrentProfileId(), m_darksAvailable);
     bool defectMapOk = true;
 
-    if (m_useDefectMapMenuItem->IsEnabled())
+    if (m_defectMapAvailable)
     {
         if (!haveDefectMap)
         {
-            if (m_useDefectMapMenuItem->IsChecked())
+            if (m_defectMapInUse)
                 LoadDefectMapHandler(false);
-            m_useDefectMapMenuItem->Enable(false);
+            m_defectMapAvailable = false;
             Debug.Write("CheckDarkFrameGeometry: BPM incompatibility found\n");
             defectMapOk = false;
         }
     }
     else if (haveDefectMap)
     {
-        m_useDefectMapMenuItem->Enable(true);
+        m_defectMapAvailable = true;
     }
 
-    if (m_useDarksMenuItem->IsEnabled())
+    if (m_darksAvailable)
     {
         if (!haveDarkLib)
         {
-            if (m_useDarksMenuItem->IsChecked())
+            if (m_darksInUse)
                 LoadDarkHandler(false);
-            m_useDarksMenuItem->Enable(false);
+            m_darksAvailable = false;
             Debug.Write("CheckDarkFrameGeometry: Dark lib incompatibility found\n");
             if (!defectMapOk)
                 pFrame->Alert(_("Dark library and bad-pixel maps don't match the current camera. "
@@ -2273,22 +2101,22 @@ void MyFrame::CheckDarkFrameGeometry()
     }
     else if (haveDarkLib)
     {
-        m_useDarksMenuItem->Enable(true);
+        m_darksAvailable = true;
     }
 
     m_prevDarkFrameSize = pCamera->DarkFrameSize();
 }
 
-void MyFrame::SetDarkMenuState()
+void MyFrame::SetDarkState()
 {
     bool haveDarkLib = DarkLibExists(pConfig->GetCurrentProfileId(), true);
-    m_useDarksMenuItem->Enable(haveDarkLib);
+    m_darksAvailable = haveDarkLib;
     if (!haveDarkLib)
-        m_useDarksMenuItem->Check(false);
+        m_darksInUse = false;
     bool haveDefectMap = DefectMap::DefectMapExists(pConfig->GetCurrentProfileId(), true);
-    m_useDefectMapMenuItem->Enable(haveDefectMap);
+    m_defectMapAvailable = haveDefectMap;
     if (!haveDefectMap)
-        m_useDefectMapMenuItem->Check(false);
+        m_defectMapInUse = false;
 }
 
 bool MyFrame::LoadDarkLibrary()

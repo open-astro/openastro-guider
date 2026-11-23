@@ -75,14 +75,4 @@ bool CustomChangesExposure(const std::vector<int>& durations, int exposureMs, in
     return exposureMs == custom && custom != ms;
 }
 
-int EntryAfterEdit(const std::vector<int>& durations, bool autoExposure, int exposureMs)
-{
-    if (autoExposure)
-        return 0;
-    auto pos = std::find(durations.begin(), durations.end(), exposureMs);
-    if (pos == durations.end())
-        pos = std::find(durations.begin(), durations.end(), FALLBACK_MS); // safe fall-back, should not happen
-    return static_cast<int>(pos - durations.begin()) + 1; // skip Auto
-}
-
 } // namespace exposure_choice

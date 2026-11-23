@@ -149,9 +149,6 @@ public:
     virtual bool Slewing();
     virtual PierSide SideOfPier();
     virtual bool CanReportPosition(); // Can report RA, Dec, side-of-pier, etc.
-    // Will be called before guiding starts, before any call to GetCoordinates, GetDeclination, or SideOfPier.
-    // Does not get called unless guiding was started interactively (by clicking the guide button)
-    virtual bool PreparePositionInteractive();
     virtual bool CanPulseGuide();
 
     bool IsDecDrifting() const override;

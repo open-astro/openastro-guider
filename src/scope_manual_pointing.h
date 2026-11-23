@@ -51,7 +51,6 @@ public:
     bool GetCoordinates(double *ra, double *dec, double *siderealTime) override;
     bool GetSiteLatLong(double *latitude, double *longitude) override;
     PierSide SideOfPier() override;
-    bool PreparePositionInteractive() override;
     bool CanReportPosition() override;
 };
 

@@ -2,8 +2,8 @@
 //
 // set_exposure selects an entry of MyFrame's Exposure choice by value, and the selected entry
 // decides the exposure: Auto, one entry per duration (the custom duration last), then Edit
-// Custom..., which asks for a new custom duration. Slice S6.2 drops the combo box behind it;
-// these tests pin the mapping it keeps, as MyFrame did it before the move into
+// Custom..., which asked for a new custom duration. Slice S6.2 dropped the combo box behind it;
+// these tests pin the mapping it kept, as MyFrame did it before the move into
 // src/exposure_choice.cpp. The daemon end to end (each value of get_exposure_durations, Auto, the
 // custom duration and a refused value through set_exposure, with the GuideParamChange "Exposure"
 // event and get_exposure) is scripts/e2e_guide_scenarios.py's "exposure" scenario.
@@ -102,13 +102,4 @@ TEST(ExposureChoice, ANewCustomDurationMovesTheExposureOnlyWhenItWasTheCustomOne
     std::vector<int> custom2000 = kDurations;
     custom2000.back() = 2000; // a custom duration equal to another one (from an old profile)
     EXPECT_TRUE(CustomChangesExposure(custom2000, 2000, 45000));
-}
-
-TEST(ExposureChoice, TheEntryAfterEditCustomIsAutoTheExposureOrOneSecond)
-{
-    EXPECT_EQ(EntryAfterEdit(kDurations, true, 2000), 0);
-    EXPECT_EQ(EntryAfterEdit(kDurations, false, 2000), 9);
-    EXPECT_EQ(EntryAfterEdit(kDurations, false, 30000), 22);
-    EXPECT_EQ(EntryAfterEdit(kDurations, false, 1234), 7); // none of the durations: 1 s
-    EXPECT_EQ(Interpret(kDurations, EntryAfterEdit(kDurations, false, 1234)).durationMs, FALLBACK_MS);
 }
