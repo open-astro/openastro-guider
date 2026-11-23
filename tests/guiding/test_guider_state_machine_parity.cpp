@@ -7,6 +7,14 @@
 // now makes) with the same seeded calls and gear answers, and requires the same calls on the
 // gear, the frame, the event server and the guide log, the same Debug lines and the same state
 // after every call, doubles bit for bit. Coverage counters check every action and path is reached.
+//
+// The #285 fixes to the AO (secondary mount) calibration depart from the twin on purpose: with a
+// connected secondary, a SetState to CALIBRATING_PRIMARY, CALIBRATING_SECONDARY or GUIDING, or a
+// frame from CALIBRATING_PRIMARY to CALIBRATED (which may enter GUIDING, and #255 calibrate
+// again), may end differently. Such an op is the only one
+// allowed to differ, and the seed ends there (the gear's answers are no longer drawn in step);
+// test_guider_state_machine.cpp pins what the fixed machine does instead. Without a connected
+// secondary nothing may differ.
 
 #include <gtest/gtest.h>
 
@@ -87,6 +95,17 @@ struct Pair
     }
 };
 
+// the state ExpectSame compares, as one answer
+bool Matches(const Pair& p)
+{
+    const sm_test::World& w = p.w;
+    const legacy_sm::Guider& g = p.g;
+    return w.trace == legacy_sm::Twin::trace && w.state == g.m_state && w.lockValid == g.m_lockPosition.IsValid() &&
+        w.primaryCalibrated == p.primary.calibrated && w.secondaryCalibrated == p.secondary.calibrated &&
+        w.recenterActive == g.m_ditherRecenterRemaining.IsValid() && w.recenterStepsPending == g.m_ditherRecenterStepsPending &&
+        w.recenterStalledSteps == g.m_ditherRecenterStalledSteps && w.recenteringForWorker == g.m_recenteringForWorker;
+}
+
 void ExpectSame(Pair& p, const std::string& what)
 {
     const sm_test::World& w = p.w;
@@ -125,7 +144,8 @@ TEST(GuiderStateMachineParity, SeededSequences)
     std::map<int, int> actionsSeen;
     std::map<int, int> statesSeen;
     int ops = 0;
-    for (uint64_t seed = 1; seed <= 3000; seed++)
+    int departed = 0; // seeds ended by a #285 departure
+    for (uint64_t seed = 1; seed <= 3500; seed++)
     {
         std::mt19937_64 rng(seed * 7919);
         auto u = [&rng] { return std::uniform_real_distribution<double>(0., 1.)(rng); };
@@ -151,11 +171,16 @@ TEST(GuiderStateMachineParity, SeededSequences)
             p.w.actions.clear();
             legacy_sm::Twin::trace.clear();
             std::string what = "seed " + std::to_string(seed) + " op " + std::to_string(i);
+            const bool aoConnected = p.w.secondaryExists && p.w.secondaryConnected;
+            const GUIDER_STATE before = p.w.state;
+            bool mayDepart = false; // the op can reach the AO calibration #285 changed
             double r = u();
             if (r < 0.2)
             {
                 GUIDER_STATE st = static_cast<GUIDER_STATE>(static_cast<int>(u() * 8));
                 what += " SetState " + std::to_string(st);
+                mayDepart = aoConnected &&
+                    (st == STATE_CALIBRATING_PRIMARY || st == STATE_CALIBRATING_SECONDARY || st == STATE_GUIDING);
                 sm_test::SetState(p.w, st);
                 p.g.SetState(st);
             }
@@ -169,8 +194,15 @@ TEST(GuiderStateMachineParity, SeededSequences)
             {
                 bool found = u() < 0.85, paused = u() < 0.08;
                 what += std::string(" Frame found=") + (found ? "1" : "0") + " paused=" + (paused ? "1" : "0");
+                mayDepart =
+                    aoConnected && found && !paused && before >= STATE_CALIBRATING_PRIMARY && before <= STATE_CALIBRATED;
                 std::string a = sm_test::Frame(p.w, found, paused);
                 std::string b = LegacyFrame(p.g, found, paused);
+                if (mayDepart && (a != b || !Matches(p)))
+                {
+                    departed++;
+                    break;
+                }
                 ASSERT_EQ(a, b) << what;
             }
             else
@@ -232,6 +264,11 @@ TEST(GuiderStateMachineParity, SeededSequences)
                     p.SetGear(p.w.primaryCalibrated, exists, exists && u() < 0.7, p.w.secondaryCalibrated);
                 }
             }
+            if (mayDepart && !Matches(p))
+            {
+                departed++;
+                break;
+            }
             ExpectSame(p, what);
             ops++;
             for (auto a : p.w.actions)
@@ -241,6 +278,7 @@ TEST(GuiderStateMachineParity, SeededSequences)
     }
 
     EXPECT_GT(ops, 100000);
+    EXPECT_GT(departed, 100);
     for (int a = 0; a <= static_cast<int>(guider_state_machine::Action::RecenterOver); a++)
         EXPECT_GT(actionsSeen[a], 0) << "action " << a << " never reached";
     for (GUIDER_STATE st : { STATE_SELECTING, STATE_SELECTED, STATE_CALIBRATING_PRIMARY, STATE_CALIBRATING_SECONDARY,

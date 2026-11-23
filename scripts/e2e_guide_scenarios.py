@@ -1094,8 +1094,14 @@ GEOMETRY_ALERTS = (
     "Dark library and bad-pixel maps don't match the current camera. Check that you are connected to the camera you "
     "want to use for guiding.",
 )
-# get_calibration_files_status with no dark loaded: GuideCamera::GetDarkLibraryProperties's start values
-NO_DARKS = {"dark_count_loaded": 0, "dark_min_exposure_seconds_loaded": 9999, "dark_max_exposure_seconds_loaded": -9999}
+# a field get_calibration_files_status leaves out
+ABSENT = "<absent>"
+# get_calibration_files_status with no dark loaded: a count of 0 and no exposure range (#295; it was 9999 / -9999)
+NO_DARKS = {"dark_count_loaded": 0, "dark_min_exposure_seconds_loaded": ABSENT,
+            "dark_max_exposure_seconds_loaded": ABSENT}
+# the loaded darks' exposure range, in seconds (#295; it was the ms)
+DARKS_LOADED = {"dark_count_loaded": 2, "dark_min_exposure_seconds_loaded": DARK_EXPOSURES_MS[0] / 1000,
+                "dark_max_exposure_seconds_loaded": DARK_EXPOSURES_MS[-1] / 1000}
 
 
 def call_error(cli, method, params=None, timeout=30):
@@ -1108,7 +1114,7 @@ def call_error(cli, method, params=None, timeout=30):
 def calibration_files(cli, **want):
     """get_calibration_files_status, checked against `want`."""
     st = cli.call("get_calibration_files_status")
-    got = {k: st.get(k) for k in want}
+    got = {k: st.get(k, ABSENT) for k in want}
     expect(got == want, f"get_calibration_files_status {got}, expected {want} (all: {st})")
     return st
 
@@ -1118,15 +1124,14 @@ def loaded_state(dark, defect, auto_darks, auto_defect, compatible=True):
     want = {"dark_library_exists": True, "defect_map_exists": True, "dark_library_compatible": compatible,
             "defect_map_compatible": compatible, "dark_library_loaded": dark, "defect_map_loaded": defect,
             "auto_load_darks": auto_darks, "auto_load_defect_map": auto_defect}
-    want.update({"dark_count_loaded": 2, "dark_min_exposure_seconds_loaded": DARK_EXPOSURES_MS[0],
-                 "dark_max_exposure_seconds_loaded": DARK_EXPOSURES_MS[-1]} if dark else NO_DARKS)
+    want.update(DARKS_LOADED if dark else NO_DARKS)
     return want
 
 
 def enable(cli, method, enabled, **want):
     """set_dark_library_enabled / set_defect_map_enabled: its result is get_calibration_files_status, checked."""
     got = cli.call(method, {"enabled": enabled})
-    sub = {k: got.get(k) for k in want}
+    sub = {k: got.get(k, ABSENT) for k in want}
     expect(sub == want, f"{method} {enabled}: {sub}, expected {want}")
 
 
@@ -1136,15 +1141,16 @@ def build_events(evs, artifact):
 
 def scenario_dark_library(cli, fake, args, work):
     """N3: the dark-library and defect-map RPCs, pinned before #115 step 6 (S6.1) moves their state from MyFrame's
-    menu items into plain bools. With no files: get_calibration_files_status reports none, enabling either fails, and
-    turning the dark library off fails while turning the defect map off succeeds; each call writes its auto-load flag
-    all the same. build_dark_library of 2 exposures x 2 frames, polled with get_dark_build_progress from a second
+    menu items into plain bools. With no files: get_calibration_files_status reports none, enabling either fails and
+    leaves its auto-load flag as it was, and turning either off succeeds and turns its flag off (#295).
+    build_dark_library of 2 exposures x 2 frames, polled with get_dark_build_progress from a second
     connection: the result, the DarkLibrary* events, the progress through each frame and idle after, the library
     loaded. build_defect_map_darks: the DefectMap* events, the map loaded and the dark library unloaded; each enable
     unloads the other (and turns its auto-load flag off); rebuild_defect_map saved and not. Then the fake's frames
     shrink: the first smaller frame unloads both, with MyFrame::CheckDarkFrameGeometry's three Alerts, and the status
-    reads incompatible; back at full size both read compatible again and neither is loaded again. Both unloaded at
-    the end, with auto-load off, so the frames of the scenarios after it are the fake's own."""
+    reads incompatible; back at full size both read compatible again and neither is loaded again. With the
+    defect map loaded and the dark library file deleted, a dark library enable fails and changes nothing. Both
+    unloaded at the end, with auto-load off, so the frames of the scenarios after it are the fake's own."""
     import threading
 
     expect(cli.call("get_app_state") == "Stopped", "capture is not stopped before the dark library scenario")
@@ -1157,15 +1163,18 @@ def scenario_dark_library(cli, fake, args, work):
     expect(cli.call("get_dark_build_progress") == {"active": False, "exposure_index": 0, "exposure_count": 0,
                                                    "exposure_ms": 0, "frame": 0, "frame_count": 0},
            "get_dark_build_progress before a build")
-    # nothing built: each refusal still writes its auto-load flag (MyFrame::LoadDarkHandler / LoadDefectMapHandler)
+    # nothing built: a refused enable leaves its auto-load flag alone (#295)
     for method, params, err in (
             ("set_dark_library_enabled", {"enabled": True}, (1, "failed to load dark library")),
             ("set_defect_map_enabled", {"enabled": True}, (1, "failed to load defect map")),
-            ("set_dark_library_enabled", {"enabled": False}, (1, "failed to unload dark library")),
             ("rebuild_defect_map", {}, (1, "no master dark files for this profile; run build_defect_map_darks "
                                            "first"))):
         got = call_error(cli, method, params)
         expect(got == err, f"{method} {params} with no files: {got}, expected {err}")
+        calibration_files(cli, auto_load_darks=True, auto_load_defect_map=True, **none)
+    # turning either off with nothing loaded succeeds and turns its flag off (#295: the dark library's failed)
+    enable(cli, "set_dark_library_enabled", False, auto_load_darks=False, auto_load_defect_map=True, **none,
+           **NO_DARKS)
     enable(cli, "set_defect_map_enabled", False, auto_load_darks=False, auto_load_defect_map=False, **none)
 
     # the dark library, 2 exposures x 2 frames, polled from a second connection while the build holds this one
@@ -1214,14 +1223,11 @@ def scenario_dark_library(cli, fake, args, work):
     pos = [want_active.index(p) if p in want_active else -1 for p in active]
     expect(-1 not in pos and pos == sorted(pos), f"get_dark_build_progress {active}, expected steps of {want_active}")
     calibration_files(cli, dark_library_exists=True, dark_library_compatible=True, dark_library_loaded=True,
-                      defect_map_exists=False, auto_load_darks=True, auto_load_defect_map=False,
-                      dark_count_loaded=2, dark_min_exposure_seconds_loaded=DARK_EXPOSURES_MS[0],
-                      dark_max_exposure_seconds_loaded=DARK_EXPOSURES_MS[-1])
+                      defect_map_exists=False, auto_load_darks=True, auto_load_defect_map=False, **DARKS_LOADED)
     out = [f"dark library {built['exposures_ms']} x {DARK_FRAMES} in {build_s:.1f} s, {len(active)} of "
-           f"{len(want_active)} build steps polled, loaded (its exposures reported in ms as 'seconds')"]
+           f"{len(want_active)} build steps polled, loaded (its exposures reported in seconds)"]
     enable(cli, "set_dark_library_enabled", False, dark_library_loaded=False, auto_load_darks=False, **NO_DARKS)
-    got = call_error(cli, "set_dark_library_enabled", {"enabled": False})
-    expect(got == (1, "failed to unload dark library"), f"set_dark_library_enabled false, unloaded: {got}")
+    enable(cli, "set_dark_library_enabled", False, dark_library_loaded=False, auto_load_darks=False, **NO_DARKS)
     enable(cli, "set_dark_library_enabled", True, dark_library_loaded=True, auto_load_darks=True)
 
     # the defect map's darks: the map loaded, which unloads the dark library
@@ -1245,9 +1251,10 @@ def scenario_dark_library(cli, fake, args, work):
     enable(cli, "set_dark_library_enabled", True, **loaded_state(True, False, True, False))
     enable(cli, "set_defect_map_enabled", True, **loaded_state(False, True, False, True))
     enable(cli, "set_defect_map_enabled", False, **loaded_state(False, False, False, False))
-    enable(cli, "set_defect_map_enabled", False, **loaded_state(False, False, False, False))  # no error, unlike darks
+    enable(cli, "set_defect_map_enabled", False, **loaded_state(False, False, False, False))  # off twice succeeds
+    enable(cli, "set_dark_library_enabled", False, **loaded_state(False, False, False, False))  # so does this
     out.append(f"defect map {defects} defects from {DARK_FRAMES} x {DEFECT_DARK_MS} ms darks; each enable unloads "
-               "the other; the defect map off twice succeeds, the dark library off twice fails")
+               "the other; each off with nothing loaded succeeds")
 
     rebuilt = cli.call("rebuild_defect_map", {"aggressiveness_hot": 100, "aggressiveness_cold": 100})
     want = {"aggressiveness_hot": 100, "aggressiveness_cold": 100, "defect_count": defects,
@@ -1290,6 +1297,20 @@ def scenario_dark_library(cli, fake, args, work):
     enable(cli, "set_dark_library_enabled", False, **loaded_state(False, False, False, False))
     out.append(f"a {DARK_SMALL_SIZE[0]}x{DARK_SMALL_SIZE[1]} frame: both unloaded, {len(GEOMETRY_ALERTS)} Alerts, "
                "incompatible; full size again: compatible, not reloaded")
+
+    # with the defect map loaded and no dark library file, a dark library enable fails and leaves the map loaded and
+    # both auto-load flags as they were (#295: it unloaded the map and wrote both flags first)
+    enable(cli, "set_defect_map_enabled", True, **loaded_state(False, True, False, True))
+    st = cli.call("delete_calibration_files", {"delete_dark_library": True, "delete_defect_map": False})
+    expect(st["dark_library_exists"] is False and st["defect_map_loaded"] is True,
+           f"delete_calibration_files of the dark library alone: {st}")
+    got = call_error(cli, "set_dark_library_enabled", {"enabled": True})
+    expect(got == (1, "failed to load dark library"), f"set_dark_library_enabled true with no file: {got}")
+    calibration_files(cli, dark_library_exists=False, dark_library_loaded=False, defect_map_loaded=True,
+                      auto_load_darks=False, auto_load_defect_map=True, **NO_DARKS)
+    enable(cli, "set_defect_map_enabled", False, defect_map_loaded=False, auto_load_darks=False,
+           auto_load_defect_map=False)
+    out.append("a failed dark library enable leaves the defect map loaded and the flags alone")
     return "; ".join(out)
 
 
