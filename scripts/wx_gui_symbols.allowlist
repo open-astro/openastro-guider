@@ -35,7 +35,6 @@ vtable for wxSizerItem
 vtable for wxSlider
 vtable for wxSpinCtrl
 vtable for wxSpinCtrlDouble
-vtable for wxStaticBox
 vtable for wxwxMenuItemListNode
 vtable for wxwxSizerItemListNode
 wxAcceleratorTable::wxAcceleratorTable(int, wxAcceleratorEntry const*)
@@ -210,7 +209,6 @@ wxRadioButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize co
 wxRadioButtonNameStr
 wxRect::Contains(int, int) const
 wxRect::Intersect(wxRect const&)
-wxSizer::Fit(wxWindow*)
 wxSizerItem::DoSetSizer(wxSizer*)
 wxSizerItem::DoSetWindow(wxWindow*)
 wxSizerItem::Init(wxSizerFlags const&)
@@ -225,17 +223,9 @@ wxSpinCtrlGTKBase::DoGetValue() const
 wxSpinCtrlGTKBase::DoSetValue(double)
 wxSpinCtrlGTKBase::wxSpinCtrlGTKBase()
 wxSpinCtrlGTKBase::~wxSpinCtrlGTKBase()
-wxStaticBox::DoCreate(wxWindow*, int, wxString const*, wxWindow*, wxPoint const&, wxSize const&, long, wxString const&)
-wxStaticBoxBase::wxStaticBoxBase()
-wxStaticBoxNameStr
 wxStaticBoxSizer::wxStaticBoxSizer(int, wxWindow*, wxString const&)
-wxStaticBoxSizer::wxStaticBoxSizer(wxStaticBox*, int)
 wxStaticText::wxStaticText(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
-wxStaticTextBase::Wrap(int)
 wxStaticTextNameStr
-wxStdDialogButtonSizer::AddButton(wxButton*)
-wxStdDialogButtonSizer::Realize()
-wxStdDialogButtonSizer::wxStdDialogButtonSizer()
 wxStockGDI::GetColour(wxStockGDI::Item)
 wxStockGDI::GetCursor(wxStockGDI::Item)
 wxTextCtrl::wxTextCtrl(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
@@ -388,7 +378,6 @@ wxWindowBase::SetInitialSize(wxSize const&)
 wxWindowBase::SetNextHandler(wxEvtHandler*)
 wxWindowBase::SetPreviousHandler(wxEvtHandler*)
 wxWindowBase::SetSizeConstraint(int, int, int, int)
-wxWindowBase::SetSizer(wxSizer*, bool)
 wxWindowBase::SetSizerAndFit(wxSizer*, bool)
 wxWindowBase::SetValidator(wxValidator const&)
 wxWindowBase::ToggleWindowStyle(int)

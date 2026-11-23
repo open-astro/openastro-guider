@@ -1259,11 +1259,6 @@ bool Scope::GetSiteLatLong(double *latitude, double *longitude)
     return true; // error
 }
 
-bool Scope::PreparePositionInteractive()
-{
-    return false; // no error
-}
-
 bool Scope::CanReportPosition()
 {
     return false;

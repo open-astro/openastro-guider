@@ -774,39 +774,15 @@ void MyFrame::GuideButtonClick(bool interactive, const wxString& context)
 
         if (pGuider->GetState() < STATE_SELECTED)
         {
-            wxMessageBox(_T("Please select a guide star before attempting to guide"));
+            // #115 S6.4: a Debug line instead of the message box
+            Debug.Write("GuideButtonClick: no guide star selected\n");
             throw ERROR_INFO("Unable to guide with state < STATE_SELECTED");
         }
 
         ValidateDarksLoaded();
 
-        if (wxGetKeyState(WXK_SHIFT))
-        {
-            // Only if user did shift-click; calib may have been cleared by other means
-            bool recalibrate = true;
-            if (pMount->IsCalibrated() || (pSecondaryMount && pSecondaryMount->IsCalibrated()))
-            {
-                recalibrate = ConfirmDialog::Confirm(_("Are you sure you want to force recalibration?"),
-                                                     "/force_recalibration_ok", _("Force Recalibration"));
-            }
-            if (recalibrate)
-            {
-                pMount->ClearCalibration();
-                if (pSecondaryMount)
-                    pSecondaryMount->ClearCalibration();
-            }
-            else
-                return;
-        }
-
-        if (interactive && pPointingSource && pPointingSource->IsConnected() && pPointingSource->CanReportPosition())
-        {
-            // If it's being used, the ask-for-coordinates dialog will populate scope position info needed for
-            // StartGuiding()
-            if (pPointingSource->PreparePositionInteractive()) // Returns true only if user cancels ask-for-coordinates dialog
-                return;
-        }
-
+        // #115 S6.4: no shift-click forced recalibration (guide with recalibrate: true clears the calibration) and
+        // no ask-for-coordinates dialog for a manual pointing source, which only a --gui click ever reached
         StartGuiding();
     }
     catch (const wxString& Msg)
