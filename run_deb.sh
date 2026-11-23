@@ -52,7 +52,7 @@ Missing build tool: $tool
 
 On Debian 13 Trixie / Raspberry Pi OS Trixie:
   sudo apt-get install build-essential git cmake pkg-config libwxgtk3.2-dev \\
-      wx-common zlib1g-dev libx11-dev libcfitsio-dev libjpeg-dev \\
+      wx-common zlib1g-dev libcfitsio-dev libjpeg-dev \\
       libcurl4-gnutls-dev libopencv-dev libeigen3-dev libgtest-dev
 EOF
         exit 1

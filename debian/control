@@ -4,6 +4,9 @@ Priority: optional
 Maintainer: OpenAstro <support@openastro.net>
 Build-Depends: debhelper-compat (= 13),
                cmake,
+# libwxgtk3.2-dev is the only wx development package Debian has (no wxBase-only
+# one). The daemon uses and links wxBase and wxNet only (#115 step 8), so the
+# runtime Depends that shlibs gives is libwxbase3.2 alone: no GTK and no X11.
                libwxgtk3.2-dev,
                libcfitsio-dev,
                libjpeg-dev,
@@ -24,8 +27,7 @@ Architecture: arm64
 Breaks: openastro-phd2 (<< 2.0.0), phd2-alpaca (<< 2.0.0)
 Replaces: openastro-phd2 (<< 2.0.0), phd2-alpaca (<< 2.0.0)
 Depends: ${shlibs:Depends}, ${misc:Depends},
-         adduser,
-         xvfb
+         adduser
 Description: OpenAstro headless Alpaca-only auto-guiding engine
  OpenAstro Guider is a Linux-only, headless guiding engine derived from PHD2.
  Connect your mount, your camera, select a star, and start guiding — driven
