@@ -290,9 +290,10 @@ bool Scope::SetDecGuideMode(int decGuideMode)
 
         if (m_decGuideMode != decGuideMode)
         {
+            // atomic: the worker reads it during a guide move (#280)
             m_decGuideMode = (DEC_GUIDE_MODE) decGuideMode;
 
-            wxString s = DecGuideModeStr(m_decGuideMode);
+            wxString s = DecGuideModeStr(m_decGuideMode.load());
             Debug.Write(wxString::Format("DecGuideMode set to %s (%d)\n", s, decGuideMode));
             pFrame->NotifyGuidingParam("Dec Guide Mode", s);
             BacklashComp *blc = GetBacklashComp();
@@ -304,7 +305,7 @@ bool Scope::SetDecGuideMode(int decGuideMode)
                 else
                     blc->ResetBLCState();
             }
-            pConfig->Profile.SetInt("/scope/DecGuideMode", m_decGuideMode);
+            pConfig->Profile.SetInt("/scope/DecGuideMode", m_decGuideMode.load());
             if (pFrame)
                 pFrame->UpdateStatusBarCalibrationStatus();
         }
@@ -578,7 +579,7 @@ Mount::MOVE_RESULT Scope::MoveAxis(GUIDE_DIRECTION direction, int duration, unsi
         // the limit-reached count (guide_move_plan.cpp)
         guide_move_plan::AxisPolicy policy;
         policy.guidingEnabled = m_guidingEnabled;
-        policy.decMode = static_cast<guide_move_plan::DecMode>(m_decGuideMode);
+        policy.decMode = static_cast<guide_move_plan::DecMode>(m_decGuideMode.load());
         policy.maxRaMs = m_maxRaDuration;
         policy.maxDecMs = m_maxDecDuration;
         guide_move_plan::AxisPlan plan = guide_move_plan::PlanAxis(static_cast<guide_move_plan::Dir>(direction), duration,
@@ -910,7 +911,7 @@ bool Scope::IsCalibrated() const
     if (!Mount::IsCalibrated())
         return false;
 
-    switch (m_decGuideMode)
+    switch (m_decGuideMode.load())
     {
     case DEC_NONE:
         return true;
@@ -1110,7 +1111,7 @@ bool Scope::UpdateCalibrationState(const PHD_Point& currentLocation)
         settings.distancePx = GetCalibrationDistance();
         settings.maxRaMs = m_maxRaDuration;
         settings.maxDecMs = m_maxDecDuration;
-        settings.decMode = static_cast<calibration_run::DecMode>(m_decGuideMode);
+        settings.decMode = static_cast<calibration_run::DecMode>(m_decGuideMode.load());
         settings.assumeOrthogonal = m_assumeOrthogonal;
         settings.fastRecenter = pFrame->pGuider->IsFastRecenterEnabled();
         settings.maxMovePx = pFrame->pGuider->GetMaxMovePixels();

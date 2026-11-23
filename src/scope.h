@@ -39,6 +39,8 @@
 #include "calibration_run.h"
 #include "guide_move_plan.h"
 
+#include <atomic>
+
 #define CALIBRATION_RATE_UNCALIBRATED 123e4
 
 class Scope;
@@ -56,7 +58,9 @@ class Scope : public Mount
     int m_calibrationDuration;
     int m_maxDecDuration;
     int m_maxRaDuration;
-    DEC_GUIDE_MODE m_decGuideMode;
+    // atomic: the worker thread reads it during a guide move (MoveAxis, ApplyBacklashComp) while the main thread
+    // can set it (set_dec_guide_mode, the Guiding Assistant, the dither-settle override) (#280)
+    std::atomic<DEC_GUIDE_MODE> m_decGuideMode;
 
     int64_t m_limitReachedDeferralTime; // on guide_move_plan::AlertClockS, not the wall clock (#212)
     guide_move_plan::LimitTracker m_raLimitReached;

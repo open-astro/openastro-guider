@@ -10,6 +10,8 @@ the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir
   http-before    before the first frame, the HTTP data port (8080 + instance - 1): /api/frame.jpg 404 "no image
                  available", other paths, a POST and ../-style /api/capture names 404 "Not found" (N2)
   smoke          scripts/phd2_rpc_smoke.py with --fake-alpaca-url
+  rpc-churn      once connected and looping, 200 JSON-RPC clients that send one request or 20 and close at once,
+                 half with a reset: the daemon stays up and answers (#270)
   nr-at-schedule once connected, capture_single_frame with no noise reduction and set_noise_reduction
                  "3x3 Median" during the exposure: the saved frame is unfiltered, and the next one filtered (#210)
   http-frame     after a single frame, /api/frame.jpg: 200 image/jpeg with Content-Length and an ETag "f<N>", 304 on
@@ -63,6 +65,7 @@ import re
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -885,6 +888,37 @@ def scenario_http_before_first_frame(args):
             "capture names 404 'Not found'")
 
 
+RPC_CHURN_CYCLES = 200
+
+
+def scenario_rpc_client_churn(cli, args):
+    """#270: JSON-RPC clients that send requests and close at once, while looping, so events go out to sockets
+    that are going away. Half close with a FIN and half with a reset (SO_LINGER 0, as a dropped network does to
+    Ara's long-lived socket), some after one request and some after a burst of them. The daemon stays up and
+    answers, with no sanitizer report: a LOST event destroys the client while more events for it can be queued."""
+    start = cli.mark()
+    cli.call("loop")
+    cli.wait_events(start, "LoopingExposures", count=2, timeout=60)
+    req = b'{"method":"get_app_state","id":1}\r\n'
+    t0 = time.time()
+    try:
+        for i in range(RPC_CHURN_CYCLES):
+            s = socket.create_connection(("127.0.0.1", args.rpc_port), timeout=30)
+            s.sendall(req * (20 if i % 4 >= 2 else 1))
+            if i % 2:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            s.close()
+        cli.daemon.check_alive()
+        state = cli.call("get_app_state")  # Selected once a star is picked while looping
+        expect(state in ("Looping", "Selected"), f"{state} after the client churn, not looping")
+        cli.wait_events(cli.mark(), "LoopingExposures", count=2, timeout=60)
+    finally:
+        cli.call("stop_capture")
+        cli.wait_state("Stopped", 30)
+    return (f"{RPC_CHURN_CYCLES} connect/request/close cycles in {time.time() - t0:.0f} s while looping; the "
+            "daemon up and answering")
+
+
 def single_frame(cli, exposure=500):
     start = cli.mark()
     cli.call("capture_single_frame", {"exposure": exposure})
@@ -1267,6 +1301,7 @@ def lane_steps(lane, step, cli, fake, args, ctx):
         if not args.skip_smoke:
             step("smoke (phd2_rpc_smoke.py)", lambda: run_smoke(args, fake, ctx["work"]))
         if step("connect the fake camera and mount", connect):
+            step("JSON-RPC clients that close at once (#270)", lambda: scenario_rpc_client_churn(cli, args))
             step("noise reduction is the one in effect when the frame was scheduled (#210)",
                  lambda: scenario_noise_reduction_at_schedule(cli))
             step("HTTP data port: /api/frame.jpg and /api/capture (N2)",

@@ -380,7 +380,11 @@ BacklashComp::BacklashComp(Scope *scope)
         m_compActive = pConfig->Profile.GetBoolean("/" + m_pScope->GetMountClassName() + "/BacklashCompEnabled", false);
     else
         m_compActive = false;
-    SetCompValues(lastAmt, lastFloor, lastCeiling);
+    // A new profile has no DecBacklashPulse, read as 0, and SetCompValues lets a 0 pulse through with a 0 ceiling,
+    // which set_backlash_comp refuses (20..8000), so a client could not write back what get_backlash_comp read (#280).
+    // A pulse of 0 keeps the comp off (above), so start it from the smallest pulse the setter takes. The profile keeps
+    // what it holds until a setter writes it.
+    SetCompValues(lastAmt > 0 ? lastAmt : static_cast<int>(MIN_COMP_AMOUNT), lastFloor, lastCeiling);
     m_lastDirection = NONE;
     if (m_compActive)
         Debug.Write(wxString::Format("BLC: Enabled with correction = %d ms, Floor = %d, Ceiling = %d, %s\n", m_pulseWidth,
