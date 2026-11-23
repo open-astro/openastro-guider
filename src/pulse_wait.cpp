@@ -18,6 +18,10 @@ enum
 
 long SleepBeforeFirstPollMs(long durationMs, long elapsedSinceSendMs)
 {
+    // A negative elapsed time is a step back of the clock, not time still to come: wait no longer
+    // than the whole pulse.
+    if (elapsedSinceSendMs < 0)
+        elapsedSinceSendMs = 0;
     if (elapsedSinceSendMs >= durationMs)
         return 0;
     return durationMs - elapsedSinceSendMs + POLL_MARGIN_MS;
@@ -25,6 +29,10 @@ long SleepBeforeFirstPollMs(long durationMs, long elapsedSinceSendMs)
 
 bool CompletionTimedOut(long durationMs, long elapsedSinceSendMs)
 {
+    // A negative elapsed time is a step back of the clock: how long the mount has been waited on
+    // is unknown, and waiting for the clock to catch up could take as long as the step.
+    if (elapsedSinceSendMs < 0)
+        return true;
     return elapsedSinceSendMs > durationMs + TIMEOUT_MS;
 }
 } // namespace PulseWait
