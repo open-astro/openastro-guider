@@ -406,6 +406,7 @@ int BacklashComp::GetBacklashPulseMinValue()
 
 void BacklashComp::GetBacklashCompSettings(int *pulseWidth, int *floor, int *ceiling) const
 {
+    AlgorithmSlot::Hold held = m_pScope->LockAlgorithms(); // the worker's TrackBLCResults changes them (#142 T2b)
     *pulseWidth = m_pulseWidth;
     *floor = m_adjustmentFloor;
     *ceiling = m_adjustmentCeiling;
@@ -432,6 +433,7 @@ void BacklashComp::SetCompValues(int requestedSize, int floor, int ceiling)
 // Public method to ask for a set of backlash comp settings.  Ceiling == 0 implies compute a default
 void BacklashComp::SetBacklashPulseWidth(int ms, int floor, int ceiling)
 {
+    AlgorithmSlot::Hold held = m_pScope->LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
     if (m_pulseWidth != ms || m_adjustmentFloor != floor || m_adjustmentCeiling != ceiling)
     {
         int oldBLC = m_pulseWidth;
@@ -453,11 +455,12 @@ void BacklashComp::SetBacklashPulseWidth(int ms, int floor, int ceiling)
 
 void BacklashComp::EnableBacklashComp(bool enable)
 {
+    AlgorithmSlot::Hold held = m_pScope->LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
     if (m_compActive != enable)
     {
         pFrame->NotifyGuidingParam("Backlash comp enabled", enable);
         if (enable)
-            ResetBLCState();
+            ResetBLCStateHeld();
     }
 
     m_compActive = enable;
@@ -467,6 +470,12 @@ void BacklashComp::EnableBacklashComp(bool enable)
 }
 
 void BacklashComp::ResetBLCState()
+{
+    AlgorithmSlot::Hold held = m_pScope->LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
+    ResetBLCStateHeld();
+}
+
+void BacklashComp::ResetBLCStateHeld()
 {
     if (m_compActive)
     {
@@ -484,7 +493,7 @@ void BacklashComp::TrackBLCResults(unsigned int moveOptions, double yRawOffset)
     if (!(moveOptions & MOVEOPT_USE_BLC))
     {
         // Calibration-type move that can move mount in Dec w/out notifying blc about direction
-        ResetBLCState();
+        ResetBLCStateHeld(); // the worker holds the guard here (Mount::MoveOffset)
         return;
     }
 

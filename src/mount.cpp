@@ -609,6 +609,8 @@ void Mount::SetXGuideAlgorithm(int guideAlgorithm)
 {
     if (!m_pXGuideAlgorithm || m_pXGuideAlgorithm->Algorithm() != guideAlgorithm)
     {
+        // a move can be using the algorithm on the worker: the swap waits for it (#142 T2b)
+        AlgorithmSlot::Hold held = LockAlgorithms();
         delete m_pXGuideAlgorithm;
 
         if (guideAlgorithm == GUIDE_ALGORITHM_NONE)
@@ -634,6 +636,8 @@ void Mount::SetYGuideAlgorithm(int guideAlgorithm)
 {
     if (!m_pYGuideAlgorithm || m_pYGuideAlgorithm->Algorithm() != guideAlgorithm)
     {
+        // a move can be using the algorithm on the worker: the swap waits for it (#142 T2b)
+        AlgorithmSlot::Hold held = LockAlgorithms();
         delete m_pYGuideAlgorithm;
 
         if (guideAlgorithm == GUIDE_ALGORITHM_NONE)
@@ -678,7 +682,10 @@ void Mount::SetGuidingEnabled(bool guidingEnabled)
         Debug.Write(wxString::Format("%s: %d\n", s, guidingEnabled));
         pFrame->NotifyGuidingParam(s, guidingEnabled);
         m_guidingEnabled = guidingEnabled;
-        NotifyGuidingEnabled(m_pXGuideAlgorithm, m_pYGuideAlgorithm, guidingEnabled);
+        {
+            AlgorithmSlot::Hold held = LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
+            NotifyGuidingEnabled(m_pXGuideAlgorithm, m_pYGuideAlgorithm, guidingEnabled);
+        }
         if (guidingEnabled)
         {
             // avoid sending false positive alerts after guiding is
@@ -1047,8 +1054,12 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
 
         if (moveOptions & MOVEOPT_ALGO_DEDUCE)
         {
-            xDistance = m_pXGuideAlgorithm ? m_pXGuideAlgorithm->deduceResult() : 0.0;
-            yDistance = m_pYGuideAlgorithm ? m_pYGuideAlgorithm->deduceResult() : 0.0;
+            {
+                // the main thread can change or replace the algorithms (#142 T2b)
+                AlgorithmSlot::Hold held = LockAlgorithms();
+                xDistance = m_pXGuideAlgorithm ? m_pXGuideAlgorithm->deduceResult() : 0.0;
+                yDistance = m_pYGuideAlgorithm ? m_pYGuideAlgorithm->deduceResult() : 0.0;
+            }
             if (xDistance == 0.0 && yDistance == 0.0)
                 return result;
             ofs->mountOfs.SetXY(xDistance, yDistance);
@@ -1072,6 +1083,10 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
 
             Debug.Write(wxString::Format("Moving (%.2f, %.2f) raw xDistance=%.2f yDistance=%.2f\n", ofs->cameraOfs.X,
                                          ofs->cameraOfs.Y, xDistance, yDistance));
+
+            // The guide computation, under the guard: the main thread can change or replace the algorithms and
+            // the BLC while this runs on the worker (#142 T2b). Not held across the MoveAxis calls below
+            AlgorithmSlot::Hold held = LockAlgorithms();
 
             // Let BLC track the raw offsets in Dec
             if (m_backlashComp)
@@ -1110,7 +1125,11 @@ Mount::MOVE_RESULT Mount::MoveOffset(GuiderOffset *ofs, unsigned int moveOptions
         if (guide_move_plan::SendDecAfter(static_cast<guide_move_plan::MoveResult>(xResult)))
         {
             if (m_backlashComp)
+            {
+                // the BLC's state, not the pulse: MoveAxis is outside the guard (#142 T2b)
+                AlgorithmSlot::Hold held = LockAlgorithms();
                 m_backlashComp->ApplyBacklashComp(moveOptions, yDistance, &requestedYAmount);
+            }
 
             yResult = MoveAxis(yDirection, requestedYAmount, moveOptions, &yMoveResult);
         }
@@ -1691,6 +1710,8 @@ void Mount::NotifyGuidingStarted()
 {
     Debug.Write("Mount: notify guiding started\n");
 
+    AlgorithmSlot::Hold held = LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
+
     if (m_pXGuideAlgorithm)
         m_pXGuideAlgorithm->GuidingStarted();
 
@@ -1702,19 +1723,25 @@ void Mount::NotifyGuidingStopped()
 {
     Debug.Write("Mount: notify guiding stopped\n");
 
-    if (m_pXGuideAlgorithm)
-        m_pXGuideAlgorithm->GuidingStopped();
+    {
+        AlgorithmSlot::Hold held = LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
 
-    if (m_pYGuideAlgorithm)
-        m_pYGuideAlgorithm->GuidingStopped();
+        if (m_pXGuideAlgorithm)
+            m_pXGuideAlgorithm->GuidingStopped();
+
+        if (m_pYGuideAlgorithm)
+            m_pYGuideAlgorithm->GuidingStopped();
+    }
 
     if (m_backlashComp)
-        m_backlashComp->ResetBLCState();
+        m_backlashComp->ResetBLCState(); // takes the guard itself
 }
 
 void Mount::NotifyGuidingPaused()
 {
     Debug.Write("Mount: notify guiding paused\n");
+
+    AlgorithmSlot::Hold held = LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
 
     if (m_pXGuideAlgorithm)
         m_pXGuideAlgorithm->GuidingPaused();
@@ -1726,6 +1753,8 @@ void Mount::NotifyGuidingPaused()
 void Mount::NotifyGuidingResumed()
 {
     Debug.Write("Mount: notify guiding resumed\n");
+
+    AlgorithmSlot::Hold held = LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
 
     if (m_pXGuideAlgorithm)
         m_pXGuideAlgorithm->GuidingResumed();
@@ -1750,6 +1779,8 @@ void Mount::NotifyGuidingDithered(double dx, double dy, bool mountCoords)
         }
     }
 
+    AlgorithmSlot::Hold held = LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
+
     if (m_pXGuideAlgorithm)
         m_pXGuideAlgorithm->GuidingDithered(dx);
 
@@ -1760,6 +1791,7 @@ void Mount::NotifyGuidingDithered(double dx, double dy, bool mountCoords)
 void Mount::NotifyGuidingDitherSettleDone(bool success)
 {
     Debug.Write(wxString::Format("Mount: notify guiding dither settle done success=%d\n", success));
+    AlgorithmSlot::Hold held = LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
     if (m_pXGuideAlgorithm)
         m_pXGuideAlgorithm->GuidingDitherSettleDone(success);
     if (m_pYGuideAlgorithm)
@@ -1769,6 +1801,7 @@ void Mount::NotifyGuidingDitherSettleDone(bool success)
 void Mount::NotifyDirectMove(const PHD_Point& dist)
 {
     Debug.Write(wxString::Format("Mount: notify direct move %.2f,%.2f\n", dist.X, dist.Y));
+    AlgorithmSlot::Hold held = LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
     if (m_pXGuideAlgorithm)
         m_pXGuideAlgorithm->DirectMoveApplied(dist.X);
     if (m_pYGuideAlgorithm)
@@ -1913,6 +1946,8 @@ wxString Mount::GetSettingsSummary() const
     else
         s += "not calibrated\n";
 
+    // the worker's guide computation changes what the algorithms and the BLC report (#142 T2b)
+    AlgorithmSlot::Hold held = LockAlgorithms();
     s += wxString::Format("X guide algorithm = %s, %s", GuideAlgorithmName(GetXGuideAlgorithmSelection()),
                           m_pXGuideAlgorithm->GetSettingsSummary()) +
         wxString::Format("Y guide algorithm = %s, %s", GuideAlgorithmName(GetYGuideAlgorithmSelection()),

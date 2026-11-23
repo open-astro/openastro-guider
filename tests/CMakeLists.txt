@@ -726,6 +726,39 @@ set_property(TARGET test_guide_move_plan PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_move_plan COMMAND test_guide_move_plan)
 
 ############################################################################
+# test_algorithm_slot  --  algorithm_slot.h, the guard between the worker
+# thread's guide computation (Mount::MoveOffset) and the main thread's
+# changes to the algorithms and the BLC (set_algo, set_algo_param,
+# guiding_assistant_apply, set_backlash_comp; #142 T2b). Built with
+# ThreadSanitizer so a race in the pattern fails the test. Not where the
+# build already has a sanitizer in CMAKE_CXX_FLAGS (ASan and TSan cannot be
+# linked together) or on MSVC; there it builds and runs uninstrumented and
+# its BuiltWithThreadSanitizer case is skipped. Run under setarch -R:
+# ThreadSanitizer runtimes older than the kernel can fail at startup on a
+# mapping in their shadow range when vm.mmap_rnd_bits is high (Ubuntu
+# 24.04), and ASLR off keeps every mapping where it expects.
+############################################################################
+add_executable(test_algorithm_slot
+  ${PHD_TESTS_DIR}/guiding/test_algorithm_slot.cpp
+)
+target_link_libraries(test_algorithm_slot PRIVATE phd_test_common)
+set_property(TARGET test_algorithm_slot PROPERTY FOLDER "Unit tests")
+set(PHD_ALGORITHM_SLOT_TSAN OFF)
+if(NOT MSVC AND NOT CMAKE_CXX_FLAGS MATCHES "-fsanitize=")
+  set(PHD_ALGORITHM_SLOT_TSAN ON)
+  target_compile_options(test_algorithm_slot PRIVATE -fsanitize=thread -fno-omit-frame-pointer -g)
+  target_compile_definitions(test_algorithm_slot PRIVATE PHD_EXPECT_TSAN)
+  target_link_options(test_algorithm_slot PRIVATE -fsanitize=thread)
+endif()
+find_program(PHD_SETARCH setarch)
+if(PHD_ALGORITHM_SLOT_TSAN AND PHD_SETARCH AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_test(NAME test_algorithm_slot COMMAND ${PHD_SETARCH} ${CMAKE_SYSTEM_PROCESSOR} -R $<TARGET_FILE:test_algorithm_slot>)
+else()
+  add_test(NAME test_algorithm_slot COMMAND test_algorithm_slot)
+endif()
+set_tests_properties(test_algorithm_slot PROPERTIES ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1:abort_on_error=1:second_deadlock_stack=1")
+
+############################################################################
 # test_guiding_rms_baseline  --  a seeded closed-loop guiding simulation
 # (#142): sinusoidal PE, drift, seeing, the mount's guide rate and the
 # camera's exposure cadence, guided through the REAL calibration_transform,

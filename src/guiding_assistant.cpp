@@ -497,6 +497,8 @@ static bool ApplyGAMinMove(GuideAlgorithm *algo, double minMove, const wxString&
     if (!algo)
         return false;
 
+    AlgorithmSlot::Hold held = pMount->LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
+
     if (algo->GetMinMove() >= 0.0)
     {
         if (!algo->SetMinMove(minMove))
@@ -525,8 +527,11 @@ static bool ConfigureGADecLowpass2(double decMinMove)
     }
 
     double newAggr = 80.0;
-    decAlgo->SetParam("aggressiveness", newAggr);
-    decAlgo->SetParam("minMove", decMinMove);
+    {
+        AlgorithmSlot::Hold held = pMount->LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
+        decAlgo->SetParam("aggressiveness", newAggr);
+        decAlgo->SetParam("minMove", decMinMove);
+    }
     Debug.Write(
         wxString::Format("GuideAssistant set Lowpass2 aggressiveness = %0.2f, min-move = %0.2f\n", newAggr, decMinMove));
     pFrame->NotifyGuidingParam("Declination algorithm", wxString("Lowpass2"));

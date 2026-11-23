@@ -36,6 +36,7 @@
 #ifndef MOUNT_H_INCLUDED
 #define MOUNT_H_INCLUDED
 
+#include "algorithm_slot.h"
 #include "guide_algorithms.h"
 #include "image_math.h"
 #include "messagebox_proxy.h"
@@ -184,6 +185,7 @@ protected:
 
     wxString m_Name;
     BacklashComp *m_backlashComp;
+    mutable AlgorithmSlot m_algorithmSlot; // the algorithms' and the BLC's guard (#142 T2b)
     GuideStepInfo m_lastStep;
 
     // Things related to the Advanced Config Dialog
@@ -350,6 +352,8 @@ public:
 
     void GetLastCalibration(Calibration *cal) const;
     BacklashComp *GetBacklashComp() const { return m_backlashComp; }
+    // #142 T2b: held for the guide computation on the worker and for changes to the algorithms or the BLC
+    AlgorithmSlot::Hold LockAlgorithms() const { return m_algorithmSlot.Take(); }
 
     // virtual functions -- these CAN be overridden by a subclass, which should
     // consider whether they need to call the base class functions as part of

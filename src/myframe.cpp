@@ -2673,6 +2673,7 @@ void MyFrame::MakeImageScaleAdjustments()
 
         double defMinMove = GuideAlgorithm::SmartDefaultMinMove(focalLength, pixelSize, binning);
         Debug.Write(wxString::Format("Guide algo min moves reset to %.3fu\n", defMinMove));
+        AlgorithmSlot::Hold held = pMount->LockAlgorithms(); // a move can be computing on the worker (#142 T2b)
         pMount->GetXGuideAlgorithm()->SetMinMove(defMinMove);
         pMount->GetYGuideAlgorithm()->SetMinMove(defMinMove);
     }

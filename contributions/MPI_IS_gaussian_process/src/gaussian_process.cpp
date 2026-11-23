@@ -305,7 +305,8 @@ void GP::inferSD(const Eigen::VectorXd& data_loc, const Eigen::VectorXd& data_ou
 void GP::clearData()
 {
     gram_matrix_ = Eigen::MatrixXd();
-    chol_gram_matrix_ = Eigen::LDLT<Eigen::MatrixXd>();
+    // from the empty matrix, not a default LDLT: Eigen 3.4.0's leaves m_info unset, and moving it in is UB (#142)
+    chol_gram_matrix_ = gram_matrix_.ldlt();
     data_loc_ = Eigen::VectorXd();
     data_out_ = Eigen::VectorXd();
 }
