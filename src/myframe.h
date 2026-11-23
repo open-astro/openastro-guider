@@ -183,11 +183,13 @@ public:
     bool m_darksInUse = false;
     bool m_defectMapAvailable = true;
     bool m_defectMapInUse = false;
+    bool m_shutDown = false; // Shutdown() has run (#115 S6.8)
 
     void OnClose(wxCloseEvent& evt);
     // #115 S6.8: the exit sequence (worker threads, devices, servers, guide log); IdleClosing calls it, then deletes the
     // frame
     void Shutdown();
+    bool IsShutDown() const { return m_shutDown; }
     void GuideButtonClick(bool interactive, const wxString& context);
     void OnSockServerEvent(wxSocketEvent& evt);
     void OnSockServerClientEvent(wxSocketEvent& evt);
