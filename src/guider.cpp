@@ -35,6 +35,7 @@
 #include "guiding_assistant.h"
 #include "edge_allowance.h"
 #include "guide_move_plan.h"
+#include "guider_state_machine.h"
 
 // un-comment to log star deflections to a file
 // #define CAPTURE_DEFLECTIONS
@@ -133,36 +134,11 @@ static void LoadBookmarks(std::vector<wxRealPoint> *vec)
     }
 }
 
-static const wxStringCharType *StateStr(GUIDER_STATE st)
-{
-    switch (st)
-    {
-    case STATE_UNINITIALIZED:
-        return wxS("UNINITIALIZED");
-    case STATE_SELECTING:
-        return wxS("SELECTING");
-    case STATE_SELECTED:
-        return wxS("SELECTED");
-    case STATE_CALIBRATING_PRIMARY:
-        return wxS("CALIBRATING_PRIMARY");
-    case STATE_CALIBRATING_SECONDARY:
-        return wxS("CALIBRATING_SECONDARY");
-    case STATE_CALIBRATED:
-        return wxS("CALIBRATED");
-    case STATE_GUIDING:
-        return wxS("GUIDING");
-    case STATE_STOP:
-        return wxS("STOP");
-    default:
-        return wxS("??");
-    }
-}
-
 Guider::Guider(wxWindow *parent, int xSize, int ySize)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxSize(xSize, ySize), wxFULL_REPAINT_ON_RESIZE)
 {
     m_state = STATE_UNINITIALIZED;
-    Debug.Write(wxString::Format("guider state => %s\n", StateStr(m_state)));
+    Debug.Write(wxString::Format("guider state => %s\n", guider_state_machine::StateName(m_state)));
     m_scaleFactor = 1.0;
     m_showBookmarks = true;
     m_displayedImage = new wxImage(XWinSize, YWinSize, true);
@@ -813,12 +789,6 @@ bool Guider::SetLockPosToStarAtPosition(const PHD_Point& starPosHint)
     return error;
 }
 
-// distance to nearest edge
-static double edgeDist(const PHD_Point& pt, const wxSize& size)
-{
-    return wxMin(pt.X, wxMin(size.GetWidth() - pt.X, wxMin(pt.Y, size.GetHeight() - pt.Y)));
-}
-
 bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
 {
     bool err = false;
@@ -837,46 +807,27 @@ bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
 
         const usImage *image = CurrentImage();
 
-        // This loop is to handle dithers when the star is near the edge of the frame. The strategy
-        // is to try reflecting the requested dither in 4 directions along the RA/Dec axes; if any
-        // of the projections results in a valid lock position, use it. Otherwise, choose the
-        // direction that moves farthest from the edge of the frame.
-
-        PHD_Point cameraDelta, mountDelta;
-        double dbest;
-
-        for (int q = 0; q < 4; q++)
+        // This handles dithers when the star is near the edge of the frame: the requested dither,
+        // reflected in 4 directions along the RA/Dec axes (guider_state_machine::ChooseDitherDelta)
+        guider_state_machine::DitherChoice choice = guider_state_machine::ChooseDitherDelta(
+            { m_lockPosition.X, m_lockPosition.Y }, { mountDeltaArg.X, mountDeltaArg.Y }, image->Size.GetWidth(),
+            image->Size.GetHeight(),
+            [](const guider_state_machine::Point& mount, guider_state_machine::Point *camera)
+            {
+                PHD_Point tmpCamera;
+                if (pMount->TransformMountCoordinatesToCameraCoordinates(PHD_Point(mount.x, mount.y), tmpCamera))
+                    return true;
+                *camera = { tmpCamera.X, tmpCamera.Y };
+                return false;
+            },
+            [this](const guider_state_machine::Point& lockPos) { return IsValidLockPosition(PHD_Point(lockPos.x, lockPos.y)); },
+            [](const std::string& line) { Debug.Write(wxString(line)); });
+        if (!choice.ok)
         {
-            int sx = 1 - ((q & 1) << 1);
-            int sy = 1 - (q & 2);
-
-            PHD_Point tmpMount(mountDeltaArg.X * sx, mountDeltaArg.Y * sy);
-            PHD_Point tmpCamera;
-
-            if (pMount->TransformMountCoordinatesToCameraCoordinates(tmpMount, tmpCamera))
-            {
-                throw ERROR_INFO("Transform failed");
-            }
-
-            PHD_Point tmpLockPosition = m_lockPosition + tmpCamera;
-
-            if (IsValidLockPosition(tmpLockPosition))
-            {
-                cameraDelta = tmpCamera;
-                mountDelta = tmpMount;
-                break;
-            }
-
-            Debug.Write("dither produces an invalid lock position, try a variation\n");
-
-            double d = edgeDist(tmpLockPosition, image->Size);
-            if (q == 0 || d > dbest)
-            {
-                cameraDelta = tmpCamera;
-                mountDelta = tmpMount;
-                dbest = d;
-            }
+            throw ERROR_INFO("Transform failed");
         }
+
+        PHD_Point cameraDelta(choice.camera.x, choice.camera.y), mountDelta(choice.mount.x, choice.mount.y);
 
         PHD_Point newLockPosition = m_lockPosition + cameraDelta;
         if (SetLockPosition(newLockPosition))
@@ -888,19 +839,18 @@ bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
         double dist = cameraDelta.Distance(), distRA = fabs(mountDelta.X);
         m_distance.OnDither(dist, distRA);
 
-        // Zero-length dithers result in div-by-zero in calculation of 'f'.  We can still allow zero-length dithers as a way of
-        // triggering a settling period if we temporarily ignore the 'fast re-center' option
-        if (IsFastRecenterEnabled() && dist != 0)
+        // no fast recenter for a zero-length dither (guider_state_machine::PlanFastRecenter)
+        guider_state_machine::RecenterPlan recenter = guider_state_machine::PlanFastRecenter(
+            IsFastRecenterEnabled(), dist, { mountDelta.X, mountDelta.Y }, GetMaxMovePixels());
+        if (recenter.start)
         {
-            m_ditherRecenterRemaining.SetXY(fabs(mountDelta.X), fabs(mountDelta.Y));
+            m_ditherRecenterRemaining.SetXY(recenter.remaining.x, recenter.remaining.y);
             m_ditherRecenterStepsPending = 0; // a step of an earlier recenter no longer counts
             m_ditherRecenterStalledSteps = 0;
             m_recenteringForWorker = true;
-            m_ditherRecenterDir.x = mountDelta.X < 0.0 ? 1 : -1;
-            m_ditherRecenterDir.y = mountDelta.Y < 0.0 ? 1 : -1;
-            // make each step a bit less than the full search region distance to avoid losing the star
-            double f = ((double) GetMaxMovePixels() * 0.7) / m_ditherRecenterRemaining.Distance();
-            m_ditherRecenterStep.SetXY(f * m_ditherRecenterRemaining.X, f * m_ditherRecenterRemaining.Y);
+            m_ditherRecenterDir.x = recenter.dirX;
+            m_ditherRecenterDir.y = recenter.dirY;
+            m_ditherRecenterStep.SetXY(recenter.step.x, recenter.step.y);
         }
     }
     catch (const wxString& Msg)
@@ -951,151 +901,225 @@ void Guider::NotifyRecenterMoveComplete(const PHD_Point& mountMoved)
         m_ditherRecenterRemaining.SetXY(progress.remainingX, progress.remainingY);
 }
 
+static void CheckCalibrationAutoLoad();
+
+// Performs the guider state machine's actions (guider_state_machine.h) on a Guider, each as the
+// code it came from did
+class GuiderStateHost : public guider_state_machine::Host
+{
+    Guider& m_guider;
+
+public:
+    // UpdateGuideState's frame, its dropped-frame info and its offset
+    usImage *image = nullptr;
+    FrameDroppedInfo *info = nullptr;
+    GuiderOffset *ofs = nullptr;
+
+    explicit GuiderStateHost(Guider& guider) : m_guider(guider) { }
+
+    GUIDER_STATE State() const override { return m_guider.m_state; }
+    void SetStateValue(GUIDER_STATE st) override { m_guider.m_state = st; }
+    void RequestState(GUIDER_STATE st) override { m_guider.SetState(st); }
+    void Log(const std::string& line) override { Debug.Write(wxString(line)); }
+
+    bool PrimaryCalibrated() const override { return pMount->IsCalibrated(); }
+    bool SecondaryConnected() const override { return pSecondaryMount && pSecondaryMount->IsConnected(); }
+    bool SecondaryCalibrated() const override { return pSecondaryMount->IsCalibrated(); }
+    bool MountsIdle() const override
+    {
+        return (!pMount || !pMount->IsBusy()) && (!pSecondaryMount || !pSecondaryMount->IsBusy());
+    }
+    bool LockPositionValid() const override { return m_guider.m_lockPosition.IsValid(); }
+    bool LockPositionSticky() const override { return m_guider.m_lockPosIsSticky; }
+    bool RecenterActive() const override { return m_guider.m_ditherRecenterRemaining.IsValid(); }
+    bool MeasurementMode() const override { return m_guider.m_measurementMode; }
+
+    bool Do(guider_state_machine::Action action) override;
+};
+
+bool GuiderStateHost::Do(guider_state_machine::Action action)
+{
+    using guider_state_machine::Action;
+    Guider& g = m_guider;
+
+    switch (action)
+    {
+    case Action::IllegalTransition:
+        ERROR_INFO("Illegal state transition");
+        break;
+    case Action::InvalidateLockPosition:
+        g.InvalidateLockPosition();
+        break;
+    case Action::InvalidateCurrentPosition:
+        g.InvalidateCurrentPosition();
+        break;
+    case Action::ResetErrorCountPrimary:
+        pMount->ResetErrorCount();
+        break;
+    case Action::BeginCalibrationPrimary:
+        return pMount->BeginCalibration(g.CurrentPosition());
+    case Action::BeginCalibrationFailedPrimary:
+        Debug.Write(ERROR_INFO("pMount->BeginCalibration failed"));
+        break;
+    case Action::CalibrationStartedPrimary:
+        GuideLog.StartCalibration(pMount);
+        EvtServer.NotifyStartCalibration(pMount);
+        break;
+    case Action::ResetErrorCountSecondary:
+        pSecondaryMount->ResetErrorCount();
+        break;
+    case Action::BeginCalibrationSecondary:
+        return pSecondaryMount->BeginCalibration(g.CurrentPosition());
+    case Action::BeginCalibrationFailedSecondary:
+        Debug.Write(ERROR_INFO("pSecondaryMount->BeginCalibration failed"));
+        break;
+    case Action::CalibrationStartedSecondary:
+        GuideLog.StartCalibration(pSecondaryMount);
+        EvtServer.NotifyStartCalibration(pSecondaryMount);
+        break;
+    case Action::EnterGuiding:
+        assert(pMount);
+
+        g.m_ditherRecenterRemaining.Invalidate(); // reset dither fast recenter state
+        g.m_ditherRecenterStepsPending = 0;
+        g.m_ditherRecenterStalledSteps = 0;
+        g.m_recenteringForWorker = false;
+
+        // count the failed guide moves of this guiding run only (#213)
+        pMount->SetFailedGuideMovesInARow(0);
+        if (pSecondaryMount)
+            pSecondaryMount->SetFailedGuideMovesInARow(0);
+
+        pMount->AdjustCalibrationForScopePointing();
+        if (pSecondaryMount)
+        {
+            pSecondaryMount->AdjustCalibrationForScopePointing();
+        }
+
+        pFrame->UpdateStatusBarCalibrationStatus();
+        break;
+    case Action::SetLockToCurrent:
+        g.SetLockPosition(g.CurrentPosition());
+        break;
+
+    case Action::NotifyCalibrationFailedPrimary:
+    case Action::NotifyCalibrationFailedSecondary:
+        EvtServer.NotifyCalibrationFailed(action == Action::NotifyCalibrationFailedSecondary ? pSecondaryMount : pMount,
+                                          pFrame->CaptureFailureStopReason().empty() ? _("Calibration manually stopped")
+                                                                                     : pFrame->CaptureFailureStopReason());
+        break;
+    case Action::NotifyGuidingStopped:
+        pFrame->NotifyGuidingStopped();
+        break;
+
+    case Action::NotifyLoopingNoStar:
+        EvtServer.NotifyLooping(image->FrameNum, nullptr, info);
+        break;
+    case Action::NotifyStarLost:
+        EvtServer.NotifyStarLost(*info);
+        break;
+    case Action::CalibrationFrameDropped:
+        GuideLog.CalibrationFrameDropped(*info);
+        break;
+    case Action::StatusStarLost:
+        pFrame->StatusMsg(_("star lost"));
+        break;
+    case Action::GuidingFrameDropped:
+        GuideLog.FrameDropped(*info);
+        break;
+    case Action::RecordDroppedFrame:
+        GuidingAssistant::NotifyFrameDropped(*info);
+        pFrame->pGuideHistory->AppendData(*info);
+        break;
+    case Action::DeducedMove:
+    {
+        static GuiderOffset ZERO_OFS;
+        pFrame->SchedulePrimaryMove(pMount, ZERO_OFS, MOVEOPTS_DEDUCED_MOVE);
+        break;
+    }
+    case Action::LostStarAlert:
+    {
+        wxColor prevColor = g.GetBackgroundColour();
+        g.SetBackgroundColour(wxColour(64, 0, 0));
+        g.ClearBackground();
+        if (pFrame->GetBeepForLostStar())
+            wxBell();
+        wxMilliSleep(100);
+        g.SetBackgroundColour(prevColor);
+        break;
+    }
+
+    case Action::LockOnSelectedStar:
+        assert(g.CurrentPosition().IsValid());
+        g.SetLockPosition(g.CurrentPosition());
+        break;
+    case Action::NotifyStarSelected:
+        EvtServer.NotifyStarSelected(g.CurrentPosition());
+        break;
+    case Action::UpdateCalibrationPrimary:
+        return pMount->UpdateCalibrationState(g.CurrentPosition());
+    case Action::UpdateCalibrationSecondary:
+        return pSecondaryMount->UpdateCalibrationState(g.CurrentPosition());
+    case Action::GuidingStarted:
+        pFrame->NotifyGuidingStarted();
+
+        // camera angle is known, so ok to calculate shift rate camera coords
+        g.UpdateLockPosShiftCameraCoords();
+        if (g.LockPosShiftEnabled())
+            GuideLog.NotifyLockShiftParams(g.m_lockPosShift, g.m_lockPosition.ShiftRate());
+
+        CheckCalibrationAutoLoad();
+        break;
+    case Action::RecenterStep:
+    {
+        // fast recenter after dither taking large steps and bypassing
+        // guide algorithms
+
+        PHD_Point step(wxMin(g.m_ditherRecenterRemaining.X, g.m_ditherRecenterStep.X),
+                       wxMin(g.m_ditherRecenterRemaining.Y, g.m_ditherRecenterStep.Y));
+
+        Debug.Write(wxString::Format("dither recenter: remaining=(%.1f,%.1f) step=(%.1f,%.1f)\n",
+                                     g.m_ditherRecenterRemaining.X * g.m_ditherRecenterDir.x,
+                                     g.m_ditherRecenterRemaining.Y * g.m_ditherRecenterDir.y, step.X * g.m_ditherRecenterDir.x,
+                                     step.Y * g.m_ditherRecenterDir.y));
+
+        // The remaining distance goes down by what the mount moved of the step, when its move
+        // completes (NotifyRecenterMoveComplete), not by the step: MoveAxis can cut or refuse it (#165)
+        ofs->mountOfs.SetXY(step.X * g.m_ditherRecenterDir.x, step.Y * g.m_ditherRecenterDir.y);
+        pMount->TransformMountCoordinatesToCameraCoordinates(ofs->mountOfs, ofs->cameraOfs);
+        ++g.m_ditherRecenterStepsPending;
+        // The next frame's exposure delay: still recentering unless this step, moved whole, ends it,
+        // as when the step was counted on sending; set before the move and exposure are queued (#165)
+        guide_move_plan::RecenterProgress ifWhole =
+            guide_move_plan::AfterRecenterStep(g.m_ditherRecenterRemaining.X, g.m_ditherRecenterRemaining.Y, step.X, step.Y, 0);
+        g.m_recenteringForWorker = !ifWhole.done;
+        pFrame->SchedulePrimaryMove(pMount, *ofs, MOVEOPTS_RECOVERY_MOVE);
+        // let guide algorithms know about the direct move
+        pMount->NotifyDirectMove(ofs->mountOfs);
+        break;
+    }
+    case Action::BacklashStep:
+        GuidingAssistant::NotifyBacklashStep(g.CurrentPosition());
+        break;
+    case Action::GuideStep:
+        // ordinary guide step
+        s_deflectionLogger.Log(g.CurrentPosition());
+        pFrame->SchedulePrimaryMove(pMount, *ofs, MOVEOPTS_GUIDE_STEP);
+        break;
+    case Action::RecenterOver:
+        g.m_recenteringForWorker = false;
+        break;
+    }
+
+    return false;
+}
+
 void Guider::SetState(GUIDER_STATE newState)
 {
     try
     {
-        Debug.Write(wxString::Format("Changing from state %s to %s\n", StateStr(m_state), StateStr(newState)));
-
-        if (newState == STATE_STOP)
-        {
-            // we are going to stop looping exposures.  We should put
-            // ourselves into a good state to restart looping later
-            switch (m_state)
-            {
-            case STATE_UNINITIALIZED:
-            case STATE_SELECTING:
-            case STATE_SELECTED:
-                newState = m_state;
-                break;
-            case STATE_CALIBRATING_PRIMARY:
-            case STATE_CALIBRATING_SECONDARY:
-                // because we have done some moving here, we need to just
-                // start over...
-                newState = STATE_UNINITIALIZED;
-                break;
-            case STATE_CALIBRATED:
-            case STATE_GUIDING:
-                newState = STATE_SELECTED;
-                break;
-            case STATE_STOP:
-                break;
-            }
-        }
-
-        assert(newState != STATE_STOP);
-
-        if (newState > m_state + 1)
-        {
-            Debug.Write(wxString::Format("Cannot transition from %s to newState=%s\n", StateStr(m_state), StateStr(newState)));
-            throw ERROR_INFO("Illegal state transition");
-        }
-
-        GUIDER_STATE requestedState = newState;
-
-        switch (requestedState)
-        {
-        case STATE_UNINITIALIZED:
-            InvalidateLockPosition();
-            InvalidateCurrentPosition();
-            newState = STATE_SELECTING;
-            break;
-        case STATE_SELECTED:
-            break;
-        case STATE_CALIBRATING_PRIMARY:
-            if (!pMount->IsCalibrated())
-            {
-                pMount->ResetErrorCount();
-                if (pMount->BeginCalibration(CurrentPosition()))
-                {
-                    newState = STATE_UNINITIALIZED;
-                    Debug.Write(ERROR_INFO("pMount->BeginCalibration failed"));
-                }
-                else
-                {
-                    GuideLog.StartCalibration(pMount);
-                    EvtServer.NotifyStartCalibration(pMount);
-                }
-                break;
-            }
-            // fall through
-        case STATE_CALIBRATING_SECONDARY:
-            if (!pSecondaryMount || !pSecondaryMount->IsConnected())
-            {
-                newState = STATE_CALIBRATED;
-            }
-            else if (!pSecondaryMount->IsCalibrated())
-            {
-                pSecondaryMount->ResetErrorCount();
-                if (pSecondaryMount->BeginCalibration(CurrentPosition()))
-                {
-                    newState = STATE_UNINITIALIZED;
-                    Debug.Write(ERROR_INFO("pSecondaryMount->BeginCalibration failed"));
-                }
-                else
-                {
-                    GuideLog.StartCalibration(pSecondaryMount);
-                    EvtServer.NotifyStartCalibration(pSecondaryMount);
-                }
-            }
-            break;
-        case STATE_GUIDING:
-            assert(pMount);
-
-            m_ditherRecenterRemaining.Invalidate(); // reset dither fast recenter state
-            m_ditherRecenterStepsPending = 0;
-            m_ditherRecenterStalledSteps = 0;
-            m_recenteringForWorker = false;
-
-            // count the failed guide moves of this guiding run only (#213)
-            pMount->SetFailedGuideMovesInARow(0);
-            if (pSecondaryMount)
-                pSecondaryMount->SetFailedGuideMovesInARow(0);
-
-            pMount->AdjustCalibrationForScopePointing();
-            if (pSecondaryMount)
-            {
-                pSecondaryMount->AdjustCalibrationForScopePointing();
-            }
-
-            pFrame->UpdateStatusBarCalibrationStatus();
-
-            // #255: the adjustment clears the calibration when the image scale changed (HandleImageScaleChange), after
-            // the calibrating states decided there was nothing to calibrate; calibrate now instead of guiding uncalibrated
-            if (!pMount->IsCalibrated() ||
-                (pSecondaryMount && pSecondaryMount->IsConnected() && !pSecondaryMount->IsCalibrated()))
-            {
-                Debug.Write("calibration cleared on guiding start, calibrating\n");
-                newState = STATE_CALIBRATING_PRIMARY;
-                break;
-            }
-
-            if (m_lockPosition.IsValid() && m_lockPosIsSticky)
-            {
-                Debug.Write("keeping sticky lock position\n");
-            }
-            else
-            {
-                SetLockPosition(CurrentPosition());
-            }
-            break;
-
-        case STATE_SELECTING:
-        case STATE_CALIBRATED:
-        case STATE_STOP:
-            break;
-        }
-
-        if (newState >= requestedState)
-        {
-            m_state = newState;
-            Debug.Write(wxString::Format("guider state => %s\n", StateStr(m_state)));
-        }
-        else
-        {
-            Debug.Write(wxString::Format("SetState recurses newState %s\n", StateStr(newState)));
-            SetState(newState);
-        }
+        GuiderStateHost host(*this);
+        guider_state_machine::SetState(host, newState);
     }
     catch (const wxString& Msg)
     {
@@ -1129,36 +1153,8 @@ void Guider::StartGuiding()
 
 void Guider::StopGuiding()
 {
-    // first, send a notification that we stopped
-    switch (m_state)
-    {
-    case STATE_UNINITIALIZED:
-    case STATE_SELECTING:
-    case STATE_SELECTED:
-        break;
-    case STATE_CALIBRATING_PRIMARY:
-    case STATE_CALIBRATING_SECONDARY:
-    case STATE_CALIBRATED:
-        EvtServer.NotifyCalibrationFailed(m_state == STATE_CALIBRATING_SECONDARY ? pSecondaryMount : pMount,
-                                          pFrame->CaptureFailureStopReason().empty() ? _("Calibration manually stopped")
-                                                                                     : pFrame->CaptureFailureStopReason());
-        // fall through to notify guiding stopped
-    case STATE_GUIDING:
-        if ((!pMount || !pMount->IsBusy()) && (!pSecondaryMount || !pSecondaryMount->IsBusy()))
-        {
-            // Notify guiding stopped if there are no outstanding guide steps.  The Guiding
-            // Stopped notification must come after the final GuideStep notification otherwise
-            // event server clients and the guide log will show the guide step happening after
-            // guiding stopped.
-
-            pFrame->NotifyGuidingStopped();
-        }
-        break;
-    case STATE_STOP:
-        break;
-    }
-
-    SetState(STATE_STOP);
+    GuiderStateHost host(*this);
+    guider_state_machine::StopGuiding(host);
 }
 
 void Guider::Reset(bool fullReset)
@@ -1315,6 +1311,10 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
 
         GuiderOffset ofs;
         FrameDroppedInfo info;
+        GuiderStateHost host(*this);
+        host.image = pImage;
+        host.info = &info;
+        host.ofs = &ofs;
 
         if (UpdateCurrentPosition(pImage, &ofs, &info)) // true means error
         {
@@ -1322,50 +1322,7 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
             info.time = pFrame->TimeSinceGuidingStarted();
             info.avgDist = pFrame->CurrentGuideError();
 
-            switch (m_state)
-            {
-            case STATE_UNINITIALIZED:
-            case STATE_SELECTING:
-                EvtServer.NotifyLooping(pImage->FrameNum, nullptr, &info);
-                break;
-            case STATE_SELECTED:
-                // we had a current position and lost it
-                EvtServer.NotifyLooping(pImage->FrameNum, nullptr, &info);
-                SetState(STATE_UNINITIALIZED);
-                EvtServer.NotifyStarLost(info);
-                break;
-            case STATE_CALIBRATING_PRIMARY:
-            case STATE_CALIBRATING_SECONDARY:
-                GuideLog.CalibrationFrameDropped(info);
-                Debug.Write("Star lost during calibration... blundering on\n");
-                EvtServer.NotifyStarLost(info);
-                pFrame->StatusMsg(_("star lost"));
-                break;
-            case STATE_GUIDING:
-            {
-                GuideLog.FrameDropped(info);
-                EvtServer.NotifyStarLost(info);
-                GuidingAssistant::NotifyFrameDropped(info);
-                pFrame->pGuideHistory->AppendData(info);
-
-                // allow guide algorithms to attempt dead reckoning
-                static GuiderOffset ZERO_OFS;
-                pFrame->SchedulePrimaryMove(pMount, ZERO_OFS, MOVEOPTS_DEDUCED_MOVE);
-
-                wxColor prevColor = GetBackgroundColour();
-                SetBackgroundColour(wxColour(64, 0, 0));
-                ClearBackground();
-                if (pFrame->GetBeepForLostStar())
-                    wxBell();
-                wxMilliSleep(100);
-                SetBackgroundColour(prevColor);
-                break;
-            }
-
-            case STATE_CALIBRATED:
-            case STATE_STOP:
-                break;
-            }
+            guider_state_machine::OnStarLost(host);
 
             statusMessage = info.status;
             throw THROW_INFO("unable to update current position");
@@ -1385,142 +1342,21 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
 
         if (IsPaused())
         {
-            if (m_state == STATE_GUIDING)
-            {
-                // allow guide algorithms to attempt dead reckoning
-                static GuiderOffset ZERO_OFS;
-                pFrame->SchedulePrimaryMove(pMount, ZERO_OFS, MOVEOPTS_DEDUCED_MOVE);
-            }
-
+            guider_state_machine::OnPausedFrame(host);
             statusMessage = _("Paused") + (GetPauseType() == PAUSE_FULL ? _("/full") : _("/looping"));
             throw THROW_INFO("Skipping frame - guider is paused");
         }
 
-        switch (m_state)
+        switch (guider_state_machine::OnStarFound(host))
         {
-        case STATE_SELECTING:
-            assert(CurrentPosition().IsValid());
-            SetLockPosition(CurrentPosition());
-            Debug.Write("CurrentPosition() valid, moving to STATE_SELECTED\n");
-            EvtServer.NotifyStarSelected(CurrentPosition());
-            SetState(STATE_SELECTED);
+        case guider_state_machine::FrameResult::Done:
             break;
-        case STATE_SELECTED:
-            break;
-        case STATE_CALIBRATING_PRIMARY:
-            if (!pMount->IsCalibrated())
-            {
-                if (pMount->UpdateCalibrationState(CurrentPosition()))
-                {
-                    SetState(STATE_UNINITIALIZED);
-                    statusMessage = pMount->IsStepGuider() ? _("AO calibration failed") : _("calibration failed");
-                    throw ERROR_INFO("Calibration failed");
-                }
-
-                if (!pMount->IsCalibrated())
-                {
-                    break;
-                }
-            }
-
-            SetState(STATE_CALIBRATING_SECONDARY);
-
-            if (m_state == STATE_CALIBRATING_SECONDARY)
-            {
-                // if we really have a secondary mount, and it isn't calibrated,
-                // we need to take another exposure before falling into the code
-                // below.  If we don't have one, or it is calibrated, we can fall
-                // through.  If we don't fall through, we end up displaying a frame
-                // which has the lockpoint in the wrong place, and while I thought I
-                // could live with it when I originally wrote the code, it bothered
-                // me so I did this.  Ick.
-                break;
-            }
-
-            // Fall through
-        case STATE_CALIBRATING_SECONDARY:
-            if (pSecondaryMount && pSecondaryMount->IsConnected())
-            {
-                if (!pSecondaryMount->IsCalibrated())
-                {
-                    if (pSecondaryMount->UpdateCalibrationState(CurrentPosition()))
-                    {
-                        SetState(STATE_UNINITIALIZED);
-                        statusMessage = _("calibration failed");
-                        throw ERROR_INFO("Calibration failed");
-                    }
-                }
-
-                if (!pSecondaryMount->IsCalibrated())
-                {
-                    break;
-                }
-            }
-            assert(!pSecondaryMount || !pSecondaryMount->IsConnected() || pSecondaryMount->IsCalibrated());
-
-            SetState(STATE_CALIBRATED);
-            // fall through
-        case STATE_CALIBRATED:
-            assert(m_state == STATE_CALIBRATED);
-            SetState(STATE_GUIDING);
-            if (m_state != STATE_GUIDING)
-                break; // entering guiding cleared the calibration and started a new one (#255)
-
-            pFrame->NotifyGuidingStarted();
-
-            // camera angle is known, so ok to calculate shift rate camera coords
-            UpdateLockPosShiftCameraCoords();
-            if (LockPosShiftEnabled())
-                GuideLog.NotifyLockShiftParams(m_lockPosShift, m_lockPosition.ShiftRate());
-
-            CheckCalibrationAutoLoad();
-            break;
-        case STATE_GUIDING:
-            if (m_ditherRecenterRemaining.IsValid())
-            {
-                // fast recenter after dither taking large steps and bypassing
-                // guide algorithms
-
-                PHD_Point step(wxMin(m_ditherRecenterRemaining.X, m_ditherRecenterStep.X),
-                               wxMin(m_ditherRecenterRemaining.Y, m_ditherRecenterStep.Y));
-
-                Debug.Write(wxString::Format("dither recenter: remaining=(%.1f,%.1f) step=(%.1f,%.1f)\n",
-                                             m_ditherRecenterRemaining.X * m_ditherRecenterDir.x,
-                                             m_ditherRecenterRemaining.Y * m_ditherRecenterDir.y,
-                                             step.X * m_ditherRecenterDir.x, step.Y * m_ditherRecenterDir.y));
-
-                // The remaining distance goes down by what the mount moved of the step, when its move
-                // completes (NotifyRecenterMoveComplete), not by the step: MoveAxis can cut or refuse it (#165)
-                ofs.mountOfs.SetXY(step.X * m_ditherRecenterDir.x, step.Y * m_ditherRecenterDir.y);
-                pMount->TransformMountCoordinatesToCameraCoordinates(ofs.mountOfs, ofs.cameraOfs);
-                ++m_ditherRecenterStepsPending;
-                // The next frame's exposure delay: still recentering unless this step, moved whole, ends it,
-                // as when the step was counted on sending; set before the move and exposure are queued (#165)
-                guide_move_plan::RecenterProgress ifWhole = guide_move_plan::AfterRecenterStep(
-                    m_ditherRecenterRemaining.X, m_ditherRecenterRemaining.Y, step.X, step.Y, 0);
-                m_recenteringForWorker = !ifWhole.done;
-                pFrame->SchedulePrimaryMove(pMount, ofs, MOVEOPTS_RECOVERY_MOVE);
-                // let guide algorithms know about the direct move
-                pMount->NotifyDirectMove(ofs.mountOfs);
-            }
-            else if (m_measurementMode)
-            {
-                GuidingAssistant::NotifyBacklashStep(CurrentPosition());
-            }
-            else
-            {
-                // ordinary guide step
-                s_deflectionLogger.Log(CurrentPosition());
-                pFrame->SchedulePrimaryMove(pMount, ofs, MOVEOPTS_GUIDE_STEP);
-            }
-            // a recenter that NotifyRecenterMoveComplete ended is over for the next frame too (#165)
-            if (!m_ditherRecenterRemaining.IsValid())
-                m_recenteringForWorker = false;
-            break;
-
-        case STATE_UNINITIALIZED:
-        case STATE_STOP:
-            break;
+        case guider_state_machine::FrameResult::PrimaryCalibrationFailed:
+            statusMessage = pMount->IsStepGuider() ? _("AO calibration failed") : _("calibration failed");
+            throw ERROR_INFO("Calibration failed");
+        case guider_state_machine::FrameResult::SecondaryCalibrationFailed:
+            statusMessage = _("calibration failed");
+            throw ERROR_INFO("Calibration failed");
         }
     }
     catch (const wxString& Msg)

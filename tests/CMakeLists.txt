@@ -726,6 +726,32 @@ set_property(TARGET test_guide_move_plan PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guide_move_plan COMMAND test_guide_move_plan)
 
 ############################################################################
+# test_guider_state_machine  --  guider_state_machine.cpp, the guider's state
+# machine out of Guider::SetState, StopGuiding, UpdateGuideState and
+# MoveLockPosition (#142, slice T2c): STOP per state, the one-state-ahead
+# rule, star lost and paused per state, the calibration's way to guiding,
+# the #255 return to calibrating, a recalibration never skipping
+# CALIBRATING_PRIMARY, and the dither's edge reflection and fast recenter.
+# test_guider_state_machine_parity.cpp compares it with a frozen copy of the
+# guider.cpp code it came from (the legacy twin, compiled against mechanical
+# wx stand-ins; legacy/check_twin.sh diffs it against the source) over seeded
+# call sequences. NDEBUG as in the shipped daemon, so the paths past the
+# asserts are pinned as they run. std-only.
+############################################################################
+add_executable(test_guider_state_machine
+  ${PHD_TESTS_DIR}/guiding/test_guider_state_machine.cpp
+  ${PHD_TESTS_DIR}/guiding/test_guider_state_machine_parity.cpp
+  ${PHD_TESTS_DIR}/guiding/legacy/guider_sm_legacy.cpp
+  ${phd_src_dir}/guider_state_machine.cpp
+  ${phd_src_dir}/guide_move_plan.cpp
+)
+target_include_directories(test_guider_state_machine PRIVATE ${PHD_TESTS_DIR}/guiding)
+target_compile_definitions(test_guider_state_machine PRIVATE NDEBUG)
+target_link_libraries(test_guider_state_machine PRIVATE phd_test_common)
+set_property(TARGET test_guider_state_machine PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guider_state_machine COMMAND test_guider_state_machine)
+
+############################################################################
 # test_algorithm_slot  --  algorithm_slot.h, the guard between the worker
 # thread's guide computation (Mount::MoveOffset) and the main thread's
 # changes to the algorithms and the BLC (set_algo, set_algo_param,
