@@ -3811,8 +3811,11 @@ static void get_calibration_files_status(JObj& response, const json_value *param
         int num = 0;
         double minExp = 0.0, maxExp = 0.0;
         pCamera->GetDarkLibraryProperties(&num, &minExp, &maxExp);
-        rslt << NV("dark_count_loaded", num) << NV("dark_min_exposure_seconds_loaded", minExp)
-             << NV("dark_max_exposure_seconds_loaded", maxExp);
+        rslt << NV("dark_count_loaded", num);
+        // seconds, as the names say (they were the ms, #295); absent with no darks loaded
+        if (num > 0)
+            rslt << NV("dark_min_exposure_seconds_loaded", minExp / 1000.0)
+                 << NV("dark_max_exposure_seconds_loaded", maxExp / 1000.0);
     }
 
     response << jrpc_result(rslt);
@@ -3835,10 +3838,16 @@ static void set_dark_library_enabled(JObj& response, const json_value *params)
         return;
     }
 
-    bool ok = pFrame->LoadDarkHandler(val);
-    if (!ok)
+    // as set_defect_map_enabled: turning it off with nothing loaded succeeds (#295)
+    bool loaded = pFrame->LoadDarkHandler(val);
+    if (val && !loaded)
     {
-        response << jrpc_error(1, val ? "failed to load dark library" : "failed to unload dark library");
+        response << jrpc_error(1, "failed to load dark library");
+        return;
+    }
+    if (!val && pCamera && pCamera->CurrentDarkFrame)
+    {
+        response << jrpc_error(1, "failed to unload dark library");
         return;
     }
 

@@ -499,20 +499,20 @@ void GuideCamera::SelectDark(int exposureDuration)
 
 void GuideCamera::GetDarkLibraryProperties(int *pNumDarks, double *pMinExp, double *pMaxExp)
 {
-    double minExp = 9999.0;
-    double maxExp = -9999.0;
+    // The exposures are in ms, and 0 with no darks loaded. Darks is ordered by exposure, so the
+    // first and last are the extremes (a sentinel start of 9999 capped the minimum at 9999, #295).
+    double minExp = 0.0;
+    double maxExp = 0.0;
     int ct = 0;
 
     { // lock scope
         wxCriticalSectionLocker lck(DarkFrameLock);
 
-        for (auto it = Darks.begin(); it != Darks.end(); ++it)
+        ct = static_cast<int>(Darks.size());
+        if (!Darks.empty())
         {
-            if (it->first < minExp)
-                minExp = it->first;
-            if (it->first > maxExp)
-                maxExp = it->first;
-            ++ct;
+            minExp = Darks.begin()->first;
+            maxExp = Darks.rbegin()->first;
         }
     } // lock scope
 

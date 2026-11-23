@@ -1,0 +1,168 @@
+# Nightly guide algorithm matrix (#142 Tier 4)
+#
+# Two jobs, each putting its table in the job summary and uploading it as an artifact:
+#
+#   in-process   tests/benchmark/algorithm_matrix.cpp: the real wx-free kernels (Hysteresis,
+#                ResistSwitch, Lowpass, Lowpass2) in a seeded closed loop, 7 RA/Dec pairs x 5
+#                sky and mount conditions x 20 seeds, checked against the generous ceilings of
+#                tests/benchmark/algorithm_matrix_thresholds.csv; then the RC51 guide log replay
+#                (tests/benchmark/guide_log_replay.h) on the checked-in fixture. Seconds to run,
+#                after the build. ctest runs both on every PR too; this job is for the table.
+#   daemon       scripts/e2e_algorithm_matrix.py: phd2.bin (Release, as shipped) against the fake
+#                Alpaca physics, two lanes (a good night; three times the seeing with Dec backlash)
+#                at the same time, 10 RA/Dec pairs each, ZFilter and Predictive PEC included,
+#                switched with set_algo while guiding after one calibration per lane. Checked
+#                against tests/benchmark/daemon_matrix_thresholds.csv. The daemon exposes in real
+#                time, so a lane takes about 20 min (3 min of calibration, then about 75 s a cell).
+#
+# A cell fails only on a clear regression: the ceilings are 1.25x (in process) and 1.5x (daemon)
+# the measured RMS plus a margin. Refresh them with --write-thresholds after an intended change.
+# Not part of the PR CI and not required by branch protection.
+
+name: Nightly algorithm matrix
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-algorithm-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  in-process:
+    name: In-process matrix and RC51 replay (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        # The CI build job's list: configuring the project needs them, though these targets are std-only.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            libwxgtk3.2-dev \
+            libcfitsio-dev \
+            libjpeg-dev \
+            libopencv-dev \
+            libv4l-dev \
+            libcurl4-openssl-dev \
+            libeigen3-dev \
+            libgtest-dev \
+            libnova-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DUSE_SYSTEM_GTEST=1 -DCMAKE_BUILD_TYPE=Release -Wno-dev
+
+      - name: Build
+        run: cmake --build build --parallel "$(nproc)" --target guide_algorithm_matrix guide_log_replay test_guide_log_replay
+
+      - name: Run the in-process matrix
+        id: matrix
+        run: |
+          mkdir -p matrix-out
+          build/tests/guide_algorithm_matrix \
+            --thresholds tests/benchmark/algorithm_matrix_thresholds.csv \
+            --markdown matrix-out/in-process.md \
+            --json matrix-out/in-process.json | tee matrix-out/in-process.txt
+
+      - name: Replay the RC51 guide log
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p matrix-out
+          build/tests/test_guide_log_replay
+          build/tests/guide_log_replay --markdown matrix-out/replay.md \
+            tests/benchmark/fixtures/rc51_guidelog_2026-11-22.txt > /dev/null
+
+      - name: Job summary
+        if: ${{ !cancelled() }}
+        run: |
+          for f in matrix-out/in-process.md matrix-out/replay.md; do
+            if [ -f "$f" ]; then
+              cat "$f" >> "$GITHUB_STEP_SUMMARY"
+              echo >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          if [ -f matrix-out/in-process.txt ]; then
+            grep -E '^(FAIL|PASSED|FAILED)' matrix-out/in-process.txt >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+
+      - name: Upload the tables
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: algorithm-matrix-in-process
+          path: matrix-out/
+          if-no-files-found: warn
+
+  daemon:
+    name: Daemon algorithm slice (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Install build and run dependencies
+        # The CI build job's list, plus numpy for the fake camera's frames
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            libwxgtk3.2-dev \
+            libcfitsio-dev \
+            libjpeg-dev \
+            libopencv-dev \
+            libv4l-dev \
+            libcurl4-openssl-dev \
+            libeigen3-dev \
+            libgtest-dev \
+            libnova-dev \
+            python3-numpy
+
+      - name: Configure (Release)
+        run: cmake -S . -B build -DUSE_SYSTEM_GTEST=1 -DCMAKE_BUILD_TYPE=Release -Wno-dev
+
+      - name: Build phd2.bin
+        run: cmake --build build --target phd2 --parallel "$(nproc)"
+
+      - name: Run the daemon slice
+        timeout-minutes: 75
+        run: |
+          python3 scripts/e2e_algorithm_matrix.py \
+            --phd2 build/phd2.bin \
+            --work-dir "$RUNNER_TEMP/matrix" \
+            --timeout 4200 \
+            --thresholds tests/benchmark/daemon_matrix_thresholds.csv \
+            --markdown "$RUNNER_TEMP/matrix/daemon.md" \
+            --json "$RUNNER_TEMP/matrix/daemon.json"
+
+      - name: Job summary
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f "$RUNNER_TEMP/matrix/daemon.md" ]; then
+            cat "$RUNNER_TEMP/matrix/daemon.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The daemon slice wrote no table; see the job log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the table and the logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: algorithm-matrix-daemon
+          path: ${{ runner.temp }}/matrix/
+          if-no-files-found: warn

@@ -1394,3 +1394,25 @@ The headers, the `ETag`, `304`, `404` and `500` answers are unchanged.
 Not changed: calibration policy. The guider still recalibrates on every new target.
 
 ARA: no code change.
+
+## 2026-11-23 — dark-library status in seconds, symmetric disable (#295)
+
+`get_calibration_files_status` (and the `set_dark_library_enabled`, `set_defect_map_enabled`,
+`set_dark_auto_load` and `delete_calibration_files` results, the same object):
+
+- `dark_min_exposure_seconds_loaded` / `dark_max_exposure_seconds_loaded` are in seconds, as
+  their names say. They were the exposures in ms (0.1 s darks read 100). Ara already treats them
+  as seconds (`Phd2CalibrationFilesStatus` → `CalibrationFilesStatusDto` → the Flutter
+  `CalibrationStatus` model, no conversion, not displayed), so the names stay and no field is
+  added.
+- With no darks loaded (`dark_count_loaded` 0) both fields are absent; they were 9999 and
+  -9999. Ara reads them as nullable and documents them as absent in that case. The minimum is
+  the smallest loaded exposure; it used to start at 9999, so darks of 10 s and longer read 9999.
+
+`set_dark_library_enabled` false succeeds when no dark library is loaded, as
+`set_defect_map_enabled` false does; error 1 `failed to unload dark library` only if it stays
+loaded. A failed enable of either (error 1 `failed to load dark library` / `failed to load
+defect map`) leaves `auto_load_darks` / `auto_load_defect_map` as they were, and a failed dark
+library enable leaves a loaded defect map loaded. Every disable with a camera connected still turns its flag off.
+
+ARA: no code change.
