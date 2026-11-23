@@ -35,18 +35,16 @@
 
 #include "phd.h"
 #include "calstep_dialog.h"
-#include <cmath>
+#include "calstep_math.h"
 
-#define MIN_STEPS 6.0
+static_assert(CalstepDialog::DEFAULT_STEPS == calstep_math::DEFAULT_STEPS, "calstep_math default steps");
+static_assert(CalstepDialog::DEFAULT_DISTANCE == calstep_math::DEFAULT_DISTANCE, "calstep_math default distance");
 
 // the recommended calibration distance is 20 arc-seconds or 25 pixels, whichever is greater
-// (25 pixels when the image scale is unknown)
+// (25 pixels when the image scale is unknown). The math is in calstep_math.cpp (#142).
 int CalstepDialog::GetCalibrationDistance(int focalLength, double pixelSize, int binning)
 {
-    double pixelScale = MyFrame::GetPixelScale(pixelSize, focalLength, binning);
-    double nominalDistanceArcsecs = 20.0;
-    double MinDistancePx = CalstepDialog::DEFAULT_DISTANCE;
-    return (int) ceil(std::max(MinDistancePx, nominalDistanceArcsecs / pixelScale));
+    return calstep_math::CalibrationDistance(focalLength, pixelSize, binning);
 }
 
 // Based on computed image scale, compute an RA calibration pulse direction that will result in DesiredSteps
@@ -63,15 +61,13 @@ int CalstepDialog::GetCalibrationDistance(int focalLength, double pixelSize, int
 //  pImageScale = address of computed image scale (arc-sec/pixel)
 //  pStepSize = address of computed calibration step size, milliseconds
 //
-void CalstepDialog::GetCalibrationStepSize(int FocalLength, double PixelSize, int binning, double GuideSpeed, int DesiredSteps,
+//  Returns false, leaving *pImageScale and *pStepSize unchanged, when no step can be computed: the
+//  image scale is unknown (focal length 0, the profile default), or the guide speed is not above 0.
+//  The math is in calstep_math.cpp (#142).
+//
+bool CalstepDialog::GetCalibrationStepSize(int FocalLength, double PixelSize, int binning, double GuideSpeed, int DesiredSteps,
                                            double Declination, int distance, double *pImageScale, int *pStepSize)
 {
-    double ImageScale = MyFrame::GetPixelScale(PixelSize, FocalLength, binning); // arc-sec per pixel
-    double totalDuration = (double) distance * ImageScale / (15.0 * GuideSpeed); // 15 arc-sec/sec is sidereal rate
-    double Pulse = totalDuration / DesiredSteps * 1000.0; // milliseconds at DEC=0
-    double MaxPulse = totalDuration / MIN_STEPS * 1000.0; // max pulse size to still get MIN steps
-    Pulse = wxMin(MaxPulse, Pulse / cos(radians(Declination))); // UI forces abs(Dec) <= 60 degrees
-    if (pImageScale)
-        *pImageScale = ImageScale;
-    *pStepSize = (int) ceil(Pulse / 50.0) * 50; // round up to nearest 50 ms, too-small pulses can lead to calibration problems
+    return calstep_math::CalibrationStepSize(FocalLength, PixelSize, binning, GuideSpeed, DesiredSteps, Declination, distance,
+                                             pImageScale, pStepSize);
 }
