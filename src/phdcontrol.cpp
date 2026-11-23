@@ -34,6 +34,8 @@
 
 #include "phd.h"
 
+#include "settle_tracker.h"
+
 enum State
 {
     STATE_IDLE = 0,
@@ -72,13 +74,9 @@ struct ControllerState
     SettleOp settleOp;
     SettleParams settle;
     wxRect roi;
-    bool settlePriorFrameInRange;
-    wxStopWatch *settleTimeout;
-    wxStopWatch *settleInRange;
+    SettleTracker settleTracker; // the settle timeout, the in-range timer and the frame counts
     DEC_GUIDE_MODE saveDecGuideMode;
     bool overrideDecGuideMode;
-    int settleFrameCount;
-    int droppedFrameCount;
     bool succeeded;
     wxString errorMsg;
 };
@@ -87,16 +85,12 @@ static ControllerState ctrl;
 
 void PhdController::OnAppInit()
 {
-    ctrl.settleTimeout = new wxStopWatch();
-    ctrl.settleInRange = new wxStopWatch();
+    // nothing to set up: the settle timers are in ctrl.settleTracker (settle_tracker.cpp)
 }
 
 void PhdController::OnAppExit()
 {
-    delete ctrl.settleTimeout;
-    ctrl.settleTimeout = NULL;
-    delete ctrl.settleInRange;
-    ctrl.settleInRange = NULL;
+    // nothing to free: the settle timers are in ctrl.settleTracker (settle_tracker.cpp)
 }
 
 bool PhdController::IsSettling()
@@ -278,13 +272,13 @@ static void do_notify(void)
     if (ctrl.succeeded)
     {
         Debug.AddLine("PhdController complete: success");
-        EvtServer.NotifySettleDone(wxEmptyString, ctrl.settleFrameCount, ctrl.droppedFrameCount);
+        EvtServer.NotifySettleDone(wxEmptyString, ctrl.settleTracker.FrameCount(), ctrl.settleTracker.DroppedFrameCount());
         GuideLog.NotifySettlingStateChange("Settling complete");
     }
     else
     {
         Debug.AddLine(wxString::Format("PhdController complete: fail: %s", ctrl.errorMsg));
-        EvtServer.NotifySettleDone(ctrl.errorMsg, ctrl.settleFrameCount, ctrl.droppedFrameCount);
+        EvtServer.NotifySettleDone(ctrl.errorMsg, ctrl.settleTracker.FrameCount(), ctrl.settleTracker.DroppedFrameCount());
         GuideLog.NotifySettlingStateChange("Settling failed");
     }
 
@@ -345,7 +339,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
             ctrl.haveSaveSticky = false;
             // a request that ends before it settles (an abort while it waits for a calibration) reports 0 frames,
             // not the counts of the settle before it
-            ctrl.settleFrameCount = ctrl.droppedFrameCount = 0;
+            ctrl.settleTracker.ResetCounts();
             ctrl.autoFindAttemptsRemaining = 3;
             ctrl.overrideDecGuideMode = false; // guide stop/start with no dithering
             SETSTATE(STATE_ATTEMPT_START);
@@ -538,41 +532,25 @@ void PhdController::UpdateControllerState(bool frameDropped)
                                              Scope::DecGuideModeStr(DEC_AUTO)));
                 TheScope()->SetDecGuideMode(DEC_AUTO);
             }
-            ctrl.settlePriorFrameInRange = false;
-            ctrl.settleFrameCount = ctrl.droppedFrameCount = 0;
-            ctrl.settleTimeout->Start();
+            ctrl.settleTracker.Begin();
             SETSTATE(STATE_SETTLE_WAIT);
             done = true;
             break;
 
         case STATE_SETTLE_WAIT:
         {
-            // the decision is in the wx-free settle_frame.cpp; #136: a dropped frame (a transient capture failure
-            // while guiding) counts like a lost-star frame and neither ends nor completes an in-range run
-            SettleFrame::Frame frame;
-            frame.dropped = frameDropped;
-            frame.locked = pFrame->pGuider->IsLocked();
-            frame.error = pFrame->CurrentGuideError();
-            frame.aoBumpInProgress = IsAoBumpInProgress();
-            frame.inRangeMs = ctrl.settleInRange->Time();
-            frame.settlingMs = ctrl.settleTimeout->Time();
-
-            SettleFrame::Progress progress;
-            progress.frameCount = ctrl.settleFrameCount;
-            progress.droppedFrameCount = ctrl.droppedFrameCount;
-            progress.priorFrameInRange = ctrl.settlePriorFrameInRange;
-            SettleFrame::Result result = SettleFrame::OnFrame(progress, ctrl.settle, frame);
-            ctrl.settleFrameCount = progress.frameCount;
-            ctrl.droppedFrameCount = progress.droppedFrameCount;
-            ctrl.settlePriorFrameInRange = progress.priorFrameInRange;
+            // the decision and its timers are in the wx-free settle_frame.cpp and settle_tracker.cpp; #136: a dropped frame
+            // (a transient capture failure while guiding) counts like a lost-star frame and neither ends nor completes an
+            // in-range run
+            bool locked = pFrame->pGuider->IsLocked();
+            double error = pFrame->CurrentGuideError();
+            bool aoBump = IsAoBumpInProgress();
+            SettleFrame::Result result = ctrl.settleTracker.OnFrame(ctrl.settle, frameDropped, locked, error, aoBump);
 
             Debug.Write(
                 wxString::Format("PhdController: settling, locked = %d, distance = %.2f (%.2f) aobump = %d frame = %d / %d\n",
-                                 result.lockedOnStar, frame.error, ctrl.settle.tolerancePx, frame.aoBumpInProgress,
-                                 ctrl.settleFrameCount, ctrl.settle.frames));
-
-            if (result.startInRangeRun)
-                ctrl.settleInRange->Start();
+                                 result.lockedOnStar, error, ctrl.settle.tolerancePx, aoBump, ctrl.settleTracker.FrameCount(),
+                                 ctrl.settle.frames));
 
             if (result.outcome == SettleFrame::Outcome::Settled)
             {
@@ -585,7 +563,7 @@ void PhdController::UpdateControllerState(bool frameDropped)
                 do_fail(_T("timed-out waiting for guider to settle"));
                 break;
             }
-            EvtServer.NotifySettling(frame.error, (double) result.timeInRangeMs / 1000., ctrl.settle.settleTimeSec,
+            EvtServer.NotifySettling(error, (double) result.timeInRangeMs / 1000., ctrl.settle.settleTimeSec,
                                      result.lockedOnStar);
             done = true;
             break;

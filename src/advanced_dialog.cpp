@@ -602,13 +602,18 @@ void AdvancedDialog::MakeImageScaleAdjustments()
 
     // Determine a calibration step-size based on recommended distance and best estimator of mount guide speeds
     guideSpeedX = DetermineGuideSpeed();
-    int calibrationStep;
     int recDistance = CalstepDialog::GetCalibrationDistance(focalLength, pixelSize, binning);
     int oldStepSize = scope->GetCalibrationDuration();
-    CalstepDialog::GetCalibrationStepSize(focalLength, pixelSize, binning, guideSpeedX, CalstepDialog::DEFAULT_STEPS, 0,
-                                          recDistance, nullptr, &calibrationStep);
-    scope->SetCalibrationDuration(calibrationStep);
-    Debug.Write(wxString::Format("Cal step-size changed from %d ms to %d ms\n", oldStepSize, calibrationStep));
+    int calibrationStep = oldStepSize;
+    if (CalstepDialog::GetCalibrationStepSize(focalLength, pixelSize, binning, guideSpeedX, CalstepDialog::DEFAULT_STEPS, 0,
+                                              recDistance, nullptr, &calibrationStep))
+    {
+        scope->SetCalibrationDuration(calibrationStep);
+        Debug.Write(wxString::Format("Cal step-size changed from %d ms to %d ms\n", oldStepSize, calibrationStep));
+    }
+    else
+        Debug.Write(
+            wxString::Format("Cal step-size kept at %d ms: no step size for this image scale and guide speed\n", oldStepSize));
     // Clear the calibration to force a new one and reset the min-move values
     if (pMount)
     {
