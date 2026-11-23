@@ -176,6 +176,24 @@ python3 scripts/e2e_persistence.py --phd2 build-asan/phd2.bin \
     --instance 11 --fake-port 11151 --display 111 --work-dir /tmp/e2e-persistence
 ```
 
+## wx GUI symbol ratchet (CI)
+
+Steps 4-8 of #115 remove `phd2.bin`'s use of the wx GUI libraries until it links only wxBase and
+wxNet. Until then, the `wx GUI symbol ratchet` step of the `Build + GTest (arm64)` job runs
+`scripts/check_wx_gui_symbols.sh` on `build/phd2.bin`. It lists the symbols the binary imports from
+the wx libraries it loads other than wxBase/net/xml (today `libwx_gtk3u_core` and
+`libwx_gtk3u_aui`) and compares them with `scripts/wx_gui_symbols.allowlist`. A symbol not in the
+list fails the step: use a wxBase or wx-free equivalent instead. A listed symbol the binary no longer
+imports is a warning: a slice that removes GUI code shrinks the list in the same PR. Names are
+compared demangled and without ELF symbol versions, so the runner's Ubuntu 24.04 (wx 3.2.4, GCC 13)
+and Debian 13 (wx 3.2.8, GCC 14) give the same list. Locally:
+
+```bash
+cmake --build build --target phd2      # `make phd2.bin` builds nothing
+scripts/check_wx_gui_symbols.sh build/phd2.bin
+scripts/check_wx_gui_symbols.sh --update build/phd2.bin   # rewrite the list, then commit it
+```
+
 ## How the build infra works (and why)
 
 Almost every production `.cpp` opens with `#include "phd.h"`, which transitively

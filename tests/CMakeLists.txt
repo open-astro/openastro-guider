@@ -215,6 +215,29 @@ set_property(TARGET test_calibration_transform PROPERTY FOLDER "Unit tests")
 add_test(NAME test_calibration_transform COMMAND test_calibration_transform)
 
 ############################################################################
+# test_calibration_adapt  --  links the REAL production calibration_codec.cpp
+# (the calibration's profile keys, defaults and step-list text, from
+# Mount::SetCalibration / GetLastCalibration / Save- and
+# LoadCalibrationDetails), calibration_adjust.cpp (what entering Guiding does
+# to the calibration: Dec compensation, the meridian flip, the rotator and
+# the binning rescale, from Mount::AdjustCalibrationForScopePointing and
+# FlipCalibration) and calibration_sanity.cpp (Scope::SanityCheckCalibration's
+# advisory checks) (#142). std-only.
+############################################################################
+add_executable(test_calibration_adapt
+  ${PHD_TESTS_DIR}/calibration/test_calibration_codec.cpp
+  ${PHD_TESTS_DIR}/calibration/test_calibration_adjust.cpp
+  ${PHD_TESTS_DIR}/calibration/test_calibration_sanity.cpp
+  ${phd_src_dir}/calibration_codec.cpp
+  ${phd_src_dir}/calibration_adjust.cpp
+  ${phd_src_dir}/calibration_sanity.cpp
+  ${phd_src_dir}/calibration_transform.cpp
+)
+target_link_libraries(test_calibration_adapt PRIVATE phd_test_common)
+set_property(TARGET test_calibration_adapt PROPERTY FOLDER "Unit tests")
+add_test(NAME test_calibration_adapt COMMAND test_calibration_adapt)
+
+############################################################################
 # test_guiding_assistant_math  --  links the REAL production
 # guiding_assistant_math.cpp (the Guiding Assistant's sample statistics,
 # polar-alignment estimate and recommendation logic, extracted from
