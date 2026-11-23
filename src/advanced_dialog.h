@@ -37,7 +37,6 @@
 
 class MyFrame;
 class MountConfigDialogCtrlSet;
-class CameraConfigDialogPane;
 class GuiderConfigDialogPane;
 class wxTipWindow;
 
@@ -57,19 +56,16 @@ class AdvancedDialog : public wxDialog
     MyFrame *m_pFrame;
     wxBookCtrlBase *m_pNotebook;
     Guider::GuiderConfigDialogPane *m_pGuiderPane;
-    CameraConfigDialogPane *m_pCameraPane;
     Mount::MountConfigDialogPane *m_pMountPane;
     AOConfigDialogPane *m_pAOPane;
     RotatorConfigDialogPane *m_pRotatorPane;
 
     BrainCtrlIdMap m_brainCtrls;
     bool m_rebuildPanels;
-    CameraConfigDialogCtrlSet *m_pCameraCtrlSet;
     GuiderConfigDialogCtrlSet *m_pGuiderCtrlSet;
     MountConfigDialogCtrlSet *m_pScopeCtrlSet;
     AOConfigDialogCtrlSet *m_pAOCtrlSet;
     RotatorConfigDialogCtrlSet *m_pRotatorCtrlSet;
-    wxPanel *m_pCameraSettingsPanel;
     wxPanel *m_pGuiderSettingsPanel;
     wxPanel *m_pScopeSettingsPanel;
     wxPanel *m_pDevicesSettingsPanel;
@@ -86,7 +82,6 @@ public:
 
     void EndModal(int retCode) override;
 
-    void UpdateCameraPage();
     void UpdateMountPage();
     void UpdateAoPage();
     void UpdateRotatorPage();
@@ -104,15 +99,12 @@ public:
     } // Allows image scale adjustment to be made only once when AD is closed
     int GetFocalLength();
     double GetPixelSize();
-    void SetPixelSize(double val);
     int GetBinning();
-    void SetBinning(int binning);
     Mount::MountConfigDialogPane *GetCurrentMountPane() { return m_pMountPane; }
 
     wxWindow *GetTabLocation(BRAIN_CTRL_IDS id);
 
 private:
-    void AddCameraPage();
     void AddMountPage();
     void AddAoPage();
     void AddRotatorPage();

@@ -45,11 +45,6 @@ static int s_selectedPage = -1;
 
 void AdvancedDialog::BuildCtrlSets()
 {
-    if (pCamera)
-        m_pCameraCtrlSet = pCamera->GetConfigDlgCtrlSet(m_pCameraSettingsPanel, pCamera, this, m_brainCtrls);
-    else
-        m_pCameraCtrlSet = nullptr;
-
     m_pGuiderCtrlSet = m_pFrame->pGuider->GetConfigDialogCtrlSet(m_pGuiderSettingsPanel, m_pFrame->pGuider, this, m_brainCtrls);
 
     if (TheAO())
@@ -68,9 +63,6 @@ void AdvancedDialog::BuildCtrlSets()
 
 void AdvancedDialog::CleanupCtrlSets()
 {
-    delete m_pCameraCtrlSet;
-    m_pCameraCtrlSet = nullptr;
-
     delete m_pGuiderCtrlSet;
     m_pGuiderCtrlSet = nullptr;
 
@@ -136,11 +128,6 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
 
     // Build all the panels first - these are needed to create the various ConfigCtrlSets
     // Each panel gets a vertical sizer attached to it
-    // Camera pane
-    m_pCameraSettingsPanel = new wxPanel(m_pNotebook);
-    wxBoxSizer *pCameraTabSizer = new wxBoxSizer(wxVERTICAL);
-    m_pCameraSettingsPanel->SetSizer(pCameraTabSizer);
-    m_pNotebook->AddPage(m_pCameraSettingsPanel, _("Camera"), false);
     // Guiding pane
     m_pGuiderSettingsPanel = new wxPanel(m_pNotebook);
     wxBoxSizer *pGuidingTabSizer = new wxBoxSizer(wxVERTICAL);
@@ -160,9 +147,6 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     BuildCtrlSets(); // Populates the m_brainCtrls map with all UI controls
 
     // Pane construction now pulls controls from the map and places them where they make sense to a user
-    // Populate the camera pane
-    AddCameraPage();
-
     // Populate the guiding pane
     m_pGuiderPane = pFrame->pGuider->GetConfigDialogPane(m_pGuiderSettingsPanel);
     m_pGuiderPane->LayoutControls(pFrame->pGuider, m_brainCtrls);
@@ -234,9 +218,6 @@ void AdvancedDialog::RebuildPanels()
 {
     CleanupCtrlSets();
 
-    m_pCameraPane->Clear(true);
-
-    m_pCameraSettingsPanel->GetSizer()->Clear(true);
     m_pGuiderPane->Clear(true);
 
     if (m_pMountPane)
@@ -258,8 +239,6 @@ void AdvancedDialog::RebuildPanels()
     m_brainCtrls.clear();
 
     BuildCtrlSets();
-
-    AddCameraPage();
 
     m_pGuiderPane->LayoutControls(m_pFrame->pGuider, m_brainCtrls); // Guider pane doesn't have specific device dependencies
     m_pGuiderPane->Layout();
@@ -292,9 +271,7 @@ void AdvancedDialog::RebuildPanels()
 // Needed by ConfigDialogCtrlSets to know what parent to use when creating a control
 wxWindow *AdvancedDialog::GetTabLocation(BRAIN_CTRL_IDS id)
 {
-    if (id < AD_CAMERA_TAB_BOUNDARY)
-        return m_pCameraSettingsPanel;
-    else if (id < AD_GUIDER_TAB_BOUNDARY)
+    if (id < AD_GUIDER_TAB_BOUNDARY)
         return m_pGuiderSettingsPanel;
     else if (id < AD_MOUNT_TAB_BOUNDARY)
         return m_pScopeSettingsPanel;
@@ -305,20 +282,6 @@ wxWindow *AdvancedDialog::GetTabLocation(BRAIN_CTRL_IDS id)
         assert(false); // Fundamental problem
         return nullptr;
     }
-}
-
-void AdvancedDialog::AddCameraPage()
-{
-    // Even if pCamera is null, the pane hosts other controls
-    if (pCamera)
-        m_pCameraPane = pCamera->GetConfigDialogPane(m_pCameraSettingsPanel);
-    else
-        m_pCameraPane = new CameraConfigDialogPane(m_pCameraSettingsPanel, pCamera);
-    m_pCameraPane->LayoutControls(pCamera, m_brainCtrls);
-    m_pCameraPane->Layout();
-
-    m_pCameraSettingsPanel->GetSizer()->Add(m_pCameraPane);
-    m_pScopeSettingsPanel->Layout();
 }
 
 void AdvancedDialog::AddMountPage()
@@ -383,11 +346,6 @@ void AdvancedDialog::AddRotatorPage()
 
 // All update options for devices are handled by simply forcing a RebuildPanels before the Advanced Dialog is displayed
 
-void AdvancedDialog::UpdateCameraPage()
-{
-    m_rebuildPanels = true;
-}
-
 void AdvancedDialog::UpdateMountPage()
 {
     m_rebuildPanels = true;
@@ -411,8 +369,6 @@ void AdvancedDialog::LoadValues()
 
     // Load all the current params
     m_imageScaleChanged = false;
-    if (m_pCameraCtrlSet)
-        m_pCameraCtrlSet->LoadValues();
     if (m_pGuiderCtrlSet)
         m_pGuiderCtrlSet->LoadValues();
     if (m_pRotatorCtrlSet)
@@ -437,8 +393,6 @@ void AdvancedDialog::LoadValues()
 void AdvancedDialog::UnloadValues()
 {
     // Unload all the current params
-    if (m_pCameraCtrlSet)
-        m_pCameraCtrlSet->UnloadValues();
     if (m_pGuiderCtrlSet)
         m_pGuiderCtrlSet->UnloadValues();
     if (m_pRotatorCtrlSet)
@@ -465,7 +419,7 @@ void AdvancedDialog::UnloadValues()
 // Any un-do ops need to be handled at the ConfigDialogPane level
 void AdvancedDialog::Undo()
 {
-    ConfigDialogPane *const panes[] = { m_pGuiderPane, m_pCameraPane, m_pMountPane, m_pAOPane, m_pRotatorPane };
+    ConfigDialogPane *const panes[] = { m_pGuiderPane, m_pMountPane, m_pAOPane, m_pRotatorPane };
 
     for (unsigned int i = 0; i < WXSIZEOF(panes); i++)
     {
@@ -490,30 +444,17 @@ int AdvancedDialog::GetFocalLength()
 
 double AdvancedDialog::GetPixelSize()
 {
-    return m_pCameraCtrlSet ? m_pCameraCtrlSet->GetPixelSize() : 0.0;
-}
-
-void AdvancedDialog::SetPixelSize(double val)
-{
-    if (m_pCameraCtrlSet)
-        m_pCameraCtrlSet->SetPixelSize(val);
+    return pCamera ? pCamera->GetCameraPixelSize() : 0.0;
 }
 
 int AdvancedDialog::GetBinning()
 {
-    return m_pCameraCtrlSet ? m_pCameraCtrlSet->GetBinning() : 1;
-}
-
-void AdvancedDialog::SetBinning(int binning)
-{
-    if (m_pCameraCtrlSet)
-        m_pCameraCtrlSet->SetBinning(binning);
+    return pCamera ? pCamera->GetBinning() : 1;
 }
 
 size_t AdvancedDialog::FindPage(wxWindow *ctrl)
 {
     wxWindow *a[] = {
-        m_pCameraSettingsPanel,
         m_pGuiderSettingsPanel,
         m_pScopeSettingsPanel,
         m_pDevicesSettingsPanel,
