@@ -83,6 +83,21 @@ set_property(TARGET test_alpaca_schema PROPERTY FOLDER "Unit tests")
 add_test(NAME test_alpaca_schema COMMAND test_alpaca_schema)
 
 ############################################################################
+# test_alpaca_request_limits  --  alpaca_request_limits.cpp (#294): one
+# request's own timeout and abort check, on a real curl handle against a
+# local socket that accepts and never answers (the e2e fake's stall), and
+# the handle's state after it.
+############################################################################
+find_package(Threads REQUIRED)
+add_executable(test_alpaca_request_limits
+  ${PHD_TESTS_DIR}/alpaca/test_alpaca_request_limits.cpp
+  ${phd_src_dir}/alpaca_request_limits.cpp
+)
+target_link_libraries(test_alpaca_request_limits PRIVATE phd_test_common ${CURL_LIBRARIES} Threads::Threads)
+set_property(TARGET test_alpaca_request_limits PROPERTY FOLDER "Unit tests")
+add_test(NAME test_alpaca_request_limits COMMAND test_alpaca_request_limits)
+
+############################################################################
 # test_discovery_logic  --  models the host:port parse and dedupe-set
 # semantics shared by AlpacaDiscovery and INDIDiscovery, without needing
 # real sockets.
@@ -474,7 +489,8 @@ add_test(NAME test_connect_retry COMMAND test_connect_retry)
 
 ############################################################################
 # test_pulse_wait  --  pulse_wait.cpp: how long ScopeAlpaca::Guide waits
-# for an Alpaca PulseGuide, timed from the request (#119). std-only.
+# for an Alpaca PulseGuide, timed from the request (#119), and the PulseGuide
+# request's own timeout (#294). std-only.
 ############################################################################
 add_executable(test_pulse_wait
   ${PHD_TESTS_DIR}/equipment/test_pulse_wait.cpp
@@ -870,3 +886,73 @@ add_executable(test_guiding_rms_baseline
 target_link_libraries(test_guiding_rms_baseline PRIVATE phd_test_common)
 set_property(TARGET test_guiding_rms_baseline PROPERTY FOLDER "Unit tests")
 add_test(NAME test_guiding_rms_baseline COMMAND test_guiding_rms_baseline)
+
+############################################################################
+# Benchmarks (#142 Tier 4): plain executables with their own main (no GTest
+# main), on the same shadow phd.h and include path as the tests.
+#
+# guide_algorithm_matrix  --  the in-process algorithm matrix: guide_sim
+# (tests/benchmark/guide_sim.h, the RMS baseline's closed loop with a choice
+# of algorithm per axis and Dec backlash) over the REAL wx-free kernels
+# (Hysteresis, ResistSwitch, Lowpass, Lowpass2), calibration_transform and
+# guide_move_plan, for each RA/Dec algorithm pair under five sky and mount
+# conditions. Checked against the generous ceilings of
+# algorithm_matrix_thresholds.csv; the nightly workflow runs it too and puts
+# its table in the job summary. A few seconds.
+############################################################################
+add_library(phd_bench_common INTERFACE)
+target_compile_features(phd_bench_common INTERFACE cxx_std_20)
+if(MSVC)
+  target_compile_options(phd_bench_common INTERFACE /FI${PHD_TESTS_INCLUDE}/phd.h)
+else()
+  target_compile_options(phd_bench_common INTERFACE -include ${PHD_TESTS_INCLUDE}/phd.h)
+endif()
+target_include_directories(phd_bench_common INTERFACE
+  ${PHD_TESTS_INCLUDE}
+  ${phd_src_dir}
+  ${PHD_TESTS_DIR}/benchmark
+)
+
+add_library(guide_sim STATIC
+  ${PHD_TESTS_DIR}/benchmark/guide_sim.cpp
+  ${phd_src_dir}/guide_algorithm_kernels.cpp
+  ${phd_src_dir}/guide_algorithm_lowpass_math.cpp
+  ${phd_src_dir}/guiding_stats.cpp
+  ${phd_src_dir}/guide_move_plan.cpp
+  ${phd_src_dir}/calibration_transform.cpp
+)
+target_link_libraries(guide_sim PUBLIC phd_bench_common)
+set_property(TARGET guide_sim PROPERTY FOLDER "Unit tests")
+
+add_executable(guide_algorithm_matrix ${PHD_TESTS_DIR}/benchmark/algorithm_matrix.cpp)
+target_link_libraries(guide_algorithm_matrix PRIVATE guide_sim)
+set_property(TARGET guide_algorithm_matrix PROPERTY FOLDER "Unit tests")
+add_test(NAME guide_algorithm_matrix
+  COMMAND guide_algorithm_matrix --thresholds ${PHD_TESTS_DIR}/benchmark/algorithm_matrix_thresholds.csv)
+
+############################################################################
+# guide_log_replay  --  replays PHD2 guide logs (tests/benchmark/guide_log.h
+# reads them) through the same kernels: how many of the logged guide
+# distances and pulses the kernels reproduce from the logged offsets, and
+# the RMS each algorithm is predicted to leave on the night's reconstructed
+# motion. test_guide_log_replay runs it on a trimmed RC51 log
+# (tests/benchmark/fixtures) and checks the replay is deterministic and
+# reproduces the logged corrections within the log's rounding.
+############################################################################
+add_library(guide_log_replay_lib STATIC
+  ${PHD_TESTS_DIR}/benchmark/guide_log.cpp
+  ${PHD_TESTS_DIR}/benchmark/guide_log_replay.cpp
+)
+target_link_libraries(guide_log_replay_lib PUBLIC guide_sim)
+set_property(TARGET guide_log_replay_lib PROPERTY FOLDER "Unit tests")
+
+add_executable(guide_log_replay ${PHD_TESTS_DIR}/benchmark/guide_log_replay_main.cpp)
+target_link_libraries(guide_log_replay PRIVATE guide_log_replay_lib)
+set_property(TARGET guide_log_replay PROPERTY FOLDER "Unit tests")
+
+add_executable(test_guide_log_replay ${PHD_TESTS_DIR}/benchmark/test_guide_log_replay.cpp)
+target_link_libraries(test_guide_log_replay PRIVATE guide_log_replay_lib phd_test_common)
+target_compile_definitions(test_guide_log_replay PRIVATE
+  GUIDE_LOG_FIXTURE="${PHD_TESTS_DIR}/benchmark/fixtures/rc51_guidelog_2026-11-22.txt")
+set_property(TARGET test_guide_log_replay PROPERTY FOLDER "Unit tests")
+add_test(NAME test_guide_log_replay COMMAND test_guide_log_replay)

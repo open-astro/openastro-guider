@@ -920,10 +920,24 @@ TEST(Recenter, RecoveryStepIgnoresTheDecGuideModeAsBefore)
 }
 
 // Mount::MoveOffset's result for its RA and Dec pulses (#181)
-TEST(OffsetResult, DecIsSentAfterAnRaThatMovedOrFailed)
+TEST(OffsetResult, DecIsSentAfterAnRaThatMoved)
 {
     EXPECT_TRUE(SendDecAfter(MoveResult::Ok));
-    EXPECT_TRUE(SendDecAfter(MoveResult::Error));
+}
+
+TEST(OffsetResult, DecIsNotSentAfterAFailedRa)
+{
+    // #294: an RA PulseGuide that failed, timed out or was given up on a stop leaves the frame
+    // old (a 30 s timeout made it 30 s old), so its Dec pulse is not sent
+    EXPECT_FALSE(SendDecAfter(MoveResult::Error));
+}
+
+TEST(OffsetResult, FailedRaWithNoDecSentFailsTheMoveOnce)
+{
+    // The Dec move is not sent, so it reads Ok: the move is the RA's failure, counted once by
+    // MyFrame::OnMoveComplete (#213)
+    EXPECT_EQ(OffsetResult(MoveResult::Error, MoveResult::Ok), MoveResult::Error);
+    EXPECT_EQ(AfterGuideMove(OffsetResult(MoveResult::Error, MoveResult::Ok), 0).inARow, 1);
 }
 
 TEST(OffsetResult, DecIsNotSentWhileSlewingOrAtTheAoLimit)

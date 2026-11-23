@@ -329,6 +329,13 @@ static void SuppressSlewAlert(intptr_t)
          }                                                                                                                     \
      } while (0)
 
+// The PulseGuide request's abort check (#294): a stop (stop_capture) or an exit requested of the worker thread the
+// pulse runs on. Polled by curl on that thread while the request waits on the mount; 0 off the worker thread.
+static bool PulseGuideInterruptRequested()
+{
+    return WorkerThread::InterruptRequested() != 0;
+}
+
 Mount::MOVE_RESULT ScopeAlpaca::Guide(GUIDE_DIRECTION direction, int duration)
 {
     MOVE_RESULT result = MOVE_OK;
@@ -403,11 +410,28 @@ Mount::MOVE_RESULT ScopeAlpaca::Guide(GUIDE_DIRECTION direction, int duration)
         wxString params = wxString::Format("Direction=%d&Duration=%d", alpacaDirection, duration);
 
         long errorCode = 0;
+        // The request's own limits (#294): a mount holding it fails the move after the pulse plus a margin, not the
+        // client's 30 s, and a stop gives it up within about a second instead of waiting for either
+        AlpacaRequestLimits limits;
+        limits.timeoutMs = PulseWait::RequestTimeoutMs((long) duration);
+        limits.abortRequested = &PulseGuideInterruptRequested;
+        AlpacaErrors::CallError callError;
         // Started before the request, as upstream ScopeASCOM does: a PulseGuide that blocks
         // while the pulse runs has already spent that time, and it must not be waited for again.
         wxStopWatch swatch;
-        if (!m_client->PutAction(endpoint, "PulseGuide", params, &errorCode))
+        if (!m_client->PutAction(endpoint, "PulseGuide", params, &errorCode, nullptr, &callError, &limits))
         {
+            if (callError.kind == AlpacaErrors::CallError::Kind::Transport &&
+                callError.curlCode == AlpacaErrors::kCurlAbortedByCallback)
+            {
+                // A stop no longer waits for the mount; the mount may still run the pulse. No canpulseguide check:
+                // it would wait on the same mount
+                Debug.Write(wxString::Format("Alpaca Mount: PulseGuide %s %d ms given up after %ld ms, a stop was "
+                                             "requested\n",
+                                             DirectionChar(direction), duration, swatch.Time()));
+                throw ERROR_INFO("Alpaca Mount: pulseguide request given up on a stop");
+            }
+
             Debug.Write(wxString::Format("pulseguide: HTTP %ld\n", errorCode));
 
             // Make sure nothing got by us and the mount can really handle pulse guide

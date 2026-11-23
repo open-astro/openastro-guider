@@ -24,6 +24,11 @@ long SleepBeforeFirstPollMs(long durationMs, long elapsedSinceSendMs);
 // enough: more than 2 s past the end of the pulse, or a negative elapsed time
 // (the clock stepped back, so the wait can no longer be measured).
 bool CompletionTimedOut(long durationMs, long elapsedSinceSendMs);
+
+// The PulseGuide request's own timeout (#294): the pulse plus 10 s, and at least 15 s, so a mount
+// that blocks for the whole pulse is waited for, while one that holds the request fails the move
+// in about 15 s rather than the client's 30 s. A negative duration counts as 0.
+long RequestTimeoutMs(long durationMs);
 } // namespace PulseWait
 
 #endif

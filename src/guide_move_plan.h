@@ -215,8 +215,9 @@ enum class MoveResult
     ErrorAoLimitReached, // the AO hit its travel limit
 };
 
-// Whether Mount::MoveOffset sends its Dec pulse after its RA move returned ra: not when the
-// scope is slewing or the AO hit its travel limit
+// Whether Mount::MoveOffset sends its Dec pulse after its RA move returned ra: only when the
+// RA move went through. Not when it failed (#294: an error, or a request that timed out or was
+// given up on a stop, so the frame is old), the scope is slewing or the AO hit its travel limit
 bool SendDecAfter(MoveResult ra);
 
 // Mount::MoveOffset's result for its RA move's ra and its Dec move's dec (Ok when SendDecAfter

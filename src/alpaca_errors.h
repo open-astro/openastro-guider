@@ -48,6 +48,10 @@ const long kCurlOperationTimedOut = 28;
 const long kCurlGotNothing = 52;
 const long kCurlRecvError = 56;
 const long kCurlPartialFile = 18;
+// CURLE_ABORTED_BY_CALLBACK, a CallError's curlCode when the request's abort check gave it up before its
+// response (AlpacaRequestLimits, #294): a PulseGuide a stop no longer waits for. alpaca_client.cpp checks it
+// against curl.h.
+const long kCurlAbortedByCallback = 42;
 
 enum class CaptureFailureAction
 {

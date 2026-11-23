@@ -1,0 +1,24 @@
+# The daemon algorithm slice's ceilings (scripts/e2e_algorithm_matrix.py): a cell's true total RMS,
+# px of the fake's sensor, may not exceed max_true_total_px. Written by --write-thresholds as
+# 1.5 x the measured + 0.1 px, so only a clear regression fails.
+# lane,ra,dec,max_true_total_px
+nominal,Hysteresis,Resist Switch,0.34
+nominal,Lowpass,Resist Switch,0.29
+nominal,Lowpass2,Resist Switch,0.24
+nominal,Resist Switch,Resist Switch,0.38
+nominal,ZFilter,Resist Switch,0.35
+nominal,Predictive PEC,Resist Switch,0.30
+nominal,Hysteresis,Hysteresis,0.27
+nominal,Hysteresis,Lowpass,0.21
+nominal,Hysteresis,Lowpass2,0.26
+nominal,Hysteresis,ZFilter,0.23
+rough,Hysteresis,Resist Switch,0.59
+rough,Lowpass,Resist Switch,0.60
+rough,Lowpass2,Resist Switch,0.52
+rough,Resist Switch,Resist Switch,0.75
+rough,ZFilter,Resist Switch,0.66
+rough,Predictive PEC,Resist Switch,0.71
+rough,Hysteresis,Hysteresis,0.52
+rough,Hysteresis,Lowpass,0.47
+rough,Hysteresis,Lowpass2,0.47
+rough,Hysteresis,ZFilter,0.40

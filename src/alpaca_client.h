@@ -36,6 +36,7 @@
 
 #include "phd.h"
 #include "alpaca_errors.h"
+#include "alpaca_request_limits.h"
 #include "json_parser.h"
 #include <curl/curl.h>
 #include <atomic>
@@ -55,6 +56,7 @@ private:
     wxMutex m_mutex;
     bool m_logRequests = true;
     int m_getAttempts = 3;
+    long m_timeoutMs = 30000; // the whole request's curl timeout (SetTimeoutMs); AlpacaRequestLimits restores it
 
     static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp);
     wxString BuildRequestUrl(const wxString& endpoint) const;
@@ -79,8 +81,11 @@ public:
     bool GetBool(const wxString& endpoint, bool *value, long *errorCode = nullptr, wxString *errorMessage = nullptr,
                  AlpacaErrors::CallError *callError = nullptr);
     bool GetString(const wxString& endpoint, wxString *value, long *errorCode = nullptr);
+    // limits (optional, #294): this request's own timeout and abort check (alpaca_request_limits.h). A
+    // request the abort check gave up fails as Transport with curlCode kCurlAbortedByCallback.
     bool PutAction(const wxString& endpoint, const wxString& action, const wxString& params, long *errorCode = nullptr,
-                   wxString *errorMessage = nullptr, AlpacaErrors::CallError *callError = nullptr);
+                   wxString *errorMessage = nullptr, AlpacaErrors::CallError *callError = nullptr,
+                   const AlpacaRequestLimits *limits = nullptr);
 
     wxString GetBaseUrl() const;
 

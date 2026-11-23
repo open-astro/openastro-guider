@@ -1,0 +1,39 @@
+# The in-process algorithm matrix's ceilings (tests/benchmark/algorithm_matrix.cpp): the mean total
+# RMS, arcsec, over 20 seeds may not exceed max_total_rms. Written by --write-thresholds as
+# 1.25 x the measured mean + 0.1, so only a clear regression fails.
+# ra,dec,condition,max_total_rms
+Hysteresis,ResistSwitch,nominal,1.08
+Hysteresis,ResistSwitch,poor-seeing,2.48
+Hysteresis,ResistSwitch,fast-pe,3.03
+Hysteresis,ResistSwitch,poor-pa,1.08
+Hysteresis,ResistSwitch,dec-backlash,1.06
+Lowpass,ResistSwitch,nominal,1.14
+Lowpass,ResistSwitch,poor-seeing,2.76
+Lowpass,ResistSwitch,fast-pe,2.42
+Lowpass,ResistSwitch,poor-pa,1.14
+Lowpass,ResistSwitch,dec-backlash,1.11
+Lowpass2,ResistSwitch,nominal,1.17
+Lowpass2,ResistSwitch,poor-seeing,2.62
+Lowpass2,ResistSwitch,fast-pe,2.67
+Lowpass2,ResistSwitch,poor-pa,1.17
+Lowpass2,ResistSwitch,dec-backlash,1.16
+ResistSwitch,ResistSwitch,nominal,1.10
+ResistSwitch,ResistSwitch,poor-seeing,2.85
+ResistSwitch,ResistSwitch,fast-pe,2.25
+ResistSwitch,ResistSwitch,poor-pa,1.09
+ResistSwitch,ResistSwitch,dec-backlash,1.08
+Hysteresis,Hysteresis,nominal,0.88
+Hysteresis,Hysteresis,poor-seeing,1.99
+Hysteresis,Hysteresis,fast-pe,2.97
+Hysteresis,Hysteresis,poor-pa,1.22
+Hysteresis,Hysteresis,dec-backlash,1.11
+Hysteresis,Lowpass,nominal,0.96
+Hysteresis,Lowpass,poor-seeing,2.33
+Hysteresis,Lowpass,fast-pe,2.99
+Hysteresis,Lowpass,poor-pa,1.24
+Hysteresis,Lowpass,dec-backlash,1.09
+Hysteresis,Lowpass2,nominal,0.93
+Hysteresis,Lowpass2,poor-seeing,2.17
+Hysteresis,Lowpass2,fast-pe,2.97
+Hysteresis,Lowpass2,poor-pa,1.34
+Hysteresis,Lowpass2,dec-backlash,1.18
