@@ -45,8 +45,6 @@ static int s_selectedPage = -1;
 
 void AdvancedDialog::BuildCtrlSets()
 {
-    m_pGuiderCtrlSet = m_pFrame->pGuider->GetConfigDialogCtrlSet(m_pGuiderSettingsPanel, m_pFrame->pGuider, this, m_brainCtrls);
-
     if (TheAO())
         m_pAOCtrlSet = new AOConfigDialogCtrlSet(m_pDevicesSettingsPanel, pMount, this, m_brainCtrls);
     else
@@ -63,9 +61,6 @@ void AdvancedDialog::BuildCtrlSets()
 
 void AdvancedDialog::CleanupCtrlSets()
 {
-    delete m_pGuiderCtrlSet;
-    m_pGuiderCtrlSet = nullptr;
-
     delete m_pScopeCtrlSet;
     m_pScopeCtrlSet = nullptr;
 
@@ -124,8 +119,6 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     m_pNotebook = new wxNotebook(this, wxID_ANY);
     m_pFrame = pFrame; // We get called before global var is initialized
 
-    wxSizerFlags sizer_flags = wxSizerFlags(0).Align(wxALIGN_TOP | wxALIGN_CENTER_HORIZONTAL).Border(wxALL, 2).Expand();
-
     // Build all the panels first - these are needed to create the various ConfigCtrlSets
     // Each panel gets a vertical sizer attached to it
     // Guiding pane
@@ -147,11 +140,6 @@ AdvancedDialog::AdvancedDialog(MyFrame *pFrame)
     BuildCtrlSets(); // Populates the m_brainCtrls map with all UI controls
 
     // Pane construction now pulls controls from the map and places them where they make sense to a user
-    // Populate the guiding pane
-    m_pGuiderPane = pFrame->pGuider->GetConfigDialogPane(m_pGuiderSettingsPanel);
-    m_pGuiderPane->LayoutControls(pFrame->pGuider, m_brainCtrls);
-    pGuidingTabSizer->Add(m_pGuiderPane, sizer_flags);
-
     // Build Mount tab
     AddMountPage();
 
@@ -218,8 +206,6 @@ void AdvancedDialog::RebuildPanels()
 {
     CleanupCtrlSets();
 
-    m_pGuiderPane->Clear(true);
-
     if (m_pMountPane)
     {
         m_pMountPane->Clear(true);
@@ -239,9 +225,6 @@ void AdvancedDialog::RebuildPanels()
     m_brainCtrls.clear();
 
     BuildCtrlSets();
-
-    m_pGuiderPane->LayoutControls(m_pFrame->pGuider, m_brainCtrls); // Guider pane doesn't have specific device dependencies
-    m_pGuiderPane->Layout();
 
     AddMountPage();
 
@@ -369,8 +352,6 @@ void AdvancedDialog::LoadValues()
 
     // Load all the current params
     m_imageScaleChanged = false;
-    if (m_pGuiderCtrlSet)
-        m_pGuiderCtrlSet->LoadValues();
     if (m_pRotatorCtrlSet)
         m_pRotatorCtrlSet->LoadValues();
 
@@ -393,8 +374,6 @@ void AdvancedDialog::LoadValues()
 void AdvancedDialog::UnloadValues()
 {
     // Unload all the current params
-    if (m_pGuiderCtrlSet)
-        m_pGuiderCtrlSet->UnloadValues();
     if (m_pRotatorCtrlSet)
         m_pRotatorCtrlSet->UnloadValues();
 
@@ -419,7 +398,7 @@ void AdvancedDialog::UnloadValues()
 // Any un-do ops need to be handled at the ConfigDialogPane level
 void AdvancedDialog::Undo()
 {
-    ConfigDialogPane *const panes[] = { m_pGuiderPane, m_pMountPane, m_pAOPane, m_pRotatorPane };
+    ConfigDialogPane *const panes[] = { m_pMountPane, m_pAOPane, m_pRotatorPane };
 
     for (unsigned int i = 0; i < WXSIZEOF(panes); i++)
     {

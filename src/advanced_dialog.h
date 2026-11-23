@@ -37,7 +37,6 @@
 
 class MyFrame;
 class MountConfigDialogCtrlSet;
-class GuiderConfigDialogPane;
 class wxTipWindow;
 
 enum TAB_PAGES
@@ -55,14 +54,12 @@ class AdvancedDialog : public wxDialog
 {
     MyFrame *m_pFrame;
     wxBookCtrlBase *m_pNotebook;
-    Guider::GuiderConfigDialogPane *m_pGuiderPane;
     Mount::MountConfigDialogPane *m_pMountPane;
     AOConfigDialogPane *m_pAOPane;
     RotatorConfigDialogPane *m_pRotatorPane;
 
     BrainCtrlIdMap m_brainCtrls;
     bool m_rebuildPanels;
-    GuiderConfigDialogCtrlSet *m_pGuiderCtrlSet;
     MountConfigDialogCtrlSet *m_pScopeCtrlSet;
     AOConfigDialogCtrlSet *m_pAOCtrlSet;
     RotatorConfigDialogCtrlSet *m_pRotatorCtrlSet;
