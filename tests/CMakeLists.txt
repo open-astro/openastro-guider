@@ -529,6 +529,19 @@ set_property(TARGET test_calstep_math PROPERTY FOLDER "Unit tests")
 add_test(NAME test_calstep_math COMMAND test_calstep_math)
 
 ############################################################################
+# test_image_scale  --  image_scale.h: PercentChange, the 5% test that flags
+# an image-scale change, and SiderealRateFromGuideSpeed, moved out of
+# AdvancedDialog with MakeImageScaleAdjustments (#115 step 4, S4.1).
+# std-only, header-only.
+############################################################################
+add_executable(test_image_scale
+  ${PHD_TESTS_DIR}/calibration/test_image_scale.cpp
+)
+target_link_libraries(test_image_scale PRIVATE phd_test_common)
+set_property(TARGET test_image_scale PROPERTY FOLDER "Unit tests")
+add_test(NAME test_image_scale COMMAND test_image_scale)
+
+############################################################################
 # test_instance_lock  --  instance_lock.cpp: where the single-instance lock
 # goes, $RUNTIME_DIRECTORY under systemd or wx's default (#135). std-only.
 ############################################################################

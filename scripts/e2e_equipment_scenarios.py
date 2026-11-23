@@ -227,7 +227,7 @@ def min_moves(cli):
 
 def smart_default_min_move(pixel_um, focal_mm=FOCAL_MM, binning=1):
     """GuideAlgorithm::SmartDefaultMinMove (src/guide_algorithm.cpp): the MinMove an image scale change resets both
-    axes to (AdvancedDialog::MakeImageScaleAdjustments); 0.2316 px for the fake's 3.75 um at 400 mm."""
+    axes to (MyFrame::MakeImageScaleAdjustments); 0.2316 px for the fake's 3.75 um at 400 mm."""
     scale = 206.265 * pixel_um * binning / focal_mm
     return max(0.1515 + 0.1548 / scale, 0.15)
 
@@ -755,9 +755,9 @@ def scenario_camera_change_mount_off(lane, args):
 
 
 # --- #115 N4: the headless image-scale adjustments (MyFrame::HandleImageScaleChange ->
-# AdvancedDialog::MakeImageScaleAdjustments / DetermineGuideSpeed), pinned before S4.1 moves them into MyFrame
+# MyFrame::MakeImageScaleAdjustments / DetermineGuideSpeed, which S4.1 moved out of AdvancedDialog)
 
-SIDEREAL_SECS_PER_SEC = 0.9973  # AdvancedDialog's SiderealRateFromGuideSpeed and Scope::ValidGuideRates
+SIDEREAL_SECS_PER_SEC = 0.9973  # image_scale::SiderealRateFromGuideSpeed (src/image_scale.h) and Scope::ValidGuideRates
 DEFAULT_GUIDE_SPEED = 0.5  # DetermineGuideSpeed's value when it has nothing better
 SCALE_STEP_LINE = r"Cal step-size changed from (\d+) ms to (\d+) ms"
 # MakeImageScaleAdjustments's first line, and its line when there is no scope or camera: never written on the
