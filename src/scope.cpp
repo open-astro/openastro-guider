@@ -290,7 +290,12 @@ bool Scope::SetDecGuideMode(int decGuideMode)
 
         if (m_decGuideMode != decGuideMode)
         {
-            m_decGuideMode = (DEC_GUIDE_MODE) decGuideMode;
+            {
+                // ApplyBacklashComp reads it on the worker during a guide move (#280). Only the write: the
+                // guard is not recursive, and the BLC calls below take it themselves.
+                AlgorithmSlot::Hold held = LockAlgorithms();
+                m_decGuideMode = (DEC_GUIDE_MODE) decGuideMode;
+            }
 
             wxString s = DecGuideModeStr(m_decGuideMode);
             Debug.Write(wxString::Format("DecGuideMode set to %s (%d)\n", s, decGuideMode));

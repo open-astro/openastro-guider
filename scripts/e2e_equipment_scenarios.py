@@ -1947,10 +1947,9 @@ def scenario_mutation_while_guiding(lane):
             cli.call("set_algo", {"axis": axis, "name": algo})
             for name, value in params.items():
                 cli.call("set_algo_param", {"axis": axis, "name": name, "value": value})
-        # a new profile reads PulseWidth 0, Floor 20, Ceiling 0, which set_backlash_comp refuses (PulseWidth 20..8000):
-        # then only Enabled goes back
-        keys = ("Enabled", "PulseWidth", "Floor", "Ceiling") if blc_before["PulseWidth"] >= 20 else ("Enabled",)
-        cli.call("set_backlash_comp", {k: blc_before[k] for k in keys})
+        # what get_backlash_comp read goes back whole, on the lane's new profile too (#280)
+        cli.call("set_backlash_comp", blc_before)
+    expect(cli.call("get_backlash_comp") == blc_before, f"backlash comp not set back: was {blc_before}")
     for axis, (algo, params) in before.items():
         now = (cli.call("get_algo", {"axis": axis}), algo_params(cli, axis))
         expect(now[0] == algo and now[1].keys() == params.keys() and
