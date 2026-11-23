@@ -278,6 +278,20 @@ else()
 endif()
 
 ############################################################################
+# test_star_find_synthetic  --  the same REAL star_find_core.cpp on synthetic
+# frames (#142): pixel-integrated Gaussian stars with seeded noise
+# (star/synthetic_star.h). Centroid accuracy and precision, HFD, SNR,
+# saturation and the rejection branches. std-only, no cfitsio.
+############################################################################
+add_executable(test_star_find_synthetic
+  ${PHD_TESTS_DIR}/star/test_star_find_synthetic.cpp
+  ${phd_src_dir}/star_find_core.cpp
+)
+target_link_libraries(test_star_find_synthetic PRIVATE phd_test_common)
+set_property(TARGET test_star_find_synthetic PROPERTY FOLDER "Unit tests")
+add_test(NAME test_star_find_synthetic COMMAND test_star_find_synthetic)
+
+############################################################################
 # test_imaging_gear  --  imaging_gear.cpp / imaging_gear_poller.cpp: the
 # imaging-train guide log lines (design/IMAGING_GEAR_LOG.md), pixel scale,
 # unknown values, Alpaca device selection, and the background poller
