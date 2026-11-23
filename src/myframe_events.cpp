@@ -50,8 +50,6 @@
 #include <wx/utils.h>
 #include <wx/wfstream.h>
 
-wxDEFINE_EVENT(APPSTATE_NOTIFY_EVENT, wxCommandEvent);
-
 void MyFrame::OnExposureDurationSelected(wxCommandEvent& evt)
 {
     unsigned int idx = Dur_Choice->GetSelection();
@@ -893,9 +891,6 @@ void MyFrame::OnRestoreWindows(wxCommandEvent& evt)
             panes.Item(i).Show(true);
     }
     m_mgr.Update();
-
-    if (pGuidingAssistant)
-        pGuidingAssistant->Center();
 }
 
 bool MyFrame::FlipCalibrationData()

@@ -77,7 +77,6 @@ wxDEFINE_EVENT(RECONNECT_CAMERA_EVENT, wxThreadEvent);
 wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 EVT_MENU(wxID_EXIT, MyFrame::OnQuit)
 EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
-EVT_MENU(MENU_GUIDING_ASSISTANT, MyFrame::OnGuidingAssistant)
 EVT_MENU(wxID_SAVE, MyFrame::OnSave)
 EVT_MENU(MENU_TAKEDARKS, MyFrame::OnDark)
 EVT_MENU(MENU_LOADDARK, MyFrame::OnLoadDark)
@@ -292,7 +291,6 @@ MyFrame::MyFrame()
     // no devices yet: PhdApp::OnInit loads them from the profile once pFrame is set (their constructors call through it)
     pEquipment = new EquipmentManager();
 
-    pGuidingAssistant = nullptr;
     m_starFindMode = Star::FIND_CENTROID;
     m_rawImageMode = false;
     m_rawImageModeWarningDone = false;
@@ -385,7 +383,6 @@ void MyFrame::SetupMenuBar()
 
     tools_menu = new wxMenu;
     m_autoSelectStarMenuItem = tools_menu->Append(MENU_AUTOSTAR, _("&Auto-select Star\tAlt-S"), _("Automatically select star"));
-    tools_menu->Append(MENU_GUIDING_ASSISTANT, _("&Guiding Assistant"), _("Run the Guiding Assistant"));
     (void) tools_menu->AppendSeparator();
     tools_menu->AppendCheckItem(MENU_SERVER, _("Enable Server"), _("Enable PHD2 server capability"));
     tools_menu->AppendCheckItem(EEGG_STICKY_LOCK, _("Sticky Lock Position"),

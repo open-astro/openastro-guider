@@ -137,7 +137,6 @@ public:
     bool GetBacklashExempted() const { return m_backlashExemption; }
     const wxString& GetLastStatus() const { return m_lastStatus; }
     void SetBacklashPulse(int amt);
-    void ShowGraph(wxDialog *pGA, const std::vector<double>& northSteps, const std::vector<double>& southSteps, int PulseSize);
     bool IsGraphable();
     const std::vector<double>& GetNorthSteps() const { return m_northBLSteps; }
     const std::vector<double>& GetSouthSteps() const { return m_southBLSteps; }

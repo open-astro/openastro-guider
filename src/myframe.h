@@ -248,7 +248,6 @@ public:
     AdvancedDialog *pAdvancedDialog = nullptr;
     GuideHistory *pGuideHistory = nullptr;
     EquipmentManager *pEquipment = nullptr; // the devices and their selection
-    wxWindow *pGuidingAssistant = nullptr;
     bool CaptureActive = false; // Is camera looping captures?
     bool m_exposurePending = false; // exposure scheduled and not completed
     // The camera auto-reconnect succeeded during a capture, and its EquipmentReconnected waits for the first frame
@@ -282,7 +281,6 @@ public:
     void OnButtonGuide(wxCommandEvent& evt);
     void OnIdle(wxIdleEvent& evt);
     void OnEEGG(wxCommandEvent& evt);
-    void OnGuidingAssistant(wxCommandEvent& evt);
     void OnExposureDurationSelected(wxCommandEvent& evt);
     void OnGammaSlider(wxScrollEvent& evt);
     void OnSockServerEvent(wxSocketEvent& evt);
@@ -535,7 +533,6 @@ enum
     MENU_TOOLBAR,
     MENU_RESTORE_WINDOWS,
     MENU_AUTOSTAR,
-    MENU_GUIDING_ASSISTANT,
     MENU_SAVESETTINGS,
     MENU_LOADSETTINGS,
     MENU_LOADDARK,
@@ -563,8 +560,6 @@ enum
     HTTP_SERVER_ID,
     HTTP_SERVER_CLIENT_ID,
 };
-
-wxDECLARE_EVENT(APPSTATE_NOTIFY_EVENT, wxCommandEvent);
 
 inline static int StringWidth(const wxWindow *window, const wxString& s)
 {

@@ -10,7 +10,6 @@ typeinfo for wxFrame
 typeinfo for wxIntegerValidatorBase
 typeinfo for wxPaintDC
 typeinfo for wxProgressDialog
-typeinfo for wxScrollHelper
 typeinfo for wxStaticBoxSizer
 typeinfo for wxWindow
 vtable for wxAnyButton
@@ -29,11 +28,9 @@ vtable for wxControlContainer
 vtable for wxCursor
 vtable for wxDC
 vtable for wxDialog
-vtable for wxFont
 vtable for wxFrame
 vtable for wxGauge
 vtable for wxGraphicsMatrix
-vtable for wxGrid
 vtable for wxIcon
 vtable for wxImage
 vtable for wxImageHandler
@@ -50,7 +47,6 @@ vtable for wxPanel
 vtable for wxPen
 vtable for wxProgressDialog
 vtable for wxRadioButton
-vtable for wxScrollHelper
 vtable for wxSizer
 vtable for wxSizerItem
 vtable for wxSlider
@@ -107,7 +103,6 @@ wxAuiToolBar::Init()
 wxAuiToolBar::Realize()
 wxBeginBusyCursor(wxCursor const*)
 wxBell()
-wxBitmap::Create(int, int, int)
 wxBitmap::GetHeight() const
 wxBitmap::GetWidth() const
 wxBitmap::wxBitmap(wxImage const&, int, double)
@@ -121,8 +116,6 @@ wxBitmapHelpers::NewFromPNGData(void const*, unsigned long)
 wxBoxSizer::AddSpacer(int)
 wxBoxSizer::DoInsert(unsigned long, wxSizerItem*)
 wxBoxSizer::InformFirstDirection(int, int, int)
-wxBrush::wxBrush(wxColour const&, wxBrushStyle)
-wxBrush::~wxBrush()
 wxButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
 wxButtonNameStr
 wxCheckBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
@@ -135,7 +128,6 @@ wxChoice::SetSelection(int)
 wxChoice::~wxChoice()
 wxChoiceBase::~wxChoiceBase()
 wxChoiceNameStr
-wxColour::FromString(wxString const&)
 wxColour::InitRGBA(unsigned char, unsigned char, unsigned char, unsigned char)
 wxColour::~wxColour()
 wxComboBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, wxArrayString const&, long, wxValidator const&, wxString const&)
@@ -143,14 +135,12 @@ wxComboBox::Init()
 wxComboBoxNameStr
 wxCommandEvent::GetString() const
 wxControl::wxControl()
-wxControlBase::EscapeMnemonics(wxString const&)
 wxControlBase::~wxControlBase()
 wxControlContainerBase::AcceptsFocus() const
 wxControlContainerBase::DoSetFocus()
 wxControlContainerBase::HasAnyChildrenAcceptingFocus() const
 wxControlContainerBase::UpdateCanFocusChildren()
 wxCursor::InitFromStock(wxStockCursor)
-wxCursor::wxCursor()
 wxCursor::wxCursor(wxImage const&)
 wxCursor::~wxCursor()
 wxDefaultPosition
@@ -191,7 +181,6 @@ wxEVT_ERASE_BACKGROUND
 wxEVT_KILL_FOCUS
 wxEVT_LEFT_DOWN
 wxEVT_MENU
-wxEVT_MOTION
 wxEVT_PAINT
 wxEVT_RADIOBUTTON
 wxEVT_SCROLL_BOTTOM
@@ -210,13 +199,9 @@ wxEndBusyCursor()
 wxFileDropTarget::OnData(int, int, wxDragResult)
 wxFileDropTarget::wxFileDropTarget()
 wxFileSelector(wxString const&, wxString const&, wxString const&, wxString const&, wxString const&, int, wxWindow*, int, int)
-wxFlexGridSizer::AddGrowableCol(unsigned long, int)
-wxFlexGridSizer::wxFlexGridSizer(int, int, int)
 wxFlexGridSizer::wxFlexGridSizer(int, int, int, int)
-wxFont::Create(int, wxFontFamily, wxFontStyle, wxFontWeight, bool, wxString const&, wxFontEncoding)
 wxFont::~wxFont()
 wxFontBase::SetWeight(wxFontWeight)
-wxFontBase::~wxFontBase()
 wxFrame::AttachMenuBar(wxMenuBar*)
 wxFrame::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
 wxFrame::DetachMenuBar()
@@ -269,20 +254,6 @@ wxGraphicsContext::Create(wxWindowDC const&)
 wxGraphicsContext::SetPen(wxPen const&)
 wxGraphicsMatrix::TransformPoint(double*, double*) const
 wxGraphicsObject::~wxGraphicsObject()
-wxGrid::AutoSizeColOrRow(int, bool, wxGridDirection)
-wxGrid::AutoSizeRows(bool)
-wxGrid::Create(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
-wxGrid::CreateGrid(int, int, wxGrid::wxGridSelectionModes)
-wxGrid::EnableEditing(bool)
-wxGrid::Init()
-wxGrid::SetCellBackgroundColour(int, int, wxColour const&)
-wxGrid::SetCellTextColour(int, int, wxColour const&)
-wxGrid::SetCellValue(int, int, wxString const&)
-wxGrid::SetColLabelSize(int)
-wxGrid::SetDefaultColSize(int, bool)
-wxGrid::SetRowLabelSize(int)
-wxGrid::XYToCell(int, int, wxGridWindow*) const
-wxGridNameStr
 wxIcon::CopyFromBitmap(wxBitmap const&)
 wxIcon::wxIcon()
 wxImage::AddHandler(wxImageHandler*)
@@ -312,10 +283,8 @@ wxMenuBar::wxMenuBar()
 wxMenuBarBase::Check(int, bool)
 wxMenuBase::Check(int, bool)
 wxMenuBase::FindItem(int, wxMenu**) const
-wxMenuBase::GetLabel(int) const
 wxMenuBase::Init(long)
 wxMenuBase::~wxMenuBase()
-wxMenuItemBase::GetLabelText(wxString const&)
 wxMenuItemBase::New(wxMenu*, int, wxString const&, wxString const&, wxItemKind, wxMenu*)
 wxMessageBox(wxString const&, wxString const&, long, wxWindow*, int, int)
 wxMessageBoxCaptionStr
@@ -324,7 +293,6 @@ wxNonOwnedWindow::DoSetPathShape(wxGraphicsPath const&)
 wxNonOwnedWindow::DoSetRegionShape(wxRegion const&)
 wxNotebook::wxNotebook(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
 wxNotebookNameStr
-wxNullBitmap
 wxNumValidatorBase::GetEventHashTable() const
 wxNumValidatorBase::GetEventTable() const
 wxNumValidatorBase::GetTextEntry() const
@@ -341,22 +309,6 @@ wxRadioButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize co
 wxRadioButtonNameStr
 wxRect::Contains(int, int) const
 wxRect::Intersect(wxRect const&)
-wxScrollHelper::AdjustScrollbars()
-wxScrollHelper::DoScroll(int, int)
-wxScrollHelper::DoShowScrollbars(wxScrollbarVisibility, wxScrollbarVisibility)
-wxScrollHelper::IsScrollbarShown(int) const
-wxScrollHelper::SetScrollbars(int, int, int, int, int, int, bool)
-wxScrollHelperBase::DoCalcUnscrolledPosition(int, int, int*, int*) const
-wxScrollHelperBase::DoGetViewStart(int*, int*) const
-wxScrollHelperBase::DoPrepareDC(wxDC&)
-wxScrollHelperBase::EnableScrolling(bool, bool)
-wxScrollHelperBase::ScrollDoSetVirtualSize(int, int)
-wxScrollHelperBase::ScrollGetBestVirtualSize() const
-wxScrollHelperBase::ScrollLayout()
-wxScrollHelperBase::SendAutoScrollEvents(wxScrollWinEvent&) const
-wxScrollHelperBase::wxScrollHelperBase(wxWindow*)
-wxScrollHelperBase::~wxScrollHelperBase()
-wxScrolledT_Helper::FilterBestSize(wxWindow const*, wxScrollHelper const*, wxSize const&)
 wxSizer::Clear(bool)
 wxSizer::DeleteWindows()
 wxSizer::Detach(int)
@@ -388,8 +340,6 @@ wxSpinCtrlGTKBase::DoGetValue() const
 wxSpinCtrlGTKBase::DoSetValue(double)
 wxSpinCtrlGTKBase::wxSpinCtrlGTKBase()
 wxSpinCtrlGTKBase::~wxSpinCtrlGTKBase()
-wxStaticBitmap::wxStaticBitmap(wxWindow*, int, wxBitmapBundle const&, wxPoint const&, wxSize const&, long, wxString const&)
-wxStaticBitmapNameStr
 wxStaticBox::DoCreate(wxWindow*, int, wxString const*, wxWindow*, wxPoint const&, wxSize const&, long, wxString const&)
 wxStaticBoxBase::wxStaticBoxBase()
 wxStaticBoxNameStr
@@ -598,7 +548,6 @@ wxWindowBase::Layout()
 wxWindowBase::LayoutPhase1(int*)
 wxWindowBase::LayoutPhase2(int*)
 wxWindowBase::MoveConstraint(int, int)
-wxWindowBase::PopupMenu(wxMenu*, int, int)
 wxWindowBase::SendIdleEvents(wxIdleEvent&)
 wxWindowBase::SendSizeEvent(int)
 wxWindowBase::SetConstraintSizes(bool)

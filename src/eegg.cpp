@@ -33,7 +33,6 @@
  */
 
 #include "phd.h"
-#include "guiding_assistant.h"
 
 void MyFrame::OnEEGG(wxCommandEvent& evt)
 {
@@ -46,46 +45,5 @@ void MyFrame::OnEEGG(wxCommandEvent& evt)
     else
     {
         evt.Skip();
-    }
-}
-
-void MyFrame::OnGuidingAssistant(wxCommandEvent& WXUNUSED(evt))
-{
-    if (!pCamera)
-    {
-        wxMessageBox(_("Please connect a camera first."));
-        return;
-    }
-    if (!TheScope())
-    {
-        wxMessageBox(_("Please connect a mount first."));
-        return;
-    }
-    if (GuidingAssistant::ApiIsRunning())
-    {
-        wxMessageBox(_("The Guiding Assistant is already running (started remotely)."));
-        return;
-    }
-
-    if (!pGuidingAssistant)
-    {
-        bool ok = true;
-
-        if (pFrame->pGuider->IsGuiding())
-        {
-            ok = ConfirmDialog::Confirm(_("The Guiding Assitant will disable guide output and\n"
-                                          "allow the guide star to drift.\n"
-                                          "\n"
-                                          "Ok to disable guide output?"),
-                                        "/guiding_assistant_while_guiding", _("Confirm Disable Guiding"));
-        }
-
-        if (ok)
-            pGuidingAssistant = GuidingAssistant::CreateDialogBox();
-    }
-
-    if (pGuidingAssistant)
-    {
-        pGuidingAssistant->Show();
     }
 }
