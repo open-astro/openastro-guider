@@ -62,9 +62,6 @@ GuideCamera *pCamera = nullptr;
 DebugLog Debug;
 GuidingLog GuideLog;
 
-int XWinSize = 640;
-int YWinSize = 512;
-
 static const wxCmdLineEntryDesc cmdLineDesc[] = {
     { wxCMD_LINE_SWITCH, "?", "help", "display this help and exit" },
     { wxCMD_LINE_SWITCH, "g", "gui", "show the GUI window (default is headless)" },

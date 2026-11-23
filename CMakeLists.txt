@@ -286,6 +286,8 @@ set(guiding_SRC
   ${phd_src_dir}/guider.cpp
   ${phd_src_dir}/guider.h
   ${phd_src_dir}/guider_state.h
+  ${phd_src_dir}/guider_state_machine.cpp
+  ${phd_src_dir}/guider_state_machine.h
   ${phd_src_dir}/guiders.h
   ${phd_src_dir}/zfilterfactory.cpp
   ${phd_src_dir}/zfilterfactory.h

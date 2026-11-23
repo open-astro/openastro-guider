@@ -7355,13 +7355,21 @@ void EventServer::OnEventServerClientEvent(wxSocketEvent& event)
 {
     wxSocketBase *cli = event.GetSocket();
 
+    // #270, as #258 on the HTTP port: a LOST event destroys the client, and EventServerStop destroys them all, while
+    // more events for it can still be queued (an OUTPUT armed by a short write, a second LOST). Destroy() keeps the
+    // socket object alive until the queued events are handled, but its ClientData is freed once the last reference
+    // goes, so an event for a socket no longer in the set must not touch it.
+    if (m_eventServerClients.find(cli) == m_eventServerClients.end())
+    {
+        Debug.Write(wxString::Format("evsrv: cli %p event %d after close, ignored\n", cli, event.GetSocketEvent()));
+        return;
+    }
+
     if (event.GetSocketEvent() == wxSOCKET_LOST)
     {
         Debug.Write(wxString::Format("evsrv: cli %p disconnect\n", cli));
 
-        unsigned int const n = m_eventServerClients.erase(cli);
-        if (n != 1)
-            Debug.AddLine("client disconnected but not present in client set!");
+        m_eventServerClients.erase(cli);
 
         destroy_client(cli);
     }

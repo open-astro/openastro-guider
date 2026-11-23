@@ -178,6 +178,18 @@ def disconnected_settings(fake):
     ]
 
 
+def backlash_round_trip(cli):
+    """#280: on the new profile, what get_backlash_comp reads set_backlash_comp takes back. The profile had no backlash
+    keys, which read as PulseWidth 0 and Ceiling 0, and the setter refuses both (PulseWidth 20..8000)."""
+    got = cli.call("get_backlash_comp")
+    expect(got["PulseWidth"] >= 20 and got["Floor"] <= got["PulseWidth"] <= got["Ceiling"],
+           f"get_backlash_comp on a new profile reads {got}, which set_backlash_comp refuses")
+    res = cli.call("set_backlash_comp", got)
+    expect(res == 0, f"set_backlash_comp refused what get_backlash_comp read on a new profile ({got}): {res}")
+    again = cli.call("get_backlash_comp")
+    expect(again == got, f"get_backlash_comp reads {again} after writing back {got}")
+
+
 def connected_settings():
     """Set and read with the camera and mount connected: they live on the mount, camera and guide algorithms."""
 
@@ -213,7 +225,7 @@ def connected_settings():
         Setting("set_mount_options", rpc("set_mount_options", mount_opts), fields("get_mount_options", keys=mount_opts),
                 mount_opts),
         Setting("set_backlash_comp", rpc("set_backlash_comp", backlash), fields("get_backlash_comp", keys=backlash),
-                backlash),
+                backlash, prepare=backlash_round_trip),
         Setting("set_camera_gain", rpc("set_camera_gain", {"gain": 37}), fields("get_camera_gain", keys=("Gain",)),
                 {"Gain": 37}),
         Setting("set_camera_timeout", rpc("set_camera_timeout", {"timeout_ms": 23000}), fields("get_camera_timeout"),

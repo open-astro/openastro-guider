@@ -64,24 +64,6 @@ enum DEC_GUIDING_ALGORITHM
     DEC_LOWPASS2,
 };
 
-enum OVERLAY_MODE
-{
-    OVERLAY_NONE = 0,
-    OVERLAY_BULLSEYE,
-    OVERLAY_GRID_FINE,
-    OVERLAY_GRID_COARSE,
-    OVERLAY_RADEC,
-    OVERLAY_SLIT,
-};
-
-struct OverlaySlitCoords
-{
-    wxPoint center;
-    wxSize size;
-    int angle;
-    wxPoint corners[5];
-};
-
 enum PauseType
 {
     PAUSE_NONE, // not paused
@@ -103,8 +85,6 @@ struct LockPosShiftParams
     bool shiftIsMountCoords;
 };
 
-class DefectMap;
-
 /*
  * The Guider class is responsible for running the state machine
  * associated with the GUIDER_STATES enumerated type.
@@ -121,14 +101,8 @@ struct GuiderOffset
     PHD_Point mountMoved; // Mount::MoveOffset: what the mount moved of the offset, per mount axis (#165)
 };
 
-class Guider : public wxWindow
+class Guider
 {
-    wxImage *m_displayedImage;
-    OVERLAY_MODE m_overlayMode;
-    OverlaySlitCoords m_overlaySlitCoords;
-    const DefectMap *m_defectMapPreview;
-    double m_polarAlignCircleRadius;
-    PHD_Point m_polarAlignCircleCenter;
     PauseType m_paused;
     ShiftPoint m_lockPosition;
     PHD_Point m_ditherRecenterStep;
@@ -157,24 +131,19 @@ class Guider : public wxWindow
 protected:
     int m_searchRegion; // how far u/d/l/r do we do the initial search for a star
     bool m_forceFullFrame;
-    double m_scaleFactor;
-    bool m_showBookmarks;
-    std::vector<wxRealPoint> m_bookmarks;
-
-public:
-    OVERLAY_MODE GetOverlayMode() const;
 
 protected:
-    Guider(wxWindow *parent, int xSize, int ySize);
-    virtual ~Guider();
+    Guider();
 
-    bool PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC);
     void SetState(GUIDER_STATE newState);
+    friend class GuiderStateHost; // performs the state machine's actions (guider.cpp, guider_state_machine.h)
     void UpdateCurrentDistance(double distance, double distanceRA);
 
-    void ToggleBookmark(const wxRealPoint& pt);
-
 public:
+    virtual ~Guider();
+    Guider(const Guider&) = delete;
+    Guider& operator=(const Guider&) = delete;
+
     bool IsPaused() const;
     PauseType GetPauseType() const;
     PauseType SetPaused(PauseType pause);
@@ -185,8 +154,6 @@ public:
     bool IsRecentering() const { return m_recenteringForWorker.load(); }
     void NotifyRecenterMoveComplete(const PHD_Point& mountMoved);
     bool IsGuiding() const;
-    void OnClose(wxCloseEvent& evt);
-    void OnErase(wxEraseEvent& evt);
     void UpdateImageDisplay(usImage *pImage = nullptr);
 
     bool MoveLockPosition(const PHD_Point& mountDelta);
@@ -202,11 +169,6 @@ public:
     const LockPosShiftParams& GetLockPosShiftParams() const { return m_lockPosShift; }
     void ForceFullFrame();
 
-    bool SetOverlayMode(int newMode);
-    void GetOverlaySlitCoords(wxPoint *center, wxSize *size, int *angle);
-    void SetOverlaySlitCoords(const wxPoint& center, const wxSize& size, int angle);
-    void SetDefectMapPreview(const DefectMap *preview);
-    void SetPolarAlignCircle(const PHD_Point& center, double radius);
     bool SaveCurrentImage(const wxString& fileName);
 
     void StartGuiding();
@@ -221,13 +183,6 @@ public:
     double CurrentError(bool raOnly);
     double CurrentErrorSmoothed(bool raOnly);
     unsigned int CurrentErrorFrameCount() const { return m_distance.FrameCount(); }
-
-    bool GetBookmarksShown() const;
-    void SetBookmarksShown(bool show);
-    void ToggleShowBookmarks();
-    void DeleteAllBookmarks();
-    void BookmarkLockPosition();
-    void BookmarkCurPosition();
 
     void Reset(bool fullReset);
     // how far beyond the search region auto-select keeps a star from the frame edge for the calibration (#140)
@@ -269,8 +224,6 @@ private:
     virtual bool SetCurrentPosition(const usImage *pImage, const PHD_Point& position) = 0;
 
 public:
-    virtual void OnPaint(wxPaintEvent& evt) = 0;
-
     virtual bool IsLocked() const = 0;
     // willForceRecal: the guide request selecting the star will clear the calibration before it calibrates (#140)
     virtual bool AutoSelect(const wxRect& roi = wxRect(), bool willForceRecal = false) = 0;
@@ -286,8 +239,6 @@ public:
     virtual wxString GetStarCount() const { return wxEmptyString; }
 
     usImage *CurrentImage() const;
-    wxImage *DisplayedImage() const;
-    double ScaleFactor() const;
 
     virtual wxString GetSettingsSummary() const;
 
@@ -296,7 +247,6 @@ public:
 
 private:
     void UpdateLockPosShiftCameraCoords();
-    wxDECLARE_EVENT_TABLE();
 };
 
 inline bool Guider::IsPaused() const
@@ -307,11 +257,6 @@ inline bool Guider::IsPaused() const
 inline PauseType Guider::GetPauseType() const
 {
     return m_paused;
-}
-
-inline OVERLAY_MODE Guider::GetOverlayMode() const
-{
-    return m_overlayMode;
 }
 
 inline bool Guider::GetScaleImage() const
@@ -357,21 +302,6 @@ inline bool Guider::IsFastRecenterEnabled() const
 inline usImage *Guider::CurrentImage() const
 {
     return m_pCurrentImage;
-}
-
-inline wxImage *Guider::DisplayedImage() const
-{
-    return m_displayedImage;
-}
-
-inline double Guider::ScaleFactor() const
-{
-    return m_scaleFactor;
-}
-
-inline bool Guider::GetBookmarksShown() const
-{
-    return m_showBookmarks;
 }
 
 inline double Guider::GetMinStarHFD() const

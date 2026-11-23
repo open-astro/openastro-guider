@@ -35,6 +35,7 @@
 #include "guiding_assistant.h"
 #include "edge_allowance.h"
 #include "guide_move_plan.h"
+#include "guider_state_machine.h"
 
 // un-comment to log star deflections to a file
 // #define CAPTURE_DEFLECTIONS
@@ -95,77 +96,12 @@ inline void DeflectionLogger::Log(const PHD_Point&) { }
 
 #endif // CAPTURE_DEFLECTIONS
 
-static const int DefaultOverlayMode = OVERLAY_NONE;
 static const bool DefaultScaleImage = true;
 
-// clang-format off
-wxBEGIN_EVENT_TABLE(Guider, wxWindow)
-EVT_PAINT(Guider::OnPaint)
-EVT_CLOSE(Guider::OnClose)
-EVT_ERASE_BACKGROUND(Guider::OnErase)
-wxEND_EVENT_TABLE();
-// clang-format on
-
-static void SaveBookmarks(const std::vector<wxRealPoint>& vec)
-{
-    std::ostringstream os;
-    os.setf(std::ios::fixed);
-    os.precision(5);
-    for (auto it = vec.begin(); it != vec.end(); ++it)
-        os << it->x << ' ' << it->y << ' ';
-    pConfig->Profile.SetString("/guider/bookmarks", os.str().c_str());
-}
-
-static void LoadBookmarks(std::vector<wxRealPoint> *vec)
-{
-    wxString s(pConfig->Profile.GetString("/guider/bookmarks", wxEmptyString));
-    std::istringstream is(static_cast<const char *>(s.c_str()));
-
-    vec->clear();
-
-    while (true)
-    {
-        double x, y;
-        is >> x >> y;
-        if (!is.good())
-            break;
-        vec->push_back(wxRealPoint(x, y));
-    }
-}
-
-static const wxStringCharType *StateStr(GUIDER_STATE st)
-{
-    switch (st)
-    {
-    case STATE_UNINITIALIZED:
-        return wxS("UNINITIALIZED");
-    case STATE_SELECTING:
-        return wxS("SELECTING");
-    case STATE_SELECTED:
-        return wxS("SELECTED");
-    case STATE_CALIBRATING_PRIMARY:
-        return wxS("CALIBRATING_PRIMARY");
-    case STATE_CALIBRATING_SECONDARY:
-        return wxS("CALIBRATING_SECONDARY");
-    case STATE_CALIBRATED:
-        return wxS("CALIBRATED");
-    case STATE_GUIDING:
-        return wxS("GUIDING");
-    case STATE_STOP:
-        return wxS("STOP");
-    default:
-        return wxS("??");
-    }
-}
-
-Guider::Guider(wxWindow *parent, int xSize, int ySize)
-    : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxSize(xSize, ySize), wxFULL_REPAINT_ON_RESIZE)
+Guider::Guider()
 {
     m_state = STATE_UNINITIALIZED;
-    Debug.Write(wxString::Format("guider state => %s\n", StateStr(m_state)));
-    m_scaleFactor = 1.0;
-    m_showBookmarks = true;
-    m_displayedImage = new wxImage(XWinSize, YWinSize, true);
+    Debug.Write(wxString::Format("guider state => %s\n", guider_state_machine::StateName(m_state)));
     m_paused = PAUSE_NONE;
     m_ditherRecenterStepsPending = 0;
     m_ditherRecenterStalledSteps = 0;
@@ -180,31 +116,13 @@ Guider::Guider(wxWindow *parent, int xSize, int ySize)
     m_searchRegion = 0;
     m_pCurrentImage = new usImage(); // so we always have one
 
-    SetOverlayMode(DefaultOverlayMode);
-
-    wxPoint center;
-    center.x = pConfig->Profile.GetInt("/overlay/slit/center.x", 752 / 2);
-    center.y = pConfig->Profile.GetInt("/overlay/slit/center.y", 580 / 2);
-    wxSize size;
-    size.x = pConfig->Profile.GetInt("/overlay/slit/width", 8);
-    size.y = pConfig->Profile.GetInt("/overlay/slit/height", 100);
-    int angle = pConfig->Profile.GetInt("/overlay/slit/angle", 0);
-    SetOverlaySlitCoords(center, size, angle);
-
-    m_defectMapPreview = 0;
     m_userMultiStarMode = GetMultiStarMode();
-
-    m_polarAlignCircleRadius = 0.0;
-
-    SetBackgroundStyle(wxBG_STYLE_CUSTOM);
-    SetBackgroundColour(wxColour((unsigned char) 30, (unsigned char) 30, (unsigned char) 30));
 
     s_deflectionLogger.Init();
 }
 
 Guider::~Guider()
 {
-    delete m_displayedImage;
     delete m_pCurrentImage;
 
     s_deflectionLogger.Uninit();
@@ -236,13 +154,9 @@ void Guider::LoadProfileSettings()
     unsigned int autoSelDownsample = wxMax(0, pConfig->Profile.GetInt("/guider/AutoSelDownsample", 0));
     SetAutoSelDownsample(autoSelDownsample);
 
-    LoadBookmarks(&m_bookmarks);
-
     // clear the display
     if (m_pCurrentImage->ImageData)
     {
-        delete m_displayedImage;
-        m_displayedImage = new wxImage(XWinSize, YWinSize, true);
         DisplayImage(new usImage());
     }
 }
@@ -260,12 +174,6 @@ PauseType Guider::SetPaused(PauseType pause)
         m_distance.RequestReset();
     }
 
-    if (pause != prev)
-    {
-        Refresh();
-        Update();
-    }
-
     return prev;
 }
 
@@ -276,47 +184,6 @@ void Guider::ForceFullFrame()
         Debug.Write("setting force full frames = true\n");
         m_forceFullFrame = true;
     }
-}
-
-bool Guider::SetOverlayMode(int overlayMode)
-{
-    bool bError = false;
-
-    try
-    {
-        switch (overlayMode)
-        {
-        case OVERLAY_NONE:
-        case OVERLAY_BULLSEYE:
-        case OVERLAY_GRID_FINE:
-        case OVERLAY_GRID_COARSE:
-        case OVERLAY_RADEC:
-        case OVERLAY_SLIT:
-            break;
-        default:
-            throw ERROR_INFO("invalid overlayMode");
-        }
-
-        m_overlayMode = (OVERLAY_MODE) overlayMode;
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        m_overlayMode = OVERLAY_NONE;
-        bError = true;
-    }
-
-    Refresh();
-    Update();
-
-    return bError;
-}
-
-void Guider::GetOverlaySlitCoords(wxPoint *center, wxSize *size, int *angle)
-{
-    *center = m_overlaySlitCoords.center;
-    *size = m_overlaySlitCoords.size;
-    *angle = m_overlaySlitCoords.angle;
 }
 
 void Guider::EnableMeasurementMode(bool enable)
@@ -330,74 +197,10 @@ void Guider::EnableMeasurementMode(bool enable)
         m_measurementMode = false;
 }
 
-void Guider::SetOverlaySlitCoords(const wxPoint& center, const wxSize& size, int angle)
-{
-    m_overlaySlitCoords.center = center;
-    m_overlaySlitCoords.size = size;
-    m_overlaySlitCoords.angle = angle;
-
-    pConfig->Profile.SetInt("/overlay/slit/center.x", center.x);
-    pConfig->Profile.SetInt("/overlay/slit/center.y", center.y);
-    pConfig->Profile.SetInt("/overlay/slit/width", size.x);
-    pConfig->Profile.SetInt("/overlay/slit/height", size.y);
-    pConfig->Profile.SetInt("/overlay/slit/angle", angle);
-
-    if (size.GetWidth() > 0 && size.GetHeight() > 0)
-    {
-        if (angle != 0)
-        {
-            double a = -radians((double) angle);
-            double s = sin(a);
-            double c = cos(a);
-            double cx = (double) center.x;
-            double cy = (double) center.y;
-            double x, y;
-
-            x = +(double) size.GetWidth() / 2.0;
-            y = +(double) size.GetHeight() / 2.0;
-            m_overlaySlitCoords.corners[0].x = cx + (int) floor(x * c - y * s);
-            m_overlaySlitCoords.corners[0].y = cy + (int) floor(x * s + y * c);
-
-            x = -(double) size.GetWidth() / 2.0;
-            y = +(double) size.GetHeight() / 2.0;
-            m_overlaySlitCoords.corners[1].x = cx + (int) floor(x * c - y * s);
-            m_overlaySlitCoords.corners[1].y = cy + (int) floor(x * s + y * c);
-
-            x = -(double) size.GetWidth() / 2.0;
-            y = -(double) size.GetHeight() / 2.0;
-            m_overlaySlitCoords.corners[2].x = cx + (int) floor(x * c - y * s);
-            m_overlaySlitCoords.corners[2].y = cy + (int) floor(x * s + y * c);
-
-            x = +(double) size.GetWidth() / 2.0;
-            y = -(double) size.GetHeight() / 2.0;
-            m_overlaySlitCoords.corners[3].x = cx + (int) floor(x * c - y * s);
-            m_overlaySlitCoords.corners[3].y = cy + (int) floor(x * s + y * c);
-        }
-        else
-        {
-            m_overlaySlitCoords.corners[0] = wxPoint(center.x + size.GetWidth() / 2, center.y + size.GetHeight() / 2);
-            m_overlaySlitCoords.corners[1] = wxPoint(center.x - size.GetWidth() / 2, center.y + size.GetHeight() / 2);
-            m_overlaySlitCoords.corners[2] = wxPoint(center.x - size.GetWidth() / 2, center.y - size.GetHeight() / 2);
-            m_overlaySlitCoords.corners[3] = wxPoint(center.x + size.GetWidth() / 2, center.y - size.GetHeight() / 2);
-        }
-
-        m_overlaySlitCoords.corners[4] = m_overlaySlitCoords.corners[0];
-    }
-
-    Refresh();
-    Update();
-}
-
 void Guider::EnableFastRecenter(bool enable)
 {
     m_fastRecenterEnabled = enable;
     pConfig->Profile.SetInt("/guider/FastRecenter", m_fastRecenterEnabled);
-}
-
-void Guider::SetPolarAlignCircle(const PHD_Point& pt, double radius)
-{
-    m_polarAlignCircleRadius = radius;
-    m_polarAlignCircleCenter = pt;
 }
 
 bool Guider::SetScaleImage(bool newScaleValue)
@@ -418,307 +221,6 @@ bool Guider::SetScaleImage(bool newScaleValue)
     return bError;
 }
 
-void Guider::OnErase(wxEraseEvent& evt)
-{
-    evt.Skip();
-}
-
-void Guider::OnClose(wxCloseEvent& evt)
-{
-    Destroy();
-}
-
-bool Guider::PaintHelper(wxAutoBufferedPaintDCBase& dc, wxMemoryDC& memDC)
-{
-    bool bError = false;
-
-    try
-    {
-        GUIDER_STATE state = GetState();
-        GetSize(&XWinSize, &YWinSize);
-
-        if (m_pCurrentImage->ImageData)
-        {
-            int blevel = m_pCurrentImage->FiltMin;
-            int wlevel = m_pCurrentImage->FiltMax;
-            m_pCurrentImage->CopyToImage(&m_displayedImage, blevel, wlevel, pFrame->Stretch_gamma);
-        }
-
-        int imageWidth = m_displayedImage->GetWidth();
-        int imageHeight = m_displayedImage->GetHeight();
-
-        // scale the image if necessary
-
-        if (imageWidth != XWinSize || imageHeight != YWinSize)
-        {
-            // The image is not the exact right size -- figure out what to do.
-            double xScaleFactor = imageWidth / (double) XWinSize;
-            double yScaleFactor = imageHeight / (double) YWinSize;
-            int newWidth = imageWidth;
-            int newHeight = imageHeight;
-
-            double newScaleFactor = (xScaleFactor > yScaleFactor) ? xScaleFactor : yScaleFactor;
-
-            //            Debug.Write(wxString::Format("xScaleFactor=%.2f, yScaleFactor=%.2f, newScaleFactor=%.2f\n",
-            //            xScaleFactor,
-            //                    yScaleFactor, newScaleFactor));
-
-            // we rescale the image if:
-            // - The image is either too big
-            // - The image is so small that at least one dimension is less
-            //   than half the width of the window or
-            // - The user has requested rescaling
-
-            if (xScaleFactor > 1.0 || yScaleFactor > 1.0 || xScaleFactor < 0.45 || yScaleFactor < 0.45 || m_scaleImage)
-            {
-
-                newWidth /= newScaleFactor;
-                newHeight /= newScaleFactor;
-
-                newScaleFactor = 1.0 / newScaleFactor;
-
-                m_scaleFactor = newScaleFactor;
-
-                if (imageWidth != newWidth || imageHeight != newHeight)
-                {
-                    //                    Debug.Write(wxString::Format("Resizing image to %d,%d\n", newWidth, newHeight));
-
-                    if (newWidth > 0 && newHeight > 0)
-                    {
-                        m_displayedImage->Rescale(newWidth, newHeight, wxIMAGE_QUALITY_BILINEAR);
-                    }
-                }
-            }
-            else
-            {
-                m_scaleFactor = 1.0;
-            }
-        }
-
-        // important to provide explicit color for r,g,b, optional args to Size().
-        // If default args are provided wxWidgets performs some expensive histogram
-        // operations.
-        wxBitmap DisplayedBitmap(m_displayedImage->Size(wxSize(XWinSize, YWinSize), wxPoint(0, 0), 0, 0, 0));
-        memDC.SelectObject(DisplayedBitmap);
-
-        dc.Blit(0, 0, DisplayedBitmap.GetWidth(), DisplayedBitmap.GetHeight(), &memDC, 0, 0, wxCOPY, false);
-
-        int XImgSize = m_displayedImage->GetWidth();
-        int YImgSize = m_displayedImage->GetHeight();
-
-        if (m_overlayMode)
-        {
-            dc.SetPen(wxPen(wxColor(200, 50, 50)));
-            dc.SetBrush(*wxTRANSPARENT_BRUSH);
-
-            switch (m_overlayMode)
-            {
-            case OVERLAY_BULLSEYE:
-            {
-                int cx = XImgSize / 2;
-                int cy = YImgSize / 2;
-                dc.DrawCircle(cx, cy, 25);
-                dc.DrawCircle(cx, cy, 50);
-                dc.DrawCircle(cx, cy, 100);
-                dc.DrawLine(0, cy, XImgSize, cy);
-                dc.DrawLine(cx, 0, cx, YImgSize);
-                break;
-            }
-            case OVERLAY_GRID_FINE:
-            case OVERLAY_GRID_COARSE:
-            {
-                int i;
-                int size = (m_overlayMode - 1) * 20;
-                for (i = size; i < XImgSize; i += size)
-                    dc.DrawLine(i, 0, i, YImgSize);
-                for (i = size; i < YImgSize; i += size)
-                    dc.DrawLine(0, i, XImgSize, i);
-                break;
-            }
-
-            case OVERLAY_RADEC:
-            {
-                Mount *mount = TheScope();
-                if (mount)
-                {
-                    double StarX = CurrentPosition().X;
-                    double StarY = CurrentPosition().Y;
-
-                    // the History graph's default RA and Dec colours
-                    const wxColour raColor(100, 100, 255);
-                    const wxColour decColor(255, 0, 0);
-
-                    double r = 15.0;
-                    double rlabel = r + 9.0;
-
-                    double wAngle = mount->IsCalibrated() ? mount->xAngle() : 0.0;
-                    double eAngle = wAngle + M_PI;
-                    GuideParity raParity = mount->RAParity();
-                    if (raParity == GUIDE_PARITY_ODD)
-                    {
-                        // odd parity => West calibration pulses move scope East
-                        //   => star moves West
-                        //   => East vector is opposite direction from X calibration vector (West calibration direction)
-                        eAngle += M_PI;
-                    }
-                    double cos_eangle = cos(eAngle);
-                    double sin_eangle = sin(eAngle);
-                    dc.SetPen(wxPen(raColor, 2, wxPENSTYLE_DOT));
-                    dc.DrawLine(ROUND(StarX * m_scaleFactor + r * cos_eangle), ROUND(StarY * m_scaleFactor + r * sin_eangle),
-                                ROUND(StarX * m_scaleFactor - r * cos_eangle), ROUND(StarY * m_scaleFactor - r * sin_eangle));
-                    if (raParity != GUIDE_PARITY_UNKNOWN)
-                    {
-                        dc.SetTextForeground(raColor);
-                        dc.DrawText(_("E"), ROUND(StarX * m_scaleFactor + rlabel * cos_eangle) - 4,
-                                    ROUND(StarY * m_scaleFactor + rlabel * sin_eangle) - 6);
-                    }
-
-                    double nAngle = mount->IsCalibrated() ? mount->yAngle() : M_PI / 2.0;
-                    GuideParity decParity = mount->DecParity();
-                    if (decParity == GUIDE_PARITY_EVEN)
-                    {
-                        // even parity => North calibration pulses move scope North
-                        //   => star moves South
-                        //   => North vector is opposite direction from Y calibration vector (North calibration direction)
-                        nAngle += M_PI;
-                    }
-                    double cos_nangle = cos(nAngle);
-                    double sin_nangle = sin(nAngle);
-                    dc.SetPen(wxPen(decColor, 2, wxPENSTYLE_DOT));
-                    dc.DrawLine(ROUND(StarX * m_scaleFactor + r * cos_nangle), ROUND(StarY * m_scaleFactor + r * sin_nangle),
-                                ROUND(StarX * m_scaleFactor - r * cos_nangle), ROUND(StarY * m_scaleFactor - r * sin_nangle));
-                    if (decParity != GUIDE_PARITY_UNKNOWN)
-                    {
-                        dc.SetTextForeground(decColor);
-                        dc.DrawText(_("N"), ROUND(StarX * m_scaleFactor + rlabel * cos_nangle) - 4,
-                                    ROUND(StarY * m_scaleFactor + rlabel * sin_nangle) - 6);
-                    }
-
-                    wxGraphicsContext *gc = wxGraphicsContext::Create(dc);
-                    gc->SetPen(wxPen(raColor, 1, wxPENSTYLE_DOT));
-                    double step = (double) YImgSize / 10.0;
-
-                    double MidX = (double) XImgSize / 2.0;
-                    double MidY = (double) YImgSize / 2.0;
-                    gc->Rotate(eAngle);
-                    gc->GetTransform().TransformPoint(&MidX, &MidY);
-                    gc->Rotate(-eAngle);
-                    gc->Translate((double) XImgSize / 2.0 - MidX, (double) YImgSize / 2.0 - MidY);
-                    gc->Rotate(eAngle);
-                    for (int i = -2; i < 12; i++)
-                    {
-                        gc->StrokeLine(0.0, step * (double) i, (double) XImgSize, step * (double) i);
-                    }
-
-                    MidX = (double) XImgSize / 2.0;
-                    MidY = (double) YImgSize / 2.0;
-                    gc->Rotate(-eAngle);
-                    gc->Rotate(nAngle);
-                    gc->GetTransform().TransformPoint(&MidX, &MidY);
-                    gc->Rotate(-nAngle);
-                    gc->Translate((double) XImgSize / 2.0 - MidX, (double) YImgSize / 2.0 - MidY);
-                    gc->Rotate(nAngle);
-                    gc->SetPen(wxPen(decColor, 1, wxPENSTYLE_DOT));
-                    for (int i = -2; i < 12; i++)
-                    {
-                        gc->StrokeLine(0.0, step * (double) i, (double) XImgSize, step * (double) i);
-                    }
-                    delete gc;
-                }
-                break;
-            }
-
-            case OVERLAY_SLIT:
-                if (m_overlaySlitCoords.size.GetWidth() > 0 && m_overlaySlitCoords.size.GetHeight() > 0)
-                {
-                    if (m_scaleFactor == 1.0)
-                    {
-                        dc.DrawLines(5, m_overlaySlitCoords.corners);
-                    }
-                    else
-                    {
-                        wxPoint pt[5];
-                        for (int i = 0; i < 5; i++)
-                        {
-                            pt[i].x = (int) floor(m_overlaySlitCoords.corners[i].x * m_scaleFactor);
-                            pt[i].y = (int) floor(m_overlaySlitCoords.corners[i].y * m_scaleFactor);
-                        }
-                        dc.DrawLines(5, pt);
-                    }
-                }
-                break;
-
-            case OVERLAY_NONE:
-                break;
-            }
-        }
-
-        if (m_defectMapPreview)
-        {
-            dc.SetPen(wxPen(wxColor(255, 0, 0), 1, wxPENSTYLE_SOLID));
-            for (DefectMap::const_iterator it = m_defectMapPreview->begin(); it != m_defectMapPreview->end(); ++it)
-            {
-                const wxPoint& pt = *it;
-                dc.DrawPoint((int) (pt.x * m_scaleFactor), (int) (pt.y * m_scaleFactor));
-            }
-        }
-
-        // draw the lockpoint of there is one
-        if (state > STATE_SELECTED)
-        {
-            double LockX = LockPosition().X;
-            double LockY = LockPosition().Y;
-
-            switch (state)
-            {
-            case STATE_UNINITIALIZED:
-            case STATE_SELECTING:
-            case STATE_SELECTED:
-            case STATE_STOP:
-                break;
-            case STATE_CALIBRATING_PRIMARY:
-            case STATE_CALIBRATING_SECONDARY:
-                dc.SetPen(wxPen(wxColor(255, 255, 0), 1, wxPENSTYLE_DOT));
-                break;
-            case STATE_CALIBRATED:
-            case STATE_GUIDING:
-                dc.SetPen(wxPen(wxColor(0, 255, 0)));
-                break;
-            }
-
-            dc.DrawLine(0, int(LockY * m_scaleFactor), XImgSize, int(LockY * m_scaleFactor));
-            dc.DrawLine(int(LockX * m_scaleFactor), 0, int(LockX * m_scaleFactor), YImgSize);
-        }
-
-        // draw a polar alignment circle
-        if (m_polarAlignCircleRadius)
-        {
-            dc.SetBrush(*wxTRANSPARENT_BRUSH);
-            dc.SetPen(wxPen(wxColor(255, 0, 255), 1, wxPENSTYLE_DOT));
-            int radius = ROUND(m_polarAlignCircleRadius * m_scaleFactor);
-            dc.DrawCircle(m_polarAlignCircleCenter.X * m_scaleFactor, m_polarAlignCircleCenter.Y * m_scaleFactor, radius);
-        }
-
-        if (IsPaused())
-        {
-            dc.SetTextForeground(*wxYELLOW);
-            dc.DrawText(_("PAUSED"), 10, YWinSize - 20);
-        }
-        else if (pMount && !pMount->GetGuidingEnabled())
-        {
-            dc.SetTextForeground(*wxYELLOW);
-            dc.DrawText(_("Guide output DISABLED"), 10, YWinSize - 20);
-        }
-    }
-    catch (const wxString& Msg)
-    {
-        POSSIBLY_UNUSED(Msg);
-        bError = true;
-    }
-
-    return bError;
-}
-
 void Guider::UpdateImageDisplay(usImage *pImage)
 {
     if (!pImage)
@@ -730,16 +232,6 @@ void Guider::UpdateImageDisplay(usImage *pImage)
         wxString::Format("UpdateImageDisplay: Size=(%d,%d) min=%u, max=%u, med=%u, FiltMin=%u, FiltMax=%u, Gamma=%.3f\n",
                          pImage->Size.x, pImage->Size.y, pImage->MinADU, pImage->MaxADU, pImage->MedianADU, pImage->FiltMin,
                          pImage->FiltMax, pFrame->Stretch_gamma));
-
-    Refresh();
-    Update();
-}
-
-void Guider::SetDefectMapPreview(const DefectMap *defectMap)
-{
-    m_defectMapPreview = defectMap;
-    Refresh();
-    Update();
 }
 
 bool Guider::SaveCurrentImage(const wxString& fileName)
@@ -813,12 +305,6 @@ bool Guider::SetLockPosToStarAtPosition(const PHD_Point& starPosHint)
     return error;
 }
 
-// distance to nearest edge
-static double edgeDist(const PHD_Point& pt, const wxSize& size)
-{
-    return wxMin(pt.X, wxMin(size.GetWidth() - pt.X, wxMin(pt.Y, size.GetHeight() - pt.Y)));
-}
-
 bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
 {
     bool err = false;
@@ -837,46 +323,27 @@ bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
 
         const usImage *image = CurrentImage();
 
-        // This loop is to handle dithers when the star is near the edge of the frame. The strategy
-        // is to try reflecting the requested dither in 4 directions along the RA/Dec axes; if any
-        // of the projections results in a valid lock position, use it. Otherwise, choose the
-        // direction that moves farthest from the edge of the frame.
-
-        PHD_Point cameraDelta, mountDelta;
-        double dbest;
-
-        for (int q = 0; q < 4; q++)
+        // This handles dithers when the star is near the edge of the frame: the requested dither,
+        // reflected in 4 directions along the RA/Dec axes (guider_state_machine::ChooseDitherDelta)
+        guider_state_machine::DitherChoice choice = guider_state_machine::ChooseDitherDelta(
+            { m_lockPosition.X, m_lockPosition.Y }, { mountDeltaArg.X, mountDeltaArg.Y }, image->Size.GetWidth(),
+            image->Size.GetHeight(),
+            [](const guider_state_machine::Point& mount, guider_state_machine::Point *camera)
+            {
+                PHD_Point tmpCamera;
+                if (pMount->TransformMountCoordinatesToCameraCoordinates(PHD_Point(mount.x, mount.y), tmpCamera))
+                    return true;
+                *camera = { tmpCamera.X, tmpCamera.Y };
+                return false;
+            },
+            [this](const guider_state_machine::Point& lockPos) { return IsValidLockPosition(PHD_Point(lockPos.x, lockPos.y)); },
+            [](const std::string& line) { Debug.Write(wxString(line)); });
+        if (!choice.ok)
         {
-            int sx = 1 - ((q & 1) << 1);
-            int sy = 1 - (q & 2);
-
-            PHD_Point tmpMount(mountDeltaArg.X * sx, mountDeltaArg.Y * sy);
-            PHD_Point tmpCamera;
-
-            if (pMount->TransformMountCoordinatesToCameraCoordinates(tmpMount, tmpCamera))
-            {
-                throw ERROR_INFO("Transform failed");
-            }
-
-            PHD_Point tmpLockPosition = m_lockPosition + tmpCamera;
-
-            if (IsValidLockPosition(tmpLockPosition))
-            {
-                cameraDelta = tmpCamera;
-                mountDelta = tmpMount;
-                break;
-            }
-
-            Debug.Write("dither produces an invalid lock position, try a variation\n");
-
-            double d = edgeDist(tmpLockPosition, image->Size);
-            if (q == 0 || d > dbest)
-            {
-                cameraDelta = tmpCamera;
-                mountDelta = tmpMount;
-                dbest = d;
-            }
+            throw ERROR_INFO("Transform failed");
         }
+
+        PHD_Point cameraDelta(choice.camera.x, choice.camera.y), mountDelta(choice.mount.x, choice.mount.y);
 
         PHD_Point newLockPosition = m_lockPosition + cameraDelta;
         if (SetLockPosition(newLockPosition))
@@ -888,19 +355,18 @@ bool Guider::MoveLockPosition(const PHD_Point& mountDeltaArg)
         double dist = cameraDelta.Distance(), distRA = fabs(mountDelta.X);
         m_distance.OnDither(dist, distRA);
 
-        // Zero-length dithers result in div-by-zero in calculation of 'f'.  We can still allow zero-length dithers as a way of
-        // triggering a settling period if we temporarily ignore the 'fast re-center' option
-        if (IsFastRecenterEnabled() && dist != 0)
+        // no fast recenter for a zero-length dither (guider_state_machine::PlanFastRecenter)
+        guider_state_machine::RecenterPlan recenter = guider_state_machine::PlanFastRecenter(
+            IsFastRecenterEnabled(), dist, { mountDelta.X, mountDelta.Y }, GetMaxMovePixels());
+        if (recenter.start)
         {
-            m_ditherRecenterRemaining.SetXY(fabs(mountDelta.X), fabs(mountDelta.Y));
+            m_ditherRecenterRemaining.SetXY(recenter.remaining.x, recenter.remaining.y);
             m_ditherRecenterStepsPending = 0; // a step of an earlier recenter no longer counts
             m_ditherRecenterStalledSteps = 0;
             m_recenteringForWorker = true;
-            m_ditherRecenterDir.x = mountDelta.X < 0.0 ? 1 : -1;
-            m_ditherRecenterDir.y = mountDelta.Y < 0.0 ? 1 : -1;
-            // make each step a bit less than the full search region distance to avoid losing the star
-            double f = ((double) GetMaxMovePixels() * 0.7) / m_ditherRecenterRemaining.Distance();
-            m_ditherRecenterStep.SetXY(f * m_ditherRecenterRemaining.X, f * m_ditherRecenterRemaining.Y);
+            m_ditherRecenterDir.x = recenter.dirX;
+            m_ditherRecenterDir.y = recenter.dirY;
+            m_ditherRecenterStep.SetXY(recenter.step.x, recenter.step.y);
         }
     }
     catch (const wxString& Msg)
@@ -951,151 +417,221 @@ void Guider::NotifyRecenterMoveComplete(const PHD_Point& mountMoved)
         m_ditherRecenterRemaining.SetXY(progress.remainingX, progress.remainingY);
 }
 
+static void CheckCalibrationAutoLoad();
+
+// Performs the guider state machine's actions (guider_state_machine.h) on a Guider, each as the
+// code it came from did
+class GuiderStateHost : public guider_state_machine::Host
+{
+    Guider& m_guider;
+
+public:
+    // UpdateGuideState's frame, its dropped-frame info and its offset
+    usImage *image = nullptr;
+    FrameDroppedInfo *info = nullptr;
+    GuiderOffset *ofs = nullptr;
+
+    explicit GuiderStateHost(Guider& guider) : m_guider(guider) { }
+
+    GUIDER_STATE State() const override { return m_guider.m_state; }
+    void SetStateValue(GUIDER_STATE st) override { m_guider.m_state = st; }
+    void RequestState(GUIDER_STATE st) override { m_guider.SetState(st); }
+    void Log(const std::string& line) override { Debug.Write(wxString(line)); }
+
+    bool PrimaryCalibrated() const override { return pMount->IsCalibrated(); }
+    bool SecondaryConnected() const override { return pSecondaryMount && pSecondaryMount->IsConnected(); }
+    bool SecondaryCalibrated() const override { return pSecondaryMount->IsCalibrated(); }
+    bool MountsIdle() const override
+    {
+        return (!pMount || !pMount->IsBusy()) && (!pSecondaryMount || !pSecondaryMount->IsBusy());
+    }
+    bool LockPositionValid() const override { return m_guider.m_lockPosition.IsValid(); }
+    bool LockPositionSticky() const override { return m_guider.m_lockPosIsSticky; }
+    bool RecenterActive() const override { return m_guider.m_ditherRecenterRemaining.IsValid(); }
+    bool MeasurementMode() const override { return m_guider.m_measurementMode; }
+
+    bool Do(guider_state_machine::Action action) override;
+};
+
+bool GuiderStateHost::Do(guider_state_machine::Action action)
+{
+    using guider_state_machine::Action;
+    Guider& g = m_guider;
+
+    switch (action)
+    {
+    case Action::IllegalTransition:
+        ERROR_INFO("Illegal state transition");
+        break;
+    case Action::InvalidateLockPosition:
+        g.InvalidateLockPosition();
+        break;
+    case Action::InvalidateCurrentPosition:
+        g.InvalidateCurrentPosition();
+        break;
+    case Action::ResetErrorCountPrimary:
+        pMount->ResetErrorCount();
+        break;
+    case Action::BeginCalibrationPrimary:
+        return pMount->BeginCalibration(g.CurrentPosition());
+    case Action::BeginCalibrationFailedPrimary:
+        Debug.Write(ERROR_INFO("pMount->BeginCalibration failed"));
+        break;
+    case Action::CalibrationStartedPrimary:
+        GuideLog.StartCalibration(pMount);
+        EvtServer.NotifyStartCalibration(pMount);
+        break;
+    case Action::ResetErrorCountSecondary:
+        pSecondaryMount->ResetErrorCount();
+        break;
+    case Action::BeginCalibrationSecondary:
+        return pSecondaryMount->BeginCalibration(g.CurrentPosition());
+    case Action::BeginCalibrationFailedSecondary:
+        Debug.Write(ERROR_INFO("pSecondaryMount->BeginCalibration failed"));
+        break;
+    case Action::CalibrationStartedSecondary:
+        GuideLog.StartCalibration(pSecondaryMount);
+        EvtServer.NotifyStartCalibration(pSecondaryMount);
+        break;
+    case Action::EnterGuiding:
+        assert(pMount);
+
+        g.m_ditherRecenterRemaining.Invalidate(); // reset dither fast recenter state
+        g.m_ditherRecenterStepsPending = 0;
+        g.m_ditherRecenterStalledSteps = 0;
+        g.m_recenteringForWorker = false;
+
+        // count the failed guide moves of this guiding run only (#213)
+        pMount->SetFailedGuideMovesInARow(0);
+        if (pSecondaryMount)
+            pSecondaryMount->SetFailedGuideMovesInARow(0);
+
+        pMount->AdjustCalibrationForScopePointing();
+        if (pSecondaryMount)
+        {
+            pSecondaryMount->AdjustCalibrationForScopePointing();
+        }
+
+        pFrame->UpdateStatusBarCalibrationStatus();
+        break;
+    case Action::SetLockToCurrent:
+        g.SetLockPosition(g.CurrentPosition());
+        break;
+
+    case Action::NotifyCalibrationFailedPrimary:
+    case Action::NotifyCalibrationFailedSecondary:
+        EvtServer.NotifyCalibrationFailed(action == Action::NotifyCalibrationFailedSecondary ? pSecondaryMount : pMount,
+                                          pFrame->CaptureFailureStopReason().empty() ? _("Calibration manually stopped")
+                                                                                     : pFrame->CaptureFailureStopReason());
+        break;
+    case Action::NotifyGuidingStopped:
+        pFrame->NotifyGuidingStopped();
+        break;
+
+    case Action::NotifyLoopingNoStar:
+        EvtServer.NotifyLooping(image->FrameNum, nullptr, info);
+        break;
+    case Action::NotifyStarLost:
+        EvtServer.NotifyStarLost(*info);
+        break;
+    case Action::CalibrationFrameDropped:
+        GuideLog.CalibrationFrameDropped(*info);
+        break;
+    case Action::StatusStarLost:
+        pFrame->StatusMsg(_("star lost"));
+        break;
+    case Action::GuidingFrameDropped:
+        GuideLog.FrameDropped(*info);
+        break;
+    case Action::RecordDroppedFrame:
+        GuidingAssistant::NotifyFrameDropped(*info);
+        pFrame->pGuideHistory->AppendData(*info);
+        break;
+    case Action::DeducedMove:
+    {
+        static GuiderOffset ZERO_OFS;
+        pFrame->SchedulePrimaryMove(pMount, ZERO_OFS, MOVEOPTS_DEDUCED_MOVE);
+        break;
+    }
+    case Action::LostStarAlert:
+    {
+        // the GUI's dark red flash and beep went with the guider window (#115 S5.3); the pause stays so the
+        // lost-star frame's timing does not change
+        wxMilliSleep(100);
+        break;
+    }
+
+    case Action::LockOnSelectedStar:
+        assert(g.CurrentPosition().IsValid());
+        g.SetLockPosition(g.CurrentPosition());
+        break;
+    case Action::NotifyStarSelected:
+        EvtServer.NotifyStarSelected(g.CurrentPosition());
+        break;
+    case Action::UpdateCalibrationPrimary:
+        return pMount->UpdateCalibrationState(g.CurrentPosition());
+    case Action::UpdateCalibrationSecondary:
+        return pSecondaryMount->UpdateCalibrationState(g.CurrentPosition());
+    case Action::GuidingStarted:
+        pFrame->NotifyGuidingStarted();
+
+        // camera angle is known, so ok to calculate shift rate camera coords
+        g.UpdateLockPosShiftCameraCoords();
+        if (g.LockPosShiftEnabled())
+            GuideLog.NotifyLockShiftParams(g.m_lockPosShift, g.m_lockPosition.ShiftRate());
+
+        CheckCalibrationAutoLoad();
+        break;
+    case Action::RecenterStep:
+    {
+        // fast recenter after dither taking large steps and bypassing
+        // guide algorithms
+
+        PHD_Point step(wxMin(g.m_ditherRecenterRemaining.X, g.m_ditherRecenterStep.X),
+                       wxMin(g.m_ditherRecenterRemaining.Y, g.m_ditherRecenterStep.Y));
+
+        Debug.Write(wxString::Format("dither recenter: remaining=(%.1f,%.1f) step=(%.1f,%.1f)\n",
+                                     g.m_ditherRecenterRemaining.X * g.m_ditherRecenterDir.x,
+                                     g.m_ditherRecenterRemaining.Y * g.m_ditherRecenterDir.y, step.X * g.m_ditherRecenterDir.x,
+                                     step.Y * g.m_ditherRecenterDir.y));
+
+        // The remaining distance goes down by what the mount moved of the step, when its move
+        // completes (NotifyRecenterMoveComplete), not by the step: MoveAxis can cut or refuse it (#165)
+        ofs->mountOfs.SetXY(step.X * g.m_ditherRecenterDir.x, step.Y * g.m_ditherRecenterDir.y);
+        pMount->TransformMountCoordinatesToCameraCoordinates(ofs->mountOfs, ofs->cameraOfs);
+        ++g.m_ditherRecenterStepsPending;
+        // The next frame's exposure delay: still recentering unless this step, moved whole, ends it,
+        // as when the step was counted on sending; set before the move and exposure are queued (#165)
+        guide_move_plan::RecenterProgress ifWhole =
+            guide_move_plan::AfterRecenterStep(g.m_ditherRecenterRemaining.X, g.m_ditherRecenterRemaining.Y, step.X, step.Y, 0);
+        g.m_recenteringForWorker = !ifWhole.done;
+        pFrame->SchedulePrimaryMove(pMount, *ofs, MOVEOPTS_RECOVERY_MOVE);
+        // let guide algorithms know about the direct move
+        pMount->NotifyDirectMove(ofs->mountOfs);
+        break;
+    }
+    case Action::BacklashStep:
+        GuidingAssistant::NotifyBacklashStep(g.CurrentPosition());
+        break;
+    case Action::GuideStep:
+        // ordinary guide step
+        s_deflectionLogger.Log(g.CurrentPosition());
+        pFrame->SchedulePrimaryMove(pMount, *ofs, MOVEOPTS_GUIDE_STEP);
+        break;
+    case Action::RecenterOver:
+        g.m_recenteringForWorker = false;
+        break;
+    }
+
+    return false;
+}
+
 void Guider::SetState(GUIDER_STATE newState)
 {
     try
     {
-        Debug.Write(wxString::Format("Changing from state %s to %s\n", StateStr(m_state), StateStr(newState)));
-
-        if (newState == STATE_STOP)
-        {
-            // we are going to stop looping exposures.  We should put
-            // ourselves into a good state to restart looping later
-            switch (m_state)
-            {
-            case STATE_UNINITIALIZED:
-            case STATE_SELECTING:
-            case STATE_SELECTED:
-                newState = m_state;
-                break;
-            case STATE_CALIBRATING_PRIMARY:
-            case STATE_CALIBRATING_SECONDARY:
-                // because we have done some moving here, we need to just
-                // start over...
-                newState = STATE_UNINITIALIZED;
-                break;
-            case STATE_CALIBRATED:
-            case STATE_GUIDING:
-                newState = STATE_SELECTED;
-                break;
-            case STATE_STOP:
-                break;
-            }
-        }
-
-        assert(newState != STATE_STOP);
-
-        if (newState > m_state + 1)
-        {
-            Debug.Write(wxString::Format("Cannot transition from %s to newState=%s\n", StateStr(m_state), StateStr(newState)));
-            throw ERROR_INFO("Illegal state transition");
-        }
-
-        GUIDER_STATE requestedState = newState;
-
-        switch (requestedState)
-        {
-        case STATE_UNINITIALIZED:
-            InvalidateLockPosition();
-            InvalidateCurrentPosition();
-            newState = STATE_SELECTING;
-            break;
-        case STATE_SELECTED:
-            break;
-        case STATE_CALIBRATING_PRIMARY:
-            if (!pMount->IsCalibrated())
-            {
-                pMount->ResetErrorCount();
-                if (pMount->BeginCalibration(CurrentPosition()))
-                {
-                    newState = STATE_UNINITIALIZED;
-                    Debug.Write(ERROR_INFO("pMount->BeginCalibration failed"));
-                }
-                else
-                {
-                    GuideLog.StartCalibration(pMount);
-                    EvtServer.NotifyStartCalibration(pMount);
-                }
-                break;
-            }
-            // fall through
-        case STATE_CALIBRATING_SECONDARY:
-            if (!pSecondaryMount || !pSecondaryMount->IsConnected())
-            {
-                newState = STATE_CALIBRATED;
-            }
-            else if (!pSecondaryMount->IsCalibrated())
-            {
-                pSecondaryMount->ResetErrorCount();
-                if (pSecondaryMount->BeginCalibration(CurrentPosition()))
-                {
-                    newState = STATE_UNINITIALIZED;
-                    Debug.Write(ERROR_INFO("pSecondaryMount->BeginCalibration failed"));
-                }
-                else
-                {
-                    GuideLog.StartCalibration(pSecondaryMount);
-                    EvtServer.NotifyStartCalibration(pSecondaryMount);
-                }
-            }
-            break;
-        case STATE_GUIDING:
-            assert(pMount);
-
-            m_ditherRecenterRemaining.Invalidate(); // reset dither fast recenter state
-            m_ditherRecenterStepsPending = 0;
-            m_ditherRecenterStalledSteps = 0;
-            m_recenteringForWorker = false;
-
-            // count the failed guide moves of this guiding run only (#213)
-            pMount->SetFailedGuideMovesInARow(0);
-            if (pSecondaryMount)
-                pSecondaryMount->SetFailedGuideMovesInARow(0);
-
-            pMount->AdjustCalibrationForScopePointing();
-            if (pSecondaryMount)
-            {
-                pSecondaryMount->AdjustCalibrationForScopePointing();
-            }
-
-            pFrame->UpdateStatusBarCalibrationStatus();
-
-            // #255: the adjustment clears the calibration when the image scale changed (HandleImageScaleChange), after
-            // the calibrating states decided there was nothing to calibrate; calibrate now instead of guiding uncalibrated
-            if (!pMount->IsCalibrated() ||
-                (pSecondaryMount && pSecondaryMount->IsConnected() && !pSecondaryMount->IsCalibrated()))
-            {
-                Debug.Write("calibration cleared on guiding start, calibrating\n");
-                newState = STATE_CALIBRATING_PRIMARY;
-                break;
-            }
-
-            if (m_lockPosition.IsValid() && m_lockPosIsSticky)
-            {
-                Debug.Write("keeping sticky lock position\n");
-            }
-            else
-            {
-                SetLockPosition(CurrentPosition());
-            }
-            break;
-
-        case STATE_SELECTING:
-        case STATE_CALIBRATED:
-        case STATE_STOP:
-            break;
-        }
-
-        if (newState >= requestedState)
-        {
-            m_state = newState;
-            Debug.Write(wxString::Format("guider state => %s\n", StateStr(m_state)));
-        }
-        else
-        {
-            Debug.Write(wxString::Format("SetState recurses newState %s\n", StateStr(newState)));
-            SetState(newState);
-        }
+        GuiderStateHost host(*this);
+        guider_state_machine::SetState(host, newState);
     }
     catch (const wxString& Msg)
     {
@@ -1129,36 +665,8 @@ void Guider::StartGuiding()
 
 void Guider::StopGuiding()
 {
-    // first, send a notification that we stopped
-    switch (m_state)
-    {
-    case STATE_UNINITIALIZED:
-    case STATE_SELECTING:
-    case STATE_SELECTED:
-        break;
-    case STATE_CALIBRATING_PRIMARY:
-    case STATE_CALIBRATING_SECONDARY:
-    case STATE_CALIBRATED:
-        EvtServer.NotifyCalibrationFailed(m_state == STATE_CALIBRATING_SECONDARY ? pSecondaryMount : pMount,
-                                          pFrame->CaptureFailureStopReason().empty() ? _("Calibration manually stopped")
-                                                                                     : pFrame->CaptureFailureStopReason());
-        // fall through to notify guiding stopped
-    case STATE_GUIDING:
-        if ((!pMount || !pMount->IsBusy()) && (!pSecondaryMount || !pSecondaryMount->IsBusy()))
-        {
-            // Notify guiding stopped if there are no outstanding guide steps.  The Guiding
-            // Stopped notification must come after the final GuideStep notification otherwise
-            // event server clients and the guide log will show the guide step happening after
-            // guiding stopped.
-
-            pFrame->NotifyGuidingStopped();
-        }
-        break;
-    case STATE_STOP:
-        break;
-    }
-
-    SetState(STATE_STOP);
+    GuiderStateHost host(*this);
+    guider_state_machine::StopGuiding(host);
 }
 
 void Guider::Reset(bool fullReset)
@@ -1315,6 +823,10 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
 
         GuiderOffset ofs;
         FrameDroppedInfo info;
+        GuiderStateHost host(*this);
+        host.image = pImage;
+        host.info = &info;
+        host.ofs = &ofs;
 
         if (UpdateCurrentPosition(pImage, &ofs, &info)) // true means error
         {
@@ -1322,50 +834,7 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
             info.time = pFrame->TimeSinceGuidingStarted();
             info.avgDist = pFrame->CurrentGuideError();
 
-            switch (m_state)
-            {
-            case STATE_UNINITIALIZED:
-            case STATE_SELECTING:
-                EvtServer.NotifyLooping(pImage->FrameNum, nullptr, &info);
-                break;
-            case STATE_SELECTED:
-                // we had a current position and lost it
-                EvtServer.NotifyLooping(pImage->FrameNum, nullptr, &info);
-                SetState(STATE_UNINITIALIZED);
-                EvtServer.NotifyStarLost(info);
-                break;
-            case STATE_CALIBRATING_PRIMARY:
-            case STATE_CALIBRATING_SECONDARY:
-                GuideLog.CalibrationFrameDropped(info);
-                Debug.Write("Star lost during calibration... blundering on\n");
-                EvtServer.NotifyStarLost(info);
-                pFrame->StatusMsg(_("star lost"));
-                break;
-            case STATE_GUIDING:
-            {
-                GuideLog.FrameDropped(info);
-                EvtServer.NotifyStarLost(info);
-                GuidingAssistant::NotifyFrameDropped(info);
-                pFrame->pGuideHistory->AppendData(info);
-
-                // allow guide algorithms to attempt dead reckoning
-                static GuiderOffset ZERO_OFS;
-                pFrame->SchedulePrimaryMove(pMount, ZERO_OFS, MOVEOPTS_DEDUCED_MOVE);
-
-                wxColor prevColor = GetBackgroundColour();
-                SetBackgroundColour(wxColour(64, 0, 0));
-                ClearBackground();
-                if (pFrame->GetBeepForLostStar())
-                    wxBell();
-                wxMilliSleep(100);
-                SetBackgroundColour(prevColor);
-                break;
-            }
-
-            case STATE_CALIBRATED:
-            case STATE_STOP:
-                break;
-            }
+            guider_state_machine::OnStarLost(host);
 
             statusMessage = info.status;
             throw THROW_INFO("unable to update current position");
@@ -1385,142 +854,21 @@ void Guider::UpdateGuideState(usImage *pImage, bool bStopping)
 
         if (IsPaused())
         {
-            if (m_state == STATE_GUIDING)
-            {
-                // allow guide algorithms to attempt dead reckoning
-                static GuiderOffset ZERO_OFS;
-                pFrame->SchedulePrimaryMove(pMount, ZERO_OFS, MOVEOPTS_DEDUCED_MOVE);
-            }
-
+            guider_state_machine::OnPausedFrame(host);
             statusMessage = _("Paused") + (GetPauseType() == PAUSE_FULL ? _("/full") : _("/looping"));
             throw THROW_INFO("Skipping frame - guider is paused");
         }
 
-        switch (m_state)
+        switch (guider_state_machine::OnStarFound(host))
         {
-        case STATE_SELECTING:
-            assert(CurrentPosition().IsValid());
-            SetLockPosition(CurrentPosition());
-            Debug.Write("CurrentPosition() valid, moving to STATE_SELECTED\n");
-            EvtServer.NotifyStarSelected(CurrentPosition());
-            SetState(STATE_SELECTED);
+        case guider_state_machine::FrameResult::Done:
             break;
-        case STATE_SELECTED:
-            break;
-        case STATE_CALIBRATING_PRIMARY:
-            if (!pMount->IsCalibrated())
-            {
-                if (pMount->UpdateCalibrationState(CurrentPosition()))
-                {
-                    SetState(STATE_UNINITIALIZED);
-                    statusMessage = pMount->IsStepGuider() ? _("AO calibration failed") : _("calibration failed");
-                    throw ERROR_INFO("Calibration failed");
-                }
-
-                if (!pMount->IsCalibrated())
-                {
-                    break;
-                }
-            }
-
-            SetState(STATE_CALIBRATING_SECONDARY);
-
-            if (m_state == STATE_CALIBRATING_SECONDARY)
-            {
-                // if we really have a secondary mount, and it isn't calibrated,
-                // we need to take another exposure before falling into the code
-                // below.  If we don't have one, or it is calibrated, we can fall
-                // through.  If we don't fall through, we end up displaying a frame
-                // which has the lockpoint in the wrong place, and while I thought I
-                // could live with it when I originally wrote the code, it bothered
-                // me so I did this.  Ick.
-                break;
-            }
-
-            // Fall through
-        case STATE_CALIBRATING_SECONDARY:
-            if (pSecondaryMount && pSecondaryMount->IsConnected())
-            {
-                if (!pSecondaryMount->IsCalibrated())
-                {
-                    if (pSecondaryMount->UpdateCalibrationState(CurrentPosition()))
-                    {
-                        SetState(STATE_UNINITIALIZED);
-                        statusMessage = _("calibration failed");
-                        throw ERROR_INFO("Calibration failed");
-                    }
-                }
-
-                if (!pSecondaryMount->IsCalibrated())
-                {
-                    break;
-                }
-            }
-            assert(!pSecondaryMount || !pSecondaryMount->IsConnected() || pSecondaryMount->IsCalibrated());
-
-            SetState(STATE_CALIBRATED);
-            // fall through
-        case STATE_CALIBRATED:
-            assert(m_state == STATE_CALIBRATED);
-            SetState(STATE_GUIDING);
-            if (m_state != STATE_GUIDING)
-                break; // entering guiding cleared the calibration and started a new one (#255)
-
-            pFrame->NotifyGuidingStarted();
-
-            // camera angle is known, so ok to calculate shift rate camera coords
-            UpdateLockPosShiftCameraCoords();
-            if (LockPosShiftEnabled())
-                GuideLog.NotifyLockShiftParams(m_lockPosShift, m_lockPosition.ShiftRate());
-
-            CheckCalibrationAutoLoad();
-            break;
-        case STATE_GUIDING:
-            if (m_ditherRecenterRemaining.IsValid())
-            {
-                // fast recenter after dither taking large steps and bypassing
-                // guide algorithms
-
-                PHD_Point step(wxMin(m_ditherRecenterRemaining.X, m_ditherRecenterStep.X),
-                               wxMin(m_ditherRecenterRemaining.Y, m_ditherRecenterStep.Y));
-
-                Debug.Write(wxString::Format("dither recenter: remaining=(%.1f,%.1f) step=(%.1f,%.1f)\n",
-                                             m_ditherRecenterRemaining.X * m_ditherRecenterDir.x,
-                                             m_ditherRecenterRemaining.Y * m_ditherRecenterDir.y,
-                                             step.X * m_ditherRecenterDir.x, step.Y * m_ditherRecenterDir.y));
-
-                // The remaining distance goes down by what the mount moved of the step, when its move
-                // completes (NotifyRecenterMoveComplete), not by the step: MoveAxis can cut or refuse it (#165)
-                ofs.mountOfs.SetXY(step.X * m_ditherRecenterDir.x, step.Y * m_ditherRecenterDir.y);
-                pMount->TransformMountCoordinatesToCameraCoordinates(ofs.mountOfs, ofs.cameraOfs);
-                ++m_ditherRecenterStepsPending;
-                // The next frame's exposure delay: still recentering unless this step, moved whole, ends it,
-                // as when the step was counted on sending; set before the move and exposure are queued (#165)
-                guide_move_plan::RecenterProgress ifWhole = guide_move_plan::AfterRecenterStep(
-                    m_ditherRecenterRemaining.X, m_ditherRecenterRemaining.Y, step.X, step.Y, 0);
-                m_recenteringForWorker = !ifWhole.done;
-                pFrame->SchedulePrimaryMove(pMount, ofs, MOVEOPTS_RECOVERY_MOVE);
-                // let guide algorithms know about the direct move
-                pMount->NotifyDirectMove(ofs.mountOfs);
-            }
-            else if (m_measurementMode)
-            {
-                GuidingAssistant::NotifyBacklashStep(CurrentPosition());
-            }
-            else
-            {
-                // ordinary guide step
-                s_deflectionLogger.Log(CurrentPosition());
-                pFrame->SchedulePrimaryMove(pMount, ofs, MOVEOPTS_GUIDE_STEP);
-            }
-            // a recenter that NotifyRecenterMoveComplete ended is over for the next frame too (#165)
-            if (!m_ditherRecenterRemaining.IsValid())
-                m_recenteringForWorker = false;
-            break;
-
-        case STATE_UNINITIALIZED:
-        case STATE_STOP:
-            break;
+        case guider_state_machine::FrameResult::PrimaryCalibrationFailed:
+            statusMessage = pMount->IsStepGuider() ? _("AO calibration failed") : _("calibration failed");
+            throw ERROR_INFO("Calibration failed");
+        case guider_state_machine::FrameResult::SecondaryCalibrationFailed:
+            statusMessage = _("calibration failed");
+            throw ERROR_INFO("Calibration failed");
         }
     }
     catch (const wxString& Msg)
@@ -1767,99 +1115,4 @@ void Guider::SetAutoSelDownsample(unsigned int val)
     Debug.Write(wxString::Format("Setting AutoSelDownsample = %u\n", val));
     pConfig->Profile.SetInt("/guider/AutoSelDownsample", val);
     m_autoSelDownsample = val;
-}
-
-void Guider::SetBookmarksShown(bool show)
-{
-    bool prev = m_showBookmarks;
-    m_showBookmarks = show;
-    if (prev != show && m_bookmarks.size())
-    {
-        Refresh();
-        Update();
-    }
-}
-
-void Guider::ToggleShowBookmarks()
-{
-    SetBookmarksShown(!m_showBookmarks);
-}
-
-void Guider::DeleteAllBookmarks()
-{
-    if (m_bookmarks.size())
-    {
-        bool confirmed =
-            ConfirmDialog::Confirm(_("Are you sure you want to delete all Bookmarks?"), "/delete_all_bookmarks_ok");
-        if (confirmed)
-        {
-            m_bookmarks.clear();
-            SaveBookmarks(m_bookmarks);
-            if (m_showBookmarks)
-            {
-                Refresh();
-                Update();
-            }
-        }
-    }
-}
-
-static bool IsClose(const wxRealPoint& p1, const wxRealPoint& p2, double tolerance)
-{
-    return fabs(p1.x - p2.x) <= tolerance && fabs(p1.y - p2.y) <= tolerance;
-}
-
-static std::vector<wxRealPoint>::iterator FindBookmark(const wxRealPoint& pos, std::vector<wxRealPoint>& vec)
-{
-    static const double TOLERANCE = 6.0;
-    std::vector<wxRealPoint>::iterator it;
-    for (it = vec.begin(); it != vec.end(); ++it)
-        if (IsClose(*it, pos, TOLERANCE))
-            break;
-    return it;
-}
-
-void Guider::ToggleBookmark(const wxRealPoint& pos)
-{
-    std::vector<wxRealPoint>::iterator it = FindBookmark(pos, m_bookmarks);
-
-    if (it == m_bookmarks.end())
-        m_bookmarks.push_back(pos);
-    else
-        m_bookmarks.erase(it);
-
-    SaveBookmarks(m_bookmarks);
-}
-
-static bool BookmarkPos(const PHD_Point& pos, std::vector<wxRealPoint>& vec)
-{
-    if (pos.IsValid())
-    {
-        wxRealPoint pt(pos.X, pos.Y);
-        std::vector<wxRealPoint>::iterator it = FindBookmark(pt, vec);
-        if (it != vec.end())
-            vec.erase(it);
-        vec.push_back(pt);
-        SaveBookmarks(vec);
-        return true;
-    }
-    return false;
-}
-
-void Guider::BookmarkLockPosition()
-{
-    if (BookmarkPos(LockPosition(), m_bookmarks) && m_showBookmarks)
-    {
-        Refresh();
-        Update();
-    }
-}
-
-void Guider::BookmarkCurPosition()
-{
-    if (BookmarkPos(CurrentPosition(), m_bookmarks) && m_showBookmarks)
-    {
-        Refresh();
-        Update();
-    }
 }
