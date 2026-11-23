@@ -505,9 +505,6 @@ bool PhdApp::OnInit()
 
     ImageLogger::Init();
 
-    wxImage::AddHandler(new wxJPEGHandler);
-    wxImage::AddHandler(new wxPNGHandler);
-
     pFrame = new MyFrame();
 
     // The profile's camera, mount and rotator, now that pFrame is set: their constructors call through it (the Scope

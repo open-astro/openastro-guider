@@ -6,10 +6,7 @@
 typeinfo for wxApp
 typeinfo for wxFrame
 vtable for wxImage
-vtable for wxImageHandler
-vtable for wxJPEGHandler
 vtable for wxMDIClientWindow
-vtable for wxPNGHandler
 wxApp::CleanUp()
 wxApp::GetClassInfo() const
 wxApp::Initialize(int&, wchar_t**)
@@ -57,7 +54,6 @@ wxFrameBase::SetMenuBar(wxMenuBar*)
 wxFrameBase::SetStatusText(wxString const&, int)
 wxFrameBase::SetStatusWidths(int, int const*)
 wxFrameBase::UpdateWindowUI(long)
-wxImage::AddHandler(wxImageHandler*)
 wxImage::Create(int, int, bool)
 wxImage::GetData() const
 wxImage::GetHeight() const
@@ -65,7 +61,6 @@ wxImage::GetWidth() const
 wxImage::IsOk() const
 wxImage::Mirror(bool) const
 wxImage::Rotate(double, wxPoint const&, bool, wxPoint*) const
-wxImage::SetOption(wxString const&, int)
 wxMessageBox(wxString const&, wxString const&, long, wxWindow*, int, int)
 wxMessageBoxCaptionStr
 wxNonOwnedWindow::DoClearShape()

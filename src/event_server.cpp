@@ -43,13 +43,14 @@
 #include "capture_cleanup.h"
 #include "monotonic_timers.h"
 #include "variable_delay.h"
+#include "image_stretch.h"
+#include "jpeg_encode.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 #include <wx/sstream.h>
-#include <wx/mstream.h>
 #include <wx/sckstrm.h>
 #include <ctype.h>
 #include <limits.h>
@@ -7147,18 +7148,21 @@ static std::string handle_http_request(const HttpRequest& req)
         if (inm != req.headers.end() && inm->second == etag)
             return "HTTP/1.1 304 Not Modified\r\nConnection: close\r\nETag: " + etag + "\r\n\r\n";
 
-        wxImage *disp = nullptr;
-        img->CopyToImage(&disp, img->FiltMin, img->FiltMax, pFrame->Stretch_gamma);
-        wxMemoryOutputStream mos;
-        disp->SetOption(wxIMAGE_OPTION_QUALITY, 85);
-        bool ok = disp->SaveFile(mos, wxBITMAP_TYPE_JPEG);
-        delete disp;
-        if (!ok)
+        // the stretch and the JPEG wxImage and wxJPEGHandler gave before #115 step 7, byte for
+        // byte: the same lookup table, then a baseline quality-85 4:2:0 JPEG of R = G = B
+        std::vector<unsigned char> gray(img->NPixels);
+        image_stretch::StretchGray8(img->ImageData, img->NPixels, img->FiltMin, img->FiltMax, pFrame->Stretch_gamma,
+                                    gray.data());
+        std::string data;
+        std::string error;
+        if (!jpeg_encode::EncodeGray8(gray.data(), img->Size.GetWidth(), img->Size.GetHeight(), jpeg_encode::kFrameQuality,
+                                      &data, &error))
+        {
+            Debug.Write(wxString::Format("frame.jpg: JPEG encode failed: %s\n", error));
             return http_response(500, "text/plain", "could not encode frame");
+        }
 
-        size_t len = mos.GetSize();
-        std::string data(len, '\0');
-        mos.CopyTo(&data[0], len);
+        size_t len = data.size();
 
         wxString hdr = wxString::Format("HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\n"
                                         "ETag: %s\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
