@@ -1,5 +1,0 @@
-# wx GUI symbols phd2.bin may import (#115, slice P0).
-# Checked by scripts/check_wx_gui_symbols.sh; regenerate with
-#   scripts/check_wx_gui_symbols.sh --update build/phd2.bin
-# Demangled, without ELF symbol versions, sorted with LC_ALL=C.
-# This list may only shrink: steps 4-8 of #115 remove these uses.

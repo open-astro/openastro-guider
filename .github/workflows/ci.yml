@@ -308,7 +308,7 @@ jobs:
           candidates=(
             build-deb.sh
             run_deb.sh
-            scripts/check_wx_gui_symbols.sh
+            scripts/check_no_gui_libs.sh
             debian/openastro-guider.postinst
             debian/openastro-guider.postrm
             debian/openastro-guider.prerm
@@ -380,8 +380,8 @@ jobs:
       - name: Install build dependencies
         # Names mirror debian/control's Build-Depends (the arm64 package's
         # source of truth): wxWidgets 3.2, cfitsio, libjpeg, OpenCV, v4l, curl, Eigen
-        # and system GTest. libx11-dev and libnova-dev cover the X11/libnova
-        # links the CMake targets pull in. g++ comes from build-essential.
+        # and system GTest. libnova-dev covers the libnova
+        # link the CMake targets pull in. g++ comes from build-essential.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -395,7 +395,6 @@ jobs:
             libcurl4-openssl-dev \
             libeigen3-dev \
             libgtest-dev \
-            libx11-dev \
             libnova-dev
 
       - name: Configure
@@ -407,16 +406,14 @@ jobs:
         id: build
         run: cmake --build build --parallel "$(nproc)"
 
-      - name: wx GUI symbol ratchet
-        # #115 P0: steps 4-8 remove phd2.bin's use of the wx GUI libraries (core, aui, ...). Fails
-        # on a GUI symbol phd2.bin imports that scripts/wx_gui_symbols.allowlist does not list, and
-        # warns about listed symbols it no longer imports (shrink the list with --update). Names
-        # are compared demangled and without ELF symbol versions; this runner's wx 3.2.4 (Ubuntu
-        # 24.04) and Debian 13's 3.2.8 give the same list. See tests/README.md.
-        run: scripts/check_wx_gui_symbols.sh build/phd2.bin
+      - name: No GUI libraries
+        # #115 step 8: phd2.bin is a wxAppConsole linking wxBase and wxNet only. Fails if
+        # `readelf -d` lists a NEEDED entry matching wx_gtk, gtk, gdk, X11 or wx_.*core. It
+        # replaced the P0 wx GUI symbol ratchet in S8.3. See tests/README.md.
+        run: scripts/check_no_gui_libs.sh build/phd2.bin
 
       - name: Run tests
-        # Runs after a failed ratchet too, so one run shows both.
+        # Runs after a failed check too, so one run shows both.
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ctest --test-dir build --output-on-failure
 
@@ -459,7 +456,6 @@ jobs:
             libcurl4-openssl-dev \
             libeigen3-dev \
             libgtest-dev \
-            libx11-dev \
             libnova-dev \
             xvfb \
             xauth \

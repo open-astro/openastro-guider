@@ -136,7 +136,10 @@ if(wxWidgets_PREFIX_DIRECTORY)
   endif()
 endif()
 
-find_package(wxWidgets 3.2 REQUIRED COMPONENTS aui core base adv html net)
+# wxBase and wxNet only (#115 S8.3): the daemon is a console application with no GUI library. wx-config still
+# comes from the GUI dev package (Debian has no wxBase-only one), so the build defines wxUSE_GUI=0 for phd2 itself
+# (CMakeLists.txt), as `wx-config --cxxflags base` would.
+find_package(wxWidgets 3.2 REQUIRED COMPONENTS base net)
 if(NOT wxWidgets_FOUND)
   message(FATAL_ERROR "wxWidgets >= 3.2 cannot be found. Please use wx-config prefix")
 endif()
