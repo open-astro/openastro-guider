@@ -45,6 +45,7 @@
 #include "variable_delay.h"
 #include "image_stretch.h"
 #include "jpeg_encode.h"
+#include "rect_math.h"
 
 #include <wx/dir.h>
 #include <wx/file.h>
@@ -3688,14 +3689,14 @@ static bool capture_dark_frame_pumping_events(usImage& frame, const CaptureParam
         });
     while (!done.load(std::memory_order_acquire))
     {
-        wxYield();
+        wxTheApp->Yield();
         wxMilliSleep(10);
     }
     capture.join();
     // Deliver what the capture queued for the main thread on its way out (an EquipmentDisconnected, an Alert,
     // a camera reconnect, which DoTryReconnect defers to the build's end), so a client sees the disconnect
     // before the build reports the failed frame (#103).
-    wxYield();
+    wxTheApp->Yield();
     return err;
 }
 
@@ -3769,9 +3770,9 @@ static bool capture_master_dark_frame(usImage& darkFrame, int expTimeMs, int fra
         // Two rounds with a short gap: a poll that arrived mid-capture
         // needs accept -> read -> respond socket events, and one Yield
         // only advances the connection a step per frame.
-        wxYield();
+        wxTheApp->Yield();
         wxMilliSleep(10);
-        wxYield();
+        wxTheApp->Yield();
     }
 
     for (unsigned int i = 0; i < darkFrame.NPixels; i++)
@@ -4660,9 +4661,9 @@ static void get_star_image(JObj& response, const json_value *params)
     int const sy = (int) rint(star.Y);
     wxRect rect(sx - halfw, sy - halfw, fullw, fullw);
     if (img->Subframe.IsEmpty())
-        rect.Intersect(wxRect(img->Size));
+        rect = RectIntersect(rect, wxRect(img->Size));
     else
-        rect.Intersect(img->Subframe);
+        rect = RectIntersect(rect, img->Subframe);
 
     B64Encode enc;
     for (int y = rect.GetTop(); y <= rect.GetBottom(); y++)

@@ -38,6 +38,7 @@
 #include "phd.h"
 #include "edge_allowance.h"
 #include "star_find_core.h"
+#include "rect_math.h"
 #include <algorithm>
 
 Star::Star()
@@ -399,8 +400,6 @@ bool GuideStar::AutoFind(const usImage& image, int extraEdgeAllowance, int searc
         return false; // not found
     }
 
-    wxBusyCursor busy;
-
     Debug.Write(wxString::Format("Star::AutoFind called with edgeAllowance = %d "
                                  "searchRegion = %d roi = %dx%d@%d,%d\n",
                                  extraEdgeAllowance, searchRegion, roi.width, roi.height, roi.x, roi.y));
@@ -413,7 +412,7 @@ bool GuideStar::AutoFind(const usImage& image, int extraEdgeAllowance, int searc
         // set the subrame to the roi so that the Median3
         // operation blanks pixels outside the ROI.
         smoothed.Subframe = roi;
-        smoothed.Subframe.Intersect(wxRect(smoothed.Size));
+        smoothed.Subframe = RectIntersect(smoothed.Subframe, wxRect(smoothed.Size));
 
         Debug.Write(wxString::Format("AutoFind: using ROI %dx%d@%d,%d\n", smoothed.Subframe.width, smoothed.Subframe.height,
                                      smoothed.Subframe.x, smoothed.Subframe.y));
@@ -514,7 +513,7 @@ bool GuideStar::AutoFind(const usImage& image, int extraEdgeAllowance, int searc
             const int local = 7;
             double local_mean, local_stdev;
             wxRect localRect(x - local, y - local, 2 * local + 1, 2 * local + 1);
-            localRect.Intersect(convRect);
+            localRect = RectIntersect(localRect, convRect);
             GetStats(&local_mean, &local_stdev, conv, localRect);
 
             // this is our measure of star intensity

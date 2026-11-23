@@ -43,6 +43,7 @@
 #include <cstring>
 #include <memory>
 #include <wx/cmdline.h>
+#include <wx/crt.h>
 #include <wx/evtloop.h>
 #include <wx/snglinst.h>
 

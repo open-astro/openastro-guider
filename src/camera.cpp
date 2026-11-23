@@ -199,11 +199,6 @@ bool GuideCamera::ConnectCamera(GuideCamera *camera, const wxString& cameraId)
     return false; // err was returned above if set; success path here
 }
 
-bool GuideCamera::HandleSelectCameraButtonClick(wxCommandEvent&)
-{
-    return false; // not handled
-}
-
 bool GuideCamera::EnumCameras(wxArrayString& names, wxArrayString& ids)
 {
     return true; // error

@@ -34,6 +34,7 @@
 
 #include "phd.h"
 #include "image_math.h"
+#include "rect_math.h"
 
 #include <wx/wfstream.h>
 #include <wx/txtstrm.h>
@@ -655,7 +656,7 @@ bool IsLightFrameCompatibleWithDarkFrame(usImage& light, const usImage& dark)
     else
         // if the light is a LimitFrame-limited ROI, confirm that the limit frame is
         // compatible with the dark
-        compatible = limit_frame.Intersect(wxRect(dark.Size)) == limit_frame;
+        compatible = RectIntersect(limit_frame, wxRect(dark.Size)) == limit_frame;
     if (!compatible)
         Debug.Write(wxString::Format("dark subtraction incompatible: light: %dx%d dark: %dx%d LimitFrame: %d,%d+%dx%d",
                                      light.Size.x, light.Size.y, dark.Size.x, dark.Size.y, limit_frame.x, limit_frame.y,
@@ -1165,7 +1166,7 @@ bool RemoveDefects(usImage& light, const DefectMap& defectMap)
         {
             wxPoint pt(*it - offset);
             // Check to see if we are within the subframe before correcting the defect
-            if (light.Subframe.Contains(pt))
+            if (RectContains(light.Subframe, pt))
             {
                 light.Pixel(pt.x, pt.y) = MedianBorderingPixels(light, pt.x, pt.y);
             }

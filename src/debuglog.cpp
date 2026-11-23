@@ -117,13 +117,8 @@ void DebugLog::InitDebugLog(bool enable, bool forceOpen)
 
         if (!wxFFile::Open(m_path, "a"))
         {
-            // Never pop a modal here in headless mode: it would open on the Xvfb
-            // display that nobody can dismiss and hang the daemon (e.g. an
-            // unwritable/full log dir at startup or daily rollover).
-            if (wxGetApp().IsHeadless())
-                fprintf(stderr, "unable to open debug log file %s\n", static_cast<const char *>(m_path.utf8_str()));
-            else
-                wxMessageBox(wxString::Format(_("unable to open file %s"), m_path));
+            // No window to show it in (#115): stderr, which the journal captures under systemd.
+            fprintf(stderr, "unable to open debug log file %s\n", static_cast<const char *>(m_path.utf8_str()));
         }
     }
 

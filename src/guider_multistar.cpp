@@ -45,6 +45,7 @@
 #include "frame_reject.h"
 #include "monotonic_timers.h"
 #include "multistar_refine.h"
+#include "rect_math.h"
 
 #include <wx/dir.h>
 #include <algorithm>
@@ -449,7 +450,7 @@ wxRect GuiderMultiStar::GetBoundingBox() const
     if (subframe)
     {
         wxRect box(SubframeRect(pos, m_searchRegion + SUBFRAME_BOUNDARY_PX));
-        box.Intersect(wxRect(CurrentImage()->Size));
+        box = RectIntersect(box, wxRect(CurrentImage()->Size));
         return box;
     }
     else

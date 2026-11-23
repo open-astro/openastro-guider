@@ -309,6 +309,18 @@ set_property(TARGET test_jpeg_encode PROPERTY FOLDER "Unit tests")
 add_test(NAME test_jpeg_encode COMMAND test_jpeg_encode)
 
 ############################################################################
+# test_rect_math  --  rect_math.h's RectIntersect and RectContains, which
+# stand in for wxRect's out-of-line Intersect and Contains (wx core) in the
+# model code (#115, slice S8.1). Header only; std-only.
+############################################################################
+add_executable(test_rect_math
+  ${PHD_TESTS_DIR}/image/test_rect_math.cpp
+)
+target_link_libraries(test_rect_math PRIVATE phd_test_common)
+set_property(TARGET test_rect_math PROPERTY FOLDER "Unit tests")
+add_test(NAME test_rect_math COMMAND test_rect_math)
+
+############################################################################
 # test_imaging_gear  --  imaging_gear.cpp / imaging_gear_poller.cpp: the
 # imaging-train guide log lines (design/IMAGING_GEAR_LOG.md), pixel scale,
 # unknown values, Alpaca device selection, and the background poller

@@ -142,7 +142,6 @@ public:
     static bool Capture(GuideCamera *camera, usImage& img, const CaptureParams& capture);
 
     virtual bool CanSelectCamera() const { return false; }
-    virtual bool HandleSelectCameraButtonClick(wxCommandEvent& evt);
     static const wxString DEFAULT_CAMERA_ID;
     virtual bool EnumCameras(wxArrayString& names, wxArrayString& ids);
 
