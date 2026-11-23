@@ -371,8 +371,6 @@ Scope *Scope::Factory(const wxString& choice)
 #endif
         else if (choice == _("None"))
             pReturn = nullptr;
-        else if (choice.Contains(ScopeManualPointing::GetDisplayName()))
-            pReturn = new ScopeManualPointing();
         else
         {
             throw ERROR_INFO("ScopeFactory: Unknown Scope choice");

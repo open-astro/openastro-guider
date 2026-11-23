@@ -56,7 +56,6 @@ enum E_MYFRAME_WORKER_THREAD_MESSAGES
 
 wxDECLARE_EVENT(REQUEST_EXPOSURE_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(REQUEST_MOUNT_MOVE_EVENT, wxCommandEvent);
-wxDECLARE_EVENT(WXMESSAGEBOX_PROXY_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(STATUSBAR_ENQUEUE_EVENT, wxCommandEvent);
 wxDECLARE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDECLARE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
@@ -313,16 +312,6 @@ public:
 
     void NotifyExposureChanged();
 
-    // Following 2 functions are used by clients that need to size the spin control based on the max text width
-    wxSpinCtrl *MakeSpinCtrl(wxWindow *parent, wxWindowID id = -1, const wxString& value = wxEmptyString,
-                             const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
-                             long style = wxSP_ARROW_KEYS, int min = 0, int max = 100, int initial = 0,
-                             const wxString& name = wxT("wxSpinCtrl"));
-    wxSpinCtrlDouble *MakeSpinCtrlDouble(wxWindow *parent, wxWindowID id = wxID_ANY, const wxString& value = wxEmptyString,
-                                         const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
-                                         long style = wxSP_ARROW_KEYS | wxALIGN_RIGHT, double min = 0, double max = 100,
-                                         double initial = 0, double inc = 1, const wxString& name = wxT("wxSpinCtrlDouble"));
-
 private:
     double DetermineGuideSpeed();
     void MakeImageScaleAdjustments();
@@ -344,7 +333,6 @@ private:
     void DoAlert(const alert_params& params);
     void OnAlertFromThread(wxThreadEvent& event);
     void OnReconnectCameraFromThread(wxThreadEvent& event);
-    void OnMessageBoxProxy(wxCommandEvent& evt);
     void ApplyExposureChoice(const exposure_choice::Selected& sel);
     void FinishStop();
     void DoTryReconnect();
@@ -407,13 +395,6 @@ enum
     HTTP_SERVER_CLIENT_ID,
 };
 
-inline static int StringWidth(const wxWindow *window, const wxString& s)
-{
-    int width, height;
-    window->GetTextExtent(s, &width, &height);
-    return width;
-}
-
 inline double MyFrame::GetPixelScale(double pixelSizeMicrons, int focalLengthMm, int binning)
 {
     return 206.265 * pixelSizeMicrons * (double) binning / (double) focalLengthMm;
@@ -473,11 +454,5 @@ inline int MyFrame::GetFocalLength() const
 {
     return m_focalLength;
 }
-
-// utility function to get an integer value from a wxChoice control
-extern int GetIntChoice(wxChoice *choice, int dflt);
-
-// utility function to set an integer value in a wxChoice control
-extern void SetIntChoice(wxChoice *choice, int value);
 
 #endif /* MYFRAME_H_INCLUDED */

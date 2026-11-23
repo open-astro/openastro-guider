@@ -4,17 +4,8 @@
 # Demangled, without ELF symbol versions, sorted with LC_ALL=C.
 # This list may only shrink: steps 4-8 of #115 remove these uses.
 typeinfo for wxApp
-typeinfo for wxDialog
 typeinfo for wxFrame
-typeinfo for wxProgressDialog
-vtable for wxAnyButton
-vtable for wxBoxSizer
-vtable for wxButton
-vtable for wxButtonBase
-vtable for wxCheckBox
 vtable for wxCommandEvent
-vtable for wxControl
-vtable for wxCursor
 vtable for wxFrame
 vtable for wxIcon
 vtable for wxImage
@@ -22,14 +13,6 @@ vtable for wxImageHandler
 vtable for wxJPEGHandler
 vtable for wxMDIClientWindow
 vtable for wxPNGHandler
-vtable for wxProgressDialog
-vtable for wxRadioButton
-vtable for wxSizer
-vtable for wxSizerItem
-vtable for wxSlider
-vtable for wxSpinCtrl
-vtable for wxSpinCtrlDouble
-vtable for wxwxSizerItemListNode
 wxApp::CleanUp()
 wxApp::GetClassInfo() const
 wxApp::Initialize(int&, wchar_t**)
@@ -51,47 +34,14 @@ wxAppBase::SafeYieldFor(wxWindow*, long)
 wxAppBase::SetActive(bool, wxWindow*)
 wxBeginBusyCursor(wxCursor const*)
 wxBitmap::~wxBitmap()
-wxBitmapBundle::wxBitmapBundle()
-wxBitmapBundle::~wxBitmapBundle()
 wxBitmapHelpers::NewFromPNGData(void const*, unsigned long)
-wxButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
-wxButtonNameStr
-wxCheckBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
-wxCheckBoxNameStr
 wxCommandEvent::GetString() const
-wxControl::wxControl()
-wxControlBase::~wxControlBase()
-wxControlContainerBase::AcceptsFocus() const
-wxControlContainerBase::DoSetFocus()
-wxControlContainerBase::HasAnyChildrenAcceptingFocus() const
-wxControlContainerBase::UpdateCanFocusChildren()
-wxCursor::InitFromStock(wxStockCursor)
-wxCursor::~wxCursor()
 wxDefaultPosition
 wxDefaultSize
-wxDefaultValidator
-wxDialog::EndModal(int)
-wxDialog::GetClassInfo() const
-wxDialog::IsModal() const
-wxDialog::Show(bool)
-wxDialog::ShowModal()
-wxDialog::wxDialog(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
-wxDialog::~wxDialog()
-wxDialogBase::CanDoLayoutAdaptation()
-wxDialogBase::DoLayoutAdaptation()
-wxDialogBase::GetModality() const
-wxDialogBase::IsEscapeKey(wxKeyEvent const&)
-wxDialogBase::SendWindowModalDialogEvent(int)
-wxDialogBase::ShowWindowModal()
-wxDialogBase::sm_eventTable
-wxDialogNameStr
-wxEVT_BUTTON
 wxEVT_CLOSE_WINDOW
 wxEVT_MENU
-wxEVT_RADIOBUTTON
 wxEVT_UPDATE_UI
 wxEndBusyCursor()
-wxFlexGridSizer::wxFlexGridSizer(int, int, int, int)
 wxFrame::AttachMenuBar(wxMenuBar*)
 wxFrame::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
 wxFrame::DetachMenuBar()
@@ -121,20 +71,6 @@ wxFrameBase::sm_eventTable
 wxFrameBase::wxFrameBase()
 wxFrameBase::~wxFrameBase()
 wxFrameNameStr
-wxGenericProgressDialog::GetEventHashTable() const
-wxGenericProgressDialog::GetEventTable() const
-wxGenericProgressDialog::GetMessage() const
-wxGenericProgressDialog::GetRange() const
-wxGenericProgressDialog::GetValue() const
-wxGenericProgressDialog::Pulse(wxString const&, bool*)
-wxGenericProgressDialog::Resume()
-wxGenericProgressDialog::SetRange(int)
-wxGenericProgressDialog::Show(bool)
-wxGenericProgressDialog::Update(int, wxString const&, bool*)
-wxGenericProgressDialog::WasCancelled() const
-wxGenericProgressDialog::WasSkipped() const
-wxGenericProgressDialog::wxGenericProgressDialog(wxString const&, wxString const&, int, wxWindow*, int)
-wxGenericProgressDialog::~wxGenericProgressDialog()
 wxIcon::CopyFromBitmap(wxBitmap const&)
 wxIcon::wxIcon()
 wxImage::AddHandler(wxImageHandler*)
@@ -146,38 +82,15 @@ wxImage::IsOk() const
 wxImage::Mirror(bool) const
 wxImage::Rotate(double, wxPoint const&, bool, wxPoint*) const
 wxImage::SetOption(wxString const&, int)
-wxItemContainerImmutable::SetStringSelection(wxString const&)
 wxMessageBox(wxString const&, wxString const&, long, wxWindow*, int, int)
 wxMessageBoxCaptionStr
 wxNonOwnedWindow::DoClearShape()
 wxNonOwnedWindow::DoSetPathShape(wxGraphicsPath const&)
 wxNonOwnedWindow::DoSetRegionShape(wxRegion const&)
-wxProgressDialog::GetClassInfo() const
-wxRadioButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
-wxRadioButtonNameStr
 wxRect::Contains(int, int) const
 wxRect::Intersect(wxRect const&)
-wxSizerItem::DoSetSizer(wxSizer*)
-wxSizerItem::DoSetWindow(wxWindow*)
-wxSizerItem::Init(wxSizerFlags const&)
-wxSizerItem::wxSizerItem(wxSizer*, int, int, int, wxObject*)
-wxSizerItem::wxSizerItem(wxWindow*, int, int, int, wxObject*)
-wxSlider::Create(wxWindow*, int, int, int, int, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
-wxSliderNameStr
-wxSpinCtrlDouble::SetDigits(unsigned int)
-wxSpinCtrlGTKBase::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, double, double, double, double, wxString const&)
-wxSpinCtrlGTKBase::DoGetSizeFromTextSize(int, int) const
-wxSpinCtrlGTKBase::DoGetValue() const
-wxSpinCtrlGTKBase::DoSetValue(double)
-wxSpinCtrlGTKBase::wxSpinCtrlGTKBase()
-wxSpinCtrlGTKBase::~wxSpinCtrlGTKBase()
-wxStaticBoxSizer::wxStaticBoxSizer(int, wxWindow*, wxString const&)
-wxStaticText::wxStaticText(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
-wxStaticTextNameStr
 wxStockGDI::GetColour(wxStockGDI::Item)
 wxStockGDI::GetCursor(wxStockGDI::Item)
-wxTextCtrl::wxTextCtrl(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
-wxTextCtrlNameStr
 wxTopLevelWindowBase::Destroy()
 wxTopLevelWindowBase::DoCentre(int)
 wxTopLevelWindowBase::DoClientToScreen(int*, int*) const
@@ -194,7 +107,6 @@ wxTopLevelWindowBase::WXReservedTLW2(void*)
 wxTopLevelWindowBase::WXReservedTLW3(void*)
 wxTopLevelWindowGTK::AddGrab()
 wxTopLevelWindowGTK::CanSetTransparent()
-wxTopLevelWindowGTK::DoGetClientSize(int*, int*) const
 wxTopLevelWindowGTK::DoMoveWindow(int, int, int, int)
 wxTopLevelWindowGTK::DoSetClientSize(int, int)
 wxTopLevelWindowGTK::DoSetSize(int, int, int, int, int)
@@ -219,7 +131,6 @@ wxTopLevelWindowGTK::SetTitle(wxString const&)
 wxTopLevelWindowGTK::SetTransparent(unsigned char)
 wxTopLevelWindowGTK::SetWindowStyleFlag(long)
 wxTopLevelWindowGTK::Show(bool)
-wxTopLevelWindowGTK::ShowFullScreen(bool, long)
 wxTopLevelWindowGTK::ShowWithoutActivating()
 wxTopLevelWindowGTK::WXSetInitialFittingClientSize(int, wxSizer*)
 wxWindow::AddChild(wxWindowBase*)
@@ -264,7 +175,6 @@ wxWindow::IsRetained() const
 wxWindow::IsShown() const
 wxWindow::IsTransparentBackgroundSupported(wxString*) const
 wxWindow::Lower()
-wxWindow::OnInternalIdle()
 wxWindow::RemoveChild(wxWindowBase*)
 wxWindow::Reparent(wxWindowBase*)
 wxWindow::ScrollLines(int)
@@ -301,7 +211,6 @@ wxWindowBase::Fit()
 wxWindowBase::FitInside()
 wxWindowBase::GetBestSize() const
 wxWindowBase::GetCapture()
-wxWindowBase::GetClientAreaOrigin() const
 wxWindowBase::GetClientSizeConstraint(int*, int*) const
 wxWindowBase::GetDPI() const
 wxWindowBase::GetDefaultBorder() const
@@ -318,26 +227,19 @@ wxWindowBase::IsShownOnScreen() const
 wxWindowBase::LayoutPhase1(int*)
 wxWindowBase::LayoutPhase2(int*)
 wxWindowBase::MoveConstraint(int, int)
-wxWindowBase::SendIdleEvents(wxIdleEvent&)
 wxWindowBase::SendSizeEvent(int)
 wxWindowBase::SetConstraintSizes(bool)
-wxWindowBase::SetInitialSize(wxSize const&)
 wxWindowBase::SetNextHandler(wxEvtHandler*)
 wxWindowBase::SetPreviousHandler(wxEvtHandler*)
 wxWindowBase::SetSizeConstraint(int, int, int, int)
-wxWindowBase::SetSizerAndFit(wxSizer*, bool)
 wxWindowBase::SetValidator(wxValidator const&)
-wxWindowBase::ToggleWindowStyle(int)
 wxWindowBase::TransferDataFromWindow()
 wxWindowBase::TransferDataToWindow()
 wxWindowBase::TryAfter(wxEvent&)
 wxWindowBase::TryBefore(wxEvent&)
-wxWindowBase::UpdateWindowUI(long)
 wxWindowBase::Validate()
 wxWindowBase::WXReservedWindow1(void*)
 wxWindowBase::WXReservedWindow2(void*)
 wxWindowBase::WXReservedWindow3(void*)
 wxWindowBase::WindowToClientSize(wxSize const&) const
-wxWindowDisabler::wxWindowDisabler(bool)
-wxWindowDisabler::~wxWindowDisabler()
 wxYield()

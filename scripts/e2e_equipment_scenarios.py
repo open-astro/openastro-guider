@@ -564,6 +564,10 @@ def scenario_connect_side_effects(lane):
     expect(all(abs(m - want_mm1) > 0.01 for m in mm0),
            f"MinMoves {mm0} before connecting already the new scale's default {want_mm1:.4f}: the reset is not seen")
 
+    # #115 S6.6 removed the camera simulator but kept the rotator simulator, which the rotator list still offers
+    expect([cli.call("set_selected_rotator", {"rotator": r}) for r in ("Simulator", "None")] == [0, 0],
+           "set_selected_rotator Simulator, then None, did not both return 0")
+
     # connect all: the camera's pixel size is not the profile's, so the #139 adjustment is made, once
     start = cli.mark()
     expect(cli.call("set_connected", {"connected": True}, timeout=60) == 0, "set_connected true did not return 0")

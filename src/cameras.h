@@ -41,6 +41,5 @@
 
 // openastro-guider build: Alpaca only (ASCOM and INDI backends dropped).
 # define ALPACA_CAMERA
-# define SIMULATOR
 
 #endif // CAMERAS_INCLUDED

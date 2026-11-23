@@ -235,8 +235,6 @@ set(scopes_SRC
   ${phd_src_dir}/mount.h
   ${phd_src_dir}/scope.cpp
   ${phd_src_dir}/scope.h
-  ${phd_src_dir}/scope_manual_pointing.cpp
-  ${phd_src_dir}/scope_manual_pointing.h
   ${phd_src_dir}/scopes.h
   ${phd_src_dir}/stepguider.cpp
   ${phd_src_dir}/stepguider.h
@@ -333,8 +331,6 @@ set(phd2_SRC
   ${phd_src_dir}/json_parser.h
   ${phd_src_dir}/logger.cpp
   ${phd_src_dir}/logger.h
-  ${phd_src_dir}/messagebox_proxy.cpp
-  ${phd_src_dir}/messagebox_proxy.h
   ${phd_src_dir}/dither_random.cpp
   ${phd_src_dir}/dither_random.h
   ${phd_src_dir}/myframe.cpp
@@ -363,8 +359,6 @@ set(phd2_SRC
   ${phd_src_dir}/rotator_alpaca.cpp
   ${phd_src_dir}/rotator_alpaca.h
 
-  ${phd_src_dir}/runinbg.cpp
-  ${phd_src_dir}/runinbg.h
 
 
   ${phd_src_dir}/serialport.cpp

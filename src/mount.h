@@ -39,7 +39,6 @@
 #include "algorithm_slot.h"
 #include "guide_algorithms.h"
 #include "image_math.h"
-#include "messagebox_proxy.h"
 
 #include <vector>
 
@@ -150,7 +149,7 @@ struct MoveResultInfo
     MoveResultInfo() : amountMoved(0), limited(false) { }
 };
 
-class Mount : public wxMessageBoxProxy
+class Mount
 {
     bool m_connected;
     int m_requestCount;

@@ -81,7 +81,7 @@ struct CaptureParams
 // mapping from combined binning to (hwBinning, swBinning) pair
 typedef std::map<int, std::pair<int, int>> BinningChoices;
 
-class GuideCamera : public wxMessageBoxProxy
+class GuideCamera
 {
     double m_pixelSize;
 

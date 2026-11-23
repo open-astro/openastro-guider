@@ -65,7 +65,6 @@ static const double DefaultAutoExpSNR = 6.0;
 
 wxDEFINE_EVENT(REQUEST_EXPOSURE_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(REQUEST_MOUNT_MOVE_EVENT, wxCommandEvent);
-wxDEFINE_EVENT(WXMESSAGEBOX_PROXY_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(STATUSBAR_ENQUEUE_EVENT, wxCommandEvent);
 wxDEFINE_EVENT(SET_STATUS_TEXT_EVENT, wxThreadEvent);
 wxDEFINE_EVENT(ALERT_FROM_THREAD_EVENT, wxThreadEvent);
@@ -81,7 +80,6 @@ EVT_THREAD(MYFRAME_WORKER_THREAD_EXPOSE_COMPLETE, MyFrame::OnExposeComplete)
 EVT_THREAD(MYFRAME_WORKER_THREAD_MOVE_COMPLETE, MyFrame::OnMoveComplete)
 
 EVT_COMMAND(wxID_ANY, REQUEST_EXPOSURE_EVENT, MyFrame::OnRequestExposure)
-EVT_COMMAND(wxID_ANY, WXMESSAGEBOX_PROXY_EVENT, MyFrame::OnMessageBoxProxy)
 
 EVT_THREAD(SET_STATUS_TEXT_EVENT, MyFrame::OnStatusMsg)
 EVT_THREAD(ALERT_FROM_THREAD_EVENT, MyFrame::OnAlertFromThread)
@@ -2162,31 +2160,6 @@ void MyFrame::HandleImageScaleChange()
 wxPluralFormsCalculatorPtr::~wxPluralFormsCalculatorPtr() { }
 #endif
 
-inline static void AdjustSpinnerWidth(wxSize *sz) { }
-
-// The spin control factories allow clients to specify a width based on the max width of the numeric values without having
-// to make guesses about the additional space required by the other parts of the control
-wxSpinCtrl *MyFrame::MakeSpinCtrl(wxWindow *parent, wxWindowID id, const wxString& value, const wxPoint& pos,
-                                  const wxSize& size, long style, int min, int max, int initial, const wxString& name)
-{
-    wxSpinCtrl *ctrl = new wxSpinCtrl(parent, id, value, pos, size, style, min, max, initial, name);
-    wxSize initsize(ctrl->GetSizeFromTextSize(size));
-    AdjustSpinnerWidth(&initsize);
-    ctrl->SetInitialSize(initsize);
-    return ctrl;
-}
-
-wxSpinCtrlDouble *MyFrame::MakeSpinCtrlDouble(wxWindow *parent, wxWindowID id, const wxString& value, const wxPoint& pos,
-                                              const wxSize& size, long style, double min, double max, double initial,
-                                              double inc, const wxString& name)
-{
-    wxSpinCtrlDouble *ctrl = new wxSpinCtrlDouble(parent, id, value, pos, size, style, min, max, initial, inc, name);
-    wxSize initsize(ctrl->GetSizeFromTextSize(size));
-    AdjustSpinnerWidth(&initsize);
-    ctrl->SetInitialSize(initsize);
-    return ctrl;
-}
-
 template<typename T>
 static void NotifyGuidingParam(const wxString& name, T val)
 {
@@ -2219,18 +2192,4 @@ void MyFrame::NotifyGuidingParam(const wxString& name, const wxString& val, bool
 {
     GuideLog.SetGuidingParam(name, val, true);
     EvtServer.NotifyGuidingParam(name, val);
-}
-
-int GetIntChoice(wxChoice *choice, int dflt)
-{
-    unsigned long value;
-    if (!choice->GetStringSelection().ToULong(&value))
-        value = dflt;
-    return value;
-}
-
-void SetIntChoice(wxChoice *choice, int value)
-{
-    if (!choice->SetStringSelection(wxString::Format("%d", value)))
-        choice->SetSelection(0);
 }

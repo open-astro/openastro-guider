@@ -35,7 +35,6 @@
 #include "phd.h"
 
 #include "socket_server.h"
-#include "gear_simulator.h"
 
 #include <algorithm>
 #include <functional>
@@ -393,7 +392,7 @@ void MyFrame::HandleSockServerInput(wxSocketBase *sock)
 
         case MSG_FLIP_SIM_CAMERA:
             Debug.AddLine("processing socket request flip camera simulator");
-            GearSimulator::FlipPierSide(pCamera);
+            // #115 S6.6: there is no camera simulator to flip; the request is still answered as before
             break;
 
         case MSG_DESELECT:
