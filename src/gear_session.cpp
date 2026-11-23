@@ -222,8 +222,6 @@ void GearSession::End()
         break;
     }
 
-    m_port.RefreshAdvancedDialog();
-
     // taken, so a later request does not redo it over what the client has set since (#139)
     if (m_latch.TakeScaleChange())
         m_port.HandleImageScaleChange();

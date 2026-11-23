@@ -100,7 +100,6 @@ wxAuiPaneInfo::IsValid() const
 wxAuiToolBar::AddControl(wxControl*, wxString const&)
 wxAuiToolBar::AddSeparator()
 wxAuiToolBar::AddTool(int, wxString const&, wxBitmapBundle const&, wxBitmapBundle const&, wxItemKind, wxString const&, wxString const&, wxObject*)
-wxAuiToolBar::AddTool(int, wxString const&, wxBitmapBundle const&, wxString const&, wxItemKind)
 wxAuiToolBar::Create(wxWindow*, int, wxPoint const&, wxSize const&, long)
 wxAuiToolBar::EnableTool(int, bool)
 wxAuiToolBar::GetToolEnabled(int) const

@@ -1237,9 +1237,8 @@ void GuidingAsstWin::OnDecAlgoChange(wxCommandEvent& event)
     if (pMount->IsStepGuider())
         return; // should never happen
     pMount->SetGuidingEnabled(false);
-    // Need to make algo change through AD UI controls to keep everything in-synch
-    Mount::MountConfigDialogPane *currMountPane = pFrame->pAdvancedDialog->GetCurrentMountPane();
-    currMountPane->ChangeYAlgorithm("Lowpass2");
+    // the AdvancedDialog is no longer built (#115 S4.2): change the algorithm as ApiApply does
+    pMount->SetYGuideAlgorithm(Mount::GuideAlgorithmFromName("Lowpass2"));
     Debug.Write("GuideAssistant changed Dec algo to Lowpass2\n");
     if (!ConfigureGADecLowpass2(m_dec_minmove_rec))
         return;

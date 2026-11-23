@@ -50,7 +50,6 @@ struct GearPort
     virtual bool AutoLoadCalibration() const = 0; // the profile's auto-load is on (and an AO, if any, is connected)
     virtual void LoadCalibration() = 0;
     virtual void ClearCalibration() = 0;
-    virtual void RefreshAdvancedDialog() = 0; // the pages of the devices that changed, then a preload
     virtual void HandleImageScaleChange() = 0;
     virtual void SendReconnected(GearDevice dev) = 0; // EquipmentReconnected
 };
@@ -96,7 +95,7 @@ public:
     int Depth() const { return m_depth; }
 
     // The end-of-request step, run exactly once per accepted request, never on a refusal or a no-op: frame
-    // controls, the calibration action (auto-load or #139 clear), the AdvancedDialog refresh, the image-scale change
+    // controls, the calibration action (auto-load or #139 clear), the image-scale change
     // (taken once), then the queued EquipmentReconnected events.
     void End();
 
