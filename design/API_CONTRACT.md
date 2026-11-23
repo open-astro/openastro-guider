@@ -1290,3 +1290,18 @@ reading it as connected, and the #104 retry never reconnected it.
 ARA: no code change needed. A server killed mid-guide now reaches the `EquipmentDisconnected`
 handler and then `EquipmentReconnectFailed`, as a server gone between two calls does (#190), after
 one `StarLost` for the cut frame.
+
+## 2026-11-22 — Guiding Assistant window removed (#115 step 4, slice S4.3)
+
+No method, parameter, result, event or event order changes. The Guiding Assistant window
+(`GuidingAsstWin`), which only `--gui` mode could open (from Tools > Guiding Assistant), is gone,
+with its extended-sampling prompt and the backlash graph it showed. The headless Guiding
+Assistant (`guiding_assistant_start`, `_stop`, `_get_status`, `_apply`, and the restore when the
+guider closes mid-run) is unchanged and keeps the same measurement, recommendations and saved
+`/GA` history.
+
+- One error that could only be returned while that window was open is removed:
+  `guiding_assistant_start` "the Guiding Assistant dialog is open". The headless daemon never
+  returned it.
+
+ARA: no code change.

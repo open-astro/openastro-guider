@@ -39,7 +39,6 @@ class GuidingAssistant
 {
     GuidingAssistant(); // not implemented
 public:
-    static wxWindow *CreateDialogBox();
     static void NotifyGuideStep(const GuideStepInfo& info);
     static void NotifyFrameDropped(const FrameDroppedInfo& info);
     static void NotifyBacklashStep(const PHD_Point& camLoc);
@@ -47,7 +46,7 @@ public:
     static void UpdateUIControls();
 
     // Headless Guiding Assistant, driven over JSON-RPC (guiding_assistant_*).
-    // Runs the same measurement as the dialog without showing it: guide
+    // Runs the measurement PHD2's dialog made, without a window: guide
     // output is disabled while the star drifts, the unguided samples feed the
     // shared ga_math statistics, an optional Dec backlash test follows, and
     // the dialog's recommendations are computed at the end.
