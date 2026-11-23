@@ -122,9 +122,9 @@ BinningChange AdjustForBinning(const CalibrationRecord& cal, unsigned short binn
     if (binning != cal.binning && cal.isValid)
     {
         bc.apply = true;
-        // KNOWN BUG, kept as it is: unsigned short (int) division, so 2 -> 3 gives 1, not 1.5, and the
-        // image scale change goes unseen (fixed on fix/142-adjust-for-pointing-binning)
-        bc.scaleFactor = binning / cal.binning;
+        // in floating point: an integer division of the two unsigned shorts made 2 -> 3 a factor of 1, and
+        // the image scale change went unseen (#252)
+        bc.scaleFactor = (double) binning / (double) cal.binning;
         double adj = (double) cal.binning / (double) binning;
         bc.xRate *= adj;
         bc.yRate *= adj;

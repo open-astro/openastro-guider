@@ -191,6 +191,7 @@ protected:
     friend class MyFrameConfigDialogPane;
     friend class MyFrameConfigDialogCtrlSet;
     friend class WorkerThread;
+    friend class AdvancedDialog; // AdvancedDialog::UnloadValues calls MakeImageScaleAdjustments
 
 private:
     NOISE_REDUCTION_METHOD m_noiseReductionMethod;
@@ -439,6 +440,8 @@ public:
                                          double initial = 0, double inc = 1, const wxString& name = wxT("wxSpinCtrlDouble"));
 
 private:
+    double DetermineGuideSpeed();
+    void MakeImageScaleAdjustments();
     wxCriticalSection m_CSpWorkerThread;
     WorkerThread *m_pPrimaryWorkerThread;
     WorkerThread *m_pSecondaryWorkerThread;

@@ -119,6 +119,30 @@ AxisPlan PlanAxis(Dir dir, int ms, unsigned moveOptions, const AxisPolicy& polic
     return plan;
 }
 
+BacklashPlan PlanBacklashComp(unsigned moveOptions, bool enabled, int pulseWidthMs, DecMode decMode, double yDistance,
+                              Dir& lastDirection)
+{
+    BacklashPlan plan;
+
+    if ((moveOptions & USE_BLC) == 0)
+        return plan;
+    if (!enabled || pulseWidthMs <= 0 || yDistance == 0.0)
+        return plan;
+    // Inert unless Dec guides both ways (#142): see the header
+    if (decMode != DecMode::Auto)
+        return plan;
+
+    plan.skipped = false;
+    Dir dir = yDistance > 0.0 ? Dir::South : Dir::North;
+    if (lastDirection != Dir::None && dir != lastDirection)
+    {
+        plan.reversal = true;
+        plan.addMs = pulseWidthMs;
+    }
+    lastDirection = dir;
+    return plan;
+}
+
 bool LimitAlertThrottle::ShouldRaise(Axis axis, int64_t nowS, int64_t deferredUntilS)
 {
     if (nowS < deferredUntilS)

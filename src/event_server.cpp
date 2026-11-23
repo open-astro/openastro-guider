@@ -7403,6 +7403,17 @@ void EventServer::OnHttpServerClientEvent(wxSocketEvent& event)
 {
     wxSocketBase *cli = event.GetSocket();
 
+    // #258: a client is destroyed while more events for it can still be queued: a new
+    // connection queues an OUTPUT event as well as the INPUT one, and the INPUT handler
+    // answers and destroys the one-shot client. Destroy() keeps the socket object alive
+    // until the queued events are handled, but its HttpClientData is freed at once, so
+    // an event for a socket no longer in the set must not touch it.
+    if (m_httpServerClients.find(cli) == m_httpServerClients.end())
+    {
+        Debug.Write(wxString::Format("httpsrv: cli %p event %d after close, ignored\n", cli, event.GetSocketEvent()));
+        return;
+    }
+
     if (event.GetSocketEvent() == wxSOCKET_LOST)
     {
         Debug.Write(wxString::Format("httpsrv: cli %p disconnect\n", cli));
