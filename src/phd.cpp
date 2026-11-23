@@ -229,14 +229,25 @@ static void IdleClosing(wxIdleEvent& evt)
     }
 
     wxGetApp().Unbind(wxEVT_IDLE, &IdleClosing);
-    pFrame->Close(true /*force*/);
+
+    // #115 S6.8: a second request (a signal, or a shutdown RPC queued before the servers stopped) that got here after
+    // the frame was deleted has nothing left to shut down
+    if (!pFrame)
+        return;
+
+    // #115 S6.8: what the forced close's MyFrame::OnClose did, then the frame's deletion, which wx made in this idle
+    // pass after OnClose's Destroy(), and the exit from the main loop that the last window's deletion made
+    pFrame->Shutdown();
+    delete pFrame;
+    pFrame = nullptr;
+    wxTheApp->ExitMainLoop();
 }
 
 void PhdApp::TerminateApp()
 {
-    // The wxEVT_CLOSE_WINDOW message may not be processed if phd2 is sitting idle
-    // when the client invokes shutdown. As a workaround pump some timer event messages to
-    // keep the event loop from stalling and ensure that the wxEVT_CLOSE_WINDOW is processed.
+    // IdleClosing may not run if phd2 is sitting idle when the client invokes shutdown.
+    // As a workaround pump some timer event messages to keep the event loop from stalling
+    // and ensure that IdleClosing runs.
 
     (new wxTimer(&wxGetApp()))->Start(20); // this object leaks but we don't care
 

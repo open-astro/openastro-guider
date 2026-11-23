@@ -179,7 +179,7 @@ MyFrame::~MyFrame()
     pGuideHistory = nullptr;
 
     // #115 S5.4: the guider is no longer a child window that wx deletes after this destructor, so delete it here, at
-    // the same point: OnClose has stopped the worker threads, the #104 probe and the servers, and the devices and the
+    // the same point: Shutdown has stopped the worker threads, the #104 probe and the servers, and the devices and the
     // guide history it is used with are gone
     delete pGuider;
     pGuider = nullptr;
@@ -1299,6 +1299,24 @@ void MyFrame::OnClose(wxCloseEvent& event)
         return;
     }
 
+    if (event.CanVeto())
+    {
+        // #115 S6.8: closing the --gui window shuts down the way the `shutdown` RPC and SIGTERM do, through
+        // PhdApp::TerminateApp and Shutdown, not from this close event
+        event.Veto();
+        wxGetApp().TerminateApp();
+        return;
+    }
+
+    // a close that cannot be vetoed (an OS session end)
+    Shutdown();
+    Destroy();
+}
+
+// #115 S6.8: what OnClose did on every exit, in the same order. The `shutdown` RPC, SIGTERM, SIGINT and a restart reach
+// it from IdleClosing (phd.cpp), which then deletes the frame and exits the main loop.
+void MyFrame::Shutdown()
+{
     Debug.Write("MyFrame::OnClose proceeding\n");
 
     // #104: before StopWorkerThread pumps the event loop below, so no background connect attempt starts (and could
@@ -1321,8 +1339,6 @@ void MyFrame::OnClose(wxCloseEvent& event)
     StartServer(false);
 
     GuideLog.CloseGuideLog();
-
-    Destroy();
 }
 
 bool MyFrame::SetNoiseReductionMethod(int noiseReductionMethod)

@@ -185,6 +185,9 @@ public:
     bool m_defectMapInUse = false;
 
     void OnClose(wxCloseEvent& evt);
+    // #115 S6.8: the exit sequence (worker threads, devices, servers, guide log); IdleClosing calls it, then deletes the
+    // frame
+    void Shutdown();
     void GuideButtonClick(bool interactive, const wxString& context);
     void OnSockServerEvent(wxSocketEvent& evt);
     void OnSockServerClientEvent(wxSocketEvent& evt);

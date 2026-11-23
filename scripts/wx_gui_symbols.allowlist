@@ -195,7 +195,6 @@ wxWindow::WarpPointer(int, int)
 wxWindow::wxWindow()
 wxWindowBase::CanScroll(int) const
 wxWindowBase::ClientToWindowSize(wxSize const&) const
-wxWindowBase::Close(bool)
 wxWindowBase::DoGetBestSize() const
 wxWindowBase::DoGetVirtualSize() const
 wxWindowBase::DoHitTest(int, int) const
