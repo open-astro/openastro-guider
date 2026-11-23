@@ -1374,10 +1374,12 @@ Command line:
   more` to stderr and the Debug log, and the daemon runs as without it: SIGTERM and SIGINT
   handling and `--auto-connect` work as they do without the switch. `--headless` stays an accepted
   no-op.
-- `--display` is no longer accepted. wxGTK took it (and GTK's other options) off the command line
-  before the daemon's parser saw it; the console app does not, so `--display=:0` gets
-  `Unknown long option 'display'`, the usage text and exit status 255. The packaged unit never
-  passed it. The e2e scripts' own `--display` option is accepted and ignored (S8.4).
+- `--display` is accepted and ignored (S9.2). wxGTK took it off the command line before the
+  daemon's parser saw it; the console app's parser now declares it, so `--display=:0` still
+  starts the daemon, with `warning: --display is ignored: there is no X display any more` on
+  stderr and in the Debug log. (Between S8.2 and S9.2 it was rejected: `Unknown long option
+  'display'`, exit status 255.) The packaged unit never passed it. The e2e scripts' own
+  `--display` option is accepted and ignored too (S8.4).
 - No `DISPLAY` or X server is needed. The unit runs
   `ExecStart=/usr/bin/openastro-guider --auto-connect` without `xvfb-run`, and the package no
   longer depends on `xvfb` (S8.5).

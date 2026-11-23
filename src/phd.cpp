@@ -64,6 +64,8 @@ GuidingLog GuideLog;
 static const wxCmdLineEntryDesc cmdLineDesc[] = {
     { wxCMD_LINE_SWITCH, "?", "help", "display this help and exit" },
     { wxCMD_LINE_SWITCH, "g", "gui", "deprecated: there is no window any more (accepted for compatibility)" },
+    { wxCMD_LINE_OPTION, nullptr, "display", "deprecated: there is no X display any more (accepted and ignored)",
+      wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
     { wxCMD_LINE_SWITCH, "a", "auto-connect", "auto-connect the selected equipment on startup" },
     { wxCMD_LINE_SWITCH, "H", "headless", "deprecated: headless is now the default (accepted for compatibility)" },
     { wxCMD_LINE_SWITCH, "A", "headless-auto-connect", "deprecated alias for --auto-connect" },
@@ -85,6 +87,7 @@ enum ConfigOp
 static ConfigOp s_configOp = CONFIG_OP_NONE;
 static wxString s_configPath;
 static bool s_guiIgnored = false; // --gui was given (#115 S6.9)
+static bool s_displayIgnored = false; // --display was given (#115 S9.2): the wxGTK build took it, the console app ignores it
 
 // A console application (#115 S8.2): wxBase's event loop, no GTK and no X display
 wxIMPLEMENT_APP_CONSOLE(PhdApp);
@@ -444,6 +447,8 @@ bool PhdApp::OnInit()
 
     if (s_guiIgnored)
         Debug.Write("--gui is ignored: there is no window any more\n");
+    if (s_displayIgnored)
+        Debug.Write("--display is ignored: there is no X display any more\n");
 
     DisableOSXAppNap();
 
@@ -581,6 +586,11 @@ bool PhdApp::OnCmdLineParsed(wxCmdLineParser& parser)
     s_guiIgnored = parser.Found("gui");
     if (s_guiIgnored)
         wxMessageOutputStderr().Printf("warning: --gui is ignored: there is no window any more\n");
+    // the wxGTK build took --display=<X display> itself; keep accepting it so an old unit or script still starts
+    wxString display;
+    s_displayIgnored = parser.Found("display", &display);
+    if (s_displayIgnored)
+        wxMessageOutputStderr().Printf("warning: --display is ignored: there is no X display any more\n");
     m_headlessAutoConnect = parser.Found("auto-connect") || parser.Found("headless-auto-connect");
 
     if (parser.Found("l", &s_configPath))

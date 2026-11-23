@@ -245,8 +245,9 @@ entries; add new ones at the bottom.**
   - **`--gui` is a no-op.** It is still accepted, so existing scripts and units start, and writes
     `warning: --gui is ignored: there is no window any more` to stderr and the Debug log; the daemon
     runs as without it. `--headless` stays an accepted no-op. GTK's own options (`--display` and
-    the like) were consumed by wxGTK before; the console app has no such options, so `--display`
-    is now an unknown option and the daemon exits with its usage text.
+    the like) were consumed by wxGTK before. The console app declares `--display` and ignores it
+    with the same kind of warning (S9.2), so an old unit or script that passed it still starts;
+    the other GTK options were never used here.
   - **No new Alerts.** Message boxes and prompts that only `--gui` could show became Debug lines
     (or nothing), not new `Alert` events.
   - **`pFrame` and `MyFrame` keep their names**, though `MyFrame` is no longer a frame.
