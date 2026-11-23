@@ -70,6 +70,9 @@ static_assert(AlpacaErrors::kCurlOperationTimedOut == CURLE_OPERATION_TIMEDOUT,
 static_assert(AlpacaErrors::kCurlGotNothing == CURLE_GOT_NOTHING, "kCurlGotNothing is not CURLE_GOT_NOTHING");
 static_assert(AlpacaErrors::kCurlRecvError == CURLE_RECV_ERROR, "kCurlRecvError is not CURLE_RECV_ERROR");
 static_assert(AlpacaErrors::kCurlPartialFile == CURLE_PARTIAL_FILE, "kCurlPartialFile is not CURLE_PARTIAL_FILE");
+// and the code of a call its abort check gave up (#294)
+static_assert(AlpacaErrors::kCurlAbortedByCallback == CURLE_ABORTED_BY_CALLBACK,
+              "kCurlAbortedByCallback is not CURLE_ABORTED_BY_CALLBACK");
 } // namespace
 
 size_t AlpacaClient::WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
@@ -94,7 +97,7 @@ AlpacaClient::AlpacaClient(const wxString& host, long port, long deviceNumber)
         curl_easy_setopt(m_curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(m_curl, CURLOPT_WRITEDATA, this);
         curl_easy_setopt(m_curl, CURLOPT_USERAGENT, static_cast<const char *>(wxGetApp().UserAgent().c_str()));
-        curl_easy_setopt(m_curl, CURLOPT_TIMEOUT, 30L);
+        curl_easy_setopt(m_curl, CURLOPT_TIMEOUT_MS, m_timeoutMs);
         curl_easy_setopt(m_curl, CURLOPT_CONNECTTIMEOUT, 10L);
         curl_easy_setopt(m_curl, CURLOPT_FOLLOWLOCATION, 0L); // Don't follow redirects - they might go to auth pages
         curl_easy_setopt(m_curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
@@ -134,6 +137,7 @@ void AlpacaClient::SetTimeoutMs(long totalMs, long connectMs)
     wxMutexLocker lock(m_mutex);
     if (m_curl)
     {
+        m_timeoutMs = totalMs;
         curl_easy_setopt(m_curl, CURLOPT_TIMEOUT_MS, totalMs);
         curl_easy_setopt(m_curl, CURLOPT_CONNECTTIMEOUT_MS, connectMs);
     }
@@ -1268,7 +1272,7 @@ bool AlpacaClient::GetString(const wxString& endpoint, wxString *value, long *er
 }
 
 bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, const wxString& params, long *errorCode,
-                             wxString *errorMessage, AlpacaErrors::CallError *callError)
+                             wxString *errorMessage, AlpacaErrors::CallError *callError, const AlpacaRequestLimits *limits)
 {
     AlpacaErrors::CallErrorScope callErr(callError);
     if (!m_curl)
@@ -1311,13 +1315,30 @@ bool AlpacaClient::PutAction(const wxString& endpoint, const wxString& action, c
     // already executed the request, so automatically retrying could double-fire
     // the action. Perform exactly one attempt and let the caller decide how to
     // handle a failure. (GET retries remain safe and are kept in Get()/GetRaw().)
-    CURLcode res = curl_easy_perform(m_curl);
+    CURLcode res;
+    bool aborted;
+    {
+        // this request's own timeout and abort check, off the handle again before the lock goes (#294)
+        AlpacaRequestLimitsScope limitsScope(m_curl, limits, m_timeoutMs);
+        res = curl_easy_perform(m_curl);
+        aborted = limitsScope.Aborted();
+    }
 
     // Clean up headers if we set them
     if (headers)
     {
         curl_slist_free_all(headers);
         curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, nullptr);
+    }
+
+    if (res == CURLE_ABORTED_BY_CALLBACK && aborted)
+    {
+        // given up on, not failed: the server may still act on it (#294)
+        Debug.Write(wxString::Format("AlpacaClient PutAction aborted: %s given up before its response, a stop was "
+                                     "requested\n",
+                                     url));
+        callErr.Set(CallKind::Transport, 0, 0, "request aborted: a stop was requested", res);
+        return false;
     }
 
     if (res != CURLE_OK)

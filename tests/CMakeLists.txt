@@ -83,6 +83,21 @@ set_property(TARGET test_alpaca_schema PROPERTY FOLDER "Unit tests")
 add_test(NAME test_alpaca_schema COMMAND test_alpaca_schema)
 
 ############################################################################
+# test_alpaca_request_limits  --  alpaca_request_limits.cpp (#294): one
+# request's own timeout and abort check, on a real curl handle against a
+# local socket that accepts and never answers (the e2e fake's stall), and
+# the handle's state after it.
+############################################################################
+find_package(Threads REQUIRED)
+add_executable(test_alpaca_request_limits
+  ${PHD_TESTS_DIR}/alpaca/test_alpaca_request_limits.cpp
+  ${phd_src_dir}/alpaca_request_limits.cpp
+)
+target_link_libraries(test_alpaca_request_limits PRIVATE phd_test_common ${CURL_LIBRARIES} Threads::Threads)
+set_property(TARGET test_alpaca_request_limits PROPERTY FOLDER "Unit tests")
+add_test(NAME test_alpaca_request_limits COMMAND test_alpaca_request_limits)
+
+############################################################################
 # test_discovery_logic  --  models the host:port parse and dedupe-set
 # semantics shared by AlpacaDiscovery and INDIDiscovery, without needing
 # real sockets.
@@ -474,7 +489,8 @@ add_test(NAME test_connect_retry COMMAND test_connect_retry)
 
 ############################################################################
 # test_pulse_wait  --  pulse_wait.cpp: how long ScopeAlpaca::Guide waits
-# for an Alpaca PulseGuide, timed from the request (#119). std-only.
+# for an Alpaca PulseGuide, timed from the request (#119), and the PulseGuide
+# request's own timeout (#294). std-only.
 ############################################################################
 add_executable(test_pulse_wait
   ${PHD_TESTS_DIR}/equipment/test_pulse_wait.cpp
