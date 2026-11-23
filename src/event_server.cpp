@@ -7158,7 +7158,7 @@ static std::string handle_http_request(const HttpRequest& req)
         if (!jpeg_encode::EncodeGray8(gray.data(), img->Size.GetWidth(), img->Size.GetHeight(), jpeg_encode::kFrameQuality,
                                       &data, &error))
         {
-            Debug.Write(wxString::Format("frame.jpg: JPEG encode failed: %s\n", error));
+            Debug.Write(wxString::Format("frame.jpg: JPEG encode failed: %s\n", error.c_str()));
             return http_response(500, "text/plain", "could not encode frame");
         }
 
