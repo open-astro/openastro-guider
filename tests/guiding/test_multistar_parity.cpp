@@ -26,6 +26,8 @@ bool Same(double a, double b)
 {
     return std::memcmp(&a, &b, sizeof a) == 0;
 }
+} // namespace
+
 
 // --- MassChecker ---
 
@@ -165,6 +167,8 @@ TEST(MultistarParity, DistanceChecker)
     EXPECT_GT(keptTolerance, 0); // the #261 path is reached
 }
 
+namespace
+{
 // --- RefineOffset ---
 
 struct FindCall
@@ -238,6 +242,8 @@ size_t Count(const std::vector<std::string>& lines, const std::string& token)
             ++n;
     return n;
 }
+
+} // namespace
 
 TEST(MultistarParity, RefineOffset)
 {
@@ -412,5 +418,3 @@ TEST(MultistarParity, RefineOffset)
     EXPECT_GT(doubleFinds, 0u); // the zeroCount bug's path is reached
     EXPECT_GT(refinedFrames, 0u);
 }
-
-} // namespace
