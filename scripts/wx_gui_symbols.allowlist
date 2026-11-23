@@ -1,0 +1,630 @@
+# wx GUI symbols phd2.bin may import (#115, slice P0).
+# Checked by scripts/check_wx_gui_symbols.sh; regenerate with
+#   scripts/check_wx_gui_symbols.sh --update build/phd2.bin
+# Demangled, without ELF symbol versions, sorted with LC_ALL=C.
+# This list may only shrink: steps 4-8 of #115 remove these uses.
+typeinfo for wxApp
+typeinfo for wxDialog
+typeinfo for wxFileDropTarget
+typeinfo for wxFrame
+typeinfo for wxIntegerValidatorBase
+typeinfo for wxPaintDC
+typeinfo for wxProgressDialog
+typeinfo for wxScrollHelper
+typeinfo for wxStaticBoxSizer
+typeinfo for wxWindow
+vtable for wxAnyButton
+vtable for wxAuiToolBar
+vtable for wxBitmap
+vtable for wxBoxSizer
+vtable for wxButton
+vtable for wxButtonBase
+vtable for wxCheckBox
+vtable for wxChoice
+vtable for wxColour
+vtable for wxComboBox
+vtable for wxCommandEvent
+vtable for wxControl
+vtable for wxControlContainer
+vtable for wxCursor
+vtable for wxDC
+vtable for wxDialog
+vtable for wxFont
+vtable for wxFrame
+vtable for wxGauge
+vtable for wxGraphicsMatrix
+vtable for wxGrid
+vtable for wxIcon
+vtable for wxImage
+vtable for wxImageHandler
+vtable for wxInfoBar
+vtable for wxInfoBarGeneric
+vtable for wxJPEGHandler
+vtable for wxMDIClientWindow
+vtable for wxMemoryDC
+vtable for wxMenu
+vtable for wxMenuBase
+vtable for wxNumValidatorBase
+vtable for wxPNGHandler
+vtable for wxPanel
+vtable for wxPen
+vtable for wxProgressDialog
+vtable for wxRadioButton
+vtable for wxScrollHelper
+vtable for wxSizer
+vtable for wxSizerItem
+vtable for wxSlider
+vtable for wxSpinCtrl
+vtable for wxSpinCtrlDouble
+vtable for wxStaticBox
+vtable for wxStatusBar
+vtable for wxTextEntryDialog
+vtable for wxTopLevelWindow
+vtable for wxWindowDC
+vtable for wxwxMenuItemListNode
+vtable for wxwxSizerItemListNode
+wxAcceleratorTable::wxAcceleratorTable(int, wxAcceleratorEntry const*)
+wxAcceleratorTable::~wxAcceleratorTable()
+wxAnyButtonBase::SetBitmapPosition(wxDirection)
+wxApp::CleanUp()
+wxApp::GetClassInfo() const
+wxApp::Initialize(int&, wchar_t**)
+wxApp::OnAssertFailure(wchar_t const*, int, wchar_t const*, wchar_t const*, wchar_t const*)
+wxApp::OnInitGui()
+wxApp::SetNativeTheme(wxString const&)
+wxApp::WakeUpIdle()
+wxApp::wxApp()
+wxApp::~wxApp()
+wxAppBase::CreateTraits()
+wxAppBase::GetDisplayMode() const
+wxAppBase::GetLayoutDirection() const
+wxAppBase::GetTopWindow() const
+wxAppBase::OnExit()
+wxAppBase::OnRun()
+wxAppBase::ProcessIdle()
+wxAppBase::SafeYield(wxWindow*, bool)
+wxAppBase::SafeYieldFor(wxWindow*, long)
+wxAppBase::SetActive(bool, wxWindow*)
+wxAuiManager::AddPane(wxWindow*, wxAuiPaneInfo const&)
+wxAuiManager::GetAllPanes()
+wxAuiManager::GetArtProvider() const
+wxAuiManager::GetPane(wxString const&)
+wxAuiManager::LoadPerspective(wxString const&, bool)
+wxAuiManager::SavePerspective()
+wxAuiManager::SetManagedWindow(wxWindow*)
+wxAuiManager::UnInit()
+wxAuiManager::Update()
+wxAuiManager::wxAuiManager(wxWindow*, unsigned int)
+wxAuiManager::~wxAuiManager()
+wxAuiPaneInfo::IsValid() const
+wxAuiToolBar::AddControl(wxControl*, wxString const&)
+wxAuiToolBar::AddSeparator()
+wxAuiToolBar::AddTool(int, wxString const&, wxBitmapBundle const&, wxBitmapBundle const&, wxItemKind, wxString const&, wxString const&, wxObject*)
+wxAuiToolBar::AddTool(int, wxString const&, wxBitmapBundle const&, wxString const&, wxItemKind)
+wxAuiToolBar::Create(wxWindow*, int, wxPoint const&, wxSize const&, long)
+wxAuiToolBar::EnableTool(int, bool)
+wxAuiToolBar::GetToolEnabled(int) const
+wxAuiToolBar::Init()
+wxAuiToolBar::Realize()
+wxBeginBusyCursor(wxCursor const*)
+wxBell()
+wxBitmap::Create(int, int, int)
+wxBitmap::GetHeight() const
+wxBitmap::GetWidth() const
+wxBitmap::wxBitmap(wxImage const&, int, double)
+wxBitmap::~wxBitmap()
+wxBitmapBundle::operator=(wxBitmapBundle const&)
+wxBitmapBundle::wxBitmapBundle()
+wxBitmapBundle::wxBitmapBundle(wxBitmap const&)
+wxBitmapBundle::wxBitmapBundle(wxBitmapBundle const&)
+wxBitmapBundle::~wxBitmapBundle()
+wxBitmapHelpers::NewFromPNGData(void const*, unsigned long)
+wxBoxSizer::AddSpacer(int)
+wxBoxSizer::DoInsert(unsigned long, wxSizerItem*)
+wxBoxSizer::InformFirstDirection(int, int, int)
+wxBrush::wxBrush(wxColour const&, wxBrushStyle)
+wxBrush::~wxBrush()
+wxButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
+wxButtonNameStr
+wxCheckBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
+wxCheckBoxNameStr
+wxChoice::Create(wxWindow*, int, wxPoint const&, wxSize const&, int, wxString const*, long, wxValidator const&, wxString const&)
+wxChoice::Create(wxWindow*, int, wxPoint const&, wxSize const&, wxArrayString const&, long, wxValidator const&, wxString const&)
+wxChoice::GetSelection() const
+wxChoice::Init()
+wxChoice::SetSelection(int)
+wxChoice::~wxChoice()
+wxChoiceBase::~wxChoiceBase()
+wxChoiceNameStr
+wxColour::FromString(wxString const&)
+wxColour::InitRGBA(unsigned char, unsigned char, unsigned char, unsigned char)
+wxColour::~wxColour()
+wxComboBox::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, wxArrayString const&, long, wxValidator const&, wxString const&)
+wxComboBox::Init()
+wxComboBoxNameStr
+wxCommandEvent::GetString() const
+wxControl::wxControl()
+wxControlBase::EscapeMnemonics(wxString const&)
+wxControlBase::~wxControlBase()
+wxControlContainerBase::AcceptsFocus() const
+wxControlContainerBase::DoSetFocus()
+wxControlContainerBase::HasAnyChildrenAcceptingFocus() const
+wxControlContainerBase::UpdateCanFocusChildren()
+wxCursor::InitFromStock(wxStockCursor)
+wxCursor::wxCursor()
+wxCursor::wxCursor(wxImage const&)
+wxCursor::~wxCursor()
+wxDefaultPosition
+wxDefaultSize
+wxDefaultValidator
+wxDialog::EndModal(int)
+wxDialog::GetClassInfo() const
+wxDialog::Init()
+wxDialog::IsModal() const
+wxDialog::Show(bool)
+wxDialog::ShowModal()
+wxDialog::wxDialog(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
+wxDialog::~wxDialog()
+wxDialogBase::CanDoLayoutAdaptation()
+wxDialogBase::CreateButtonSizer(long)
+wxDialogBase::DoLayoutAdaptation()
+wxDialogBase::EndDialog(int)
+wxDialogBase::GetEventHashTable() const
+wxDialogBase::GetEventTable() const
+wxDialogBase::GetModality() const
+wxDialogBase::IsEscapeKey(wxKeyEvent const&)
+wxDialogBase::SendWindowModalDialogEvent(int)
+wxDialogBase::ShowWindowModal()
+wxDialogBase::sm_eventTable
+wxDialogBase::wxDialogBase()
+wxDialogNameStr
+wxDirSelector(wxString const&, wxString const&, long, wxPoint const&, wxWindow*)
+wxDropTarget::GetData()
+wxDropTarget::OnDrop(int, int)
+wxEVT_AUI_PANE_CLOSE
+wxEVT_BUTTON
+wxEVT_CHAR_HOOK
+wxEVT_CHECKBOX
+wxEVT_CHOICE
+wxEVT_CLOSE_WINDOW
+wxEVT_COMBOBOX
+wxEVT_ERASE_BACKGROUND
+wxEVT_KILL_FOCUS
+wxEVT_LEFT_DOWN
+wxEVT_MENU
+wxEVT_MOTION
+wxEVT_PAINT
+wxEVT_RADIOBUTTON
+wxEVT_SCROLL_BOTTOM
+wxEVT_SCROLL_CHANGED
+wxEVT_SCROLL_LINEDOWN
+wxEVT_SCROLL_LINEUP
+wxEVT_SCROLL_PAGEDOWN
+wxEVT_SCROLL_PAGEUP
+wxEVT_SCROLL_THUMBRELEASE
+wxEVT_SCROLL_THUMBTRACK
+wxEVT_SCROLL_TOP
+wxEVT_SET_FOCUS
+wxEVT_SPINCTRL
+wxEVT_UPDATE_UI
+wxEndBusyCursor()
+wxFileDropTarget::OnData(int, int, wxDragResult)
+wxFileDropTarget::wxFileDropTarget()
+wxFileSelector(wxString const&, wxString const&, wxString const&, wxString const&, wxString const&, int, wxWindow*, int, int)
+wxFlexGridSizer::AddGrowableCol(unsigned long, int)
+wxFlexGridSizer::wxFlexGridSizer(int, int, int)
+wxFlexGridSizer::wxFlexGridSizer(int, int, int, int)
+wxFont::Create(int, wxFontFamily, wxFontStyle, wxFontWeight, bool, wxString const&, wxFontEncoding)
+wxFont::~wxFont()
+wxFontBase::SetWeight(wxFontWeight)
+wxFontBase::~wxFontBase()
+wxFrame::AttachMenuBar(wxMenuBar*)
+wxFrame::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
+wxFrame::DetachMenuBar()
+wxFrame::DoGetClientSize(int*, int*) const
+wxFrame::GetClassInfo() const
+wxFrame::Init()
+wxFrame::SendIdleEvents(wxIdleEvent&)
+wxFrame::SetStatusBar(wxStatusBar*)
+wxFrame::SetToolBar(wxToolBar*)
+wxFrame::ShowFullScreen(bool, long)
+wxFrameBase::CreateStatusBar(int, long, int, wxString const&)
+wxFrameBase::CreateToolBar(long, int, wxString const&)
+wxFrameBase::DoGiveHelp(wxString const&, bool)
+wxFrameBase::DoMenuUpdates(wxMenu*)
+wxFrameBase::FindItemInMenuBar(int) const
+wxFrameBase::GetEventHashTable() const
+wxFrameBase::GetEventTable() const
+wxFrameBase::IsOneOfBars(wxWindow const*) const
+wxFrameBase::OnCreateStatusBar(int, long, int, wxString const&)
+wxFrameBase::OnCreateToolBar(long, int, wxString const&)
+wxFrameBase::OnInternalIdle()
+wxFrameBase::SetMenuBar(wxMenuBar*)
+wxFrameBase::SetStatusText(wxString const&, int)
+wxFrameBase::SetStatusWidths(int, int const*)
+wxFrameBase::UpdateWindowUI(long)
+wxFrameBase::sm_eventTable
+wxFrameBase::wxFrameBase()
+wxFrameBase::~wxFrameBase()
+wxFrameNameStr
+wxGauge::Create(wxWindow*, int, int, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
+wxGaugeBase::~wxGaugeBase()
+wxGaugeNameStr
+wxGenericProgressDialog::GetEventHashTable() const
+wxGenericProgressDialog::GetEventTable() const
+wxGenericProgressDialog::GetMessage() const
+wxGenericProgressDialog::GetRange() const
+wxGenericProgressDialog::GetValue() const
+wxGenericProgressDialog::Pulse(wxString const&, bool*)
+wxGenericProgressDialog::Resume()
+wxGenericProgressDialog::SetRange(int)
+wxGenericProgressDialog::Show(bool)
+wxGenericProgressDialog::Update(int, wxString const&, bool*)
+wxGenericProgressDialog::WasCancelled() const
+wxGenericProgressDialog::WasSkipped() const
+wxGenericProgressDialog::wxGenericProgressDialog(wxString const&, wxString const&, int, wxWindow*, int)
+wxGenericProgressDialog::~wxGenericProgressDialog()
+wxGetDisplaySize()
+wxGetKeyState(wxKeyCode)
+wxGraphicsContext::Create(wxWindowDC const&)
+wxGraphicsContext::SetPen(wxPen const&)
+wxGraphicsMatrix::TransformPoint(double*, double*) const
+wxGraphicsObject::~wxGraphicsObject()
+wxGrid::AutoSizeColOrRow(int, bool, wxGridDirection)
+wxGrid::AutoSizeRows(bool)
+wxGrid::Create(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
+wxGrid::CreateGrid(int, int, wxGrid::wxGridSelectionModes)
+wxGrid::EnableEditing(bool)
+wxGrid::Init()
+wxGrid::SetCellBackgroundColour(int, int, wxColour const&)
+wxGrid::SetCellTextColour(int, int, wxColour const&)
+wxGrid::SetCellValue(int, int, wxString const&)
+wxGrid::SetColLabelSize(int)
+wxGrid::SetDefaultColSize(int, bool)
+wxGrid::SetRowLabelSize(int)
+wxGrid::XYToCell(int, int, wxGridWindow*) const
+wxGridNameStr
+wxIcon::CopyFromBitmap(wxBitmap const&)
+wxIcon::wxIcon()
+wxImage::AddHandler(wxImageHandler*)
+wxImage::Create(char const* const*)
+wxImage::Create(int, int, bool)
+wxImage::GetData() const
+wxImage::GetHeight() const
+wxImage::GetWidth() const
+wxImage::IsOk() const
+wxImage::Mirror(bool) const
+wxImage::Rotate(double, wxPoint const&, bool, wxPoint*) const
+wxImage::Scale(int, int, wxImageResizeQuality) const
+wxImage::SetOption(wxString const&, int)
+wxImage::Size(wxSize const&, wxPoint const&, int, int, int) const
+wxInfoBar::Create(wxWindow*, int)
+wxInfoBarGeneric::Init()
+wxIntegerValidatorBase::FromString(wxString const&, long long*) const
+wxIntegerValidatorBase::IsCharOk(wxString const&, int, wchar_t) const
+wxIntegerValidatorBase::ToString(long long) const
+wxItemContainerImmutable::SetStringSelection(wxString const&)
+wxLaunchDefaultBrowser(wxString const&, int)
+wxMemoryDC::SelectObject(wxBitmap&)
+wxMemoryDC::wxMemoryDC()
+wxMenu::Init()
+wxMenuBar::Append(wxMenu*, wxString const&)
+wxMenuBar::wxMenuBar()
+wxMenuBarBase::Check(int, bool)
+wxMenuBase::Check(int, bool)
+wxMenuBase::FindItem(int, wxMenu**) const
+wxMenuBase::GetLabel(int) const
+wxMenuBase::Init(long)
+wxMenuBase::~wxMenuBase()
+wxMenuItemBase::GetLabelText(wxString const&)
+wxMenuItemBase::New(wxMenu*, int, wxString const&, wxString const&, wxItemKind, wxMenu*)
+wxMessageBox(wxString const&, wxString const&, long, wxWindow*, int, int)
+wxMessageBoxCaptionStr
+wxNonOwnedWindow::DoClearShape()
+wxNonOwnedWindow::DoSetPathShape(wxGraphicsPath const&)
+wxNonOwnedWindow::DoSetRegionShape(wxRegion const&)
+wxNotebook::wxNotebook(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
+wxNotebookNameStr
+wxNullBitmap
+wxNumValidatorBase::GetEventHashTable() const
+wxNumValidatorBase::GetEventTable() const
+wxNumValidatorBase::GetTextEntry() const
+wxNumValidatorBase::SetWindow(wxWindow*)
+wxObjectArrayTraitsForwxAuiToolBarItemArray::Free(wxAuiToolBarItem*)
+wxPaintDC::GetClassInfo() const
+wxPaintDC::wxPaintDC(wxWindow*)
+wxPanelBase::Create(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
+wxPanelNameStr
+wxPen::wxPen(wxColour const&, int, wxPenStyle)
+wxPen::~wxPen()
+wxProgressDialog::GetClassInfo() const
+wxRadioButton::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
+wxRadioButtonNameStr
+wxRect::Contains(int, int) const
+wxRect::Intersect(wxRect const&)
+wxScrollHelper::AdjustScrollbars()
+wxScrollHelper::DoScroll(int, int)
+wxScrollHelper::DoShowScrollbars(wxScrollbarVisibility, wxScrollbarVisibility)
+wxScrollHelper::IsScrollbarShown(int) const
+wxScrollHelper::SetScrollbars(int, int, int, int, int, int, bool)
+wxScrollHelperBase::DoCalcUnscrolledPosition(int, int, int*, int*) const
+wxScrollHelperBase::DoGetViewStart(int*, int*) const
+wxScrollHelperBase::DoPrepareDC(wxDC&)
+wxScrollHelperBase::EnableScrolling(bool, bool)
+wxScrollHelperBase::ScrollDoSetVirtualSize(int, int)
+wxScrollHelperBase::ScrollGetBestVirtualSize() const
+wxScrollHelperBase::ScrollLayout()
+wxScrollHelperBase::SendAutoScrollEvents(wxScrollWinEvent&) const
+wxScrollHelperBase::wxScrollHelperBase(wxWindow*)
+wxScrollHelperBase::~wxScrollHelperBase()
+wxScrolledT_Helper::FilterBestSize(wxWindow const*, wxScrollHelper const*, wxSize const&)
+wxSizer::Clear(bool)
+wxSizer::DeleteWindows()
+wxSizer::Detach(int)
+wxSizer::Detach(wxSizer*)
+wxSizer::DoSetItemMinSize(unsigned long, int, int)
+wxSizer::DoSetItemMinSize(wxSizer*, int, int)
+wxSizer::DoSetItemMinSize(wxWindow*, int, int)
+wxSizer::DoSetMinSize(int, int)
+wxSizer::Fit(wxWindow*)
+wxSizer::Layout()
+wxSizer::RecalcSizes()
+wxSizer::Remove(int)
+wxSizer::Remove(wxSizer*)
+wxSizer::Replace(unsigned long, wxSizerItem*)
+wxSizer::Replace(wxSizer*, wxSizer*, bool)
+wxSizer::Replace(wxWindow*, wxWindow*, bool)
+wxSizerItem::DoSetSizer(wxSizer*)
+wxSizerItem::DoSetWindow(wxWindow*)
+wxSizerItem::Init(wxSizerFlags const&)
+wxSizerItem::wxSizerItem(int, int, int, int, int, wxObject*)
+wxSizerItem::wxSizerItem(wxSizer*, int, int, int, wxObject*)
+wxSizerItem::wxSizerItem(wxWindow*, int, int, int, wxObject*)
+wxSlider::Create(wxWindow*, int, int, int, int, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
+wxSliderNameStr
+wxSpinCtrlDouble::SetDigits(unsigned int)
+wxSpinCtrlGTKBase::Create(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, double, double, double, double, wxString const&)
+wxSpinCtrlGTKBase::DoGetSizeFromTextSize(int, int) const
+wxSpinCtrlGTKBase::DoGetValue() const
+wxSpinCtrlGTKBase::DoSetValue(double)
+wxSpinCtrlGTKBase::wxSpinCtrlGTKBase()
+wxSpinCtrlGTKBase::~wxSpinCtrlGTKBase()
+wxStaticBitmap::wxStaticBitmap(wxWindow*, int, wxBitmapBundle const&, wxPoint const&, wxSize const&, long, wxString const&)
+wxStaticBitmapNameStr
+wxStaticBox::DoCreate(wxWindow*, int, wxString const*, wxWindow*, wxPoint const&, wxSize const&, long, wxString const&)
+wxStaticBoxBase::wxStaticBoxBase()
+wxStaticBoxNameStr
+wxStaticBoxSizer::AreAnyItemsShown() const
+wxStaticBoxSizer::CalcMin()
+wxStaticBoxSizer::Detach(wxWindow*)
+wxStaticBoxSizer::GetClassInfo() const
+wxStaticBoxSizer::RepositionChildren(wxSize const&)
+wxStaticBoxSizer::ShowItems(bool)
+wxStaticBoxSizer::wxStaticBoxSizer(int, wxWindow*, wxString const&)
+wxStaticBoxSizer::wxStaticBoxSizer(wxStaticBox*, int)
+wxStaticBoxSizer::~wxStaticBoxSizer()
+wxStaticText::wxStaticText(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxString const&)
+wxStaticTextBase::Wrap(int)
+wxStaticTextNameStr
+wxStatusBar::Create(wxWindow*, int, long, wxString const&)
+wxStatusBar::Init()
+wxStatusBarBase::SetStatusText(wxString const&, int)
+wxStatusBarBase::wxStatusBarBase()
+wxStatusBarBase::~wxStatusBarBase()
+wxStatusBarNameStr
+wxStdDialogButtonSizer::AddButton(wxButton*)
+wxStdDialogButtonSizer::Realize()
+wxStdDialogButtonSizer::wxStdDialogButtonSizer()
+wxStockGDI::GetBrush(wxStockGDI::Item)
+wxStockGDI::GetColour(wxStockGDI::Item)
+wxStockGDI::GetCursor(wxStockGDI::Item)
+wxSystemSettingsNative::GetMetric(wxSystemMetric, wxWindow const*)
+wxTextCtrl::ms_classInfo
+wxTextCtrl::wxTextCtrl(wxWindow*, int, wxString const&, wxPoint const&, wxSize const&, long, wxValidator const&, wxString const&)
+wxTextCtrlNameStr
+wxTextEntry::wxTextEntry()
+wxTextEntry::~wxTextEntry()
+wxTextEntryDialog::Create(wxWindow*, wxString const&, wxString const&, wxString const&, long, wxPoint const&)
+wxTextWrapper::Wrap(wxWindow*, wxString const&, int)
+wxTipWindow::wxTipWindow(wxWindow*, wxString const&, int, wxTipWindow**, wxRect*)
+wxTopLevelWindowBase::Destroy()
+wxTopLevelWindowBase::DoCentre(int)
+wxTopLevelWindowBase::DoClientToScreen(int*, int*) const
+wxTopLevelWindowBase::DoScreenToClient(int*, int*) const
+wxTopLevelWindowBase::DoUpdateWindowUI(wxUpdateUIEvent&)
+wxTopLevelWindowBase::GetRectForTopLevelChildren(int*, int*, int*, int*)
+wxTopLevelWindowBase::IsAlwaysMaximized() const
+wxTopLevelWindowBase::IsTopNavigationDomain(wxWindowBase::NavigationKind) const
+wxTopLevelWindowBase::Layout()
+wxTopLevelWindowBase::SetIcon(wxIcon const&)
+wxTopLevelWindowBase::SetMaxSize(wxSize const&)
+wxTopLevelWindowBase::WXReservedTLW1(void*)
+wxTopLevelWindowBase::WXReservedTLW2(void*)
+wxTopLevelWindowBase::WXReservedTLW3(void*)
+wxTopLevelWindowGTK::AddGrab()
+wxTopLevelWindowGTK::CanSetTransparent()
+wxTopLevelWindowGTK::DoGetClientSize(int*, int*) const
+wxTopLevelWindowGTK::DoMoveWindow(int, int, int, int)
+wxTopLevelWindowGTK::DoSetClientSize(int, int)
+wxTopLevelWindowGTK::DoSetSize(int, int, int, int, int)
+wxTopLevelWindowGTK::DoSetSizeHints(int, int, int, int, int, int)
+wxTopLevelWindowGTK::EnableCloseButton(bool)
+wxTopLevelWindowGTK::GTKHandleRealized()
+wxTopLevelWindowGTK::GetDefaultAttributes() const
+wxTopLevelWindowGTK::Iconize(bool)
+wxTopLevelWindowGTK::IsActive()
+wxTopLevelWindowGTK::IsGrabbed() const
+wxTopLevelWindowGTK::IsIconized() const
+wxTopLevelWindowGTK::IsMaximized() const
+wxTopLevelWindowGTK::Maximize(bool)
+wxTopLevelWindowGTK::Raise()
+wxTopLevelWindowGTK::Refresh(bool, wxRect const*)
+wxTopLevelWindowGTK::RemoveGrab()
+wxTopLevelWindowGTK::RequestUserAttention(int)
+wxTopLevelWindowGTK::Restore()
+wxTopLevelWindowGTK::SetIcons(wxIconBundle const&)
+wxTopLevelWindowGTK::SetMinSize(wxSize const&)
+wxTopLevelWindowGTK::SetTitle(wxString const&)
+wxTopLevelWindowGTK::SetTransparent(unsigned char)
+wxTopLevelWindowGTK::SetWindowStyleFlag(long)
+wxTopLevelWindowGTK::Show(bool)
+wxTopLevelWindowGTK::ShowFullScreen(bool, long)
+wxTopLevelWindowGTK::ShowWithoutActivating()
+wxTopLevelWindowGTK::WXSetInitialFittingClientSize(int, wxSizer*)
+wxTopLevelWindowGTK::~wxTopLevelWindowGTK()
+wxValidator::GetClassInfo() const
+wxValidator::wxValidator()
+wxValidator::~wxValidator()
+wxWindow::AddChild(wxWindowBase*)
+wxWindow::AddChildGTK(wxWindow*)
+wxWindow::AdjustForLayoutDirection(int, int, int) const
+wxWindow::ClearBackground()
+wxWindow::DoApplyWidgetStyle(_GtkRcStyle*)
+wxWindow::DoCaptureMouse()
+wxWindow::DoClientToScreen(int*, int*) const
+wxWindow::DoEnable(bool)
+wxWindow::DoFreeze()
+wxWindow::DoGetClientSize(int*, int*) const
+wxWindow::DoGetPosition(int*, int*) const
+wxWindow::DoGetSize(int*, int*) const
+wxWindow::DoGetTextExtent(wxString const&, int*, int*, int*, int*, wxFont const*) const
+wxWindow::DoIsExposed(int, int) const
+wxWindow::DoIsExposed(int, int, int, int) const
+wxWindow::DoMoveInTabOrder(wxWindow*, wxWindowBase::WindowOrder)
+wxWindow::DoMoveWindow(int, int, int, int)
+wxWindow::DoNavigateIn(int)
+wxWindow::DoPopupMenu(wxMenu*, int, int)
+wxWindow::DoReleaseMouse()
+wxWindow::DoScreenToClient(int*, int*) const
+wxWindow::DoSetClientSize(int, int)
+wxWindow::DoSetSize(int, int, int, int, int)
+wxWindow::DoSetToolTip(wxToolTip*)
+wxWindow::DoThaw()
+wxWindow::EnableTouchEvents(int)
+wxWindow::GTKApplyToolTip(char const*)
+wxWindow::GTKGetWindow(wxArrayGdkWindows&) const
+wxWindow::GTKHandleFocusOut()
+wxWindow::GTKHandleRealized()
+wxWindow::GTKIMFilterKeypress(_GdkEventKey*) const
+wxWindow::GTKProcessEvent(wxEvent&) const
+wxWindow::GTKWidgetDoSetMnemonic(_GtkWidget*)
+wxWindow::GTKWidgetNeedsMnemonic() const
+wxWindow::GetCharHeight() const
+wxWindow::GetCharWidth() const
+wxWindow::GetClassInfo() const
+wxWindow::GetConnectWidget()
+wxWindow::GetContentScaleFactor() const
+wxWindow::GetDPIScaleFactor() const
+wxWindow::GetLayoutDirection() const
+wxWindow::GetScrollPos(int) const
+wxWindow::GetScrollRange(int) const
+wxWindow::GetScrollThumb(int) const
+wxWindow::GetWindowBorderSize() const
+wxWindow::IsDoubleBuffered() const
+wxWindow::IsRetained() const
+wxWindow::IsShown() const
+wxWindow::IsTransparentBackgroundSupported(wxString*) const
+wxWindow::Lower()
+wxWindow::OnInternalIdle()
+wxWindow::Raise()
+wxWindow::Refresh(bool, wxRect const*)
+wxWindow::RemoveChild(wxWindowBase*)
+wxWindow::Reparent(wxWindowBase*)
+wxWindow::ScrollLines(int)
+wxWindow::ScrollPages(int)
+wxWindow::ScrollWindow(int, int, wxRect const*)
+wxWindow::SetBackgroundColour(wxColour const&)
+wxWindow::SetBackgroundStyle(wxBackgroundStyle)
+wxWindow::SetCanFocus(bool)
+wxWindow::SetCursor(wxCursor const&)
+wxWindow::SetDoubleBuffered(bool)
+wxWindow::SetDropTarget(wxDropTarget*)
+wxWindow::SetFocus()
+wxWindow::SetFont(wxFont const&)
+wxWindow::SetForegroundColour(wxColour const&)
+wxWindow::SetLayoutDirection(wxLayoutDirection)
+wxWindow::SetScrollPos(int, int, bool)
+wxWindow::SetScrollbar(int, int, int, int, bool)
+wxWindow::Show(bool)
+wxWindow::Update()
+wxWindow::WarpPointer(int, int)
+wxWindow::wxWindow()
+wxWindow::wxWindow(wxWindow*, int, wxPoint const&, wxSize const&, long, wxString const&)
+wxWindow::~wxWindow()
+wxWindowBase::AdjustForParentClientOrigin(int&, int&, int) const
+wxWindowBase::CanScroll(int) const
+wxWindowBase::ClientToWindowSize(wxSize const&) const
+wxWindowBase::Close(bool)
+wxWindowBase::Destroy()
+wxWindowBase::DoCentre(int)
+wxWindowBase::DoGetBestSize() const
+wxWindowBase::DoGetScreenPosition(int*, int*) const
+wxWindowBase::DoGetVirtualSize() const
+wxWindowBase::DoHitTest(int, int) const
+wxWindowBase::DoPhase(int)
+wxWindowBase::DoSetSizeHints(int, int, int, int, int, int)
+wxWindowBase::DoSetToolTipText(wxString const&)
+wxWindowBase::DoSetVirtualSize(int, int)
+wxWindowBase::DoSetWindowVariant(wxWindowVariant)
+wxWindowBase::DoUpdateWindowUI(wxUpdateUIEvent&)
+wxWindowBase::DragAcceptFiles(bool)
+wxWindowBase::Enable(bool)
+wxWindowBase::FindWindow(long) const
+wxWindowBase::Fit()
+wxWindowBase::FitInside()
+wxWindowBase::GetBackgroundColour() const
+wxWindowBase::GetBestSize() const
+wxWindowBase::GetCapture()
+wxWindowBase::GetClassDefaultAttributes(wxWindowVariant)
+wxWindowBase::GetClientAreaOrigin() const
+wxWindowBase::GetClientSizeConstraint(int*, int*) const
+wxWindowBase::GetDPI() const
+wxWindowBase::GetDefaultBorder() const
+wxWindowBase::GetEffectiveMinSize() const
+wxWindowBase::GetEventHashTable() const
+wxWindowBase::GetEventTable() const
+wxWindowBase::GetFont() const
+wxWindowBase::GetHelpTextAtPoint(wxPoint const&, wxHelpEvent::Origin) const
+wxWindowBase::GetPositionConstraint(int*, int*) const
+wxWindowBase::GetSizeConstraint(int*, int*) const
+wxWindowBase::HasFocus() const
+wxWindowBase::InformFirstDirection(int, int, int)
+wxWindowBase::InheritAttributes()
+wxWindowBase::InitDialog()
+wxWindowBase::IsDescendant(wxWindowBase*) const
+wxWindowBase::IsEnabled() const
+wxWindowBase::IsShownOnScreen() const
+wxWindowBase::IsTopLevel() const
+wxWindowBase::Layout()
+wxWindowBase::LayoutPhase1(int*)
+wxWindowBase::LayoutPhase2(int*)
+wxWindowBase::MoveConstraint(int, int)
+wxWindowBase::PopupMenu(wxMenu*, int, int)
+wxWindowBase::SendIdleEvents(wxIdleEvent&)
+wxWindowBase::SendSizeEvent(int)
+wxWindowBase::SetConstraintSizes(bool)
+wxWindowBase::SetInitialSize(wxSize const&)
+wxWindowBase::SetMaxSize(wxSize const&)
+wxWindowBase::SetMinSize(wxSize const&)
+wxWindowBase::SetNextHandler(wxEvtHandler*)
+wxWindowBase::SetPreviousHandler(wxEvtHandler*)
+wxWindowBase::SetSizeConstraint(int, int, int, int)
+wxWindowBase::SetSizer(wxSizer*, bool)
+wxWindowBase::SetSizerAndFit(wxSizer*, bool)
+wxWindowBase::SetValidator(wxValidator const&)
+wxWindowBase::ToggleWindowStyle(int)
+wxWindowBase::TransferDataFromWindow()
+wxWindowBase::TransferDataToWindow()
+wxWindowBase::TryAfter(wxEvent&)
+wxWindowBase::TryBefore(wxEvent&)
+wxWindowBase::UpdateWindowUI(long)
+wxWindowBase::Validate()
+wxWindowBase::WXReservedWindow1(void*)
+wxWindowBase::WXReservedWindow2(void*)
+wxWindowBase::WXReservedWindow3(void*)
+wxWindowBase::WXSetInitialFittingClientSize(int, wxSizer*)
+wxWindowBase::WindowToClientSize(wxSize const&) const
+wxWindowBase::sm_eventTable
+wxWindowDisabler::wxWindowDisabler(bool)
+wxWindowDisabler::~wxWindowDisabler()
+wxYield()
