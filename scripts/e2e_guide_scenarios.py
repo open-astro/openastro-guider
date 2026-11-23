@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Daemon end-to-end run against the fake Alpaca server (#142 Tier 1).
 
-Starts scripts/fake_alpaca_camera.py and the guider daemon (phd2.bin, headless under xvfb-run with a scratch HOME),
-then drives the daemon over JSON-RPC the way Ara does. Four lanes run at once, each with its own fake, daemon,
-instance, port and display, so the others should cost little wall time beside the main lane:
+Starts scripts/fake_alpaca_camera.py and the guider daemon (phd2.bin, a console program run directly with a scratch
+HOME and no X display, #115 S8.4), then drives the daemon over JSON-RPC the way Ara does. Four lanes run at once,
+each with its own fake, daemon, instance and port, so the others should cost little wall time beside the main lane:
 
-the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir):
+the main lane, on the plain fake (--instance, --fake-port, --work-dir):
 
   http-before    before the first frame, the HTTP data port (8080 + instance - 1): /api/frame.jpg 404 "no image
                  available", other paths, a POST and ../-style /api/capture names 404 "Not found" (N2)
@@ -38,8 +38,8 @@ the main lane, on the plain fake (--instance, --fake-port, --display, --work-dir
                  StarLost and guiding goes on (#136)
 
 the physics lane, on a fake with a 37 deg camera, RA moving cos(Dec) as far, 800 ms of Dec backlash, a drift and
-RA periodic error in simulated time, seeing and per-frame noise (PHYSICS_FAKE_ARGS; instance, fake port and display
-+ 1, <work-dir>/physics), one calibration for all three:
+RA periodic error in simulated time, seeing and per-frame noise (PHYSICS_FAKE_ARGS; instance and fake port + 1,
+<work-dir>/physics), one calibration for all three:
 
   truth          slew to Dec 60, guide with recalibrate true: get_calibration_data's xAngle/yAngle within 2 deg of
                  the fake's /fake/truth and xRate/yRate within 5 %
@@ -51,7 +51,7 @@ RA periodic error in simulated time, seeing and per-frame noise (PHYSICS_FAKE_AR
                  low mass" (no star found), LostLock or Guiding meanwhile, guiding not stopped, and GuideSteps
                  again from the first clear frame
 
-and the gear and faults lanes of scripts/e2e_equipment_scenarios.py (instance, fake port and display + 2 and + 3,
+and the gear and faults lanes of scripts/e2e_equipment_scenarios.py (instance and fake port + 2 and + 3,
 <work-dir>/gear and <work-dir>/faults; see its docstring): connect side effects, the #139 latch, auto-connect and the
 #104 retry; camera and mount faults, the #105 reconnect, the Guiding Assistant and its restore.
 
@@ -117,8 +117,13 @@ def expect(cond, msg):
         raise Failure(msg)
 
 
+# --display and --auto-display-from are still accepted, so older command lines work, and ignored: the daemon is a
+# console program that needs no X display since #115 S8.2, and these scripts no longer start xvfb-run (S8.4)
+DISPLAY_IGNORED = "none"
+
+
 class Daemon:
-    """The daemon under xvfb-run, with its output in a file."""
+    """The daemon, run directly in its own process group, with its output in a file."""
 
     def __init__(self, args, work, log_name="phd2.out", wrap=(), extra_args=()):
         """`log_name` is the output file in `work`; `wrap` goes in front of the daemon's command line (strace), and
@@ -130,13 +135,10 @@ class Daemon:
         for k, v in SANITIZER_ENV.items():
             env.setdefault(k, v)
         env["UBSAN_OPTIONS"] += f":suppressions={UBSAN_SUPPRESSIONS}"
-        cmd = ["xvfb-run"]
-        # -n before -a: -a then looks for a free display from that number on (e2e_persistence.py's args have no
-        # --auto-display-from: 99 is this script's default)
-        auto_from = getattr(args, "auto_display_from", 99)
-        cmd += ["-n", str(auto_from), "-a"] if args.display == "auto" else ["-n", args.display]
-        cmd += ["-s", "-screen 0 1280x1024x24", *wrap, os.path.abspath(args.phd2), "-i", str(args.instance),
-                *extra_args]
+        # no X display: a GUI dependency coming back fails here instead of hiding behind an Xvfb
+        env.pop("DISPLAY", None)
+        env.pop("WAYLAND_DISPLAY", None)
+        cmd = [*wrap, os.path.abspath(args.phd2), "-i", str(args.instance), *extra_args]
         self.log = open(self.log_path, "wb")
         print(f"e2e: starting {' '.join(cmd)} (HOME={self.home})", flush=True)
         self.proc = subprocess.Popen(cmd, env=env, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -155,7 +157,7 @@ class Daemon:
             return None
 
     def kill(self):
-        """Stop xvfb-run, the daemon and the Xvfb it started (one process group)."""
+        """Stop the daemon (and a wrapper such as strace: one process group)."""
         if self.exited():
             return
         for sig, wait_s in ((signal.SIGTERM, 15), (signal.SIGKILL, 5)):
@@ -1667,36 +1669,28 @@ def run_lane(lane, args, work, t0):
     return results, failures
 
 
-AUTO_DISPLAY_LANE_OFFSET = 100
-
 # Each SIGTERM this run received: on_term records it and ends the run; during a lane's teardown it is only recorded,
 # so the teardown finishes, and the physics lane is then stopped at once instead of waited for
 TERMINATED = []
 
 
-# The lanes run beside the main lane by --lane all, each a child process on the main lane's instance, fake port and
-# display + its offset: the physics lane (a second copy of this script) and the gear and faults lanes of
+# The lanes run beside the main lane by --lane all, each a child process on the main lane's instance and fake port +
+# its offset: the physics lane (a second copy of this script) and the gear and faults lanes of
 # scripts/e2e_equipment_scenarios.py
 CHILD_LANES = (("physics", 1), ("gear", 2), ("faults", 3))
 
 
 class LaneChild:
     """A lane run beside the main lane as a child process: its own daemon instance (--instance + offset), fake port
-    (+ offset), X display (+ offset) and work dir (<work-dir>/<lane>). Its output is printed with a [<lane>]
+    (+ offset) and work dir (<work-dir>/<lane>). Its output is printed with a [<lane>]
     prefix as it comes."""
 
     def __init__(self, args, work, lane, offset):
         self.lane = lane
         self.work = os.path.join(work, lane)
-        display = args.display if args.display == "auto" else str(int(args.display) + offset)
-        # With --display auto the lanes start xvfb-run -a at about the same moment, and two of them can take the
-        # same free display (it checks for a lock file, then starts Xvfb): each lane's search starts
-        # AUTO_DISPLAY_LANE_OFFSET x its offset higher, so they never meet.
-        auto_from = args.auto_display_from + AUTO_DISPLAY_LANE_OFFSET * offset
         # its own whole-run timeout ends it before this one's, so it shuts its daemon down itself
         common = ["--phd2", args.phd2, "--instance", str(args.instance + offset), "--fake-port",
-                  str(args.fake_port + offset), "--display", display, "--auto-display-from", str(auto_from),
-                  "--work-dir", self.work, "--timeout", str(max(60.0, args.timeout - 120.0))]
+                  str(args.fake_port + offset), "--work-dir", self.work, "--timeout", str(max(60.0, args.timeout - 120.0))]
         if lane == "physics":
             cmd = [sys.executable, os.path.abspath(__file__), "--lane", "physics", *common,
                    "--calibration-timeout", str(args.calibration_timeout * PHYSICS_CALIBRATION_TIMEOUT_FACTOR),
@@ -1748,10 +1742,9 @@ def main():
     ap.add_argument("--phd2", required=True, help="the phd2.bin to run (an ASan/UBSan build in CI)")
     ap.add_argument("--instance", type=int, default=10, help="daemon instance (-i); JSON-RPC on 4400 + N - 1")
     ap.add_argument("--fake-port", type=int, default=11150, help="the fake Alpaca server's port")
-    ap.add_argument("--display", default="110", help="X display number for xvfb-run, or auto (xvfb-run -a)")
-    ap.add_argument("--auto-display-from", type=int, default=99,
-                    help="with --display auto, the first display number xvfb-run -a tries (its own default, 99); "
-                         f"the physics lane of --lane all searches from {AUTO_DISPLAY_LANE_OFFSET} higher")
+    ap.add_argument("--display", default=DISPLAY_IGNORED,
+                    help="ignored, accepted for older command lines: the daemon needs no X display (#115)")
+    ap.add_argument("--auto-display-from", type=int, default=99, help="ignored, accepted for older command lines")
     ap.add_argument("--work-dir", required=True, help="the scratch HOME and every log go here (emptied first)")
     ap.add_argument("--timeout", type=float, default=2400, help="the whole run, seconds")
     ap.add_argument("--smoke-timeout", type=float, default=1200)
@@ -1765,7 +1758,7 @@ def main():
                     help="main: the smoke script and the scenarios on the plain fake; physics: the calibration "
                          "truth, dither and clouds scenarios on a fake with camera angle, cos(Dec), backlash, "
                          "drift, PE and seeing; all (the default): the main lane and, at the same time, the "
-                         "--child-lanes on instance, fake port and display + 1 (physics), + 2 (gear) and + 3 "
+                         "--child-lanes on instance and fake port + 1 (physics), + 2 (gear) and + 3 "
                          "(faults); gear and faults are scripts/e2e_equipment_scenarios.py's")
     ap.add_argument("--child-lanes", default=",".join(name for name, _ in CHILD_LANES),
                     help="with --lane all, the lanes run beside the main lane (comma-separated; empty for none)")

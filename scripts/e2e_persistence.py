@@ -9,8 +9,8 @@ daemon, starts it again on the same scratch HOME and instance, and reads every v
   SIGTERM pass   the stop is SIGTERM to phd2.bin, the graceful shutdown path
   SIGKILL pass   the stop is SIGKILL to phd2.bin: what is not on disk by then is lost
 
-The two passes run at once, each with its own daemon instance, fake Alpaca port and X display (the given ones and
-the next ones up). The first daemon of each pass runs under strace, which records how the config file is written:
+The two passes run at once, each with its own daemon instance and fake Alpaca port (the given ones and the next
+ones up). The first daemon of each pass runs under strace, which records how the config file is written:
 every write must leave the file whole after a power cut at any point, so the new file has to be fsynced before it is
 renamed over the old one, the old one must never be deleted first, and the directory has to be fsynced after the
 rename (see check_write_protocol). Then the SIGTERM pass saves the config with `phd2.bin -s <file>` and loads it
@@ -249,7 +249,8 @@ def connect(cli):
 
 
 def daemon_pid(daemon, exe):
-    """phd2.bin's pid: the process in the daemon's process group (xvfb-run's) whose executable is `exe`."""
+    """phd2.bin's pid: the process in the daemon's process group (strace's, when it wraps the daemon) whose executable
+    is `exe`."""
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
             continue
@@ -263,7 +264,7 @@ def daemon_pid(daemon, exe):
 
 def stop_daemon(daemon, sig, exe):
     """Send `sig` to phd2.bin itself, as systemd does on `systemctl stop` (and as a power cut, for SIGKILL, would
-    end it); xvfb-run then ends and takes its Xvfb with it. Returns xvfb-run's status, which is phd2.bin's."""
+    end it). Returns the status of the process started (phd2.bin, or strace, which exits with phd2.bin's status)."""
     os.kill(daemon_pid(daemon, exe), sig)
     status = daemon.wait(90)
     daemon.kill()
@@ -273,8 +274,9 @@ def stop_daemon(daemon, sig, exe):
 
 
 def release_display(daemon):
-    """Wait for the daemon's process group to be gone. xvfb-run does not wait for its Xvfb, which still holds the
-    display until it is gone, and the next start on that display needs it."""
+    """Wait for the daemon's process group to be gone (with a wrapper such as strace), so the next start on the same
+    instance finds its lock and ports free. The name is from when the group held an Xvfb and its display (#115
+    S8.4)."""
     deadline = time.time() + 15
     while True:
         try:
@@ -348,7 +350,6 @@ class Pass:
         self.sig, self.work = sig, work
         self.args = copy.copy(args)
         self.args.instance = args.instance + offset
-        self.args.display = str(int(args.display) + offset)
         self.fake_port = args.fake_port + offset
         self.rpc_port = 4400 + self.args.instance - 1
         self.exe = os.path.realpath(args.phd2)
@@ -569,7 +570,8 @@ def main():
     ap.add_argument("--instance", type=int, default=11,
                     help="daemon instance (-i) of the SIGTERM pass; the SIGKILL pass uses the next one up")
     ap.add_argument("--fake-port", type=int, default=11151, help="the SIGTERM pass's fake Alpaca port, and +1")
-    ap.add_argument("--display", default="111", help="the SIGTERM pass's X display number, and +1")
+    ap.add_argument("--display", default=e2e.DISPLAY_IGNORED,
+                    help="ignored, accepted for older command lines: the daemon needs no X display (#115)")
     ap.add_argument("--work-dir", required=True, help="the scratch HOMEs and every log go here (emptied first)")
     ap.add_argument("--timeout", type=float, default=900, help="the whole run, seconds")
     args = ap.parse_args()

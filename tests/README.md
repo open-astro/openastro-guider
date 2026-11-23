@@ -84,10 +84,10 @@ GTest is fetched automatically via `FetchContent` (pinned to v1.17.0 in
 Not a ctest target: the `Daemon e2e (arm64, ASan/UBSan)` CI job builds
 `phd2.bin` with `-fsanitize=address,undefined` in its own build dir and runs
 `scripts/e2e_guide_scenarios.py` (#142). The script starts
-`scripts/fake_alpaca_camera.py` and the daemon (headless under `xvfb-run`,
-scratch `HOME`) and drives it over JSON-RPC, in four lanes at once, each with its
-own fake and daemon: the main lane; the physics lane on instance, fake port and
-display + 1, its logs in `physics/`; and the gear and faults lanes of
+`scripts/fake_alpaca_camera.py` and the daemon (run directly, with no X display
+and a scratch `HOME`; #115 S8.4) and drives it over JSON-RPC, in four lanes at once, each with its
+own fake and daemon: the main lane; the physics lane on instance and fake port
++ 1, its logs in `physics/`; and the gear and faults lanes of
 `scripts/e2e_equipment_scenarios.py` on + 2 and + 3, in `gear/` and `faults/`. The
 other lanes should add little wall time to the main lane's (locally, under ASan on
 8 cores, 289 s for the main and physics lanes against 287 s for the main lane
@@ -127,25 +127,24 @@ the first run's log):
 The job fails on a failed check, on the daemon crashing or exiting non-zero
 after `shutdown`, and on any sanitizer report; the daemon's debug log and
 output, the fake's log and every event received are uploaded when it does.
-LeakSanitizer is off (`detect_leaks=0`; the wxWidgets/GTK and PHD2
+LeakSanitizer is off (`detect_leaks=0`; the wxWidgets and PHD2
 singletons are never freed, by design). The UBSan vptr check is on in every
 file (#209), so a downcast to a type the object is not fails the run.
 Locally, after an ASan build (see the job's Configure step):
 
 ```bash
 python3 scripts/e2e_guide_scenarios.py --phd2 build-asan/phd2.bin \
-    --instance 10 --fake-port 11150 --display 110 --work-dir /tmp/e2e
+    --instance 10 --fake-port 11150 --work-dir /tmp/e2e
 ```
 
-That also takes instances 11-13, fake ports 11151-11153 and displays 111-113 for
+That also takes instances 11-13 and fake ports 11151-11153 for
 the physics, gear and faults lanes; `--lane main` or `--lane physics` runs one
 lane only, `--child-lanes` picks the lanes run beside the main lane, and
 `scripts/e2e_equipment_scenarios.py --lane gear|faults` runs an equipment lane
 alone. The equipment lanes pin today's behaviour, quirks included, for #115 step 3;
-a failed check there is a change of behaviour to look at, not always a bug. With `--display auto`
-each lane takes a free display through `xvfb-run -a`, each lane beside the main one
-searching from 100 × its offset higher (`--auto-display-from`: physics +100, gear +200,
-faults +300), so two lanes starting at once never take the same one. The fake's physics
+a failed check there is a change of behaviour to look at, not always a bug. `--display` and
+`--auto-display-from` are still accepted, and ignored: the daemon is a console program since
+#115 S8.2 and needs no X display. The fake's physics
 options (`--camera-angle`, `--dec-mirror`, `--cos-dec`, `--dec-backlash-ms`,
 `--sim-drift`, `--pe-px`, `--seeing-px`, `--frame-noise`, `--pier-flip`,
 `--seed`), `/fake/clouds`, `/fake/truth` and the telescope faults
@@ -158,7 +157,7 @@ The same job then runs `scripts/e2e_persistence.py` (#142), which needs no
 calibration. RC51 gets its power cut in the field, so a setting changed over
 JSON-RPC has to survive both a clean stop (SIGTERM, what `systemctl stop`
 sends) and a hard kill (SIGKILL, the stand-in for a power cut). Two passes run
-at once, one per signal, each with its own instance, fake port and display:
+at once, one per signal, each with its own instance and fake port:
 
 | Step | Checks |
 |---|---|
@@ -184,7 +183,7 @@ locally (about 6 s under ASan). Locally (it needs `strace`):
 
 ```bash
 python3 scripts/e2e_persistence.py --phd2 build-asan/phd2.bin \
-    --instance 11 --fake-port 11151 --display 111 --work-dir /tmp/e2e-persistence
+    --instance 11 --fake-port 11151 --work-dir /tmp/e2e-persistence
 ```
 
 ## No GUI libraries (CI)

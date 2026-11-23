@@ -6,8 +6,8 @@ safety net for #115 step 3 (connect, disconnect, auto-connect, the #104 connect 
 moving out of GearDialog). A check that fails is a change of behaviour, not necessarily a bug; the bugs found while
 writing these are pinned as they are and reported, not fixed here.
 
-Two lanes, run by scripts/e2e_guide_scenarios.py beside its main and physics lanes (each on its own instance, fake
-port and display; see that script's LaneChild), or alone with --lane:
+Two lanes, run by scripts/e2e_guide_scenarios.py beside its main and physics lanes (each on its own instance and fake
+port; see that script's LaneChild), or alone with --lane:
 
 the gear lane, on a fake that answers ImageBytes (no calibration but the camera-change and binning scenarios'):
 
@@ -113,7 +113,7 @@ report. Everything it collects (each daemon's output and debug log, each fake's 
 --work-dir.
 
     python3 scripts/e2e_equipment_scenarios.py --lane gear --phd2 build-asan/phd2.bin --instance 12 \\
-        --fake-port 11152 --display 112 --work-dir /tmp/e2e/gear
+        --fake-port 11152 --work-dir /tmp/e2e/gear
 """
 import argparse
 import glob
@@ -395,7 +395,7 @@ class Lane:
         return self.cli
 
     def end_daemon(self):
-        """Shut the daemon down over RPC, check that it exited 0, and free its display for the next start."""
+        """Shut the daemon down over RPC, check that it exited 0, and wait for it to be gone before the next start."""
         cli, daemon = self.cli, self.daemon
         try:
             return e2e.shutdown(cli, daemon)
@@ -2431,9 +2431,9 @@ def main():
     ap.add_argument("--phd2", required=True, help="the phd2.bin to run (an ASan/UBSan build in CI)")
     ap.add_argument("--instance", type=int, required=True, help="daemon instance (-i); JSON-RPC on 4400 + N - 1")
     ap.add_argument("--fake-port", type=int, required=True, help="the fake Alpaca server's port")
-    ap.add_argument("--display", required=True, help="X display number for xvfb-run, or auto (xvfb-run -a)")
-    ap.add_argument("--auto-display-from", type=int, default=99,
-                    help="with --display auto, the first display number xvfb-run -a tries")
+    ap.add_argument("--display", default=e2e.DISPLAY_IGNORED,
+                    help="ignored, accepted for older command lines: the daemon needs no X display (#115)")
+    ap.add_argument("--auto-display-from", type=int, default=99, help="ignored, accepted for older command lines")
     ap.add_argument("--work-dir", required=True, help="the scratch HOME and every log go here (emptied first)")
     ap.add_argument("--timeout", type=float, default=2000, help="the whole lane, seconds")
     ap.add_argument("--calibration-timeout", type=float, default=600, help="seconds to CalibrationComplete")
