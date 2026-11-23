@@ -148,8 +148,6 @@ private:
     double m_sampling;
     bool m_autoLoadCalibration;
 
-    wxAuiManager m_mgr;
-
     bool m_continueCapturing; // should another image be captured?
     SingleExposure m_singleExposure;
     // #97: set by a capture failure just before it stops capturing, so FinishStop fails a pending guide or
@@ -167,14 +165,6 @@ public:
     // The constructor sets the global pFrame first (#168), so the objects it builds can call back through
     // pFrame; the members they read are null (or false) until the constructor creates them.
     Guider *pGuider = nullptr;
-    wxMenuBar *Menubar;
-    wxMenu *tools_menu, *view_menu;
-    wxMenuItem *m_loopMenuItem;
-    wxMenuItem *m_guideMenuItem;
-    wxMenuItem *m_stopMenuItem;
-    wxMenuItem *m_autoSelectStarMenuItem;
-    wxAuiToolBar *MainToolbar;
-    wxCheckBox *HotPixel_Checkbox;
     GuideHistory *pGuideHistory = nullptr;
     EquipmentManager *pEquipment = nullptr; // the devices and their selection
     bool CaptureActive = false; // Is camera looping captures?
@@ -198,25 +188,11 @@ public:
     bool m_defectMapAvailable = true;
     bool m_defectMapInUse = false;
 
-    void OnQuit(wxCommandEvent& evt);
     void OnClose(wxCloseEvent& evt);
-    void OnSave(wxCommandEvent& evt);
-    void OnSettings(wxCommandEvent& evt);
-    void OnButtonLoop(wxCommandEvent& evt);
-    void OnButtonStop(wxCommandEvent& evt);
-    void OnButtonAutoStar(wxCommandEvent& evt);
     void GuideButtonClick(bool interactive, const wxString& context);
-    void OnButtonGuide(wxCommandEvent& evt);
-    void OnIdle(wxIdleEvent& evt);
-    void OnEEGG(wxCommandEvent& evt);
     void OnSockServerEvent(wxSocketEvent& evt);
     void OnSockServerClientEvent(wxSocketEvent& evt);
     void HandleSockServerInput(wxSocketBase *sock);
-    void OnServerMenu(wxCommandEvent& evt);
-    void OnPanelClose(wxAuiManagerEvent& evt);
-    void OnToolBar(wxCommandEvent& evt);
-    void OnRestoreWindows(wxCommandEvent& evt);
-    void OnAutoStar(wxCommandEvent& evt);
 
     void OnExposeComplete(wxThreadEvent& evt);
     void OnExposeComplete(usImage *image, bool err);
@@ -289,8 +265,6 @@ public:
     bool AutoSelectStar(const wxRect& roi = wxRect(), bool willForceRecal = false);
 
     void SetPaused(PauseType pause);
-
-    void StartLoopingInteractive(const wxString& context);
 
     bool StartLooping(); // stop guiding and continue capturing, or, start capturing
     bool StartGuiding();
@@ -371,9 +345,6 @@ private:
     void OnAlertFromThread(wxThreadEvent& event);
     void OnReconnectCameraFromThread(wxThreadEvent& event);
     void OnMessageBoxProxy(wxCommandEvent& evt);
-    void SetupMenuBar();
-    void SetupToolBar();
-    void SetupKeyboardShortcuts();
     void ApplyExposureChoice(const exposure_choice::Selected& sel);
     void FinishStop();
     void DoTryReconnect();
@@ -406,10 +377,6 @@ enum
     AO_SIMULATOR,
     END_STEPGUIDERS,
     BUTTON_CAL,
-    BUTTON_LOOP,
-    BUTTON_GUIDE,
-    BUTTON_STOP,
-    BUTTON_AUTOSTAR,
     WIN_VFW, // Dummy event to capture VFW streams
     MGUIDE1_UP,
     MGUIDE1_DOWN,
@@ -419,18 +386,10 @@ enum
     MGUIDE2_DOWN,
     MGUIDE2_RIGHT,
     MGUIDE2_LEFT,
-    MENU_LOOP,
-    MENU_GUIDE,
-    MENU_STOP,
-    MENU_SERVER,
-    MENU_TOOLBAR,
-    MENU_RESTORE_WINDOWS,
-    MENU_AUTOSTAR,
     MENU_SAVESETTINGS,
     MENU_LOADSETTINGS,
     MENU_INDICONFIG,
     MENU_INDIDIALOG,
-    EEGG_STICKY_LOCK,
     STAR_MASS_ENABLE,
     MULTI_STAR_ENABLE,
     GA_REVIEW_BUTTON,

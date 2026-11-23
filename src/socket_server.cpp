@@ -70,12 +70,6 @@ enum
     MSG_DESELECT, // 24
 };
 
-void MyFrame::OnServerMenu(wxCommandEvent& evt)
-{
-    SetServerMode(evt.IsChecked());
-    StartServer(GetServerMode());
-}
-
 bool MyFrame::StartServer(bool state)
 {
     if (state)

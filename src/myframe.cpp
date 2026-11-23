@@ -49,7 +49,6 @@
 #include <wx/fs_zip.h>
 #include <wx/artprov.h>
 #include <wx/dirdlg.h>
-#include <wx/dnd.h>
 #include <wx/valnum.h>
 
 static const int DefaultNoiseReductionMethod = 0;
@@ -75,21 +74,6 @@ wxDEFINE_EVENT(RECONNECT_CAMERA_EVENT, wxThreadEvent);
 // clang-format off
 // clang-format off
 wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
-EVT_MENU(wxID_EXIT, MyFrame::OnQuit)
-EVT_MENU(EEGG_STICKY_LOCK, MyFrame::OnEEGG)
-EVT_MENU(wxID_SAVE, MyFrame::OnSave)
-
-EVT_MENU(MENU_TOOLBAR, MyFrame::OnToolBar)
-EVT_MENU(MENU_SERVER, MyFrame::OnServerMenu)
-EVT_MENU(MENU_RESTORE_WINDOWS, MyFrame::OnRestoreWindows)
-EVT_MENU(MENU_AUTOSTAR, MyFrame::OnAutoStar)
-EVT_TOOL(BUTTON_LOOP, MyFrame::OnButtonLoop)
-EVT_MENU(MENU_LOOP, MyFrame::OnButtonLoop)
-EVT_TOOL(BUTTON_STOP, MyFrame::OnButtonStop)
-EVT_TOOL(BUTTON_AUTOSTAR, MyFrame::OnButtonAutoStar)
-EVT_MENU(MENU_STOP, MyFrame::OnButtonStop)
-EVT_TOOL(BUTTON_GUIDE, MyFrame::OnButtonGuide)
-EVT_MENU(MENU_GUIDE, MyFrame::OnButtonGuide)
 EVT_SOCKET(SOCK_SERVER_ID, MyFrame::OnSockServerEvent)
 EVT_SOCKET(SOCK_SERVER_CLIENT_ID, MyFrame::OnSockServerClientEvent)
 EVT_CLOSE(MyFrame::OnClose)
@@ -103,41 +87,8 @@ EVT_THREAD(SET_STATUS_TEXT_EVENT, MyFrame::OnStatusMsg)
 EVT_THREAD(ALERT_FROM_THREAD_EVENT, MyFrame::OnAlertFromThread)
 EVT_THREAD(RECONNECT_CAMERA_EVENT, MyFrame::OnReconnectCameraFromThread)
 EVT_COMMAND(wxID_ANY, REQUEST_MOUNT_MOVE_EVENT, MyFrame::OnRequestMountMove)
-
-EVT_AUI_PANE_CLOSE(MyFrame::OnPanelClose)
 wxEND_EVENT_TABLE();
 // clang-format on
-
-struct FileDropTarget : public wxFileDropTarget
-{
-    FileDropTarget() { }
-
-    wxDragResult OnDragOver(wxCoord x, wxCoord y, wxDragResult defResult)
-    {
-        if (!pFrame->CaptureActive)
-            return wxDragResult::wxDragCopy;
-        return wxDragResult::wxDragNone;
-    }
-
-    bool OnDropFiles(wxCoord x, wxCoord y, const wxArrayString& filenames)
-    {
-        if (filenames.size() != 1)
-            return false;
-
-        if (pFrame->CaptureActive)
-            return false;
-
-        std::unique_ptr<usImage> img(new usImage());
-
-        if (img->Load(filenames[0]))
-            return false;
-
-        img->CalcStats();
-        pFrame->pGuider->DisplayImage(img.release());
-
-        return true;
-    }
-};
 
 // The guide-step history behind get_guide_history, sized from the /graph/* keys the
 // History graph used (the key names are kept so existing configs still apply).
@@ -173,8 +124,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
     // MyFrame members through pFrame, which were member calls on a null pointer.
     pFrame = this;
 
-    m_mgr.SetManagedWindow(this);
-
     m_frameCounter = 0;
     m_pPrimaryWorkerThread = nullptr;
     StartWorkerThread(m_pPrimaryWorkerThread);
@@ -197,12 +146,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
     // SetIcon(wxIcon(_T("progicon")));
     SetBackgroundColour(*wxLIGHT_GREY);
 
-    // Setup menus
-    SetupMenuBar();
-
-    // Setup button panel
-    SetupToolBar();
-
     LoadProfileSettings();
 
     pGuider = new GuiderMultiStar();
@@ -211,38 +154,6 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
 
     bool sticky = pConfig->Global.GetBoolean("/StickyLockPosition", false);
     pGuider->SetLockPosIsSticky(sticky);
-    tools_menu->Check(EEGG_STICKY_LOCK, sticky);
-
-    SetMinSize(wxSize(300, 300));
-    SetSize(800, 600);
-
-    wxString geometry = pConfig->Global.GetString("/geometry", wxEmptyString);
-    wxArrayString fields = wxSplit(geometry, ';');
-    long w, h, x, y;
-    if (fields.size() == 5 && fields[1].ToLong(&w) && fields[2].ToLong(&h) && fields[3].ToLong(&x) && fields[4].ToLong(&y))
-    {
-        wxSize screen = wxGetDisplaySize();
-        if (x + w <= screen.GetWidth() && x >= 0 && y + h <= screen.GetHeight() && y >= 0)
-        {
-            SetSize(w, h);
-            SetPosition(wxPoint(x, y));
-        }
-        else
-        {
-            // looks like screen size changed, ignore position and revert to default size
-        }
-        if (fields[0] == "1")
-        {
-            Maximize();
-        }
-    }
-
-    // Setup some keyboard shortcuts
-    SetupKeyboardShortcuts();
-
-    SetDropTarget(new FileDropTarget());
-
-    m_mgr.AddPane(MainToolbar, wxAuiPaneInfo().Name(_T("MainToolBar")).Caption(_T("Main tool bar")).ToolbarPane().Bottom());
 
     pGuideHistory = NewGuideHistory();
 
@@ -258,36 +169,12 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, wxEmptyString), pGuideHistory(nu
 
     if (m_serverMode)
     {
-        tools_menu->Check(MENU_SERVER, true);
         StartServer(true);
     }
 
     m_continueCapturing = false;
     CaptureActive = false;
     m_exposurePending = false;
-
-    m_mgr.GetArtProvider()->SetColour(wxAUI_DOCKART_BACKGROUND_COLOUR, *wxBLACK);
-    m_mgr.GetArtProvider()->SetMetric(wxAUI_DOCKART_GRADIENT_TYPE, wxAUI_GRADIENT_VERTICAL);
-    m_mgr.GetArtProvider()->SetColor(wxAUI_DOCKART_INACTIVE_CAPTION_COLOUR, wxColour(0, 153, 255));
-    m_mgr.GetArtProvider()->SetColor(wxAUI_DOCKART_INACTIVE_CAPTION_GRADIENT_COLOUR, *wxBLACK);
-    m_mgr.GetArtProvider()->SetColor(wxAUI_DOCKART_INACTIVE_CAPTION_TEXT_COLOUR, *wxWHITE);
-
-    wxString perspective = pConfig->Global.GetString("/perspective", wxEmptyString);
-    if (perspective != wxEmptyString)
-    {
-        m_mgr.LoadPerspective(perspective);
-        m_mgr.GetPane(_T("MainToolBar")).Caption(_T("Main tool bar"));
-    }
-
-    bool panel_state;
-
-    panel_state = m_mgr.GetPane(_T("MainToolBar")).IsShown();
-    Menubar->Check(MENU_TOOLBAR, panel_state);
-
-    m_mgr.Update();
-
-    // this forces force a resize of MainToolbar in case size changed from the saved perspective
-    MainToolbar->Realize();
 }
 
 MyFrame::~MyFrame()
@@ -296,8 +183,6 @@ MyFrame::~MyFrame()
     // a disconnecting device updates is still there
     delete pEquipment;
     pEquipment = nullptr;
-
-    m_mgr.UnInit();
 
     delete pGuideHistory;
     pGuideHistory = nullptr;
@@ -318,41 +203,6 @@ void MyFrame::UpdateTitle()
                               : wxString::Format(_T("%s %s - %s"), APPNAME, FULLVER, prof);
 
     SetTitle(title);
-}
-
-void MyFrame::SetupMenuBar()
-{
-    wxMenu *file_menu = new wxMenu();
-    file_menu->Append(wxID_SAVE, _("&Save Image..."), _("Save current image"));
-    file_menu->Append(wxID_EXIT, _("E&xit\tAlt-X"), _("Quit this program"));
-
-    wxMenu *guide_menu = new wxMenu();
-    m_loopMenuItem = guide_menu->Append(MENU_LOOP, _("&Loop Exposures\tCtrl-L"), _("Begin looping exposures"));
-    m_loopMenuItem->Enable(false);
-    m_guideMenuItem = guide_menu->Append(MENU_GUIDE, _("&Guide\tCtrl-G"), _("Begin guiding"));
-    m_guideMenuItem->Enable(false);
-    m_stopMenuItem = guide_menu->Append(MENU_STOP, _("&Stop\tCtrl-S"), _("Stop looping and guiding"));
-    m_stopMenuItem->Enable(false);
-
-    tools_menu = new wxMenu;
-    m_autoSelectStarMenuItem = tools_menu->Append(MENU_AUTOSTAR, _("&Auto-select Star\tAlt-S"), _("Automatically select star"));
-    (void) tools_menu->AppendSeparator();
-    tools_menu->AppendCheckItem(MENU_SERVER, _("Enable Server"), _("Enable PHD2 server capability"));
-    tools_menu->AppendCheckItem(EEGG_STICKY_LOCK, _("Sticky Lock Position"),
-                                _("Keep the same lock position when guiding starts"));
-
-    view_menu = new wxMenu();
-    view_menu->AppendCheckItem(MENU_TOOLBAR, _("Display Toolbar"), _("Enable / disable tool bar"));
-    (void) view_menu->AppendSeparator();
-    view_menu->Append(MENU_RESTORE_WINDOWS, _("Restore Window Positions"),
-                      _("Restore all windows to their default/docked positions"));
-
-    Menubar = new wxMenuBar();
-    Menubar->Append(file_menu, _("&File"));
-    Menubar->Append(guide_menu, _("&Guide"));
-    Menubar->Append(tools_menu, _("&Tools"));
-    Menubar->Append(view_menu, _("&View"));
-    SetMenuBar(Menubar);
 }
 
 // Get either timelapse value or state-dependent variable-exposure-delay
@@ -598,108 +448,13 @@ void MyFrame::LoadProfileSettings()
     LoadImageLoggerSettings();
 }
 
-void MyFrame::SetupToolBar()
-{
-    MainToolbar = new wxAuiToolBar(this, -1, wxDefaultPosition, wxDefaultSize, wxAUI_TB_DEFAULT_STYLE);
-
-#include "icons/loop.png.h"
-    wxBitmap loop_bmp(wxBITMAP_PNG_FROM_DATA(loop));
-
-#include "icons/loop_disabled.png.h"
-    wxBitmap loop_bmp_disabled(wxBITMAP_PNG_FROM_DATA(loop_disabled));
-
-#include "icons/guide.png.h"
-    wxBitmap guide_bmp(wxBITMAP_PNG_FROM_DATA(guide));
-
-#include "icons/guide_disabled.png.h"
-    wxBitmap guide_bmp_disabled(wxBITMAP_PNG_FROM_DATA(guide_disabled));
-
-#include "icons/stop.png.h"
-    wxBitmap stop_bmp(wxBITMAP_PNG_FROM_DATA(stop));
-
-#include "icons/stop_disabled.png.h"
-    wxBitmap stop_bmp_disabled(wxBITMAP_PNG_FROM_DATA(stop_disabled));
-
-#include "icons/auto_select.png.h"
-    wxBitmap auto_select_bmp(wxBITMAP_PNG_FROM_DATA(auto_select));
-
-#include "icons/auto_select_disabled.png.h"
-    wxBitmap auto_select_disabled_bmp(wxBITMAP_PNG_FROM_DATA(auto_select_disabled));
-
-    MainToolbar->AddTool(BUTTON_LOOP, loop_bmp, loop_bmp_disabled, false, 0, _("Begin looping exposures for frame and focus"));
-    MainToolbar->AddTool(BUTTON_AUTOSTAR, auto_select_bmp, auto_select_disabled_bmp, false, 0,
-                         _("Auto-select Star. Shift-click to de-select star."));
-    MainToolbar->AddTool(BUTTON_GUIDE, guide_bmp, guide_bmp_disabled, false, 0, _("Begin guiding (PHD)."));
-    MainToolbar->AddTool(BUTTON_STOP, stop_bmp, stop_bmp_disabled, false, 0, _("Stop looping and guiding"));
-    MainToolbar->EnableTool(BUTTON_LOOP, false);
-    MainToolbar->EnableTool(BUTTON_AUTOSTAR, false);
-    MainToolbar->EnableTool(BUTTON_GUIDE, false);
-    MainToolbar->EnableTool(BUTTON_STOP, false);
-    MainToolbar->Realize();
-}
-
-void MyFrame::SetupKeyboardShortcuts()
-{
-    wxAcceleratorEntry entries[] = {
-        wxAcceleratorEntry(wxACCEL_CTRL, (int) 'G', MENU_GUIDE),
-        wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', MENU_LOOP),
-        wxAcceleratorEntry(wxACCEL_CTRL, (int) 'S', MENU_STOP),
-    };
-    wxAcceleratorTable accel(WXSIZEOF(entries), entries);
-    SetAcceleratorTable(accel);
-}
-
-static bool cond_update_tool(wxAuiToolBar *tb, int toolId, wxMenuItem *mi, bool enable)
-{
-    bool ret = false;
-    if (tb->GetToolEnabled(toolId) != enable)
-    {
-        tb->EnableTool(toolId, enable);
-        mi->Enable(enable);
-        ret = true;
-    }
-    return ret;
-}
-
 void MyFrame::UpdateButtonsStatus()
 {
     assert(wxThread::IsMain());
 
-    bool need_update = false;
-
-    bool const loop_enabled = (!CaptureActive || pGuider->IsCalibratingOrGuiding()) && pCamera && pCamera->Connected;
-
-    if (cond_update_tool(MainToolbar, BUTTON_LOOP, m_loopMenuItem, loop_enabled))
-        need_update = true;
-
-    if (cond_update_tool(MainToolbar, BUTTON_STOP, m_stopMenuItem, CaptureActive))
-        need_update = true;
-
-    if (cond_update_tool(MainToolbar, BUTTON_AUTOSTAR, m_autoSelectStarMenuItem, CaptureActive))
-        need_update = true;
-
-    bool guiding_active = pGuider && pGuider->IsCalibratingOrGuiding(); // Not the same as 'bGuideable below
-
-    if (!guiding_active ^ m_autoSelectStarMenuItem->IsEnabled())
-    {
-        m_autoSelectStarMenuItem->Enable(!guiding_active);
-        cond_update_tool(MainToolbar, BUTTON_AUTOSTAR, m_autoSelectStarMenuItem, !guiding_active);
-        need_update = true;
-    }
-
-    bool bGuideable = pGuider->GetState() == STATE_SELECTED && pMount && pMount->IsConnected();
-
-    if (cond_update_tool(MainToolbar, BUTTON_GUIDE, m_guideMenuItem, bGuideable))
-        need_update = true;
-
-    // also drives a headless (JSON-RPC) Guiding Assistant run, which has no window
+    // #115 S6.5: there are no toolbar buttons or menu items to enable any more. This still drives a headless
+    // (JSON-RPC) Guiding Assistant run, which has no window (H5).
     GuidingAssistant::UpdateUIControls();
-
-    if (need_update)
-    {
-        Update();
-        Refresh();
-    }
 }
 
 struct alert_params
@@ -1580,17 +1335,6 @@ void MyFrame::OnClose(wxCloseEvent& event)
         return;
     }
 
-    if (CaptureActive && event.CanVeto())
-    {
-        bool confirmed = ConfirmDialog::Confirm(_("Are you sure you want to exit while capturing is active?"),
-                                                "/quit_when_looping_ok", _("Confirm Exit"));
-        if (!confirmed)
-        {
-            event.Veto();
-            return;
-        }
-    }
-
     Debug.Write("MyFrame::OnClose proceeding\n");
 
     // #104: before StopWorkerThread pumps the event loop below, so no background connect attempt starts (and could
@@ -1613,11 +1357,6 @@ void MyFrame::OnClose(wxCloseEvent& event)
     StartServer(false);
 
     GuideLog.CloseGuideLog();
-
-    pConfig->Global.SetString("/perspective", m_mgr.SavePerspective());
-    wxString geometry = wxString::Format("%c;%d;%d;%d;%d", this->IsMaximized() ? '1' : '0', this->GetSize().x,
-                                         this->GetSize().y, this->GetScreenPosition().x, this->GetScreenPosition().y);
-    pConfig->Global.SetString("/geometry", geometry);
 
     Destroy();
 }

@@ -303,11 +303,8 @@ set(phd2_SRC
   ${phd_src_dir}/circbuf.h
   ${phd_src_dir}/image_scale.h
 
-  ${phd_src_dir}/confirm_dialog.cpp
-  ${phd_src_dir}/confirm_dialog.h
   ${phd_src_dir}/debuglog.cpp
   ${phd_src_dir}/debuglog.h
-  ${phd_src_dir}/eegg.cpp
   ${phd_src_dir}/equipment_manager.cpp
   ${phd_src_dir}/equipment_manager.h
   ${phd_src_dir}/event_server.cpp
