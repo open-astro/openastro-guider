@@ -34,6 +34,7 @@
 #include "phd.h"
 
 #include "backlash_comp.h"
+#include "calibration_sanity.h"
 #include "calstep_dialog.h"
 #include "image_math.h"
 #include "socket_server.h"
@@ -52,10 +53,6 @@ enum
 static const DEC_GUIDE_MODE DefaultDecGuideMode = DEC_AUTO;
 static const GUIDE_ALGORITHM DefaultRaGuideAlgorithm = GUIDE_ALGORITHM_HYSTERESIS;
 static const GUIDE_ALGORITHM DefaultDecGuideAlgorithm = GUIDE_ALGORITHM_RESIST_SWITCH;
-static const int CAL_ALERT_MINSTEPS = 4;
-static const double CAL_ALERT_ORTHOGONALITY_TOLERANCE = 12.5; // Degrees
-static const double CAL_ALERT_DECRATE_DIFFERENCE = 0.20; // Ratio tolerance
-static const double CAL_ALERT_AXISRATES_TOLERANCE = 0.20; // Ratio tolerance
 static const bool SANITY_CHECKING_ACTIVE = true; // Control calibration sanity checking
 
 // The calibration run's enums carry the values of the app's (#142)
@@ -67,6 +64,13 @@ static_assert((int) calibration_run::Parity::Odd == GUIDE_PARITY_ODD &&
               (int) calibration_run::Parity::Unknown == GUIDE_PARITY_UNKNOWN &&
               (int) calibration_run::Parity::Even == GUIDE_PARITY_EVEN);
 static_assert(calibration_run::RATE_UNCALIBRATED == CALIBRATION_RATE_UNCALIBRATED);
+
+// The sanity classifier's issues and constants are the app's (#142)
+static_assert((int) calibration_sanity::Issue::None == CI_None && (int) calibration_sanity::Issue::Steps == CI_Steps &&
+              (int) calibration_sanity::Issue::Angle == CI_Angle && (int) calibration_sanity::Issue::Rates == CI_Rates &&
+              (int) calibration_sanity::Issue::Different == CI_Different);
+static_assert(calibration_sanity::RATE_UNCALIBRATED == CALIBRATION_RATE_UNCALIBRATED &&
+              calibration_sanity::UNKNOWN_DEC == UNKNOWN_DECLINATION);
 
 // Scope::MoveAxis casts these into guide_move_plan
 static_assert(static_cast<int>(guide_move_plan::Dir::None) == NONE && static_cast<int>(guide_move_plan::Dir::North) == NORTH &&
@@ -681,70 +685,47 @@ void Scope::SanityCheckCalibration(const Calibration& oldCal, const CalibrationD
     CalibrationDetails newDetails;
     LoadCalibrationDetails(&newDetails);
 
-    m_lastCalibrationIssue = CI_None;
-    int xSteps = newDetails.raStepCount;
-    int ySteps = newDetails.decStepCount;
+    // The checks are calibration_sanity::Classify (#142); the advisory and the Debug lines stay here
+    calibration_sanity::Input in;
+    in.raStepCount = newDetails.raStepCount;
+    in.decStepCount = newDetails.decStepCount;
+    in.xAngle = newCal.xAngle;
+    in.yAngle = newCal.yAngle;
+    in.xRate = newCal.xRate;
+    in.yRate = newCal.yRate;
+    in.declination = newCal.declination;
+    in.raGuideSpeed = newDetails.raGuideSpeed;
+    in.decGuideSpeed = newDetails.decGuideSpeed;
+    in.imageScale = newDetails.imageScale;
+    in.oldValid = oldCal.isValid;
+    in.oldXAngle = oldCal.xAngle;
+    in.oldYRate = oldCal.yRate;
+    in.oldImageScale = oldDetails.imageScale;
+    in.decCompEnabled = DecCompensationEnabled();
+    in.decCompLimit = Scope::DEC_COMP_LIMIT;
+
+    calibration_sanity::Result check = calibration_sanity::Classify(in);
+    m_lastCalibrationIssue = (CalibrationIssueType) check.issue;
 
     wxString detailInfo;
-
-    // Too few steps
-    if (xSteps < CAL_ALERT_MINSTEPS || (ySteps < CAL_ALERT_MINSTEPS && ySteps > 0)) // Dec guiding might be disabled
+    switch (check.issue)
     {
-        m_lastCalibrationIssue = CI_Steps;
-        detailInfo = wxString::Format("Actual RA calibration steps = %d, Dec calibration steps = %d", xSteps, ySteps);
-    }
-    else
-    {
-        // Non-orthogonal RA/Dec axes
-        double nonOrtho = degrees(
-            fabs(fabs(norm_angle(newCal.xAngle - newCal.yAngle)) - M_PI / 2.)); // Delta from the nearest multiple of 90 degrees
-        if (nonOrtho > CAL_ALERT_ORTHOGONALITY_TOLERANCE)
-        {
-            m_lastCalibrationIssue = CI_Angle;
-            detailInfo = wxString::Format("Non-orthogonality = %0.3f", nonOrtho);
-        }
-        else
-        {
-            // RA/Dec rates should be related by cos(dec) but don't check if Dec is too high or Dec guiding is disabled.  Also
-            // don't check if DecComp is disabled because a Sitech controller might be monkeying around with the apparent rates
-            if (newCal.declination != UNKNOWN_DECLINATION && newCal.yRate != CALIBRATION_RATE_UNCALIBRATED &&
-                fabs(newCal.declination) <= Scope::DEC_COMP_LIMIT && DecCompensationEnabled())
-            {
-                double expectedRatio = cos(newCal.declination);
-                double speedRatio;
-                if (newDetails.raGuideSpeed > 0.) // for mounts that may have different guide speeds on RA and Dec axes
-                    speedRatio = newDetails.decGuideSpeed / newDetails.raGuideSpeed;
-                else
-                    speedRatio = 1.0;
-                double actualRatio = newCal.xRate * speedRatio / newCal.yRate;
-                if (fabs(expectedRatio - actualRatio) > CAL_ALERT_AXISRATES_TOLERANCE)
-                {
-                    m_lastCalibrationIssue = CI_Rates;
-                    detailInfo = wxString::Format("Expected ratio at dec=%0.1f is %0.3f, actual is %0.3f",
-                                                  degrees(newCal.declination), expectedRatio, actualRatio);
-                }
-            }
-        }
-
-        // Finally check for a significantly different result but don't be stupid - ignore differences if the configuration
-        // looks quite different Can't do straight equality checks because of rounding - the "old" values have passed through
-        // the registry get/set routines
-        if (m_lastCalibrationIssue == CI_None && oldCal.isValid && fabs(oldDetails.imageScale - newDetails.imageScale) < 0.1 &&
-            (fabs(degrees(oldCal.xAngle - newCal.xAngle)) < 5.0))
-        {
-            if (newCal.yRate != CALIBRATION_RATE_UNCALIBRATED && oldCal.yRate != CALIBRATION_RATE_UNCALIBRATED)
-            {
-                double newDecRate = newCal.yRate;
-                if (newDecRate != 0.)
-                {
-                    if (fabs(1.0 - (oldCal.yRate / newDecRate)) > CAL_ALERT_DECRATE_DIFFERENCE)
-                    {
-                        m_lastCalibrationIssue = CI_Different;
-                        detailInfo = wxString::Format("Current/previous Dec rate ratio is %0.3f", oldCal.yRate / newDecRate);
-                    }
-                }
-            }
-        }
+    case calibration_sanity::Issue::None:
+        break;
+    case calibration_sanity::Issue::Steps:
+        detailInfo =
+            wxString::Format("Actual RA calibration steps = %d, Dec calibration steps = %d", check.raSteps, check.decSteps);
+        break;
+    case calibration_sanity::Issue::Angle:
+        detailInfo = wxString::Format("Non-orthogonality = %0.3f", check.nonOrthoDeg);
+        break;
+    case calibration_sanity::Issue::Rates:
+        detailInfo = wxString::Format("Expected ratio at dec=%0.1f is %0.3f, actual is %0.3f", check.declinationDeg,
+                                      check.expectedRatio, check.actualRatio);
+        break;
+    case calibration_sanity::Issue::Different:
+        detailInfo = wxString::Format("Current/previous Dec rate ratio is %0.3f", check.decRateRatio);
+        break;
     }
 
     if (m_lastCalibrationIssue != CI_None)
