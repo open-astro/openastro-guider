@@ -1029,6 +1029,9 @@ def scenario_http_frame_and_capture(cli, args, work):
     finally:
         cli.call("stop_capture")
         cli.wait_state("Stopped", 30)
+        # the loop re-acquires the star still locked from earlier steps; leave none selected, or the next
+        # scenario's find_star picks the same position (the fake's frames repeat exactly) and sends no StarSelected
+        cli.call("deselect_star")
     n4, n5 = (int(re.fullmatch(r'"f(\d+)"', h.get("etag", '"f-1"')).group(1)) for h in (h4, h5))
     expect(n5 > n4 >= 1, f"while looping, the ETag went from {h4.get('etag')!r} to {h5.get('etag')!r}")
     return (f"ETag {etag}, 304 on a match; SOF0 {sof['width']}x{sof['height']}x3, {len(jpeg)} bytes; {stats}; "
