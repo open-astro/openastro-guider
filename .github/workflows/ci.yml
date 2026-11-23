@@ -308,6 +308,7 @@ jobs:
           candidates=(
             build-deb.sh
             run_deb.sh
+            scripts/check_wx_gui_symbols.sh
             debian/openastro-guider.postinst
             debian/openastro-guider.postrm
             debian/openastro-guider.prerm
@@ -402,9 +403,20 @@ jobs:
         run: cmake -S . -B build -DUSE_SYSTEM_GTEST=1 -Wno-dev
 
       - name: Build
+        id: build
         run: cmake --build build --parallel "$(nproc)"
 
+      - name: wx GUI symbol ratchet
+        # #115 P0: steps 4-8 remove phd2.bin's use of the wx GUI libraries (core, aui, ...). Fails
+        # on a GUI symbol phd2.bin imports that scripts/wx_gui_symbols.allowlist does not list, and
+        # warns about listed symbols it no longer imports (shrink the list with --update). Names
+        # are compared demangled and without ELF symbol versions; this runner's wx 3.2.4 (Ubuntu
+        # 24.04) and Debian 13's 3.2.8 give the same list. See tests/README.md.
+        run: scripts/check_wx_gui_symbols.sh build/phd2.bin
+
       - name: Run tests
+        # Runs after a failed ratchet too, so one run shows both.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ctest --test-dir build --output-on-failure
 
   e2e:
